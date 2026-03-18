@@ -1,0 +1,318 @@
+﻿import React, { useState, useEffect, useMemo } from 'react';
+import { usePersistentFetch } from '../hooks/usePersistentFetch';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Utensils, Clock, MapPin, Star, Shield, ArrowLeft, Truck, List, Settings, ShoppingBag, Info, AlertTriangle, MessageCircle } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { useCart } from '../contexts/CartContext';
+import { useToast } from '../components/ui/use-toast';
+import { fastFoodService } from '../services/fastFoodService';
+import { resolveImageUrl } from '../utils/imageUtils';
+import { recursiveParse, ensureArray, normalizeIngredient } from '../utils/parsingUtils';
+import Footer from '../components/Footer';
+import AdminInquiryModal from '../components/AdminInquiryModal';
+
+const FastFoodDetails = () => {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const { addToCart, cart } = useCart();
+    const { toast } = useToast();
+    const [item, setItem] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [quantity, setQuantity] = useState(1);
+    const [activeImage, setActiveImage] = useState(null);
+    const [selectedBatch, setSelectedBatch] = useState(null);
+    const [specialInstructions, setSpecialInstructions] = useState('');
+    const [inquiryModalOpen, setInquiryModalOpen] = useState(false);
+    const [visibleReviewsCount, setVisibleReviewsCount] = useState(3);
+
+    // Instant Loading: Persistent Fetch
+    const { data: fetchResponse, loading: hookLoading, error: hookError } = usePersistentFetch(
+        `fastfood_detail_${id}`,
+        async () => {
+            const res = await fastFoodService.getFastFoodById(id);
+            return res;
+        },
+        { staleTime: 5 * 60 * 1000 }
+    );
+
+    useEffect(() => {
+        if (fetchResponse) {
+            if (fetchResponse.success) {
+                setItem(fetchResponse.data);
+                setActiveImage(prev => prev || fetchResponse.data.mainImage);
+            } else {
+                if (!item) {
+                    toast({ title: 'Error', description: 'Failed to load item.', variant: 'destructive' });
+                }
+            }
+            setLoading(false);
+        } else if (hookLoading) {
+            if (!item) setLoading(true);
+        }
+
+        if (hookError && !item) {
+            toast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' });
+            setLoading(false);
+        }
+    }, [fetchResponse, hookLoading, hookError, toast]);
+
+    const handleAddToCart = (variant = null, combo = null) => {
+        if (!item) return;
+
+        // CRITICAL: Single-vendor cart enforcement
+        const vendor = item.vendor || item.vendorId || item.sellerId;
+        const vendorName = item.vendorDetail?.name || item.seller?.name || 'this vendor';
+        
+        // Check if cart has items from different vendor
+        if (cart?.items && cart.items.length > 0) {
+            const existingVendor = cart.items[0].product?.vendor || 
+                                   cart.items[0].product?.vendorId || 
+                                   cart.items[0].product?.sellerId ||
+                                   cart.items[0].fastFood?.vendor ||
+                                   cart.items[0].fastFood?.vendorId ||
+                                   cart.items[0].fastFood?.sellerId;
+            
+            const existingVendorName = cart.items[0].product?.vendorDetail?.name || 
+                                      cart.items[0].product?.seller?.name ||
+                                      cart.items[0].fastFood?.vendorDetail?.name ||
+                                      cart.items[0].fastFood?.seller?.name ||
+                                      'another vendor';
+            
+            // Check if it's a different vendor
+            if (existingVendor && vendor && String(existingVendor) !== String(vendor)) {
+                toast({
+                    title: 'Different Vendor Detected',
+                    description: `Your cart contains items from ${existingVendorName}. Fast food orders must be from a single vendor. Please clear your cart first.`,
+                    variant: 'destructive',
+                    duration: 5000,
+                });
+                return;
+            }
+            
+            // Check if cart has regular products (fast food can't mix with products)
+            const hasProducts = cart.items.some(item => item.itemType === 'product' || item.productId);
+            if (hasProducts) {
+                toast({
+                    title: 'Cannot Mix Order Types',
+                    description: 'Fast food items cannot be ordered with regular products. Please checkout separately.',
+                    variant: 'destructive',
+                    duration: 5000,
+                });
+                return;
+            }
+        }
+
+        // Check minimum order quantity
+        const minOrder = item.minOrderQty || 1;
+        if (quantity < minOrder) {
+            toast({
+                title: 'Minimum Order Not Met',
+                description: `This item requires a minimum order of ${minOrder} unit(s).`,
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        const payload = {
+            product: item,
+            type: 'fastfood',
+            vendor,
+            vendorName,
+            selectedBatch,
+            specialInstructions
+        };
+
+        if (variant) {
+            payload.selectedVariant = variant;
+            payload.variantId = variant.id || variant.name;
+        }
+
+        if (combo) {
+            payload.selectedCombo = combo;
+            payload.comboId = combo.id || combo.name;
+        }
+
+        addToCart(item.id, quantity, payload);
+        toast({
+            title: 'Added to Cart',
+            description: `${quantity} x ${variant ? variant.name : (combo ? combo.name : item.name)} added to your cart${selected Batch ? ` for ${selectedBatch.label}` : ''}.`,
+        });
+        
+        setSpecialInstructions('');
+    };
+
+    const handleBuyNow = (variant = null, combo = null) => {
+        handleAddToCart(variant, combo);
+        navigate('/cart');
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+        );
+    }
+
+    if (!item) return null;
+
+    // Generate available time slots based on prep time and kitchen hours
+    const availableSlots = useMemo(() => {
+        const slots = [];
+        const now = new Date();
+        const prepTime = item.preparationTimeMinutes || 20;
+        
+        for (let i = 0; i < 6; i++) {
+            const slotTime = new Date(now.getTime() + (prepTime + i * 30) * 60000);
+            const hours = slotTime.getHours();
+            const minutes = slotTime.getMinutes();
+            const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            
+            slots.push({
+                id: i,
+                label: timeStr,
+                time: slotTime,
+                available: hours >= 8 && hours < 21
+            });
+        }
+        
+        return slots;
+    }, [item]);
+
+    // Standardized Price Calculation
+    const isValidPrice = item.displayPrice && Number(item.displayPrice) > 0;
+    const finalPrice = isValidPrice ? Number(item.discountPrice || item.displayPrice || 0) : null;
+    const originalPrice = isValidPrice ? Number(item.displayPrice || 0) : null;
+    const discountPercentage = Number(item.discountPercentage || 0);
+    const hasDiscount = isValidPrice && discountPercentage > 0 && finalPrice < originalPrice;
+
+    // Availability Logic
+    const availabilityStatus = fastFoodService.getAvailabilityStatus(item);
+    const isOpen = availabilityStatus.isAvailable;
+    const canOrder = isOpen && (!selectedBatch || selectedBatch.available);
+    const schedule = (typeof item.availabilityDays === 'string' ? JSON.parse(item.availabilityDays || '[]') : item.availabilityDays) || [];
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    // Parse reviews
+    const reviews = Array.isArray(item.reviews) ? item.reviews : [];
+    const visibleReviews = reviews.slice(0, visibleReviewsCount);
+    const hasMoreReviews = visibleReviewsCount < reviews.length;
+
+    // Check delivery zone restriction
+    const deliveryZones = Array.isArray(item.deliveryCoverageZones) 
+        ? item.deliveryCoverageZones 
+        : (typeof item.deliveryCoverageZones === 'string' 
+            ? item.deliveryCoverageZones.split(',').map(z => z.trim()) 
+            : []);
+
+    const parseNestedValue = (val) => {
+        if (typeof val !== 'string') return val;
+        const trimmed = val.trim();
+        if (!trimmed) return val;
+
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+            (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed !== val) return parseNestedValue(parsed);
+            } catch (_) {
+                return val;
+            }
+        }
+
+        return val;
+    };
+
+    const getOptionPrice = (option) => {
+        if (! option || typeof option !== 'object') return null;
+
+        const candidates = [
+            option.discountPrice,
+            option.displayPrice,
+            option.basePrice,
+            option.price,
+            option.amount,
+            option.cost,
+            option.Price,
+            option.pricePerUnit,
+            option.unitPrice,
+            option.value
+        ];
+
+        for (const value of candidates) {
+            const num = Number(value);
+            if(Number.isFinite(num) && num > 0) return num;
+        }
+
+        if (option.price && typeof option.price === 'string') {
+            const parsed = parseFloat(option.price.replace(/[^0-9.]/g, ''));
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+
+        return null;
+    };
+
+    const getComboItemsLabel = (comboOption) => {
+        if (!comboOption || typeof comboOption !== 'object') return 'None';
+
+        const rawItems = comboOption.items ??
+            comboOption.comboItems ??
+            comboOption.includes ??
+            comboOption.servedWith ??
+            comboOption.components ??
+            comboOption.contents ??
+            comboOption.combination;
+
+        const parsedItems = parseNestedValue(rawItems);
+
+        if (!parsedItems) return 'None';
+
+        if (typeof parsedItems === 'string') {
+            if (parsedItems.includes(',')) {
+                return parsedItems.split(',').map(s => s.trim()).filter(Boolean).join(', ') || 'None';
+            }
+            const parsedString = parseNestedValue(parsedItems);
+            if (typeof parsedString === 'string') return parsedString || 'None';
+            return getComboItemsLabel({ items: parsedString });
+        }
+
+        if (Array.isArray(parsedItems)) {
+            const labels = parsedItems
+                .map((entry) => {
+                    const parsedEntry = parseNestedValue(entry);
+                    if (typeof parsedEntry === 'string') return parsedEntry;
+                    if (!parsedEntry || typeof parsedEntry !== 'object') return null;
+
+                    const name = parsedEntry.name ||
+                        parsedEntry.item ||
+                        parsedEntry.itemName ||
+                        parsedEntry.title ||
+                        parsedEntry.variant ||
+                        parsedEntry.option ||
+                        parsedEntry.food ||
+                        parsedEntry.product;
+                    if (!name) return null;
+
+                    const qty = parsedEntry.quantity || parsedEntry.qty || parsedEntry.count;
+                    const unit = parsedEntry.unit || parsedEntry.measure || '';
+                    return qty ? `${name} (${qty}${unit ? ` ${unit}` : ''})` : name;
+                })
+                .filter(Boolean);
+
+            return labels.length > 0 ? labels.join(', ') : 'None';
+        }
+
+        if (typeof parsedItems === 'object') {
+            if (Array.isArray(parsedItems.items)) {
+                return getComboItemsLabel({ items: parsedItems.items });
+            }
+
+            const objectValues = Object.values(parsedItems);
+            if (objectValues.length > 0) {
+                return getComboItemsLabel({ items: objectValues });
+            }
+        }
+
+        return 'None';
+    };

@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+
+# Database files
+backend/database.sqlite*
+backend/database_temp.sqlite*
+backend/db_check.sqlite*
+backend/backups/
+
+# Logs and temp files
+*.log
+*.sqlite*
+logs/
+
+# Environment
+.env*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+

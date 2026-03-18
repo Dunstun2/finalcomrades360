@@ -1,0 +1,78 @@
+{
+  "reference": {
+    "troubleshooting": "https://docs.github.com/en/copilot/how-tos/troubleshoot-copilot/troubleshoot-firewall-settings",
+    "allowlist": "https://docs.github.com/en/copilot/reference/copilot-allowlist-reference",
+    "networkConfig": "https://docs.github.com/en/copilot/configuring-github-copilot/configuring-network-settings-for-github-copilot"
+  },
+  "phase1": {
+    "description": "Minimum allowlist to restore Copilot auth, chat, and completions.",
+    "criticalUrls": [
+      "https://github.com/login/*",
+      "https://api.github.com/user",
+      "https://api.github.com/copilot_internal/*",
+      "https://copilot-telemetry.githubusercontent.com/telemetry",
+      "https://collector.github.com/*",
+      "https://default.exp-tas.com",
+      "https://copilot-proxy.githubusercontent.com",
+      "https://origin-tracker.githubusercontent.com"
+    ],
+    "hosts": [
+      "github.com",
+      "api.github.com",
+      "copilot-telemetry.githubusercontent.com",
+      "collector.github.com",
+      "default.exp-tas.com",
+      "copilot-proxy.githubusercontent.com",
+      "origin-tracker.githubusercontent.com",
+      "*.githubcopilot.com",
+      "*.individual.githubcopilot.com",
+      "*.business.githubcopilot.com",
+      "*.enterprise.githubcopilot.com"
+    ]
+  },
+  "phase2": {
+    "description": "Recommended additions for Copilot coding agent and broader dependency workflows.",
+    "hosts": [
+      "*.githubusercontent.com",
+      "raw.githubusercontent.com",
+      "objects.githubusercontent.com",
+      "lfs.github.com",
+      "codeload.github.com",
+      "api.mcp.github.com",
+      "ghcr.io",
+      "registry.hub.docker.com",
+      "*.docker.io",
+      "*.docker.com",
+      "auth.docker.io",
+      "quay.io",
+      "mcr.microsoft.com",
+      "gcr.io",
+      "public.ecr.aws",
+      "ocsp.digicert.com",
+      "crl3.digicert.com",
+      "crl4.digicert.com",
+      "ocsp.globalsign.com",
+      "crl.globalsign.com",
+      "ocsp.sectigo.com",
+      "crl.sectigo.com",
+      "ocsp.usertrust.com",
+      "crl.usertrust.com",
+      "registry.npmjs.com",
+      "registry.npmjs.org",
+      "npm.pkg.github.com",
+      "nodejs.org",
+      "registry.yarnpkg.com",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "repo.anaconda.com",
+      "repo.maven.apache.org",
+      "repo1.maven.org",
+      "plugins.gradle.org",
+      "services.gradle.org",
+      "nuget.org",
+      "api.nuget.org",
+      "crates.io",
+      "index.crates.io"
+    ]
+  }
+}

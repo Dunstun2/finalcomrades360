@@ -1,0 +1,22 @@
+{
+  "restartable": "rs",
+  "ignore": [
+    ".git",
+    "node_modules/"
+  ],
+  "watch": [
+    "./",
+    "controllers/",
+    "routes/",
+    "models/"
+  ],
+  "execMap": {
+    "js": "node --trace-deprecation"
+  },
+  "verbose": false,
+  "colours": true,
+  "quiet": true,
+  "events": {
+    "restart": "echo ''"
+  }
+}

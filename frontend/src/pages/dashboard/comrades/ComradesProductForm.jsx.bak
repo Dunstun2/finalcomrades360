@@ -1,0 +1,2753 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Textarea } from '../../../components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { useToast } from '../../../components/ui/use-toast';
+import { productApi } from '../../../services/api';
+import { useCategories } from '../../../contexts/CategoriesContext';
+import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, X, AlertCircle, Info } from 'lucide-react';
+import { productExists, getProductEditUrl } from '../../../utils/productUtils';
+import FastFoodForm from '../FastFoodForm';
+import ServiceForm from '../../../components/services/ServiceForm';
+
+// Category detection constants
+const CATEGORY_TYPES = {
+  FOOD_DRINKS: 'food_drinks',
+  SERVICES: 'services',
+  REGULAR: 'regular'
+};
+
+// Enhanced keyword patterns matching your actual database categories
+const CATEGORY_PATTERNS = {
+  [CATEGORY_TYPES.FOOD_DRINKS]: [
+    'food', 'drink', 'drinks', 'beverage', 'beverages', 'restaurant', 'cafe', 'kitchen', 'cook', 'chef',
+    'snack', 'snacks', 'meal', 'cuisine', 'dining', 'eatery', 'nutrition', 'culinary',
+    'burger', 'pizza', 'sandwich', 'salad', 'soup', 'coffee', 'tea', 'juice', 'juices',
+    'water', 'soda', 'alcohol', 'wine', 'beer', 'fast food', 'fastfood', 'fast-food',
+    'fast', 'fast-food', 'breakfast', 'lunch', 'dinner', 'dessert', 'ice cream',
+    'popsicle', 'grilled', 'baked', 'foods'
+  ],
+  [CATEGORY_TYPES.SERVICES]: [
+    'service', 'services', 'repair', 'repairs', 'maintenance', 'cleaning', 'tutoring', 'consulting',
+    'installation', 'delivery', 'professional', 'technical', 'support', 'assistance',
+    'plumbing', 'electrical', 'carpentry', 'painting', 'gardening', 'landscaping',
+    'tutoring', 'training', 'coaching', 'advice', 'inspection', 'education',
+    'student services', 'student service', 'academic', 'educational', 'academic',
+    'project', 'projects', 'printing', 'photography', 'videography', 'cv help',
+    'errands', 'poster design', 'mpesa', 'phone repair', 'laptop repair',
+    'software install', 'printer fix', 'speaker repair', 'home cleaning', 'tech'
+  ]
+};
+
+// Grouped Units of Measure and labels
+const UOM_GROUPS = {
+  'General Retail / Consumer Goods': ['pcs', 'pack', 'set', 'pair', 'dozen', 'unit', 'box'],
+  'Food & Beverages': ['g-food', 'kg-food', 'ml-food', 'L-food', 'bottle-food', 'can', 'cup', 'jar-food', 'sachet', 'tray'],
+  'Fashion & Apparel': ['pcs-fashion', 'pair-fashion', 'set-fashion'],
+  'Electronics': ['unit-electronics', 'pack-electronics', 'pcs-electronics'],
+  'Cosmetics & Health': ['ml-cosmetics', 'L-cosmetics', 'g-cosmetics', 'kg-cosmetics', 'tube', 'jar-cosmetics', 'bottle-cosmetics'],
+  'Home & Office': ['pcs-office', 'set-office', 'box-office', 'roll', 'sheet']
+};
+
+const UOM_LABELS = {
+  // General Retail / Consumer Goods
+  'pcs': 'Piece (pcs)',
+  'pack': 'Pack',
+  'set': 'Set',
+  'pair': 'Pair',
+  'dozen': 'Dozen',
+  'unit': 'Unit',
+  'box': 'Box',
+  
+  // Food & Beverages
+  'g-food': 'Gram (g)',
+  'kg-food': 'Kilogram (kg)',
+  'ml-food': 'Millilitre (ml)',
+  'L-food': 'Litre (L)',
+  'bottle-food': 'Bottle',
+  'can': 'Can',
+  'cup': 'Cup',
+  'jar-food': 'Jar',
+  'sachet': 'Sachet',
+  'tray': 'Tray',
+  
+  // Fashion & Apparel
+  'pcs-fashion': 'Piece (pcs)',
+  'pair-fashion': 'Pair',
+  'set-fashion': 'Set',
+  
+  // Electronics
+  'unit-electronics': 'Unit',
+  'pack-electronics': 'Pack',
+  'pcs-electronics': 'Piece (pcs)',
+  
+  // Cosmetics & Health
+  'ml-cosmetics': 'Millilitre (ml)',
+  'L-cosmetics': 'Litre (L)',
+  'g-cosmetics': 'Gram (g)',
+  'kg-cosmetics': 'Kilogram (kg)',
+  'tube': 'Tube',
+  'jar-cosmetics': 'Jar',
+  'bottle-cosmetics': 'Bottle',
+  
+  // Home & Office
+  'pcs-office': 'Piece (pcs)',
+  'set-office': 'Set',
+  'box-office': 'Box',
+  'roll': 'Roll',
+  'sheet': 'Sheet'
+};
+
+const ComradesProductForm = ({ onSuccess, product: initialProduct, id: propId, onCategoryChange, onSubcategoryChange }) => {
+  const { id: paramId } = useParams();
+  const location = useLocation();
+  const id = propId || paramId; // Use prop id if provided, otherwise use param id
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [isValidatingId, setIsValidatingId] = useState(!!id && !initialProduct);
+  const [productError, setProductError] = useState(null);
+  
+  // Mode detection: Simple and clear logic
+  // Create mode: no id and no initialProduct
+  // Edit mode: has id or initialProduct (for existing products)
+  // List mode: specifically for product listing/approval workflow
+  const isCreateMode = !id && !initialProduct;
+  const isEditMode = !!(id || initialProduct);
+  const isListMode = location.pathname.includes('/list/');
+  
+  // Debug logging for mode detection
+  console.log('[DEBUG] Form mode detection:', {
+    pathname: location.pathname,
+    hasInitialProduct: !!initialProduct,
+    hasId: !!id,
+    isCreateMode,
+    isEditMode,
+    isListMode
+  });
+  
+  // Smart form switching state
+  const [currentFormType, setCurrentFormType] = useState(CATEGORY_TYPES.REGULAR);
+  const [showDebugInfo, setShowDebugInfo] = useState(true); // DEBUG: Always show debug info
+  const [currentComponent, setCurrentComponent] = useState('comrades'); // Track which component to render
+  const [productName, setProductName] = useState(''); // Track product name for form switching
+  
+  const [loading, setLoading] = useState(false);
+  const [listingLoading, setListingLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const { categories: allCategories } = useCategories();
+  
+  // Local storage key for draft products
+  const DRAFT_KEY = 'comrades_product_draft';
+  
+  // Track if we have a draft
+  const [hasDraft, setHasDraft] = useState(false);
+  
+  // State for showing save feedback
+  const [showSaved, setShowSaved] = useState(false);
+  const saveTimeoutRef = useRef(null);
+  const initialRender = useRef(true);
+  
+  // Initialize form data based on whether we're creating or editing
+  const getInitialFormData = useCallback(() => {
+    // If editing, we'll load data later via effect; start with empty defaults
+    if (id || initialProduct) {
+      const initialData = {
+        name: '',
+        brand: '',
+        model: '',
+        condition: 'Brand New',
+        shortDescription: '',
+        fullDescription: '',
+        basePrice: '',
+        displayPrice: '',
+        discountPrice: '',
+        stock: '',
+        categoryId: '',
+        subcategoryId: '',
+        unitOfMeasure: 'pcs',
+        keyFeatures: [],
+        physicalFeatures: {},
+        specifications: {},
+        variants: [],
+        coverImage: '',
+        galleryImages: [],
+        videoUrl: '',
+        keywords: '',
+        status: 'draft',
+        featured: false,
+        isBestSeller: false,
+        weight: '',
+        length: '',
+        width: '',
+        height: '',
+        deliveryMethod: 'Pickup',
+        warranty: '',
+        returnPolicy: '',
+        deliveryFeeType: 'flat',
+        deliveryFee: '',
+        deliveryZones: [],
+        marketingEnabled: false,
+        marketingCommissionType: 'percentage',
+        marketingCommission: '',
+        marketingStartDate: '',
+        marketingEndDate: '',
+        visibilityStatus: 'active',
+        reviewNotes: ''
+      };
+      
+      // If we have an initial product, set the product name in state
+      if (initialProduct?.name) {
+        setProductName(initialProduct.name);
+      }
+      
+      return initialData;
+    }
+
+    // New product: try to load draft from localStorage
+    try {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        setHasDraft(true);
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Error parsing draft:', e);
+    }
+
+    // Default for new product
+    return {
+      name: '',
+      brand: '',
+      model: '',
+      condition: 'Brand New',
+      shortDescription: '',
+      fullDescription: '',
+      basePrice: '',
+      displayPrice: '',
+      discountPrice: '',
+      stock: '',
+      categoryId: '',
+      subcategoryId: '',
+      unitOfMeasure: 'pcs',
+      keyFeatures: [],
+      physicalFeatures: {},
+      specifications: {},
+      variants: [],
+      coverImage: '',
+      galleryImages: [],
+      videoUrl: '',
+      keywords: '',
+      status: 'draft',
+      featured: false,
+      isBestSeller: false,
+      weight: '',
+      length: '',
+      width: '',
+      height: '',
+      deliveryMethod: 'Pickup',
+      warranty: '',
+      returnPolicy: '',
+      deliveryFeeType: 'flat',
+      deliveryFee: '',
+      deliveryZones: [],
+      marketingEnabled: false,
+      marketingCommissionType: 'percentage',
+      marketingCommission: '',
+      marketingStartDate: '',
+      marketingEndDate: '',
+      visibilityStatus: 'active',
+      reviewNotes: ''
+    };
+  }, [id, initialProduct]);
+
+  // State for media files and previews
+  const [coverPreview, setCoverPreview] = useState('');
+  const [galleryPreviews, setGalleryPreviews] = useState([]);
+  const [videoPreview, setVideoPreview] = useState('');
+  const [productVideo, setProductVideo] = useState(null);
+  const [coverImage, setCoverImage] = useState(null);
+  const [galleryImages, setGalleryImages] = useState([]);
+
+  // State to track if we've updated the product (for refreshing data)
+  const [hasUpdated, setHasUpdated] = useState(false);
+  // Track original loaded data and show success summary on update (match Seller ProductForm UX)
+  const [originalProductData, setOriginalProductData] = useState(null);
+  const [updateSuccess, setUpdateSuccess] = useState(null);
+
+  // Helper to find category/subcategory name by ID
+  const getCategoryName = (id) => {
+    const category = allCategories.find(cat => cat.id === id || cat._id === id);
+    return category ? category.name : `[Category ${id}]`;
+  };
+
+  const getSubcategoryName = (categoryId, subcategoryId) => {
+    const category = allCategories.find(cat => cat.id === categoryId || cat._id === categoryId);
+    if (!category || !category.Subcategory) return `[Subcategory ${subcategoryId}]`;
+    
+    const subcategory = category.Subcategory.find(
+      sub => sub.id === subcategoryId || sub._id === subcategoryId
+    );
+    return subcategory ? subcategory.name : `[Subcategory ${subcategoryId}]`;
+  };
+
+  // Helper to compare changes with proper category/subcategory name resolution
+  const compareProductChanges = (original, updated) => {
+    const changes = [];
+    
+    // Helper to check if values are different
+    const hasChanged = (field, oldValue, newValue) => {
+      if (field === 'categoryId' || field === 'subcategoryId') {
+        // Always process these specially
+        return true;
+      }
+      if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+        try { return JSON.stringify(oldValue) !== JSON.stringify(newValue); } catch { return true; }
+      }
+      if (typeof oldValue === 'object' && typeof newValue === 'object') {
+        try { return JSON.stringify(oldValue) !== JSON.stringify(newValue); } catch { return true; }
+      }
+      return String(oldValue ?? '') !== String(newValue ?? '');
+    };
+    const fieldNames = {
+      name: 'Product Name', brand: 'Brand', model: 'Model', condition: 'Condition',
+      shortDescription: 'Short Description', fullDescription: 'Full Description', basePrice: 'Base Price',
+      displayPrice: 'Display Price', discountPrice: 'Discount Price', stock: 'Stock',
+      categoryId: 'Category', subcategoryId: 'Subcategory', unitOfMeasure: 'Unit of Measure',
+      keyFeatures: 'Key Features', physicalFeatures: 'Physical Features', specifications: 'Specifications',
+      variants: 'Product Variants', keywords: 'Keywords', weight: 'Weight', length: 'Length', width: 'Width', height: 'Height',
+      deliveryMethod: 'Delivery Method', warranty: 'Warranty', returnPolicy: 'Return Policy',
+      deliveryFeeType: 'Delivery Fee Type', deliveryFee: 'Delivery Fee', deliveryZones: 'Delivery Zones',
+      marketingEnabled: 'Marketing Enabled', marketingCommissionType: 'Marketing Commission Type', marketingCommission: 'Marketing Commission',
+      marketingStartDate: 'Marketing Start Date', marketingEndDate: 'Marketing End Date', visibilityStatus: 'Visibility Status', reviewNotes: 'Review Notes'
+    };
+    const formatValue = (value) => {
+      if (Array.isArray(value)) return value.length ? JSON.stringify(value) : 'None';
+      if (value && typeof value === 'object') {
+        const entries = Object.entries(value);
+        return entries.length ? JSON.stringify(value) : 'None';
+      }
+      return value ?? 'Not set';
+    };
+    Object.keys(updated || {}).forEach(field => {
+      if (hasChanged(field, original?.[field], updated?.[field])) {
+        changes.push({ field: fieldNames[field] || field, oldValue: formatValue(original?.[field]), newValue: formatValue(updated?.[field]) });
+      }
+    });
+    return changes;
+  };
+
+  // Additional state variables
+  const [newFeature, setNewFeature] = useState('');
+  const [newPhysicalFeature, setNewPhysicalFeature] = useState({ name: '', value: '' });
+  const [newSpecName, setNewSpecName] = useState('');
+  const [newSpecValue, setNewSpecValue] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [showRegionSelector, setShowRegionSelector] = useState(false);
+  const [showAllUom, setShowAllUom] = useState(false);
+  
+  // Form data state - will be initialized based on whether we have a product or not
+  const [formData, setFormData] = useState(getInitialFormData);
+
+  // Clear draft from local storage - defined early so it can be used in getInitialFormData
+  const clearDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+      setHasDraft(false);
+      setShowSaved(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  }, []);
+
+  // Load existing product on edit - using the same approach as ProductForm
+  useEffect(() => {
+    if (!id && !initialProduct) return;
+
+    let alive = true;
+    setLoading(true);
+
+    const loadProductData = async () => {
+      try {
+        let product = initialProduct;
+        
+        // If we have an ID but no initialProduct, fetch from API
+        if (id && !initialProduct) {
+          try {
+            console.log(`[DEBUG] Fetching product with ID: ${id}...`);
+            const response = await productApi.getById(id);
+            console.log('[DEBUG] Product API response status:', response.status);
+            
+            if (!response || !response.data) {
+              throw new Error('Invalid response from server');
+            }
+            
+            product = response.data;
+          } catch (error) {
+            console.error('[ERROR] Error fetching product:', {
+              message: error.message,
+              response: error.response?.data,
+              status: error.response?.status,
+              config: error.config
+            });
+            
+            toast({
+              title: 'Error',
+              description: error.response?.data?.message || 'Failed to load product data. The product may not exist or you may not have permission to view it.',
+              variant: 'destructive',
+            });
+            
+            setLoading(false);
+            navigate('/dashboard/products/comrades');
+            return;
+          }
+        }
+
+        if (!alive) return;
+        
+        if (!product) {
+          console.error('[ERROR] No product data available');
+          toast({
+            title: 'Error',
+            description: 'No product data available',
+            variant: 'destructive',
+          });
+          setLoading(false);
+          navigate('/dashboard/products/comrades');
+          return;
+        }
+
+        console.log('Loading product data directly from database:', product);
+
+        // Use product data directly from database without transformations
+        setFormData(product);
+        // Store original product data for change comparison
+        setOriginalProductData(product);
+
+        // Set media states directly from product images
+        if (Array.isArray(product.images) && product.images.length > 0) {
+          const coverImage = product.images[0];
+          const galleryImages = product.images.slice(1);
+          
+          // Set cover image preview
+          if (coverImage) {
+            const coverUrl = coverImage.startsWith('http') || coverImage.startsWith('blob:')
+              ? coverImage
+              : `${window.location.protocol}//${window.location.hostname}:5000${coverImage.startsWith('/') ? '' : '/'}${coverImage}`;
+            console.log('Setting cover image URL:', coverUrl);
+            setCoverPreview(coverUrl);
+            setCoverImage(coverImage);
+          }
+
+          // Set gallery image previews
+          if (galleryImages.length > 0) {
+            const previews = galleryImages.map(img =>
+              img.startsWith('http') || img.startsWith('blob:')
+                ? img
+                : `${window.location.protocol}//${window.location.hostname}:5000${img.startsWith('/') ? '' : '/'}${img}`
+            );
+            console.log('Setting gallery previews:', previews);
+            setGalleryPreviews(previews);
+            setGalleryImages(galleryImages);
+          }
+        }
+
+        // Set video preview if available
+        if (product.videoUrl) {
+          setVideoPreview(product.videoUrl);
+          setProductVideo(product.videoUrl);
+        }
+
+        console.log('Product data loaded successfully:', product);
+
+      } catch (error) {
+        console.error('Error loading product:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load product data',
+          variant: 'destructive',
+        });
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+
+    loadProductData();
+
+    return () => { alive = false };
+  }, [id, initialProduct, toast, hasUpdated]);
+  
+  // Load draft from localStorage for new products
+  useEffect(() => {
+    if (!id && !initialProduct) {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        try {
+          const parsedDraft = JSON.parse(draft);
+          // Initialize media from draft
+          const cover = parsedDraft.coverImage || '';
+          const gallery = Array.isArray(parsedDraft.galleryImages) ? parsedDraft.galleryImages : [];
+          const video = parsedDraft.videoUrl || '';
+          
+          // Set media states
+          setCoverPreview(cover);
+          setGalleryPreviews(gallery);
+          
+          // Initialize video state
+          const videoUrl = video || (initialProduct?.tags?.media?.videoPath 
+            ? `http://localhost:5000${initialProduct.tags.media.videoPath}` 
+            : '');
+          setVideoPreview(videoUrl);
+          setProductVideo(videoUrl || null);
+        } catch (error) {
+          console.error('Error loading draft:', error);
+        }
+      }
+    }
+  }, [id, initialProduct]);
+  
+  // Debounced save to draft - defined after formData state
+  const saveDraft = useCallback((data) => {
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    // Set a new timeout for saving
+    saveTimeoutRef.current = setTimeout(() => {
+      try {
+        const draftToSave = { 
+          ...data,
+          // Don't save files in the draft as they can't be serialized
+          coverImage: null,
+          galleryImages: [],
+          video: null,
+          lastSaved: new Date().toISOString()
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draftToSave));
+        setHasDraft(true);
+        
+        // Show saved indicator
+        setShowSaved(true);
+        setTimeout(() => setShowSaved(false), 2000);
+
+        // Update hasDraft state
+        setHasDraft(true);
+      } catch (error) {
+        console.error('Error saving draft:', error);
+      }
+    }, 1000); // 1 second debounce
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [initialProduct]);
+  
+  // Update clearDraft to reset all form state
+  const clearDraftAndReset = useCallback(() => {
+    clearDraft();
+    setFormData(getInitialFormData());
+    setCoverImage(null);
+    setGalleryImages([]);
+    setProductVideo(null);
+    setCoverPreview('');
+    setGalleryPreviews([]);
+    setVideoPreview('');
+    // Clear any pending auto-save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+  }, [clearDraft, getInitialFormData]);
+  
+  // Category change handler is defined later in the file
+  // Subcategory change handler is defined later in the file
+
+  // Get subcategories for the selected category with proper ID handling
+  const subcategories = useMemo(() => {
+    if (!formData.categoryId) return [];
+    
+    const category = allCategories.find(cat => 
+      String(cat?.id || '') === String(formData.categoryId) || 
+      String(cat?._id || '') === String(formData.categoryId)
+    );
+    
+    if (!category) {
+      console.log('Category not found for ID:', formData.categoryId);
+      return [];
+    }
+    
+    // Use the correct property name: Subcategory (capital S) from CategoriesContext
+    const subs = Array.isArray(category.Subcategory) 
+      ? category.Subcategory.map(sub => ({
+          id: sub.id || sub._id,
+          name: sub.name,
+          categoryId: category.id || category._id
+        }))
+      : [];
+      
+    console.log('Subcategories for category', category.name, ':', subs);
+    return subs;
+  }, [formData.categoryId, allCategories]);
+
+  // Initialize UoM expansion from storage when category changes
+  useEffect(() => {
+    const key = `uom_expanded_comrades_${formData.categoryId || 'none'}`;
+    const saved = localStorage.getItem(key);
+    setShowAllUom(saved === 'true');
+    // Clean up any previous category keys to avoid buildup (optional lightweight)
+    // Note: we won't iterate storage for performance; acceptable as-is.
+  }, [formData.categoryId]);
+  
+  // Handle adding a new specification
+  const handleAddSpecification = () => {
+    if (newSpecName && newSpecValue) {
+      setFormData(prev => ({
+        ...prev,
+        specifications: {
+          ...prev.specifications,
+          [newSpecName]: newSpecValue
+        },
+        newSpecName: '',
+        newSpecValue: ''
+      }));
+      setNewSpecName('');
+      setNewSpecValue('');
+    }
+  };
+
+  // Auto-save when form data changes (only for new products)
+  useEffect(() => {
+    if (!initialRender.current && !id && !initialProduct) {
+      saveDraft(formData);
+    }
+  }, [formData, saveDraft, id, initialProduct]);
+
+  // Mark initial render as complete
+  useEffect(() => {
+    initialRender.current = false;
+  }, []);
+
+  // Handle beforeunload to warn about unsaved changes
+  useEffect(() => {
+    if (!id && !initialProduct) {
+      const handleBeforeUnload = (e) => {
+        if (formData.name || formData.shortDescription || formData.fullDescription || formData.basePrice) {
+          // Modern browsers require setting returnValue to show the dialog
+          e.preventDefault();
+          e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+          return e.returnValue;
+        }
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
+    }
+  }, [formData, id, initialProduct]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    
+    // If the name field is being updated, also update the productName state
+    if (name === 'name') {
+      setProductName(value);
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Get subcategories for the selected category
+  const getSubcategories = useCallback(() => {
+    if (!formData?.categoryId) {
+      console.log('No categoryId selected');
+      return [];
+    }
+    
+    console.log('Getting subcategories for categoryId:', formData.categoryId);
+    console.log('All categories:', allCategories);
+    
+    // Find the selected category
+    const category = allCategories?.find(cat => {
+      const catId = cat.id || cat._id;
+      return String(catId) === String(formData.categoryId);
+    });
+    
+    console.log('Found category:', category);
+    
+    // Get subcategories using the correct property name: Subcategory (capital S)
+    let subcategories = [];
+    if (category) {
+      if (Array.isArray(category.Subcategory)) {
+        subcategories = category.Subcategory;
+      } else if (category.Subcategory && typeof category.Subcategory === 'object') {
+        // Convert object to array if needed
+        subcategories = Object.values(category.Subcategory);
+      }
+    }
+    
+    console.log('Returning subcategories:', subcategories);
+    return subcategories;
+  }, [formData?.categoryId, allCategories]);
+
+  // Enhanced category detection with detailed logging
+  const detectCategoryType = useCallback((categoryName, subcategoryName = '') => {
+    const searchText = `${categoryName || ''} ${subcategoryName || ''}`.toLowerCase().trim();
+    
+    console.log('🔍 Detecting category type for:', { categoryName, subcategoryName, searchText });
+    
+    if (!searchText) {
+      console.log('❌ No category name provided, defaulting to regular');
+      return CATEGORY_TYPES.REGULAR;
+    }
+    
+    // Check for food & drinks patterns
+    const foodMatches = CATEGORY_PATTERNS[CATEGORY_TYPES.FOOD_DRINKS].filter(pattern =>
+      searchText.includes(pattern)
+    );
+    if (foodMatches.length > 0) {
+      console.log('✅ Food & Drinks detected:', foodMatches);
+      return CATEGORY_TYPES.FOOD_DRINKS;
+    }
+    
+    // Check for services patterns
+    const serviceMatches = CATEGORY_PATTERNS[CATEGORY_TYPES.SERVICES].filter(pattern =>
+      searchText.includes(pattern)
+    );
+    if (serviceMatches.length > 0) {
+      console.log('✅ Services detected:', serviceMatches);
+      return CATEGORY_TYPES.SERVICES;
+    }
+    
+    console.log('❌ No patterns matched, defaulting to regular');
+    return CATEGORY_TYPES.REGULAR;
+  }, []);
+
+  // Find category by ID
+  const findCategoryById = useCallback((categoryId) => {
+    if (!allCategories || !Array.isArray(allCategories) || !categoryId) return null;
+    
+    const category = allCategories.find(cat =>
+      String(cat?.id || '') === String(categoryId) ||
+      String(cat?._id || '') === String(categoryId)
+    );
+    
+    return category || null;
+  }, [allCategories]);
+
+  // Find subcategory by ID
+  const findSubcategoryById = useCallback((category, subcategoryId) => {
+    if (!category || !category.Subcategory || !subcategoryId) return null;
+    
+    const subcategory = category.Subcategory.find(sub =>
+      String(sub?.id || '') === String(subcategoryId) ||
+      String(sub?._id || '') === String(subcategoryId)
+    );
+    
+    return subcategory || null;
+  }, []);
+
+  const handleCategoryChange = (value) => {
+      console.log('📝 [DEBUG] === CATEGORY CHANGE TRIGGERED ===');
+      console.log('📝 [DEBUG] Selected category ID:', value);
+      console.log('📝 [DEBUG] Current currentFormType:', currentFormType);
+      console.log('📝 [DEBUG] Current currentComponent:', currentComponent);
+      
+      setFormData(prev => {
+        const newData = {
+          ...prev,
+          categoryId: value,
+          // Reset subcategory when category changes
+          subcategoryId: ''
+        };
+        console.log('📝 [DEBUG] Updated formData with categoryId:', value);
+        return newData;
+      });
+      
+      // Enhanced category detection and form type switching
+      const category = findCategoryById(value);
+      console.log('🔍 [DEBUG] Found category object:', category);
+      
+      if (category) {
+        console.log('📝 [DEBUG] Category details:', {
+          id: category.id || category._id,
+          name: category.name,
+          subcategories: category.Subcategory ? category.Subcategory.length : 0
+        });
+        
+        // Test detection with multiple approaches
+        const detection1 = detectCategoryType(category.name, '');
+        const detection2 = detectCategoryType(category.name.toLowerCase(), '');
+        const detection3 = detectCategoryType(category.name.toUpperCase(), '');
+        
+        console.log('🧪 [DEBUG] Detection results:', {
+          original: detection1,
+          lowercase: detection2,
+          uppercase: detection3
+        });
+        
+        // Use the most common result or default to the original
+        const detectedType = detection1;
+        console.log('✅ [DEBUG] Final detected type:', detectedType);
+        console.log('🔄 [DEBUG] Changing from', currentFormType, 'to:', detectedType);
+        
+        setCurrentFormType(detectedType);
+        
+        // Switch to appropriate component based on detected type
+        let componentToSwitch = 'comrades';
+        let toastMessage = '';
+        let toastDescription = '';
+        
+        // Get the current product name from the form data if available
+        const currentProductName = formData.name || productName || '';
+        
+        if (detectedType === CATEGORY_TYPES.FOOD_DRINKS) {
+          componentToSwitch = 'fastfood';
+          toastMessage = '🍽️ Food & Drinks Form';
+          toastDescription = `Switched to FastFoodForm for "${category.name}"`;
+          console.log('🍽️ [DEBUG] Food & Drinks detected - will switch to FastFoodForm');
+          
+          // Set the product name in the form data before switching
+          if (currentProductName) {
+            setFormData(prev => ({
+              ...prev,
+              name: currentProductName
+            }));
+          }
+        } else if (detectedType === CATEGORY_TYPES.SERVICES) {
+          componentToSwitch = 'service';
+          toastMessage = '🛠️ Services Form';
+          toastDescription = `Switched to ServiceForm for "${category.name}"`;
+          console.log('🛠️ [DEBUG] Services detected - will switch to ServiceForm');
+          
+          // Set the product name in the form data before switching
+          if (currentProductName) {
+            setFormData(prev => ({
+              ...prev,
+              name: currentProductName
+            }));
+          }
+        } else {
+          componentToSwitch = 'comrades';
+          toastMessage = '📦 Regular Product Form';
+          toastDescription = `Using ComradesProductForm for "${category.name}"`;
+          console.log('📦 [DEBUG] Regular category detected - will use ComradesProductForm');
+        }
+        
+        console.log('🎬 [DEBUG] Component switching to:', componentToSwitch);
+        setCurrentComponent(componentToSwitch);
+        
+        // Show toast notification
+        toast({
+          title: toastMessage,
+          description: toastDescription,
+        });
+        
+        console.log('✅ [DEBUG] Toast notification shown:', toastMessage);
+        
+      } else {
+        console.warn('❌ [DEBUG] No category found for ID:', value);
+        console.log('📝 [DEBUG] Available categories:', allCategories?.map(c => ({ id: c.id || c._id, name: c.name })));
+      }
+      
+      // Call external category change handler if provided
+      if (onCategoryChange) {
+        console.log('📤 [DEBUG] Calling external onCategoryChange with:', value);
+        onCategoryChange(value);
+      }
+      
+      console.log('📝 [DEBUG] === CATEGORY CHANGE COMPLETE ===\n');
+    };
+
+  // Handle subcategory change
+  const handleSubcategoryChange = (value) => {
+    console.log('Subcategory changed to:', value);
+    setFormData(prev => {
+      // If the subcategory is in a different category, update the category as well
+      const subcategories = getSubcategories();
+      const selectedSubcategory = subcategories.find(sub => String(sub.id || sub._id) === String(value));
+      
+      return {
+        ...prev,
+        subcategoryId: value,
+        // Update category if needed based on subcategory's parent
+        ...(selectedSubcategory?.parentId && {
+          categoryId: String(selectedSubcategory.parentId)
+        })
+      };
+    });
+    
+    // Call external subcategory change handler if provided
+    if (onSubcategoryChange) {
+      onSubcategoryChange(value);
+    }
+  };
+
+  // Get form type info for display
+  const getFormTypeInfo = () => {
+    switch (currentFormType) {
+      case CATEGORY_TYPES.FOOD_DRINKS:
+        return {
+          title: '🍽️ Food & Drinks Product',
+          formTitle: 'Create Food & Drinks Product',
+          description: 'Specialized form for restaurant and food items',
+          color: 'orange',
+          bgColor: 'bg-orange-50',
+          borderColor: 'border-orange-200'
+        };
+      case CATEGORY_TYPES.SERVICES:
+        return {
+          title: '🛠️ Services Product',
+          formTitle: 'Create Services Product',
+          description: 'Form for professional services and consultations',
+          color: 'purple',
+          bgColor: 'bg-purple-50',
+          borderColor: 'border-purple-200'
+        };
+      default:
+        return {
+          title: '📦 Regular Product',
+          formTitle: 'Create New Product',
+          description: 'Standard product form for general merchandise',
+          color: 'blue',
+          bgColor: 'bg-blue-50',
+          borderColor: 'border-blue-200'
+        };
+    }
+  };
+
+  // Handle cover image change
+  const handleCoverImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setCoverImage(file);
+      setCoverPreview(URL.createObjectURL(file));
+    }
+  };
+
+  // Handle gallery images change
+  const handleGalleryImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      // Limit to 5 images max
+      const newImages = files.slice(0, 5 - galleryImages.length);
+      setGalleryImages(prev => [...prev, ...newImages]);
+      
+      // Create previews
+      const newPreviews = newImages.map(file => URL.createObjectURL(file));
+      setGalleryPreviews(prev => [...prev, ...newPreviews]);
+    }
+  };
+
+  // Remove a gallery image
+  const removeGalleryImage = (index) => {
+    setGalleryImages(prev => prev.filter((_, i) => i !== index));
+    setGalleryPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle video change
+  const handleVideoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setProductVideo(file);
+      setVideoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  // Remove video
+  const removeVideo = () => {
+    setProductVideo(null);
+    setVideoPreview('');
+  };
+
+  // Handle adding a new feature
+  const handleAddFeature = () => {
+    if (newFeature.trim()) {
+      setFormData(prev => {
+        const newData = {
+          ...prev,
+          keyFeatures: [...prev.keyFeatures, newFeature.trim()]
+        };
+        return newData;
+      });
+      setNewFeature('');
+    }
+  };
+
+  // Handle field changes
+  const handleFieldChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Check if field is disabled (for edit mode)
+  const isFieldDisabled = (field) => {
+    return false; // For now, allow all fields to be editable
+  };
+
+  // Toggle edit mode
+  const toggleEditMode = () => {
+    setIsEditing(!isEditing);
+  };
+
+  // Handle removing a feature
+  const handleRemoveFeature = (index) => {
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        keyFeatures: prev.keyFeatures.filter((_, i) => i !== index)
+      };
+      return newData;
+    });
+  };
+
+  // Handle Enter key press in the feature input
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAddFeature();
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    console.log('handleSubmit called with event:', e);
+    e.preventDefault();
+    console.log('Form submission started, mode:', { isCreateMode, isEditMode, isListMode });
+    setLoading(true);
+
+    // Validate media requirements only for new products (create mode)
+    if (isCreateMode) {
+      if (!coverImage) {
+        toast({
+          title: 'Error',
+          description: 'Please upload a cover image',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (galleryImages.length !== 2) {
+        toast({
+          title: 'Error',
+          description: 'Please upload exactly 2 gallery images',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+    }
+
+    try {
+      // Verify token exists before proceeding
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast({
+          title: 'Authentication Error',
+          description: 'No authentication token found. Please log in again.',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        navigate('/login');
+        return;
+      }
+
+      console.log('Starting form submission for product:', { id, formData });
+
+      // Resolve category/subcategory IDs to real backend IDs by name if needed
+      let resolvedCategoryId = formData.categoryId;
+      let resolvedSubcategoryId = formData.subcategoryId;
+      try {
+        // Heuristic: if IDs look like small seed IDs from fallback, map by name using backend list
+        const smallId = (v) => !v || isNaN(Number(v)) || Number(v) < 50;
+        if (smallId(resolvedCategoryId) || smallId(resolvedSubcategoryId)) {
+          // Fetch authoritative categories from backend
+          const { data: backendCats } = await productApi.getCategories();
+          // Find selected names from UI list
+          const uiCategory = allCategories.find(c => c.id.toString() === String(formData.categoryId));
+          const uiSubcategory = (uiCategory?.Subcategory||[]).find(s => s.id.toString() === String(formData.subcategoryId));
+          // Map by name in backend list
+          const backendCategory = backendCats.find(c => c.name === uiCategory?.name);
+          if (backendCategory) {
+            resolvedCategoryId = backendCategory.id;
+            if (uiSubcategory) {
+              const backendSub = (backendCategory.Subcategory||[]).find(s => s.name === uiSubcategory.name);
+              if (backendSub) resolvedSubcategoryId = backendSub.id;
+            }
+          }
+        }
+      } catch (mapErr) {
+        console.warn('Category mapping warning:', mapErr);
+      }
+
+      const formDataToSend = new FormData();
+      
+      // Add cover image only if it's a File object
+      // Backend expects field name 'cover' not 'coverImage'
+      if (coverImage instanceof File) {
+        formDataToSend.append('cover', coverImage);
+      } else if (typeof coverImage === 'string' && id) {
+        // If editing and coverImage is a URL, send it as a field
+        formDataToSend.append('existingCoverImage', coverImage);
+      }
+      
+      // Add gallery images only if they are File objects
+      // Backend expects field name 'gallery' not 'galleryImages'
+      galleryImages.forEach((image) => {
+        if (image instanceof File) {
+          formDataToSend.append('gallery', image);
+        }
+      });
+      
+      // If editing, also send existing gallery image URLs
+      if (id) {
+        const existingGalleryImages = galleryImages.filter(img => typeof img === 'string');
+        if (existingGalleryImages.length > 0) {
+          formDataToSend.append('existingGalleryImages', JSON.stringify(existingGalleryImages));
+        }
+      }
+      
+      // Add video if it's a File object
+      if (productVideo instanceof File) {
+        formDataToSend.append('video', productVideo);
+      } else if (typeof productVideo === 'string' && id) {
+        // If editing and video is a URL, send it as a field
+        formDataToSend.append('existingVideo', productVideo);
+      }
+
+      // Prepare the data
+      const productData = {
+        ...formData,
+        keyFeatures: Array.isArray(formData.keyFeatures)
+          ? formData.keyFeatures
+          : formData.keyFeatures ? [formData.keyFeatures] : [],
+        physicalFeatures: formData.physicalFeatures || {},
+        specifications: formData.specifications || {},
+        variants: Array.isArray(formData.variants) ? formData.variants : [],
+        basePrice: formData.basePrice ? parseFloat(formData.basePrice) : 0,
+        displayPrice: formData.displayPrice ? parseFloat(formData.displayPrice) : 0,
+        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : null,
+        stock: formData.stock ? parseInt(formData.stock, 10) : 0,
+        galleryImagesCount: galleryImages.filter(img => img instanceof File).length,
+        categoryId: resolvedCategoryId || formData.categoryId,
+        subcategoryId: resolvedSubcategoryId || formData.subcategoryId,
+        unitOfMeasure: formData.unitOfMeasure || 'pcs' // Ensure unitOfMeasure is included
+      };
+
+      // Append all fields to FormData
+      Object.entries(productData).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          if (key === 'keyFeatures' && Array.isArray(value)) {
+            formDataToSend.append('keyFeatures', JSON.stringify(value));
+          } else if (key === 'physicalFeatures' && typeof value === 'object') {
+            formDataToSend.append('physicalFeatures', JSON.stringify(value));
+          } else if (key === 'specifications' && typeof value === 'object') {
+            formDataToSend.append('specifications', JSON.stringify(value));
+          } else if (key === 'variants' && Array.isArray(value)) {
+            formDataToSend.append('variants', JSON.stringify(value));
+          } else if (key === 'deliveryZones' && Array.isArray(value)) {
+            formDataToSend.append('deliveryZones', JSON.stringify(value));
+          } else {
+            formDataToSend.append(key, value);
+          }
+        }
+      });
+
+      console.log('Submitting form data...');
+      console.log('Form has files:', {
+        coverImage: coverImage instanceof File,
+        galleryImages: galleryImages.filter(img => img instanceof File).length,
+        video: productVideo instanceof File
+      });
+
+      let response;
+      if (isEditMode) {
+        // Update existing product
+        console.log('Updating product with ID:', id);
+        console.log('FormData to send:', formDataToSend);
+        response = await productApi.update(id, formDataToSend);
+        console.log('Update response:', response);
+        
+        // Build change summary similar to Seller ProductForm
+        const changes = compareProductChanges(originalProductData || {}, formData);
+        
+        // Show success message and changes without navigating
+        setUpdateSuccess({
+          message: 'Product updated successfully!',
+          changes
+        });
+        
+        // Update the original product data with the new values
+        setOriginalProductData(formData);
+        
+        // Show success toast
+        toast({
+          title: 'Success',
+          description: 'Product updated successfully',
+          variant: 'default',
+          duration: 3000
+        });
+
+        // Scroll to top to show the success message
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        return; // stop further processing since we've updated successfully
+      } else {
+        // Create new product
+        console.log('Creating new product');
+        response = await productApi.create(formDataToSend);
+        toast({
+          title: 'Success',
+          description: 'Product created successfully',
+        });
+      }
+      
+      console.log('API Response:', response);
+      
+      // Clear the draft on successful submission for new products
+      if (isCreateMode) {
+        clearDraft();
+      }
+      
+      // Mark as updated to trigger re-initialization
+      setHasUpdated(true);
+
+      // For create mode, navigate after create
+      if (isCreateMode) {
+        // New product: navigate after create if not using slide-in
+        if (onSuccess) onSuccess(response.data);
+        else navigate('/dashboard/products/comrades');
+      }
+    } catch (error) {
+      console.error('Error saving product:', error);
+      
+      // More detailed error handling
+      let errorMessage = 'Failed to save product';
+      
+      if (error.response) {
+        // Server responded with an error
+        if (error.response.status === 403) {
+          errorMessage = 'You do not have permission to perform this action. Please check your account permissions.';
+        } else if (error.response.status === 401) {
+          errorMessage = 'Your session has expired. Please log in again.';
+          setTimeout(() => navigate('/login'), 2000);
+        } else if (error.response.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data?.error) {
+          errorMessage = error.response.data.error;
+        }
+      } else if (error.request) {
+        // Request was made but no response received
+        errorMessage = 'Unable to connect to the server. Please check your internet connection.';
+      } else {
+        // Something else happened
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Determine if this is a super admin editing a product
+  const isSuperAdminEdit = id && initialProduct?.addedBy?.role === 'superadmin';
+  const isSuperAdminCreate = !id && initialProduct?.addedBy?.role === 'superadmin';
+
+  return (
+    <div className="w-full max-w-6xl mx-auto">
+      <div className="bg-white rounded-lg shadow-lg">
+        <div className="p-8">
+          <div className="flex justify-between items-center mb-6">
+            {/* Title section - only show for create/edit modes */}
+            {(isCreateMode || isEditMode) && (
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {isSuperAdminEdit
+                    ? 'Edit Super Admin Product'
+                    : isSuperAdminCreate
+                      ? 'Create Super Admin Product'
+                      : isEditMode
+                        ? 'Product Review'
+                        : 'Create New Product'}
+                </h1>
+                {isCreateMode && hasDraft && (
+                  <p className="text-sm text-yellow-600 mt-1 flex items-center">
+                    <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2"></span>
+                    You have unsaved changes
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Draft controls */}
+            {isCreateMode && hasDraft && (
+              <div className="flex items-center space-x-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to start over? All unsaved changes will be lost.')) {
+                      clearDraftAndReset();
+                    }
+                  }}
+                  className="px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-md border border-blue-200"
+                >
+                  Start Over
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Smart Form Type Indicator - Always Visible for Testing */}
+          <div className={`mb-6 p-4 rounded-lg border-2 ${getFormTypeInfo().borderColor} ${getFormTypeInfo().bgColor} animate-pulse`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-2xl">{getFormTypeInfo().title.split(' ')[0]}</span>
+                  <div>
+                    <h3 className={`text-lg font-semibold text-${getFormTypeInfo().color}-900`}>
+                      {getFormTypeInfo().title.split(' ').slice(1).join(' ')}
+                    </h3>
+                    <p className={`text-sm text-${getFormTypeInfo().color}-700`}>
+                      {getFormTypeInfo().description}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                className={`px-3 py-1 text-xs rounded-full border border-${getFormTypeInfo().color}-300 bg-${getFormTypeInfo().color}-100 text-${getFormTypeInfo().color}-700 hover:bg-${getFormTypeInfo().color}-200 transition-colors`}
+              >
+                {showDebugInfo ? 'Hide Debug' : 'Show Debug'}
+              </button>
+            </div>
+          </div>
+
+          {/* Debug Information Panel */}
+          {showDebugInfo && (
+            <div className="mb-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
+              <h4 className="text-sm font-semibold text-gray-800 mb-2">🔧 Debug Information</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <span className="font-medium text-gray-700">Current Form Type:</span>
+                  <div className="text-gray-600">{currentFormType}</div>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Selected Category ID:</span>
+                  <div className="text-gray-600">{formData.categoryId || 'None'}</div>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Selected Subcategory ID:</span>
+                  <div className="text-gray-600">{formData.subcategoryId || 'None'}</div>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Category Name:</span>
+                  <div className="text-gray-600">{getCategoryName(formData.categoryId) || 'None'}</div>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Subcategory Name:</span>
+                  <div className="text-gray-600">{getSubcategoryName(formData.categoryId, formData.subcategoryId) || 'None'}</div>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700">Form Mode:</span>
+                  <div className="text-gray-600">{isCreateMode ? 'Create' : isEditMode ? 'Edit' : 'List'}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Form Component Rendering */}
+          <div className="min-h-[50vh]">
+            {currentComponent === 'fastfood' && (
+              <div className="space-y-6">
+                <div className="bg-orange-50 p-4 rounded-lg border-2 border-orange-200">
+                  <h3 className="text-lg font-semibold text-orange-900">🍽️ Fast Food Form</h3>
+                  <p className="text-sm text-orange-700">Specialized form for restaurant and food items</p>
+                </div>
+                <FastFoodForm
+                  onSuccess={onSuccess}
+                  product={{
+                    ...initialProduct,
+                    // Ensure the product name is passed to the fast food form
+                    name: formData.name || productName || initialProduct?.name || '',
+                    // Preserve other initial data
+                    ...initialProduct
+                  }}
+                />
+              </div>
+            )}
+            
+            {currentComponent === 'service' && (
+              <div className="space-y-6">
+                <div className="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
+                  <h3 className="text-lg font-semibold text-purple-900">🛠️ Service Form</h3>
+                  <p className="text-sm text-purple-700">Form for professional services and consultations</p>
+                </div>
+                <ServiceForm
+                  onSuccess={onSuccess}
+                  initialData={{
+                    ...initialProduct,
+                    // Ensure the product name is passed to the service form
+                    title: formData.name || productName || initialProduct?.name || '',
+                    // Preserve other initial data
+                    ...initialProduct
+                  }}
+                  isEditing={!!(id || initialProduct)}
+                />
+              </div>
+            )}
+            
+            {currentComponent === 'comrades' && (
+              <form id="product-form" onSubmit={handleSubmit} className="space-y-8 pb-24">
+                {updateSuccess && (
+                  <div className="mb-6 p-4 border-l-4 border-green-500 bg-green-50 rounded-lg">
+                    <div className="flex items-center">
+                      <svg className="h-5 w-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <h3 className="text-lg font-semibold text-green-800">{updateSuccess.message}</h3>
+                    </div>
+                    {Array.isArray(updateSuccess.changes) && updateSuccess.changes.length > 0 && (
+                      <div className="mt-4">
+                        <div className="text-sm font-medium text-green-900 mb-2">Changes made:</div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-green-200">
+                            <thead>
+                              <tr className="bg-green-100">
+                                <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-green-700 uppercase tracking-wider">
+                                  Field
+                                </th>
+                                <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-green-700 uppercase tracking-wider">
+                                  Before
+                                </th>
+                                <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-green-700 uppercase tracking-wider">
+                                  After
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {updateSuccess.changes.map((change, i) => (
+                                <tr key={i} className="hover:bg-green-50">
+                                  <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                                    {change.field}
+                                  </td>
+                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                    {change.oldValue !== undefined && change.oldValue !== null ? String(change.oldValue) : '—'}
+                                  </td>
+                                  <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                    {change.newValue !== undefined && change.newValue !== null ? String(change.newValue) : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              
+              {/* Product Name */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <Label htmlFor="name" className="text-lg font-semibold text-gray-800">Product Name</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => handleFieldChange('name', e.target.value)}
+                  placeholder="Enter product name"
+                  required
+                  disabled={isFieldDisabled('name')}
+                  className="mt-2 border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-lg"
+                />
+              </div>
+
+              {/* Category and Subcategory */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="category">Category *</Label>
+                  <Select
+                    value={formData.categoryId || ''}
+                    onValueChange={handleCategoryChange}
+                    required
+                    disabled={isFieldDisabled('categoryId')}
+                  >
+                    <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-blue-50 border border-blue-200">
+                      {allCategories.map((category) => (
+                        <SelectItem 
+                          key={category.id || category._id} 
+                          value={String(category.id || category._id)}
+                        >
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="subcategory">Subcategory *</Label>
+                  <Select
+                    value={formData.subcategoryId || ''}
+                    onValueChange={handleSubcategoryChange}
+                    disabled={isFieldDisabled('subcategoryId') || !formData.categoryId}
+                    required
+                  >
+                    <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                      <SelectValue placeholder={formData.categoryId ? 'Select subcategory' : 'Select a category first'}>
+                        {formData.subcategoryId && subcategories.length > 0 && (() => {
+                          const sub = subcategories.find(s => 
+                            String(s.id) === String(formData.subcategoryId) || 
+                            String(s._id) === String(formData.subcategoryId)
+                          );
+                          return sub ? sub.name : 'Select subcategory';
+                        })()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="bg-blue-50 border border-blue-200 max-h-60 overflow-y-auto">
+                      {subcategories.length > 0 ? (
+                        subcategories.map((subcategory) => (
+                          <SelectItem
+                            key={String(subcategory.id)}
+                            value={String(subcategory.id)}
+                          >
+                            {subcategory.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-gray-500">
+                          {formData.categoryId ? 'No subcategories available' : 'Select a category first'}
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <Label htmlFor="brand">Brand</Label>
+                  <Input
+                    id="brand"
+                    value={formData.brand}
+                    onChange={(e) => handleFieldChange('brand', e.target.value)}
+                    placeholder="Enter brand name"
+                    disabled={isFieldDisabled('brand')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="model">Model</Label>
+                  <Input
+                    id="model"
+                    value={formData.model}
+                    onChange={(e) => handleFieldChange('model', e.target.value)}
+                    placeholder="Enter model"
+                    disabled={isFieldDisabled('model')}
+                  />
+                </div>
+              </div>
+
+              {/* Condition */}
+              <div>
+                <Label htmlFor="condition">Condition</Label>
+                <Select
+                  value={formData.condition || 'Brand New'}
+                  onValueChange={(value) => handleFieldChange('condition', value)}
+                  required
+                  disabled={isFieldDisabled('condition')}
+                >
+                  <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                    <SelectValue placeholder="Select condition">
+                      {formData.condition || 'Brand New'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-blue-50 border border-blue-200">
+                    <SelectItem value="Brand New">Brand New</SelectItem>
+                    <SelectItem value="Refurbished">Refurbished</SelectItem>
+                    <SelectItem value="Used">Used</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Keywords */}
+              <div>
+                <Label htmlFor="keywords">Keywords *</Label>
+                <Input
+                  id="keywords"
+                  value={formData.keywords || ''}
+                  onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
+                  placeholder="Enter keywords separated by commas"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">Keywords help customers find your product during search</p>
+              </div>
+
+              {/* Unit of Measure */}
+              <div>
+                <Label htmlFor="unitOfMeasure">Unit of Measure *</Label>
+                <Select
+                  value={formData.unitOfMeasure || 'pcs'}
+                  onValueChange={(value) => {
+                    if (value === '__more__') {
+                      setShowAllUom(true);
+                      const key = `uom_expanded_comrades_${formData.categoryId || 'none'}`;
+                      try { localStorage.setItem(key, 'true'); } catch(_) {}
+                      return;
+                    }
+                    handleFieldChange('unitOfMeasure', value);
+                  }}
+                  disabled={isFieldDisabled('unitOfMeasure')}
+                  required
+                >
+                  <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                    <SelectValue placeholder="Select unit" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-blue-50 border border-blue-200">
+                    {Object.entries(UOM_GROUPS).map(([group, units]) => (
+                      <div key={group}>
+                        {showAllUom && (
+                          <div className="px-3 py-1.5 text-xs font-medium text-gray-500">
+                            {group}
+                          </div>
+                        )}
+                        {(showAllUom ? units : units.slice(0, 6)).map(unit => (
+                          <SelectItem key={unit} value={unit}>
+                            {UOM_LABELS[unit] || unit}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ))}
+                    {!showAllUom && (
+                      <SelectItem value="__more__" className="text-blue-600">
+                        Show more units...
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500 mt-1">
+                  The unit in which this product is sold (e.g., kg, l, pcs)
+                </p>
+              </div>
+
+              {/* Pricing + Stock */}
+              <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                <h3 className="text-xl font-semibold text-blue-900 mb-4">Pricing & Stock</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                  <div className="relative">
+                    <Label htmlFor="basePrice" className="text-lg font-medium text-blue-800">Base Price</Label>
+                    <div className="relative mt-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">Ksh</span>
+                      <Input
+                        id="basePrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.basePrice}
+                        onChange={(e) => handleFieldChange('basePrice', e.target.value)}
+                        placeholder="0.00"
+                        required
+                        disabled={isFieldDisabled('basePrice')}
+                        className="pl-16 border-blue-300 focus:border-blue-500 focus:ring-blue-500 text-lg font-semibold"
+                      />
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <Label htmlFor="displayPrice" className="text-lg font-medium text-blue-800">Display Price</Label>
+                    <div className="relative mt-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">Ksh</span>
+                      <Input
+                        id="displayPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.displayPrice}
+                        onChange={(e) => handleFieldChange('displayPrice', e.target.value)}
+                        placeholder="0.00"
+                        required
+                        disabled={isFieldDisabled('displayPrice')}
+                        className="pl-16 border-blue-300 focus:border-blue-500 focus:ring-blue-500 text-lg font-semibold"
+                      />
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <Label htmlFor="discountPrice" className="text-lg font-medium text-blue-800">Discount Price</Label>
+                    <div className="relative mt-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">Ksh</span>
+                      <Input
+                        id="discountPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.discountPrice}
+                        onChange={(e) => handleFieldChange('discountPrice', e.target.value)}
+                        placeholder="0.00 (optional)"
+                        disabled={isFieldDisabled('discountPrice')}
+                        className="pl-16 border-blue-300 focus:border-blue-500 focus:ring-blue-500 text-lg"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="stock">Stock Quantity</Label>
+                    <Input
+                      id="stock"
+                      type="number"
+                      min="0"
+                      value={formData.stock}
+                      onChange={(e) => handleFieldChange('stock', e.target.value)}
+                      placeholder="Enter stock quantity"
+                      required
+                      disabled={isFieldDisabled('stock')}
+                      className="border-red-500 focus:border-red-500 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Variants */}
+              <div className="space-y-4 border p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <Label>Product Variants</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      variants: [...(prev.variants || []), { name: '', options: [''], prices: {} }]
+                    }));
+                  }} disabled={isFieldDisabled('variants')}>
+                    Add Variant
+                  </Button>
+                </div>
+                {formData.variants?.map((variant, variantIndex) => (
+                  <div key={variantIndex} className="space-y-4 p-4 border rounded-md">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div>
+                        <Label>Variant Name</Label>
+                        <Input type="text" value={variant.name} onChange={(e) => {
+                          const newVariants = [...formData.variants];
+                          newVariants[variantIndex] = { ...variant, name: e.target.value };
+                          setFormData({ ...formData, variants: newVariants });
+                        }} placeholder="e.g., Color, Size, Material" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label>Options (press Enter or comma to add)</Label>
+                        <div className="flex flex-wrap gap-2 items-center border rounded-md p-2 min-h-10">
+                          {(variant.options || []).filter(opt => opt).map((option, i) => (
+                            <div key={i} className="flex items-center bg-blue-50 text-blue-800 px-2 py-1 rounded-full text-sm">
+                              {option}
+                              <button type="button" onClick={() => {
+                                const newOptions = [...(variant.options || [])];
+                                newOptions.splice(i, 1);
+                                const newPrices = { ...(variant.prices || {}) };
+                                delete newPrices[option];
+                                const newVariants = [...formData.variants];
+                                newVariants[variantIndex] = { ...variant, options: newOptions.filter(Boolean), prices: newPrices };
+                                setFormData({ ...formData, variants: newVariants });
+                              }} className="ml-1 text-blue-500 hover:text-blue-700">×</button>
+                            </div>
+                          ))}
+                          <input type="text" value={variant.newOption || ''} onChange={(e) => {
+                            const newVariants = [...formData.variants];
+                            newVariants[variantIndex] = { ...variant, newOption: e.target.value };
+                            setFormData({ ...formData, variants: newVariants });
+                          }} onKeyDown={(e) => {
+                            if ((e.key === ',' || e.key === 'Enter') && variant.newOption?.trim()) {
+                              e.preventDefault();
+                              const option = variant.newOption.trim();
+                              const newOptions = [...new Set([...(variant.options || []), option])];
+                              const newVariants = [...formData.variants];
+                              newVariants[variantIndex] = { ...variant, options: newOptions.filter(Boolean), newOption: '' };
+                              setFormData({ ...formData, variants: newVariants });
+                            }
+                          }} onBlur={() => {
+                            if (variant.newOption?.trim()) {
+                              const option = variant.newOption.trim();
+                              const newOptions = [...new Set([...(variant.options || []), option])];
+                              const newVariants = [...formData.variants];
+                              newVariants[variantIndex] = { ...variant, options: newOptions.filter(Boolean), newOption: '' };
+                              setFormData({ ...formData, variants: newVariants });
+                            }
+                          }} placeholder={(variant.options || []).length ? '' : "e.g., Small, Medium, Large"} className="flex-1 border-0 focus:ring-0 focus:outline-none bg-transparent min-w-[100px]" />
+                          <Button type="button" variant="ghost" size="icon" className="text-red-500 hover:text-red-700 ml-auto" onClick={() => {
+                            const newVariants = formData.variants.filter((_, i) => i !== variantIndex);
+                            setFormData({ ...formData, variants: newVariants });
+                          }}>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Press Enter or comma to add options</p>
+                      </div>
+                    </div>
+                    {(variant.options || []).filter(opt => opt).length > 0 && variant.name && (
+                      <div className="mt-4 overflow-x-auto">
+                        <Label>Variant Options and Prices</Label>
+                        <table className="min-w-full mt-2 border rounded-md">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">{variant.name}</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Price (Ksh)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {(variant.options || []).filter(opt => opt).map((option, optionIndex) => (
+                              <tr key={optionIndex}><td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{option}</td><td className="px-4 py-2 whitespace-nowrap"><div className="flex items-center"><Input type="number" step="0.01" min="0" value={(variant.prices || {})[option] || ''} onChange={(e) => {
+                                const newVariants = [...formData.variants];
+                                const prices = { ...(variant.prices || {}), [option]: parseFloat(e.target.value) || 0 };
+                                newVariants[variantIndex] = { ...variant, prices };
+                                setFormData({ ...formData, variants: newVariants });
+                              }} placeholder="0.00" className="w-32" /></div></td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {formData.variants?.length > 0 && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded-md">
+                    <h4 className="text-sm font-medium mb-2">Variant Summary</h4>
+                    <p className="text-xs text-gray-500">
+                      {formData.variants.length === 1 
+                        ? `This will create ${(formData.variants[0].options || []).length} product variants.`
+                        : `This will create ${formData.variants.reduce((acc, curr) => acc * (((curr.options || []).length) || 1), 1)} product variants.`
+                      }
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Short Description */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <Label htmlFor="shortDescription" className="text-lg font-semibold text-gray-800">Short Description</Label>
+                <Textarea id="shortDescription" value={formData.shortDescription} onChange={(e) => handleFieldChange('shortDescription', e.target.value)} placeholder="Enter a brief description (max 150 characters)" maxLength={150} required disabled={isFieldDisabled('shortDescription')} className="mt-2 border-gray-300 focus:border-blue-500 focus:ring-blue-500" rows={3} />
+                <p className="text-xs text-gray-500 mt-2">{formData.shortDescription?.length || 0}/150 characters</p>
+              </div>
+
+              {/* Full Description */}
+              <div>
+                <Label htmlFor="fullDescription">Full Description *</Label>
+                <Textarea id="fullDescription" value={formData.fullDescription} onChange={(e) => handleFieldChange('fullDescription', e.target.value)} placeholder="Enter detailed product description, features, and specifications" rows={6} required disabled={isFieldDisabled('fullDescription')} />
+                <p className="text-xs text-gray-500 mt-1">Provide comprehensive details about the product</p>
+              </div>
+
+              {/* Specifications */}
+              <div className="space-y-4">
+                <div>
+                  <Label>Specifications (Optional)</Label>
+                  <p className="text-sm text-gray-500 mb-2">Add technical specifications in a tabular format</p>
+
+                  {/* Add New Specification Row */}
+                  <div className="flex gap-4 mb-4">
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        value={newSpecName || ''}
+                        onChange={(e) => setNewSpecName(e.target.value)}
+                        placeholder="Specification name (e.g., Weight, Dimensions)"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        value={newSpecValue || ''}
+                        onChange={(e) => setNewSpecValue(e.target.value)}
+                        placeholder="Value (e.g., 1.5kg, 30x20x10cm)"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleAddSpecification}
+                      variant="outline"
+                    >
+                      Add
+                    </Button>
+                  </div>
+
+                  {/* Display Added Specifications */}
+                  {Object.keys(formData.specifications || {}).length > 0 && (
+                    <div className="border rounded-md p-4 space-y-2">
+                      <h4 className="font-medium text-sm text-gray-700 mb-3">Product Specifications</h4>
+                      {Object.entries(formData.specifications).map(([key, value]) => (
+                        <div key={key} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <div className="font-medium">{key}:</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-600">{value}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newSpecs = {...formData.specifications};
+                                delete newSpecs[key];
+                                setFormData({
+                                  ...formData,
+                                  specifications: newSpecs
+                                });
+                              }}
+                              className="text-red-500 hover:text-red-700"
+                              aria-label={`Remove ${key}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Key Features */}
+              <div>
+                <Label htmlFor="keyFeatures">Key Features</Label>
+                <Textarea id="keyFeatures" value={Array.isArray(formData.keyFeatures) ? formData.keyFeatures.join('\n') : (typeof formData.keyFeatures === 'string' ? formData.keyFeatures : '')} onChange={(e) => {
+                  if (isFieldDisabled('keyFeatures')) return;
+                  const features = e.target.value.split('\n').map(f => f.trim()).filter(Boolean);
+                  handleFieldChange('keyFeatures', features);
+                }} placeholder="Enter each feature on a new line" className="min-h-[100px]" disabled={isFieldDisabled('keyFeatures')} />
+                <p className="text-xs text-gray-500 mt-1">Enter each feature on a new line</p>
+              </div>
+
+              {/* Physical Features */}
+              <div className="space-y-4">
+                <div>
+                  <Label>Physical Features</Label>
+                  <p className="text-sm text-gray-500 mb-2">Add custom physical features and their values</p>
+                  
+                  {/* Add New Feature Row */}
+                  <div className="flex gap-4 mb-4">
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        value={newPhysicalFeature.name || ''}
+                        onChange={(e) => setNewPhysicalFeature({...newPhysicalFeature, name: e.target.value})}
+                        placeholder="Feature name (e.g., Color, Weight)"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        value={newPhysicalFeature.value || ''}
+                        onChange={(e) => setNewPhysicalFeature({...newPhysicalFeature, value: e.target.value})}
+                        placeholder="Value (e.g., Black, 1.5kg)"
+                      />
+                    </div>
+                    <Button 
+                      type="button"
+                      onClick={() => {
+                        if (newPhysicalFeature.name && newPhysicalFeature.value) {
+                          setFormData({
+                            ...formData,
+                            physicalFeatures: {
+                              ...formData.physicalFeatures,
+                              [newPhysicalFeature.name]: newPhysicalFeature.value
+                            }
+                          });
+                          setNewPhysicalFeature({ name: '', value: '' });
+                        }
+                      }}
+                      variant="outline"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  
+                  {/* Display Added Features */}
+                  {Object.keys(formData.physicalFeatures || {}).length > 0 && (
+                    <div className="border rounded-md p-4 space-y-2">
+                      {Object.entries(formData.physicalFeatures).map(([key, value]) => (
+                        <div key={key} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <div className="font-medium">{key}:</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-600">{value}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newFeatures = {...formData.physicalFeatures};
+                                delete newFeatures[key];
+                                setFormData({
+                                  ...formData,
+                                  physicalFeatures: newFeatures
+                                });
+                              }}
+                              className="text-red-500 hover:text-red-700"
+                              aria-label={`Remove ${key}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Media Uploads */}
+              <div className="space-y-6 bg-green-50 p-6 rounded-lg border border-green-200">
+                <h3 className="text-xl font-semibold text-green-900 mb-4">Product Media</h3>
+                
+                {/* Cover Image */}
+                <div className="space-y-2 border p-4 rounded-lg">
+                  <Label>Cover Image (Required)</Label>
+                  <p className="text-sm text-gray-500">This will be the main product image</p>
+                  <div className="border-2 border-red-500 p-2 rounded mb-2">
+                    <p className="text-red-600 text-sm">Cover image is required</p>
+                  </div>
+                  <div className="mt-2">
+                    {coverPreview ? (
+                      <div className="space-y-3">
+                        <div className="relative inline-block">
+                          <img
+                            src={coverPreview}
+                            alt="Cover preview"
+                            className="h-48 w-48 object-cover rounded-md border-2 border-gray-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCoverImage(null);
+                              setCoverPreview('');
+                            }}
+                            className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors"
+                            title="Remove image"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div>
+                          <input
+                            type="file"
+                            id="cover-image-change"
+                            accept="image/*"
+                            onChange={handleCoverImageChange}
+                            className="hidden"
+                          />
+                          <label
+                            htmlFor="cover-image-change"
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md cursor-pointer transition-colors"
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Change Photo
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed rounded-md p-6 text-center">
+                        <input
+                          type="file"
+                          id="cover-image"
+                          accept="image/*"
+                          onChange={handleCoverImageChange}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="cover-image"
+                          className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                        >
+                          <Upload className="h-8 w-8 text-gray-400" />
+                          <p className="text-sm text-gray-600">Click to upload cover image</p>
+                          <p className="text-xs text-gray-500">PNG, JPG, JPEG (max 5MB)</p>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gallery Images */}
+                <div className="space-y-2 border p-4 rounded-lg">
+                  <Label>Gallery Images (exactly 2 required)</Label>
+                  <p className="text-sm text-gray-500">Add exactly 2 images to showcase your product from different angles</p>
+                  <div className="border-2 border-red-500 p-2 rounded mb-2">
+                    <p className="text-red-600 text-sm">Exactly 2 gallery images are required</p>
+                  </div>
+                  <div className="mt-2">
+                    {galleryPreviews.length > 0 && (
+                      <div className="flex flex-wrap gap-4 mb-4">
+                        {galleryPreviews.map((preview, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={preview}
+                              alt={`Gallery ${index + 1}`}
+                              className="h-32 w-32 object-cover rounded-md border-2 border-gray-200"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeGalleryImage(index)}
+                              className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors"
+                              title="Remove image"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {galleryImages.length < 2 && (
+                      <div className="border-2 border-dashed rounded-md p-6 text-center">
+                        <input
+                          type="file"
+                          id="gallery-images"
+                          accept="image/*"
+                          onChange={handleGalleryImagesChange}
+                          className="hidden"
+                          multiple
+                        />
+                        <label
+                          htmlFor="gallery-images"
+                          className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                        >
+                          <Upload className="h-8 w-8 text-gray-400" />
+                          <p className="text-sm text-gray-600">
+                            {galleryImages.length === 0
+                              ? 'Click to upload gallery images'
+                              : `Add more images (${2 - galleryImages.length} remaining)`}
+                          </p>
+                          <p className="text-xs text-gray-500">PNG, JPG, JPEG (exactly 2 images, max 5MB each)</p>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Video Upload */}
+              <div className="space-y-2 border p-4 rounded-lg">
+                <Label>Product Video (Optional)</Label>
+                <p className="text-sm text-gray-500">Show your product in action (max 50MB)</p>
+                <div className="mt-2">
+                  {videoPreview ? (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <video className="h-48 w-full object-cover rounded-md border-2 border-gray-200" controls>
+                          <source src={videoPreview} type="video/mp4" />
+                          Your browser does not support the video tag.
+                        </video>
+                        <button
+                          type="button"
+                          onClick={removeVideo}
+                          className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors"
+                          title="Remove video"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div>
+                        <input
+                          type="file"
+                          id="product-video-change"
+                          accept="video/*"
+                          onChange={handleVideoChange}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="product-video-change"
+                          className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md cursor-pointer transition-colors"
+                        >
+                          <Video className="h-4 w-4 mr-2" />
+                          Change Video
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed rounded-md p-6 text-center">
+                      <input
+                        type="file"
+                        id="product-video"
+                        accept="video/*"
+                        onChange={handleVideoChange}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="product-video"
+                        className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                      >
+                        <Video className="h-8 w-8 text-gray-400" />
+                        <p className="text-sm text-gray-600">Click to upload product video</p>
+                        <p className="text-xs text-gray-500">MP4, WebM, MOV (max 50MB)</p>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Shipping & Warranty Section */}
+              <div className="space-y-6 bg-indigo-50 p-6 rounded-lg border border-indigo-200">
+                <h3 className="text-xl font-semibold text-indigo-900">Shipping & Warranty</h3>
+
+                {/* Weight */}
+                <div>
+                  <Label htmlFor="weight">Weight (kg)</Label>
+                  <Input
+                    id="weight"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.weight}
+                    onChange={(e) => handleFieldChange('weight', e.target.value)}
+                    placeholder="Enter product weight in kg"
+                    disabled={isFieldDisabled('weight')}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Product weight for shipping calculations
+                  </p>
+                </div>
+
+                {/* Dimensions */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="length">Length (cm)</Label>
+                    <Input
+                      id="length"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.length}
+                      onChange={(e) => handleFieldChange('length', e.target.value)}
+                      placeholder="Length"
+                      disabled={isFieldDisabled('length')}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="width">Width (cm)</Label>
+                    <Input
+                      id="width"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.width}
+                      onChange={(e) => handleFieldChange('width', e.target.value)}
+                      placeholder="Width"
+                      disabled={isFieldDisabled('width')}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="height">Height (cm)</Label>
+                    <Input
+                      id="height"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.height}
+                      onChange={(e) => handleFieldChange('height', e.target.value)}
+                      placeholder="Height"
+                      disabled={isFieldDisabled('height')}
+                    />
+                  </div>
+                </div>
+
+                {/* Delivery Method */}
+                <div>
+                  <Label htmlFor="deliveryMethod">Delivery Method</Label>
+                  <Select
+                    value={formData.deliveryMethod || 'Pickup'}
+                    onValueChange={(value) => handleFieldChange('deliveryMethod', value)}
+                    disabled={isFieldDisabled('deliveryMethod')}
+                  >
+                    <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                      <SelectValue placeholder="Select delivery method">
+                        {formData.deliveryMethod || 'Pickup'}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Pickup">Pickup</SelectItem>
+                      <SelectItem value="Express">Express</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Choose how customers can receive this product
+                  </p>
+                </div>
+
+                {/* Warranty */}
+                <div>
+                  <Label htmlFor="warranty">Warranty</Label>
+                  <Input
+                    id="warranty"
+                    value={formData.warranty}
+                    onChange={(e) => handleFieldChange('warranty', e.target.value)}
+                    placeholder="e.g., 12 months manufacturer warranty"
+                    disabled={isFieldDisabled('warranty')}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Warranty information for this product
+                  </p>
+                </div>
+
+                {/* Return Policy */}
+                <div>
+                  <Label htmlFor="returnPolicy">Return Policy</Label>
+                  <Textarea
+                    id="returnPolicy"
+                    value={formData.returnPolicy}
+                    onChange={(e) => handleFieldChange('returnPolicy', e.target.value)}
+                    placeholder="Describe the return policy for this product"
+                    rows={3}
+                    disabled={isFieldDisabled('returnPolicy')}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Return and refund policy details
+                  </p>
+                </div>
+              </div>
+
+              {/* Delivery Configuration Section */}
+              <div className="space-y-6 bg-purple-50 p-6 rounded-lg border border-purple-200">
+                <h3 className="text-xl font-semibold text-purple-900">Delivery Configuration</h3>
+
+                {/* Delivery Fee Type */}
+                <div>
+                  <Label htmlFor="deliveryFeeType">Delivery Fee Type</Label>
+                  <Select
+                    value={formData.deliveryFeeType || 'flat'}
+                    onValueChange={(value) => handleFieldChange('deliveryFeeType', value)}
+                  >
+                    <SelectTrigger className="w-full bg-blue-50 border-blue-200 hover:bg-blue-100">
+                      <SelectValue placeholder="Select delivery fee type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="free">Free Delivery</SelectItem>
+                      <SelectItem value="flat">Flat Rate</SelectItem>
+                      <SelectItem value="percentage">Percentage of Base Price</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Choose how delivery fees are calculated
+                  </p>
+                </div>
+
+                {/* Delivery Fee Amount */}
+                <div>
+                  <Label htmlFor="deliveryFee">
+                    Delivery Fee {formData.deliveryFeeType === 'percentage' ? '(%)' : '(Ksh)'}
+                  </Label>
+                  <Input
+                    id="deliveryFee"
+                    type="number"
+                    step={formData.deliveryFeeType === 'percentage' ? '0.01' : '1'}
+                    min="0"
+                    value={formData.deliveryFeeType === 'free' ? '0' : (formData.deliveryFee || '')}
+                    onChange={(e) => handleFieldChange('deliveryFee', e.target.value)}
+                    placeholder={formData.deliveryFeeType === 'percentage' ? 'e.g., 5.00' : 'e.g., 200'}
+                    disabled={formData.deliveryFeeType === 'free'}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.deliveryFeeType === 'free' 
+                      ? 'No delivery fee will be charged to customers'
+                      : formData.deliveryFeeType === 'percentage'
+                        ? 'Commission calculated as percentage of base price'
+                        : 'Fixed delivery fee amount in Ksh'}
+                  </p>
+                </div>
+
+                {/* Delivery Coverage Zones */}
+                <div>
+                  <Label>Delivery Coverage Zones</Label>
+                  <p className="text-sm text-gray-500 mb-4">Select regions and zones where this product can be delivered</p>
+
+                  {/* Single Selection Box */}
+                  <div className="relative">
+                    <div
+                      className="w-full min-h-[120px] border-2 border-dashed border-gray-300 rounded-lg p-4 cursor-pointer hover:border-blue-400 transition-colors bg-gray-50"
+                      onClick={() => setShowRegionSelector(!showRegionSelector)}
+                    >
+                      {formData.deliveryZones && formData.deliveryZones.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {formData.deliveryZones.map((zone) => (
+                            <span key={zone} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                              {zone}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const currentZones = formData.deliveryZones || [];
+                                  handleFieldChange('deliveryZones', currentZones.filter(z => z !== zone));
+                                }}
+                                className="ml-2 text-blue-600 hover:text-blue-800"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-500 py-8">
+                          <p className="text-lg mb-2">Click to select delivery zones</p>
+                          <p className="text-sm">Choose regions and specific zones for product delivery</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Region Selector Dropdown */}
+                    {showRegionSelector && (
+                      <div className="absolute top-full left-0 right-0 z-50 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                        <div className="p-4">
+                          <div className="flex justify-between items-center mb-4">
+                            <h4 className="font-medium text-gray-900">Select Regions</h4>
+                            <button
+                              type="button"
+                              onClick={() => setShowRegionSelector(false)}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Kenya Regions */}
+                          <div className="space-y-3">
+                            {[
+                              {
+                                name: 'Nairobi Region',
+                                zones: [
+                                  'Nairobi CBD', 'Westlands', 'Karen', 'Kilimani', 'Parklands',
+                                  'Koinange Street', 'River Road', 'Luthuli Avenue', 'Tom Mboya Street',
+                                  'Moi Avenue', 'Other Nairobi Areas'
+                                ]
+                              },
+                              {
+                                name: 'Coast Region',
+                                zones: [
+                                  'Mombasa Island', 'Mombasa Mainland', 'Kilifi', 'Malindi', 'Lamu',
+                                  'Kwale', 'Taita Taveta', 'Tana River'
+                                ]
+                              },
+                              {
+                                name: 'Rift Valley Region',
+                                zones: [
+                                  'Nakuru', 'Eldoret', 'Kisumu', 'Kericho', 'Bomet', 'Nandi',
+                                  'Uasin Gishu', 'Trans Nzoia', 'West Pokot', 'Samburu'
+                                ]
+                              },
+                              {
+                                name: 'Central Region',
+                                zones: [
+                                  'Nyeri', 'Kirinyaga', 'Murang\'a', 'Kiambu', 'Thika',
+                                  'Maragua', 'Gatundu', 'Limuru'
+                                ]
+                              },
+                              {
+                                name: 'Eastern Region',
+                                zones: [
+                                  'Embu', 'Meru', 'Isiolo', 'Kitui', 'Machakos', 'Makueni',
+                                  'Marsabit', 'Garissa', 'Wajir', 'Mandera'
+                                ]
+                              },
+                              {
+                                name: 'Nyanza Region',
+                                zones: [
+                                  'Kisii', 'Nyamira', 'Migori', 'Homa Bay', 'Siaya',
+                                  'Kisumu Rural', 'Rachuonyo', 'Suba'
+                                ]
+                              },
+                              {
+                                name: 'Western Region',
+                                zones: [
+                                  'Kakamega', 'Vihiga', 'Bungoma', 'Busia', 'Kabarnet',
+                                  'Mt Elgon', 'Bumula', 'Webuye'
+                                ]
+                              },
+                              {
+                                name: 'North Eastern Region',
+                                zones: [
+                                  'Garissa', 'Wajir', 'Mandera', 'Marsabit', 'Isiolo',
+                                  'Moyale', 'Laisamis', 'North Horr'
+                                ]
+                              }
+                            ].map((region) => (
+                              <div key={region.name} className="border rounded-lg p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h5 className="font-medium text-gray-900 text-sm">{region.name}</h5>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const allRegionZones = region.zones;
+                                      const currentZones = formData.deliveryZones || [];
+                                      const hasAllZones = allRegionZones.every(zone => currentZones.includes(zone));
+
+                                      if (hasAllZones) {
+                                        // Remove all zones from this region
+                                        handleFieldChange('deliveryZones', currentZones.filter(zone => !allRegionZones.includes(zone)));
+                                      } else {
+                                        // Add all zones from this region
+                                        const newZones = [...new Set([...currentZones, ...allRegionZones])];
+                                        handleFieldChange('deliveryZones', newZones);
+                                      }
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800"
+                                  >
+                                    {(() => {
+                                      const currentZones = formData.deliveryZones || [];
+                                      const allRegionZones = region.zones;
+                                      const hasAllZones = allRegionZones.every(zone => currentZones.includes(zone));
+                                      return hasAllZones ? 'Deselect All' : 'Select All';
+                                    })()}
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {region.zones.map((zone) => (
+                                    <label key={zone} className="flex items-center space-x-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={formData.deliveryZones?.includes(zone) || false}
+                                        onChange={(e) => {
+                                          const currentZones = formData.deliveryZones || [];
+                                          if (e.target.checked) {
+                                            handleFieldChange('deliveryZones', [...currentZones, zone]);
+                                          } else {
+                                            handleFieldChange('deliveryZones', currentZones.filter(z => z !== zone));
+                                          }
+                                        }}
+                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 scale-75"
+                                      />
+                                      <span className="text-xs">{zone}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Save Button */}
+                          <div className="flex justify-end mt-4 pt-4 border-t">
+                            <Button
+                              type="button"
+                              onClick={() => setShowRegionSelector(false)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2"
+                            >
+                              Save Zones
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected Zones Count */}
+                  {formData.deliveryZones && formData.deliveryZones.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-2">
+                      {formData.deliveryZones.length} zone(s) selected for delivery
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Marketing Configuration Section */}
+              <div className="space-y-6 bg-orange-50 p-6 rounded-lg border border-orange-200">
+                <h3 className="text-xl font-semibold text-orange-900">Marketing Configuration</h3>
+
+                {/* Marketing Enable */}
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="marketingEnabled"
+                    checked={formData.marketingEnabled || false}
+                    onChange={(e) => handleFieldChange('marketingEnabled', e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label htmlFor="marketingEnabled" className="text-sm font-medium">
+                    Enable Marketing
+                  </Label>
+                </div>
+                <p className="text-xs text-gray-500">
+                  When enabled, marketers can promote this product
+                </p>
+
+                {formData.marketingEnabled && (
+                  <>
+                    {/* Marketing Commission Type */}
+                    <div>
+                      <Label htmlFor="marketingCommissionType">Marketing Commission Type</Label>
+                      <Select
+                        value={formData.marketingCommissionType || 'percentage'}
+                        onValueChange={(value) => handleFieldChange('marketingCommissionType', value)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select commission type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="percentage">Percentage of Base Price</SelectItem>
+                          <SelectItem value="price_difference">Percentage of Price Difference (Display - Base)</SelectItem>
+                          <SelectItem value="flat">Flat Rate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formData.marketingCommissionType === 'percentage' && 'Commission calculated as percentage of base price'}
+                        {formData.marketingCommissionType === 'price_difference' && 'Commission calculated as percentage of difference between display and base price'}
+                        {formData.marketingCommissionType === 'flat' && 'Fixed commission amount in Ksh'}
+                      </p>
+                    </div>
+
+                    {/* Marketing Commission Amount */}
+                    <div>
+                      <Label htmlFor="marketingCommission">
+                        Marketing Commission {formData.marketingCommissionType === 'flat' ? '(Ksh)' : '(%)'}
+                      </Label>
+                      <Input
+                        id="marketingCommission"
+                        type="number"
+                        step={formData.marketingCommissionType === 'flat' ? '1' : '0.01'}
+                        min="0"
+                        value={formData.marketingCommission || ''}
+                        onChange={(e) => handleFieldChange('marketingCommission', e.target.value)}
+                        placeholder={formData.marketingCommissionType === 'flat' ? 'e.g., 500' : 'e.g., 10.00'}
+                      />
+                      {formData.marketingCommissionType === 'price_difference' && formData.basePrice && formData.displayPrice && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          Price difference: KSh {Math.max(0, parseFloat(formData.displayPrice || 0) - parseFloat(formData.basePrice || 0)).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Marketing Duration */}
+                    <div>
+                      <Label>Marketing Duration</Label>
+                      <p className="text-sm text-gray-500 mb-2">Select the period during which this product should be marketed</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="marketingStartDate" className="text-sm">Start Date</Label>
+                          <Input
+                            id="marketingStartDate"
+                            type="date"
+                            value={formData.marketingStartDate || ''}
+                            onChange={(e) => handleFieldChange('marketingStartDate', e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="marketingEndDate" className="text-sm">End Date</Label>
+                          <Input
+                            id="marketingEndDate"
+                            type="date"
+                            value={formData.marketingEndDate || ''}
+                            onChange={(e) => handleFieldChange('marketingEndDate', e.target.value)}
+                            min={formData.marketingStartDate || new Date().toISOString().split('T')[0]}
+                          />
+                        </div>
+                      </div>
+                      {formData.marketingStartDate && formData.marketingEndDate && (
+                        <p className="text-xs text-green-600 mt-2">
+                          Duration: {Math.ceil((new Date(formData.marketingEndDate) - new Date(formData.marketingStartDate)) / (1000 * 60 * 60 * 24))} days
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Approval & Monitoring Section */}
+              <div className="space-y-6 bg-red-50 p-6 rounded-lg border border-red-200">
+                <h3 className="text-xl font-semibold text-red-900">Approval & Monitoring</h3>
+
+                {/* Visibility Setting */}
+                <div>
+                  <Label htmlFor="visibilityStatus">Visibility Setting</Label>
+                  <Select
+                    value={formData.visibilityStatus || 'active'}
+                    onValueChange={(value) => handleFieldChange('visibilityStatus', value)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select visibility status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active - Visible on platform</SelectItem>
+                      <SelectItem value="hidden">Hidden - Temporarily suspended</SelectItem>
+                      <SelectItem value="pending">Pending Review</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Control whether this product is visible to customers
+                  </p>
+                </div>
+
+                {/* Review Notes */}
+                <div>
+                  <Label htmlFor="reviewNotes">Review Notes</Label>
+                  <Textarea
+                    id="reviewNotes"
+                    value={formData.reviewNotes || ''}
+                    onChange={(e) => handleFieldChange('reviewNotes', e.target.value)}
+                    placeholder="Internal notes about this product review/approval"
+                    rows={3}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Internal notes for tracking and monitoring
+                  </p>
+                </div>
+              </div>
+
+              {/* Approval buttons are handled in ProductListingMode component for pending products */}
+              {isListMode && initialProduct && initialProduct.status !== 'pending' && (
+                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 mt-6">
+                  <p className="text-yellow-800 text-sm">
+                    <strong>Note:</strong> This product is in listing mode. Approval controls are available in the product listing view.
+                  </p>
+                </div>
+              )}
+
+              {/* Action buttons - Clear and correct functionality */}
+              <div className="flex justify-end space-x-4 pt-6 border-t bg-white sticky bottom-0 relative z-10">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/dashboard/products/comrades')}
+                  disabled={loading}
+                  className="bg-white hover:bg-gray-50 border-gray-300 text-gray-700 hover:text-gray-900 px-6 py-2 font-medium relative z-20"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 font-semibold shadow-lg hover:shadow-xl transition-all duration-200 min-w-[120px] relative z-20 border-2 border-blue-700"
+                  data-testid="submit-button"
+                  style={{
+                    backgroundColor: loading ? '#6b7280' : '#2563eb',
+                    color: 'white',
+                    fontWeight: 'bold',
+                    border: '2px solid #1d4ed8'
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      {isListMode ? 'Processing...' : (isEditMode ? 'Updating...' : 'Creating...')}
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      {isEditMode ? 'Update Product' : 'Create Product'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ComradesProductForm;

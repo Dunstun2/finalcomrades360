@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 14px;
+
+    /* Default slightly smaller for mobile */
+    @screen lg {
+      font-size: 16px;
+    }
+
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1 {
+    @apply font-display font-black tracking-tight mb-4;
+    font-size: clamp(1.5rem, 5vw, 3rem);
+    line-height: 1.1;
+  }
+
+  h2 {
+    @apply font-display font-bold tracking-tight mb-3;
+    font-size: clamp(1.25rem, 4vw, 2.25rem);
+    line-height: 1.2;
+  }
+
+  h3 {
+    @apply font-display font-bold tracking-tight mb-2;
+    font-size: clamp(1.1rem, 3vw, 1.875rem);
+  }
+
+  h4 {
+    @apply font-display font-bold mb-2 text-base lg:text-xl;
+  }
+
+  h5 {
+    @apply font-display font-bold mb-1 text-sm lg:text-lg;
+  }
+
+  h6 {
+    @apply font-display font-bold mb-1 text-xs lg:text-base;
+  }
+}
+
+@layer utilities {
+
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Fade in animation for smooth content transitions */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  /* Global Responsive Padding Utilities */
+  .p-responsive {
+    @apply p-2 sm:p-5 md:p-6 lg:p-8;
+  }
+
+  .px-responsive {
+    @apply px-2 sm:px-5 md:px-6 lg:px-8;
+  }
+
+  .py-responsive {
+    @apply py-2 sm:py-5 md:py-6 lg:py-8;
+  }
+
+  /* Compact Card Utility */
+  .card-responsive {
+    @apply bg-white rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-2 sm:p-5;
+  }
+
+  /* Consistent Input Sizing */
+  input,
+  select,
+  textarea {
+    @apply text-xs sm:text-sm md:text-base;
+  }
+}

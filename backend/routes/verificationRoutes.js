@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const verificationController = require('../controllers/verificationController');
+const { auth: authenticateToken, checkRole } = require('../middleware/auth');
+const adminVerificationController = require('../controllers/adminVerificationController');
+
+// User routes
+router.get('/status', authenticateToken, verificationController.getVerificationStatus);
+
+// Admin routes
+router.get('/admin/pending', authenticateToken, checkRole(['admin', 'superadmin', 'super_admin']), adminVerificationController.getPendingVerifications);
+router.post('/admin/review', authenticateToken, checkRole(['admin', 'superadmin', 'super_admin']), adminVerificationController.reviewVerification);
+
+module.exports = router;

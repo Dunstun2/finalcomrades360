@@ -1,0 +1,1983 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  FaUser, FaLock, FaBell, FaCreditCard, FaMapMarkerAlt,
+  FaHistory, FaSignOutAlt, FaCog, FaPhone, FaEnvelope,
+  FaIdCard, FaUniversity, FaShieldAlt, FaMoneyBillWave,
+  FaFileAlt, FaQuestionCircle, FaTrashAlt, FaToggleOn,
+  FaToggleOff, FaEdit, FaPlus, FaCheck, FaTimes, FaSpinner, FaWallet
+} from 'react-icons/fa';
+import { useAuth } from '../../contexts/AuthContext';
+import userService from '../../services/userService';
+import { toast } from 'react-toastify';
+
+const AccountSettings = () => {
+  const { user: authUser, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // State for user data and UI
+  const [userData, setUserData] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [transactions, setTransactions] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState({
+    profile: true,
+    wallet: true,
+    transactions: true,
+    notifications: true
+  });
+  const [activeTab, setActiveTab] = useState('profile');
+  const [isEditing, setIsEditing] = useState(false);
+  const [is2FAEnabled, setIs2FAEnabled] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [ticketForm, setTicketForm] = useState({
+    subject: '',
+    category: 'account',
+    priority: 'medium',
+    message: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ticketSubmitted, setTicketSubmitted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Fetch user profile data
+  const fetchUserProfile = useCallback(async () => {
+    try {
+      setLoading(prev => ({ ...prev, profile: true }));
+      const profile = await userService.getProfile();
+      setUserData(profile);
+    } catch (error) {
+      toast.error('Failed to load profile data');
+      console.error('Error fetching profile:', error);
+    } finally {
+      setLoading(prev => ({ ...prev, profile: false }));
+    }
+  }, []);
+  
+  // Fetch wallet data
+  const fetchWalletData = useCallback(async () => {
+    try {
+      setLoading(prev => ({ ...prev, wallet: true }));
+      const balance = await userService.getWalletBalance();
+      setWalletBalance(balance);
+      
+      const txns = await userService.getTransactions();
+      setTransactions(txns);
+    } catch (error) {
+      toast.error('Failed to load wallet data');
+      console.error('Error fetching wallet data:', error);
+    } finally {
+      setLoading(prev => ({ ...prev, wallet: false, transactions: false }));
+    }
+  }, []);
+  
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(prev => ({ ...prev, notifications: true }));
+      const notifs = await userService.getNotifications();
+      setNotifications(notifs);
+    } catch (error) {
+      toast.error('Failed to load notifications');
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setLoading(prev => ({ ...prev, notifications: false }));
+    }
+  }, []);
+  
+  // Load data based on active tab
+  useEffect(() => {
+    const loadTabData = async () => {
+      switch(activeTab) {
+        case 'profile':
+          await fetchUserProfile();
+          break;
+        case 'wallet':
+          await fetchWalletData();
+          break;
+        case 'notifications':
+          await fetchNotifications();
+          break;
+        default:
+          break;
+      }
+    };
+    
+    loadTabData();
+  }, [activeTab, fetchUserProfile, fetchWalletData, fetchNotifications]);
+  
+  // Handle profile update
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    if (!userData) return;
+    
+    try {
+      await userService.updateProfile(userData);
+      toast.success('Profile updated successfully');
+      setIsEditing(false);
+    } catch (error) {
+      toast.error('Failed to update profile');
+      console.error('Error updating profile:', error);
+    }
+  };
+  
+  // Handle password change
+  const handlePasswordChange = async (currentPassword, newPassword) => {
+    try {
+      await userService.changePassword(currentPassword, newPassword);
+      toast.success('Password changed successfully');
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to change password');
+      return false;
+    }
+  };
+  
+  // Handle email change request
+  const handleEmailChangeRequest = async (newEmail) => {
+    try {
+      await userService.requestEmailChange(newEmail);
+      toast.success('Verification email sent. Please check your inbox.');
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to request email change');
+      return false;
+    }
+  };
+  
+  // Handle phone verification request
+  const handlePhoneVerificationRequest = async (phoneNumber) => {
+    try {
+      await userService.requestPhoneOtp(phoneNumber);
+      toast.success('Verification code sent to your phone');
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to send verification code');
+      return false;
+    }
+  };
+  
+  // Handle phone verification
+  const handlePhoneVerification = async (otp) => {
+    try {
+      await userService.verifyPhoneOtp(otp);
+      toast.success('Phone number verified successfully');
+      await fetchUserProfile(); // Refresh profile data
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to verify phone number');
+      return false;
+    }
+  };
+  
+  // Handle notification settings update
+  const handleNotificationSettingsUpdate = async (settings) => {
+    try {
+      await userService.updateNotificationSettings(settings);
+      toast.success('Notification settings updated');
+      return true;
+    } catch (error) {
+      toast.error('Failed to update notification settings');
+      return false;
+    }
+  };
+  
+  // Handle support ticket submission
+  const handleTicketSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    try {
+      await userService.submitSupportTicket(ticketForm);
+      setTicketSubmitted(true);
+      setTicketForm({
+        subject: '',
+        category: 'account',
+        priority: 'medium',
+        message: ''
+      });
+      
+      // Hide success message after 5 seconds
+      setTimeout(() => setTicketSubmitted(false), 5000);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to submit support ticket');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  // Handle account deletion request
+  const handleAccountDeletionRequest = async (reason) => {
+    try {
+      await userService.requestAccountDeletion(reason);
+      toast.success('Account deletion request submitted. Our team will review it shortly.');
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to submit deletion request');
+      return false;
+    }
+  };
+  
+  // Handle input changes for forms
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setTicketForm(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+  
+  // Handle user data changes
+  const handleUserDataChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setUserData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+  
+  // Toggle 2FA
+  const toggle2FA = async () => {
+    try {
+      if (is2FAEnabled) {
+        // TODO: Implement 2FA disable
+        toast.info('2FA disable functionality to be implemented');
+      } else {
+        // TODO: Implement 2FA enable
+        toast.info('2FA setup to be implemented');
+      }
+      // For now, just toggle the UI state
+      setIs2FAEnabled(!is2FAEnabled);
+    } catch (error) {
+      toast.error('Failed to update 2FA settings');
+      console.error('Error updating 2FA:', error);
+    }
+  };
+
+  // Filter menu items based on user role
+  const filteredMenuItems = menuItems.filter(item => 
+    item.roles.includes(authUser?.role || 'customer')
+  );
+
+  // Render loading state
+  if (loading.profile && activeTab === 'profile') {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <FaSpinner className="animate-spin text-4xl text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Render profile section
+  const renderProfileSection = () => (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Profile Information</h2>
+          {!isEditing ? (
+            <button
+              onClick={() => setIsEditing(true)}
+              className="flex items-center text-blue-600 hover:text-blue-800"
+            >
+              <FaEdit className="mr-1" /> Edit Profile
+            </button>
+          ) : (
+            <div className="space-x-2">
+              <button
+                onClick={handleProfileUpdate}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                disabled={loading.profile}
+              >
+                {loading.profile ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center space-x-6">
+            <div className="relative">
+              <img
+                src={userData?.avatar || '/default-avatar.png'}
+                alt="Profile"
+                className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+              />
+              {isEditing && (
+                <label className="absolute bottom-0 right-0 bg-white p-1.5 rounded-full shadow-md cursor-pointer hover:bg-gray-100">
+                  <FaCamera className="text-gray-600" />
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        // TODO: Implement file upload
+                        toast.info('Profile picture upload to be implemented');
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold">
+                {isEditing ? (
+                  <input
+                    type="text"
+                    name="name"
+                    value={userData?.name || ''}
+                    onChange={handleUserDataChange}
+                    className="border-b border-gray-300 focus:border-blue-500 focus:outline-none"
+                  />
+                ) : (
+                  userData?.name || 'No name provided'
+                )}
+              </h3>
+              <p className="text-gray-600">{authUser?.role || 'Customer'}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+            <div>
+              <h4 className="text-sm font-medium text-gray-500 mb-1">Email</h4>
+              {isEditing ? (
+                <div>
+                  <input
+                    type="email"
+                    name="email"
+                    value={userData?.email || ''}
+                    onChange={handleUserDataChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!isEditing}
+                  />
+                  {!userData?.emailVerified && (
+                    <button
+                      onClick={() => handleEmailChangeRequest(userData?.email)}
+                      className="mt-1 text-xs text-blue-600 hover:underline"
+                    >
+                      Verify email
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-800">
+                  {userData?.email || 'No email provided'}
+                  {userData?.emailVerified ? (
+                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                      Verified
+                    </span>
+                  ) : (
+                    <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
+                      Unverified
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium text-gray-500 mb-1">Phone</h4>
+              {isEditing ? (
+                <div>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={userData?.phone || ''}
+                    onChange={handleUserDataChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!isEditing}
+                  />
+                  {!userData?.phoneVerified && userData?.phone && (
+                    <button
+                      onClick={() => handlePhoneVerificationRequest(userData.phone)}
+                      className="mt-1 text-xs text-blue-600 hover:underline"
+                    >
+                      Verify phone
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-800">
+                  {userData?.phone || 'No phone provided'}
+                  {userData?.phoneVerified ? (
+                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                      Verified
+                    </span>
+                  ) : userData?.phone ? (
+                    <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
+                      Unverified
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium text-gray-500 mb-1">Joined Date</h4>
+              <p className="text-gray-800">
+                {new Date(userData?.createdAt).toLocaleDateString()}
+              </p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium text-gray-500 mb-1">Account Status</h4>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Active
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render security section
+  const renderSecuritySection = () => (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">Security Settings</h2>
+        
+        <div className="space-y-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-200 pb-6">
+            <div>
+              <h3 className="font-medium text-gray-900">Password</h3>
+              <p className="text-sm text-gray-500">Update your password to secure your account</p>
+            </div>
+            <button
+              onClick={() => setActiveTab('change-password')}
+              className="mt-3 md:mt-0 px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Change Password
+            </button>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-200 pb-6">
+            <div>
+              <h3 className="font-medium text-gray-900">Two-Factor Authentication</h3>
+              <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+            </div>
+            <button
+              onClick={toggle2FA}
+              className={`mt-3 md:mt-0 px-4 py-2 border rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                is2FAEnabled
+                  ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200 focus:ring-green-500'
+                  : 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 focus:ring-gray-500'
+              }`}
+            >
+              {is2FAEnabled ? 'Enabled' : 'Enable 2FA'}
+            </button>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between">
+            <div>
+              <h3 className="font-medium text-gray-900">Login Activity</h3>
+              <p className="text-sm text-gray-500">View your recent login activity</p>
+            </div>
+            <button
+              onClick={() => setActiveTab('login-activity')}
+              className="mt-3 md:mt-0 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              View Activity
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render wallet section
+  const renderWalletSection = () => (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">Wallet</h2>
+        
+        <div className="bg-blue-50 rounded-lg p-6 mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Available Balance</p>
+              <h3 className="text-3xl font-bold text-gray-900">
+                KES {walletBalance?.toLocaleString() || '0.00'}
+              </h3>
+            </div>
+            <div className="space-x-3">
+              <button className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                Add Money
+              </button>
+              <button className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                Withdraw
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Recent Transactions</h3>
+            <button className="text-sm text-blue-600 hover:text-blue-800">View All</button>
+          </div>
+          
+          {loading.transactions ? (
+            <div className="flex justify-center py-8">
+              <FaSpinner className="animate-spin text-blue-600 text-2xl" />
+            </div>
+          ) : transactions?.length > 0 ? (
+            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                      Description
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      Date
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      Amount
+                    </th>
+                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {transactions.slice(0, 5).map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
+                        {transaction.description || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        {new Date(transaction.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className={`whitespace-nowrap px-3 py-4 text-sm ${
+                        transaction.type === 'credit' ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {transaction.type === 'credit' ? '+' : '-'} KES {transaction.amount?.toLocaleString()}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          transaction.status === 'completed' 
+                            ? 'bg-green-100 text-green-800' 
+                            : transaction.status === 'pending'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {transaction.status?.charAt(0).toUpperCase() + transaction.status?.slice(1) || 'N/A'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-500">No transactions found</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render notifications section
+  const renderNotificationsSection = () => (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">Notification Preferences</h2>
+        
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Email Notifications</h3>
+            <div className="space-y-4">
+              {[
+                { id: 'order_updates', label: 'Order updates', description: 'Get notified about order status changes' },
+                { id: 'promotions', label: 'Promotions', description: 'Receive special offers and discounts' },
+                { id: 'newsletter', label: 'Newsletter', description: 'Weekly product updates and news' },
+                { id: 'account_activity', label: 'Account activity', description: 'Important notifications about your account' },
+              ].map((item) => (
+                <div key={item.id} className="flex items-start justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-900">{item.label}</span>
+                    <span className="text-sm text-gray-500">{item.description}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newSettings = { ...userData.notificationSettings, [item.id]: !userData.notificationSettings?.[item.id] };
+                      handleNotificationSettingsUpdate(newSettings);
+                    }}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      userData.notificationSettings?.[item.id] ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                    role="switch"
+                    aria-checked={userData.notificationSettings?.[item.id]}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        userData.notificationSettings?.[item.id] ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Push Notifications</h3>
+            <div className="space-y-4">
+              {[
+                { id: 'push_order_updates', label: 'Order updates', description: 'Get real-time order notifications' },
+                { id: 'push_promotions', label: 'Special offers', description: 'Exclusive deals and flash sales' },
+                { id: 'push_account', label: 'Account activity', description: 'Important security notifications' },
+              ].map((item) => (
+                <div key={item.id} className="flex items-start justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-900">{item.label}</span>
+                    <span className="text-sm text-gray-500">{item.description}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newSettings = { ...userData.notificationSettings, [item.id]: !userData.notificationSettings?.[item.id] };
+                      handleNotificationSettingsUpdate(newSettings);
+                    }}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      userData.notificationSettings?.[item.id] ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                    role="switch"
+                    aria-checked={userData.notificationSettings?.[item.id]}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        userData.notificationSettings?.[item.id] ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render support section
+  const renderSupportSection = () => (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="p-6 border-b">
+          <h2 className="text-2xl font-bold text-gray-800">Support Center</h2>
+          <p className="text-sm text-gray-500 mt-1">We're here to help with any questions or issues</p>
+        </div>
+        
+        {ticketSubmitted ? (
+          <div className="p-6 bg-green-50 text-green-800">
+            <div className="flex items-center">
+              <FaCheck className="text-green-500 mr-2" />
+              <p>Your support ticket has been submitted successfully! We'll get back to you soon.</p>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleTicketSubmit} className="p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1">
+                  Subject *
+                </label>
+                <input
+                  type="text"
+                  id="subject"
+                  name="subject"
+                  required
+                  value={ticketForm.subject}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Briefly describe your issue"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                  Category *
+                </label>
+                <select
+                  id="category"
+                  name="category"
+                  required
+                  value={ticketForm.category}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="account">Account Issues</option>
+                  <option value="billing">Billing & Payments</option>
+                  <option value="orders">Orders & Delivery</option>
+                  <option value="technical">Technical Issues</option>
+                  <option value="suggestions">Suggestions</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              
+              <div>
+                <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
+                  Priority *
+                </label>
+                <select
+                  id="priority"
+                  name="priority"
+                  required
+                  value={ticketForm.priority}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+            </div>
+            
+            <div>
+              <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1">
+                Message *
+              </label>
+              <textarea
+                id="message"
+                name="message"
+                rows={5}
+                required
+                value={ticketForm.message}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Please describe your issue in detail..."
+              />
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-6 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Ticket'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Frequently Asked Questions</h3>
+        <div className="space-y-4">
+          {[
+            {
+              question: 'How do I track my order?',
+              answer: 'You can track your order by going to the Orders section in your account.'
+            },
+            {
+              question: 'What payment methods do you accept?',
+              answer: 'We accept M-Pesa, credit/debit cards, and wallet payments.'
+            },
+            {
+              question: 'How can I change my account information?',
+              answer: 'You can update your account information in the Profile section of your account settings.'
+            },
+            {
+              question: 'How do I reset my password?',
+              answer: 'Click on the "Forgot Password" link on the login page and follow the instructions.'
+            },
+          ].map((faq, index) => (
+            <div key={index} className="border-b border-gray-200 pb-4">
+              <button
+                className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-900 focus:outline-none"
+                onClick={(e) => {
+                  const content = e.currentTarget.nextElementSibling;
+                  content.style.display = content.style.display === 'none' ? 'block' : 'none';
+                }}
+              >
+                <span>{faq.question}</span>
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <div className="mt-2 text-sm text-gray-500 hidden">
+                {faq.answer}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Contact Support</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h4 className="text-sm font-medium text-gray-500 mb-2">Email</h4>
+            <a href="mailto:support@comrades360.com" className="text-blue-600 hover:underline">
+              support@comrades360.com
+            </a>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500 mb-2">Phone</h4>
+            <a href="tel:+254712345678" className="text-blue-600 hover:underline">
+              +254 712 345 678
+            </a>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500 mb-2">Live Chat</h4>
+            <p className="text-gray-700">Available 24/7 in the app</p>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-500 mb-2">Office Hours</h4>
+            <p className="text-gray-700">Monday - Friday: 8:00 AM - 6:00 PM EAT</p>
+            <p className="text-gray-700">Saturday: 9:00 AM - 4:00 PM EAT</p>
+            <p className="text-gray-700">Sunday: Closed</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render account control section
+  const renderAccountControl = () => (
+    <div className="space-y-6">
+      {/* Account Deactivation */}
+      <div className="bg-white border border-yellow-200 bg-yellow-50 rounded-lg p-6">
+        <h3 className="text-lg font-medium text-yellow-800 mb-2">Deactivate Account</h3>
+        <p className="text-sm text-yellow-700 mb-4">
+          Your account will be deactivated immediately. You can reactivate it by logging in again.
+        </p>
+        <button
+          onClick={() => {
+            if (window.confirm('Are you sure you want to deactivate your account? You can log in again to reactivate it.')) {
+              // TODO: Implement account deactivation
+              toast.info('Account deactivation to be implemented');
+            }
+          }}
+          className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-yellow-700 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+        >
+          Deactivate Account
+        </button>
+      </div>
+
+      {/* Request Account Deletion */}
+      <div className="bg-white border border-red-200 bg-red-50 rounded-lg p-6">
+        <h3 className="text-lg font-medium text-red-800 mb-2">Delete Account</h3>
+        <p className="text-sm text-red-700 mb-4">
+          This will permanently delete your account and all associated data. This action cannot be undone.
+        </p>
+        <button
+          onClick={() => setShowDeleteModal(true)}
+          className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+        >
+          Request Account Deletion
+        </button>
+      </div>
+
+      {/* Export Data */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Export Data</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Download a copy of your personal data, including order history and account information.
+        </p>
+        <button
+          onClick={() => {
+            // TODO: Implement data export
+            toast.info('Data export to be implemented');
+          }}
+          className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          Export Data
+        </button>
+      </div>
+    </div>
+  );
+
+  // Main render
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Sidebar */}
+          <div className="w-full md:w-64 flex-shrink-0">
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-center">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold">
+                    {userData?.name?.charAt(0) || 'U'}
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-gray-900">{userData?.name || 'User'}</p>
+                    <p className="text-xs text-gray-500">{authUser?.role || 'Customer'}</p>
+                  </div>
+                </div>
+              </div>
+              <nav className="p-2">
+                <ul className="space-y-1">
+                  {filteredMenuItems.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                          activeTab === item.id
+                            ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {item.icon}
+                        {item.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            </div>
+          </div>
+
+          {/* Content Area */}
+          <div className="flex-1">
+            {activeTab === 'profile' && renderProfileSection()}
+            {activeTab === 'security' && renderSecuritySection()}
+            {activeTab === 'wallet' && renderWalletSection()}
+            {activeTab === 'notifications' && renderNotificationsSection()}
+            {activeTab === 'support' && renderSupportSection()}
+            {activeTab === 'account' && renderAccountControl()}
+          </div>
+        </div>
+      </main>
+
+      {/* Delete Account Modal */}
+      {showDeleteModal && (
+        <div className="fixed z-10 inset-0 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+            </div>
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+              <div>
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                  <FaTrashAlt className="h-6 w-6 text-red-600" />
+                </div>
+                <div className="mt-3 text-center sm:mt-5">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">Delete account</h3>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to delete your account? All of your data will be permanently removed. This action cannot be undone.
+                    </p>
+                    <div className="mt-4">
+                      <label htmlFor="reason" className="block text-sm font-medium text-gray-700 text-left mb-1">
+                        Reason for leaving (optional)
+                      </label>
+                      <textarea
+                        id="reason"
+                        rows="3"
+                        className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border border-gray-300 rounded-md p-2"
+                        placeholder="Help us improve our service..."
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const reason = document.getElementById('reason').value;
+                    const success = await handleAccountDeletionRequest(reason);
+                    if (success) {
+                      setShowDeleteModal(false);
+                    }
+                  }}
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:col-start-2 sm:text-sm"
+                >
+                  Delete Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:col-start-1 sm:text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const menuItems = [
+    {
+      id: 'profile',
+      name: 'Profile',
+      path: '/account/settings/profile',
+      icon: <FaUser className="mr-3" />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    },
+    {
+      id: 'security',
+      name: 'Security',
+      path: '/account/settings/security',
+      icon: <FaLock className="mr-3" />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    },
+    {
+      id: 'wallet',
+      name: 'Wallet',
+      path: '/account/settings/wallet',
+      icon: <FaWallet className="mr-3" />,
+      roles: ['customer', 'seller']
+    },
+    {
+      id: 'notifications',
+      name: 'Notifications',
+      path: '/account/settings/notifications',
+      icon: <FaBell className="mr-3" />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    },
+    {
+      id: 'support',
+      name: 'Support',
+      path: '/account/settings/support',
+      icon: <FaQuestionCircle className="mr-3" />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    },
+    {
+      id: 'account',
+      name: 'Account Control',
+      path: '/account/settings/account',
+      icon: <FaCog className="mr-3" />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    }
+  ];
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  if (!authUser) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-4">Please Login</h2>
+          <Link 
+            to="/login" 
+            className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Login to Your Account
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      {/* Sidebar */}
+      <div className="hidden md:flex md:flex-shrink-0">
+        <div className="flex flex-col w-64 bg-white border-r border-gray-200">
+          <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
+            <div className="flex items-center flex-shrink-0 px-4">
+              <h1 className="text-xl font-bold text-gray-900">Account Settings</h1>
+            </div>
+            <div className="mt-5 flex-1 flex flex-col">
+              <nav className="flex-1 px-2 space-y-1">
+                {menuItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={item.path}
+                    className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
+                      location.pathname === item.path
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    {item.icon}
+                    {item.name}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile header */}
+      <div className="md:hidden">
+        <div className="bg-white shadow">
+          <div className="px-4 py-4 sm:px-6">
+            <h1 className="text-xl font-bold text-gray-900">Account Settings</h1>
+          </div>
+          <div className="border-t border-gray-200">
+            <select
+              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              value={location.pathname}
+              onChange={(e) => navigate(e.target.value)}
+            >
+              {menuItems.map((item) => (
+                <option key={item.id} value={item.path}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="md:pl-64 flex flex-col flex-1">
+        <main className="flex-1">
+          <div className="py-6">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
+              <Outlet />
+            </div>
+          </div>
+        </main>
+      </div>
+
+      {/* Delete Account Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <FaTrashAlt className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="mt-3 text-lg font-medium text-gray-900">Delete Account</h3>
+              <div className="mt-2">
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently removed.
+                </p>
+              </div>
+              <div className="mt-4 flex justify-center space-x-3">
+                <button
+                  type="button"
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  onClick={() => setShowDeleteModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+                  onClick={() => {
+                    handleLogout();
+                    setShowDeleteModal(false);
+                  }}
+                >
+                  Delete My Account
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+  // State for user data and UI
+  const [userData, setUserData] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [transactions, setTransactions] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState({
+    profile: true,
+    wallet: true,
+    transactions: true,
+    notifications: true
+  });
+  const [activeTab, setActiveTab] = useState('profile');
+  const [isEditing, setIsEditing] = useState(false);
+  const [is2FAEnabled, setIs2FAEnabled] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [ticketForm, setTicketForm] = useState({
+    subject: '',
+    category: 'account',
+    priority: 'medium',
+    message: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ticketSubmitted, setTicketSubmitted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+    studentId: 'CSC-2023-001',
+    institution: 'University of Nairobi',
+    profilePicture: null,
+    emailVerified: true,
+    phoneVerified: true,
+    defaultAddress: 'Hostel J, Room 45',
+    walletBalance: 12500,
+    notifications: {
+      email: true,
+      sms: true,
+      push: true,
+      marketing: false
+    }
+  });
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUserData(prev => ({ ...prev, profilePicture: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const toggle2FA = () => {
+    setIs2FAEnabled(!is2FAEnabled);
+    // Add actual 2FA setup logic here
+  };
+
+  const toggleNotification = (type) => {
+    setUserData(prev => ({
+      ...prev,
+      notifications: {
+        ...prev.notifications,
+        [type]: !prev.notifications[type]
+      }
+    }));
+  };
+
+  const renderProfileSection = () => (
+    <div className="space-y-6">
+      <div className="flex items-center space-x-4">
+        <div className="relative">
+          <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+            {userData.profilePicture ? (
+              <img src={userData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <FaUser className="text-4xl text-gray-400" />
+            )}
+          </div>
+          <label className="absolute bottom-0 right-0 bg-blue-500 text-white p-1 rounded-full cursor-pointer">
+            <FaEdit className="text-sm" />
+            <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+          </label>
+        </div>
+        <div>
+          <h2 className="text-xl font-semibold">{userData.name}</h2>
+          <p className="text-gray-600">{user.role}</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center">
+          <FaEnvelope className="text-gray-500 mr-3" />
+          <div className="flex-1">
+            <p className="text-sm text-gray-500">Email Address</p>
+            <div className="flex items-center">
+              <p className="text-gray-800">{userData.email}</p>
+              {userData.emailVerified ? (
+                <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
+                  <FaCheck className="mr-1" /> Verified
+                </span>
+              ) : (
+                <button className="ml-2 text-xs text-blue-600 hover:underline">
+                  Verify
+                </button>
+              )}
+            </div>
+          </div>
+          <button className="text-blue-600 hover:text-blue-800">
+            <FaEdit />
+          </button>
+        </div>
+
+        <div className="flex items-center">
+          <FaPhone className="text-gray-500 mr-3" />
+          <div className="flex-1">
+            <p className="text-sm text-gray-500">Phone Number</p>
+            <div className="flex items-center">
+              <p className="text-gray-800">{userData.phone}</p>
+              {userData.phoneVerified ? (
+                <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
+                  <FaCheck className="mr-1" /> Verified
+                </span>
+              ) : (
+                <button className="ml-2 text-xs text-blue-600 hover:underline">
+                  Verify
+                </button>
+              )}
+            </div>
+          </div>
+          <button className="text-blue-600 hover:text-blue-800">
+            <FaEdit />
+          </button>
+        </div>
+
+        <div className="flex items-center">
+          <FaIdCard className="text-gray-500 mr-3" />
+          <div className="flex-1">
+            <p className="text-sm text-gray-500">Student ID</p>
+            <p className="text-gray-800">{userData.studentId}</p>
+          </div>
+          <button className="text-blue-600 hover:text-blue-800">
+            <FaEdit />
+          </button>
+        </div>
+
+        <div className="flex items-center">
+          <FaUniversity className="text-gray-500 mr-3" />
+          <div className="flex-1">
+            <p className="text-sm text-gray-500">Institution</p>
+            <p className="text-gray-800">{userData.institution}</p>
+          </div>
+          <button className="text-blue-600 hover:text-blue-800">
+            <FaEdit />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSecuritySection = () => (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">Login & Security</h3>
+        
+        <div className="p-4 bg-white border rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium">Change Password</h4>
+              <p className="text-sm text-gray-500">Update your password regularly to keep your account secure</p>
+            </div>
+            <button className="text-blue-600 hover:text-blue-800">
+              Change
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 bg-white border rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium">Two-Factor Authentication</h4>
+              <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+            </div>
+            <button 
+              onClick={toggle2FA}
+              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors focus:outline-none ${is2FAEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+            >
+              <span className={`${is2FAEnabled ? 'translate-x-6' : 'translate-x-1'} inline-block w-4 h-4 transform bg-white rounded-full transition-transform`} />
+            </button>
+          </div>
+          {is2FAEnabled && (
+            <div className="mt-3 p-3 bg-blue-50 text-sm text-blue-700 rounded">
+              Two-factor authentication is now enabled. You'll need to enter a verification code each time you sign in.
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 bg-white border rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium">Login Activity</h4>
+              <p className="text-sm text-gray-500">Review and manage your active sessions</p>
+            </div>
+            <button className="text-blue-600 hover:text-blue-800">
+              View All
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderOrdersAddressesSection = () => (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">Addresses</h3>
+        
+        <div className="p-4 bg-white border rounded-lg">
+          <div className="flex items-start justify-between">
+            <div>
+              <h4 className="font-medium flex items-center">
+                {userData.defaultAddress}
+                <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                  Default
+                </span>
+              </h4>
+              <p className="text-sm text-gray-500 mt-1">Hostel J, Room 45, University of Nairobi</p>
+              <p className="text-sm text-gray-500">Nairobi, Kenya</p>
+            </div>
+            <div className="flex space-x-2">
+              <button className="text-blue-600 hover:text-blue-800">
+                <FaEdit />
+              </button>
+              <button className="text-red-600 hover:text-red-800">
+                <FaTrashAlt />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button className="flex items-center text-blue-600 hover:text-blue-800 text-sm">
+          <FaPlus className="mr-2" /> Add New Address
+        </button>
+      </div>
+
+      <div className="space-y-4 pt-4 border-t">
+        <h3 className="text-lg font-medium">Order History</h3>
+        <div className="p-4 bg-white border rounded-lg text-center">
+          <p className="text-gray-500">You haven't placed any orders yet.</p>
+          <button className="mt-2 text-blue-600 hover:underline">
+            Start Shopping
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderWalletSection = () => (
+    <div className="space-y-6">
+      <div className="p-6 bg-gradient-to-r from-blue-600 to-blue-800 text-white rounded-lg">
+        <h3 className="text-lg font-medium mb-1">Wallet Balance</h3>
+        <p className="text-3xl font-bold">KSh {userData.walletBalance?.toLocaleString() || '0'}</p>
+        <div className="flex space-x-3 mt-4">
+          <button className="bg-white text-blue-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-50">
+            Add Money
+          </button>
+          <button className="bg-white/20 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-white/30">
+            Withdraw
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-medium">Payment Methods</h3>
+          <button className="text-blue-600 hover:text-blue-800 text-sm flex items-center">
+            <FaPlus className="mr-1" /> Add New
+          </button>
+        </div>
+
+        <div className="p-4 bg-white border rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-10 h-6 bg-gray-200 rounded mr-3"></div>
+              <div>
+                <p className="font-medium">M-PESA</p>
+                <p className="text-sm text-gray-500">Ending with 5678</p>
+              </div>
+            </div>
+            <div className="flex space-x-3">
+              <button className="text-blue-600 hover:text-blue-800">
+                <FaEdit />
+              </button>
+              <button className="text-red-600 hover:text-red-800">
+                <FaTrashAlt />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 pt-4 border-t">
+        <h3 className="text-lg font-medium">Recent Transactions</h3>
+        <div className="p-4 bg-white border rounded-lg text-center">
+          <p className="text-gray-500">No recent transactions</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderRoleApplications = () => (
+    <div className="space-y-6">
+      <div className="p-6 bg-white border rounded-lg text-center">
+        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <FaFileAlt className="text-blue-600 text-2xl" />
+        </div>
+        <h3 className="text-lg font-medium mb-2">No Active Applications</h3>
+        <p className="text-gray-600 mb-4">You don't have any active role applications at the moment.</p>
+        <button className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700">
+          Apply for a Role
+        </button>
+      </div>
+
+      <div className="border-t pt-6">
+        <h3 className="text-lg font-medium mb-4">Available Roles</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {['Campus Ambassador', 'Delivery Rider', 'Campus Vendor', 'Content Creator'].map((role) => (
+            <div key={role} className="p-4 border rounded-lg hover:border-blue-500 transition-colors">
+              <h4 className="font-medium">{role}</h4>
+              <p className="text-sm text-gray-600 mt-1">Click to view requirements and apply</p>
+              <button className="mt-3 text-blue-600 hover:underline text-sm">
+                Learn More
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderNotificationsSection = () => (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">Notification Preferences</h3>
+        
+        <div className="space-y-3">
+          {[
+            { id: 'email', label: 'Email Notifications', description: 'Receive order updates and account notifications via email' },
+            { id: 'sms', label: 'SMS Notifications', description: 'Get important updates via text message' },
+            { id: 'push', label: 'Push Notifications', description: 'Get app notifications on your device' },
+            { id: 'marketing', label: 'Marketing Communications', description: 'Receive offers, promotions, and updates' }
+          ].map(({ id, label, description }) => (
+            <div key={id} className="flex items-center justify-between p-4 bg-white border rounded-lg">
+              <div>
+                <h4 className="font-medium">{label}</h4>
+                <p className="text-sm text-gray-500">{description}</p>
+              </div>
+              <button 
+                onClick={() => toggleNotification(id)}
+                className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors focus:outline-none ${userData.notifications[id] ? 'bg-blue-600' : 'bg-gray-200'}`}
+              >
+                <span className={`${userData.notifications[id] ? 'translate-x-6' : 'translate-x-1'} inline-block w-4 h-4 transform bg-white rounded-full transition-transform`} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const [ticketForm, setTicketForm] = useState({
+    subject: '',
+    category: 'account',
+    priority: 'medium',
+    message: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ticketSubmitted, setTicketSubmitted] = useState(false);
+
+  const handleTicketSubmit = (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    // Simulate API call
+    setTimeout(() => {
+      console.log('Ticket submitted:', ticketForm);
+      setTicketSubmitted(true);
+      setIsSubmitting(false);
+      // Reset form after submission
+      setTicketForm({
+        subject: '',
+        category: 'account',
+        priority: 'medium',
+        message: ''
+      });
+      
+      // Hide success message after 5 seconds
+      setTimeout(() => setTicketSubmitted(false), 5000);
+    }, 1000);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setTicketForm(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const renderSupportSection = () => (
+    <div className="space-y-6">
+      {/* Submit a Ticket */}
+      <div className="bg-white border rounded-lg overflow-hidden">
+        <div className="p-6 border-b">
+          <h3 className="text-lg font-medium">Submit a Support Ticket</h3>
+          <p className="text-sm text-gray-500 mt-1">Our team will get back to you as soon as possible</p>
+        </div>
+        
+        {ticketSubmitted ? (
+          <div className="p-6 bg-green-50 text-green-800">
+            <div className="flex items-center">
+              <FaCheck className="text-green-500 mr-2" />
+              <p>Your ticket has been submitted successfully! We'll contact you soon.</p>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleTicketSubmit} className="p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1">
+                  Subject *
+                </label>
+                <input
+                  type="text"
+                  id="subject"
+                  name="subject"
+                  required
+                  value={ticketForm.subject}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Briefly describe your issue"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                  Category *
+                </label>
+                <select
+                  id="category"
+                  name="category"
+                  required
+                  value={ticketForm.category}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="account">Account Issues</option>
+                  <option value="billing">Billing & Payments</option>
+                  <option value="orders">Orders & Delivery</option>
+                  <option value="technical">Technical Issues</option>
+                  <option value="suggestions">Suggestions</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              
+              <div>
+                <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
+                  Priority *
+                </label>
+                <select
+                  id="priority"
+                  name="priority"
+                  required
+                  value={ticketForm.priority}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+            </div>
+            
+            <div>
+              <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1">
+                Message *
+              </label>
+              <textarea
+                id="message"
+                name="message"
+                rows={5}
+                required
+                value={ticketForm.message}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Please describe your issue in detail..."
+              />
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="bg-blue-600 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Ticket'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Help Center */}
+      <div className="p-6 bg-white border rounded-lg">
+        <div className="flex items-start">
+          <div className="bg-blue-100 p-3 rounded-full mr-4">
+            <FaQuestionCircle className="text-blue-600 text-xl" />
+          </div>
+          <div>
+            <h3 className="text-lg font-medium mb-2">Help Center</h3>
+            <p className="text-gray-600 mb-4">Find answers to common questions in our help center.</p>
+            <button className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700">
+              Visit Help Center
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Contact Information */}
+      <div className="p-6 bg-white border rounded-lg">
+        <h3 className="text-lg font-medium mb-4">Other Ways to Reach Us</h3>
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm text-gray-500 mb-1">Email</p>
+            <a href="mailto:support@comrades360.com" className="text-blue-600 hover:underline">
+              support@comrades360.com
+            </a>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 mb-1">Phone</p>
+            <a href="tel:+254712345678" className="text-blue-600 hover:underline">
+              +254 712 345 678
+            </a>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 mb-1">Live Chat</p>
+            <p className="text-gray-700">Available 24/7 in the app</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 mb-1">Office Hours</p>
+            <p className="text-gray-700">Monday - Friday: 8:00 AM - 6:00 PM EAT</p>
+            <p className="text-gray-700">Saturday: 9:00 AM - 4:00 PM EAT</p>
+            <p className="text-gray-700">Sunday: Closed</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAccountControl = () => (
+    <div className="space-y-6">
+      <div className="p-6 bg-white border border-yellow-200 bg-yellow-50 rounded-lg">
+        <h3 className="text-lg font-medium text-yellow-800 mb-2">Deactivate Account</h3>
+        <p className="text-yellow-700 mb-4">
+          Your account will be temporarily deactivated. You can reactivate it by logging in again.
+        </p>
+        <button className="border border-yellow-500 text-yellow-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-yellow-100">
+          Deactivate My Account
+        </button>
+      </div>
+
+      <div className="p-6 bg-white border border-red-200 bg-red-50 rounded-lg">
+        <h3 className="text-lg font-medium text-red-800 mb-2">Delete Account</h3>
+        <p className="text-red-700 mb-4">
+          Warning: This action is permanent and cannot be undone. All your data will be permanently deleted.
+        </p>
+        <button 
+          onClick={() => setShowDeleteModal(true)}
+          className="border border-red-500 text-red-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-50"
+        >
+          Delete My Account
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderContent = () => {
+    switch(activeTab) {
+      case 'profile':
+        return renderProfileSection();
+      case 'security':
+        return renderSecuritySection();
+      case 'orders':
+        return renderOrdersAddressesSection();
+      case 'wallet':
+        return renderWalletSection();
+      case 'roles':
+        return renderRoleApplications();
+      case 'notifications':
+        return renderNotificationsSection();
+      case 'support':
+        return renderSupportSection();
+      case 'account':
+        return renderAccountControl();
+      default:
+        return renderProfileSection();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <h1 className="text-2xl font-bold text-gray-900">Account Settings</h1>
+            <p className="text-gray-600 mt-1">Manage your account settings and preferences</p>
+          </div>
+          
+          <div className="flex flex-col md:flex-row">
+            {/* Sidebar Navigation */}
+            <div className="w-full md:w-64 border-r border-gray-200 bg-gray-50">
+              <nav className="space-y-1 p-4">
+                <button
+                  onClick={() => setActiveTab('profile')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'profile' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaUser className="mr-3 text-gray-500" />
+                  Profile Information
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('security')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'security' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaLock className="mr-3 text-gray-500" />
+                  Security & Login
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('orders')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'orders' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaMapMarkerAlt className="mr-3 text-gray-500" />
+                  Orders & Addresses
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('wallet')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'wallet' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaMoneyBillWave className="mr-3 text-gray-500" />
+                  Wallet & Payments
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('roles')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'roles' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaFileAlt className="mr-3 text-gray-500" />
+                  Role Applications
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('notifications')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'notifications' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaBell className="mr-3 text-gray-500" />
+                  Notifications
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('support')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'support' 
+                      ? 'bg-blue-50 text-blue-700 border-l-4 border-blue-600' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <FaQuestionCircle className="mr-3 text-gray-500" />
+                  Support & Help
+                </button>
+                
+                <div className="border-t border-gray-200 my-2"></div>
+                
+                <button
+                  onClick={() => setActiveTab('account')}
+                  className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                    activeTab === 'account' 
+                      ? 'bg-red-50 text-red-700 border-l-4 border-red-600' 
+                      : 'text-red-600 hover:bg-red-50'
+                  }`}
+                >
+                  <FaTrashAlt className="mr-3" />
+                  Account Control
+                </button>
+              </nav>
+              
+              <div className="p-4 border-t border-gray-200">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <FaSignOutAlt className="mr-2" />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+            
+            {/* Main Content */}
+            <div className="flex-1 p-6 overflow-auto">
+              {renderContent()}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Delete Account Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <FaTrashAlt className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="mt-3 text-lg font-medium text-gray-900">Delete Account</h3>
+              <div className="mt-2">
+                <p className="text-sm text-gray-500">
+                  Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently removed.
+                </p>
+              </div>
+              <div className="mt-4 flex justify-center space-x-3">
+                <button
+                  type="button"
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  onClick={() => setShowDeleteModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+                  onClick={() => {
+                    // Handle account deletion
+                    handleLogout();
+                    setShowDeleteModal(false);
+                  }}
+                >
+                  Delete My Account
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AccountSettings;

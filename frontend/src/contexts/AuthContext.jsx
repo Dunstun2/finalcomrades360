@@ -1,0 +1,230 @@
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import api from '../services/api';
+import { joinUserRoom } from '../services/socket';
+
+const AuthContext = createContext(null);
+
+// Prevent Strict Mode from calling checkAuth twice
+let _authChecked = false;
+
+// Read stored user synchronously — app renders immediately with this
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem('user');
+    if (raw) return JSON.parse(raw);
+  } catch { }
+  return null;
+}
+
+export const AuthProvider = ({ children }) => {
+  // Initialize from localStorage instantly — no waiting for /auth/me
+  const [user, setUser] = useState(() => getStoredUser());
+  const [loading, setLoading] = useState(false); // No longer blocks render
+  const [error, setError] = useState(null);
+  const [verificationRequired, setVerificationRequired] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+
+  useEffect(() => {
+    // Validate session in background — doesn't block UI
+    const checkAuth = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setUser(null);
+        return;
+      }
+
+      try {
+        console.log('[AuthContext] Background session check...');
+        const t0 = performance.now();
+        const response = await api.get('/auth/me');
+        console.log(`[AuthContext] /auth/me done in ${(performance.now() - t0).toFixed(0)}ms`);
+        const userData = response.data;
+        const sessionUser = {
+          ...userData,
+          role: userData.role || 'customer',
+          roles: userData.roles || [userData.role || 'customer']
+        };
+        setUser(sessionUser);
+        localStorage.setItem('user', JSON.stringify(sessionUser));
+        joinUserRoom(sessionUser.id);
+
+        const userRoles = Array.isArray(userData.roles) ? userData.roles : [userData.role || 'customer'];
+        const isAdmin = userRoles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
+        const hasSpecialistRole = userRoles.some(r => r !== 'customer' && !['admin', 'superadmin', 'super_admin'].includes(r));
+
+        if (hasSpecialistRole && !isAdmin && !userData.isVerified) {
+          setVerificationRequired(true);
+          setVerificationMessage('Account verification required. Please complete your role application approval.');
+        } else {
+          setVerificationRequired(false);
+          setVerificationMessage('');
+        }
+      } catch (error) {
+        console.error('[AuthContext] Session check failed:', error.message);
+
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          // Token expired or invalid — clear session
+          const is403Verification = error.response?.status === 403 && error.response?.data?.message?.includes('verification');
+          if (is403Verification) {
+            setVerificationRequired(true);
+            setVerificationMessage(error.response.data.message);
+          } else {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setUser(null);
+          }
+        }
+        // For network errors (5xx, timeout) — keep existing user state; they're already logged in
+      }
+    };
+
+    if (_authChecked) return;
+    _authChecked = true;
+    checkAuth();
+  }, []);
+
+  const login = async (credentials) => {
+    try {
+      const authPath = credentials?.mode === 'station' ? '/auth/station-login' : '/auth/login';
+      const payload = {
+        identifier: credentials?.identifier,
+        password: credentials?.password
+      };
+      const response = await api.post(authPath, payload);
+      console.log('[AuthContext] Login response received:', response.data);
+      const { token, user } = response.data;
+
+      localStorage.setItem('token', token);
+      console.log('Login success - Token saved. User data:', user);
+
+      const sessionUser = {
+        ...user,
+        role: user.role || 'customer',
+        roles: user.roles || [user.role || 'customer']
+      };
+
+      setUser(sessionUser);
+      localStorage.setItem('user', JSON.stringify(sessionUser));
+      joinUserRoom(sessionUser.id);
+      console.log('User state set in AuthContext:', { email: sessionUser.email, role: sessionUser.role, isVerified: sessionUser.isVerified });
+
+      const userRoles = sessionUser.roles;
+      const isAdmin = userRoles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
+      const hasSpecialistRole = userRoles.some(r => r !== 'customer' && !['admin', 'superadmin', 'super_admin'].includes(r));
+
+      if (hasSpecialistRole && !isAdmin && !user.isVerified) {
+        console.log('Verification required for specialist roles:', userRoles);
+        setVerificationRequired(true);
+        setVerificationMessage('Account verification required. Please complete your role application approval.');
+      } else {
+        console.log('No verification required');
+        setVerificationRequired(false);
+        setVerificationMessage('');
+      }
+
+      return user;
+    } catch (error) {
+      console.error('[AuthContext] Login failed:', error.message);
+      if (error.response) {
+        console.error('[AuthContext] Login error response status:', error.response.status);
+        console.error('[AuthContext] Login error response data:', JSON.stringify(error.response.data, null, 2));
+      }
+      setError(error.message);
+      throw error;
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('cartState'); // Ensure no guest cart remains
+    localStorage.removeItem('cartState_personal');
+    localStorage.removeItem('cartState_marketing');
+    setUser(null);
+    setVerificationRequired(false);
+    setVerificationMessage('');
+    // Force a complete page refresh to clear any lingering state
+    window.location.href = '/';
+  };
+
+  const updateUser = useCallback(async (updatedUser) => {
+    // Update local state immediately
+    setUser(prev => {
+      if (!prev) return null;
+      return { ...prev, ...updatedUser };
+    });
+
+    // Trigger a backend sync in the background if needed, but don't force a loop
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const response = await api.get('/auth/me');
+        setUser(prev => ({
+          ...response.data,
+          role: response.data.role || 'customer',
+          roles: response.data.roles || [response.data.role || 'customer']
+        }));
+
+        window.dispatchEvent(new CustomEvent('userDataUpdated', {
+          detail: response.data
+        }));
+      }
+    } catch (error) {
+      console.error('Error syncing user data:', error);
+    }
+  }, []);
+
+  // Retry authentication (useful after completing verification)
+  const retryAuth = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const response = await api.get('/auth/me');
+        setUser({
+          ...response.data,
+          role: response.data.role || 'customer',
+          roles: response.data.roles || [response.data.role || 'customer']
+        });
+        setVerificationRequired(false);
+        setVerificationMessage('');
+      }
+    } catch (error) {
+      console.error('Retry auth failed:', error);
+      setError(error.message);
+      localStorage.removeItem('token');
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const value = useMemo(() => ({
+    user,
+    loading,
+    error,
+    verificationRequired,
+    verificationMessage,
+    isAuthenticated: !!user && !verificationRequired,
+    login,
+    logout,
+    updateUser,
+    retryAuth
+  }), [user, loading, error, verificationRequired, verificationMessage, login, logout, updateUser, retryAuth]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+export default AuthContext;

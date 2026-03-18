@@ -1,0 +1,1193 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Textarea } from '../../../components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { useToast } from '../../../components/ui/use-toast';
+import { fastFoodService } from '../../../services/fastFoodService';
+import { Upload, X, Plus, Clock, MapPin, Users, ChefHat, Star, Loader2, Save } from 'lucide-react';
+
+const FastFoodForm = ({ onSuccess, product: initialProduct }) => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  // Form data state
+  const [formData, setFormData] = useState({
+    // Section 1: Basic Details
+    name: '',
+    category: '',
+    shortDescription: '',
+    mainImage: null,
+    extraImages: [],
+    
+    // Section 2: Pricing & Availability
+    basePrice: '',
+    discountPercentage: '',
+    availableFrom: '',
+    availableTo: '',
+    availabilityDays: [
+      { day: 'Monday', available: true },
+      { day: 'Tuesday', available: true },
+      { day: 'Wednesday', available: true },
+      { day: 'Thursday', available: true },
+      { day: 'Friday', available: true },
+      { day: 'Saturday', available: true },
+      { day: 'Sunday', available: true }
+    ],
+    preparationTimeMinutes: '',
+    
+    // Section 3: Customization Options
+    sizeVariants: [],
+    isComboOption: false,
+    comboOptions: [],
+    
+    // Section 4: Stock & Production
+    dailyLimit: '',
+    ingredients: [],
+    kitchenVendor: '',
+    isActive: true,
+    
+    // Section 5: Delivery Rules
+    deliveryTimeEstimateMinutes: '',
+    pickupAvailable: true,
+    deliveryAreaLimits: [],
+    
+    // Additional fields
+    tags: [],
+    nutritionalInfo: {
+      calories: '',
+      protein: '',
+      carbs: '',
+      fat: '',
+      fiber: '',
+      sodium: ''
+    },
+    allergens: [],
+    spiceLevel: 'medium'
+  });
+
+  // Image previews
+  const [mainImagePreview, setMainImagePreview] = useState('');
+  const [extraImagesPreview, setExtraImagesPreview] = useState([]);
+
+  // Dynamic fields
+  const [newIngredient, setNewIngredient] = useState({ name: '', quantity: '', unit: '' });
+  const [newTag, setNewTag] = useState('');
+  const [newSizeVariant, setNewSizeVariant] = useState({ name: '', price: '', description: '' });
+  const [newComboOption, setNewComboOption] = useState({ name: '', items: '', price: '', discountPercentage: '' });
+
+  // Category options
+  const categories = [
+    'Burgers & Sandwiches',
+    'Pizza',
+    'Chicken & Wings',
+    'Rice & Pilau',
+    'Biryani & Curry',
+    'Fast Foods',
+    'Snacks & Sides',
+    'Beverages',
+    'Desserts',
+    'Chinese Food',
+    'Indian Food',
+    'Mexican Food'
+  ];
+
+  // Spice levels
+  const spiceLevels = [
+    { value: 'mild', label: 'Mild' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'hot', label: 'Hot' },
+    { value: 'extra_hot', label: 'Extra Hot' }
+  ];
+
+  // Allergen options
+  const allergenOptions = [
+    'gluten', 'nuts', 'dairy', 'eggs', 'fish', 'shellfish', 'soy', 'sesame'
+  ];
+
+  // Size variant options
+  const sizeOptions = ['Small', 'Medium', 'Large', 'Regular', 'Jumbo', 'XL', 'XXL'];
+
+  // Delivery areas
+  const deliveryAreas = [
+    'Nairobi CBD', 'Westlands', 'Karen', 'Kilimani', 'Parklands',
+    'Koinange Street', 'River Road', 'Luthuli Avenue', 'Tom Mboya Street',
+    'Moi Avenue', 'Other Nairobi Areas', 'Campus Zone', 'Hostels Area'
+  ];
+
+  // Load initial data if editing
+  useEffect(() => {
+    if (initialProduct) {
+      setFormData({
+        ...initialProduct,
+        mainImage: null, // Reset file input
+        extraImages: [],
+        basePrice: initialProduct.basePrice.toString(),
+        discountPercentage: initialProduct.discountPercentage?.toString() || '',
+        preparationTimeMinutes: initialProduct.preparationTimeMinutes.toString(),
+        dailyLimit: initialProduct.dailyLimit?.toString() || '',
+        deliveryTimeEstimateMinutes: initialProduct.deliveryTimeEstimateMinutes.toString(),
+        nutritionalInfo: initialProduct.nutritionalInfo || {
+          calories: '',
+          protein: '',
+          carbs: '',
+          fat: '',
+          fiber: '',
+          sodium: ''
+        },
+        allergens: initialProduct.allergens || []
+      });
+
+      // Set image previews if they exist
+      if (initialProduct.mainImage) {
+        setMainImagePreview(initialProduct.mainImage);
+      }
+      if (initialProduct.extraImages && initialProduct.extraImages.length > 0) {
+        setExtraImagesPreview(initialProduct.extraImages);
+      }
+    }
+  }, [initialProduct]);
+
+  // Handle field changes
+  const handleFieldChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({
+        ...prev,
+        [field]: ''
+      }));
+    }
+  };
+
+  // Handle nested field changes
+  const handleNestedFieldChange = (parent, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [parent]: {
+        ...prev[parent],
+        [field]: value
+      }
+    }));
+  };
+
+  // Handle image upload
+  const handleMainImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setFormData(prev => ({
+        ...prev,
+        mainImage: file
+      }));
+      setMainImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleExtraImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      const newImages = [...formData.extraImages, ...files];
+      setFormData(prev => ({
+        ...prev,
+        extraImages: newImages
+      }));
+      
+      const newPreviews = files.map(file => URL.createObjectURL(file));
+      setExtraImagesPreview(prev => [...prev, ...newPreviews]);
+    }
+  };
+
+  const removeExtraImage = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      extraImages: prev.extraImages.filter((_, i) => i !== index)
+    }));
+    setExtraImagesPreview(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle availability days
+  const handleAvailabilityDayChange = (dayIndex, checked) => {
+    setFormData(prev => ({
+      ...prev,
+      availabilityDays: prev.availabilityDays.map((day, index) => 
+        index === dayIndex ? { ...day, available: checked } : day
+      )
+    }));
+  };
+
+  // Handle ingredient management
+  const addIngredient = () => {
+    if (newIngredient.name && newIngredient.quantity && newIngredient.unit) {
+      setFormData(prev => ({
+        ...prev,
+        ingredients: [...prev.ingredients, { ...newIngredient }]
+      }));
+      setNewIngredient({ name: '', quantity: '', unit: '' });
+    }
+  };
+
+  const removeIngredient = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      ingredients: prev.ingredients.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Handle tag management
+  const addTag = () => {
+    if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
+      setFormData(prev => ({
+        ...prev,
+        tags: [...prev.tags, newTag.trim()]
+      }));
+      setNewTag('');
+    }
+  };
+
+  const removeTag = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      tags: prev.tags.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Handle size variant management
+  const addSizeVariant = () => {
+    if (newSizeVariant.name && newSizeVariant.price) {
+      setFormData(prev => ({
+        ...prev,
+        sizeVariants: [...prev.sizeVariants, {
+          ...newSizeVariant,
+          price: parseFloat(newSizeVariant.price)
+        }]
+      }));
+      setNewSizeVariant({ name: '', price: '', description: '' });
+    }
+  };
+
+  const removeSizeVariant = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      sizeVariants: prev.sizeVariants.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Handle combo option management
+  const addComboOption = () => {
+    if (newComboOption.name && newComboOption.items && newComboOption.price) {
+      setFormData(prev => ({
+        ...prev,
+        comboOptions: [...prev.comboOptions, {
+          ...newComboOption,
+          items: newComboOption.items.split(',').map(item => item.trim()),
+          price: parseFloat(newComboOption.price),
+          discountPercentage: parseFloat(newComboOption.discountPercentage) || 0
+        }]
+      }));
+      setNewComboOption({ name: '', items: '', price: '', discountPercentage: '' });
+    }
+  };
+
+  const removeComboOption = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      comboOptions: prev.comboOptions.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Handle allergen management
+  const handleAllergenChange = (allergen, checked) => {
+    if (checked) {
+      setFormData(prev => ({
+        ...prev,
+        allergens: [...prev.allergens, allergen]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        allergens: prev.allergens.filter(a => a !== allergen)
+      }));
+    }
+  };
+
+  // Handle delivery area management
+  const handleDeliveryAreaChange = (area, checked) => {
+    if (checked) {
+      setFormData(prev => ({
+        ...prev,
+        deliveryAreaLimits: [...prev.deliveryAreaLimits, area]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        deliveryAreaLimits: prev.deliveryAreaLimits.filter(a => a !== area)
+      }));
+    }
+  };
+
+  // Form validation
+  const validateForm = () => {
+    const newErrors = {};
+
+    // Basic details validation
+    if (!formData.name.trim()) newErrors.name = 'Food name is required';
+    if (!formData.category) newErrors.category = 'Category is required';
+    if (!formData.shortDescription.trim()) newErrors.shortDescription = 'Short description is required';
+    if (!mainImagePreview && !formData.mainImage) newErrors.mainImage = 'Main image is required';
+
+    // Pricing & availability validation
+    if (!formData.basePrice || parseFloat(formData.basePrice) <= 0) {
+      newErrors.basePrice = 'Valid base price is required';
+    }
+    if (!formData.availableFrom) newErrors.availableFrom = 'Available from time is required';
+    if (!formData.availableTo) newErrors.availableTo = 'Available to time is required';
+    if (!formData.preparationTimeMinutes || parseInt(formData.preparationTimeMinutes) <= 0) {
+      newErrors.preparationTimeMinutes = 'Valid preparation time is required';
+    }
+
+    // Stock & production validation
+    if (!formData.kitchenVendor.trim()) newErrors.kitchenVendor = 'Kitchen/Vendor name is required';
+
+    // Delivery rules validation
+    if (!formData.deliveryTimeEstimateMinutes || parseInt(formData.deliveryTimeEstimateMinutes) < 0) {
+      newErrors.deliveryTimeEstimateMinutes = 'Valid delivery time estimate is required';
+    }
+
+    // Check if at least one day is available
+    const availableDays = formData.availabilityDays.filter(day => day.available);
+    if (availableDays.length === 0) {
+      newErrors.availabilityDays = 'At least one day must be selected as available';
+    }
+
+    // Check if time range is valid
+    if (formData.availableFrom && formData.availableTo) {
+      const fromTime = formData.availableFrom.split(':').map(Number);
+      const toTime = formData.availableTo.split(':').map(Number);
+      const fromMinutes = fromTime[0] * 60 + fromTime[1];
+      const toMinutes = toTime[0] * 60 + toTime[1];
+      
+      if (toMinutes <= fromMinutes) {
+        newErrors.availableTo = 'Available to time must be after available from time';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please fix the errors in the form',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setLoading(true);
+    
+    try {
+      const submitData = {
+        ...formData,
+        basePrice: parseFloat(formData.basePrice),
+        discountPercentage: formData.discountPercentage ? parseFloat(formData.discountPercentage) : 0,
+        preparationTimeMinutes: parseInt(formData.preparationTimeMinutes),
+        dailyLimit: formData.dailyLimit ? parseInt(formData.dailyLimit) : 0,
+        deliveryTimeEstimateMinutes: parseInt(formData.deliveryTimeEstimateMinutes),
+        nutritionalInfo: {
+          ...formData.nutritionalInfo,
+          calories: formData.nutritionalInfo.calories ? parseInt(formData.nutritionalInfo.calories) : undefined
+        }
+      };
+
+      let result;
+      if (initialProduct) {
+        result = await fastFoodService.updateFastFood(initialProduct._id, submitData);
+      } else {
+        result = await fastFoodService.createFastFood(submitData);
+      }
+
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: `Fast food item ${initialProduct ? 'updated' : 'created'} successfully`
+        });
+        
+        if (onSuccess) {
+          onSuccess(result.data);
+        } else {
+          navigate('/dashboard/fastfood');
+        }
+      } else {
+        throw new Error(result.message || 'Operation failed');
+      }
+    } catch (error) {
+      console.error('Error saving fast food item:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to save fast food item',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          {initialProduct ? 'Edit Fast Food Item' : 'Create Fast Food Item'}
+        </h1>
+        <p className="text-gray-600">
+          {initialProduct ? 'Update your fast food item details' : 'Add a new fast food item to your menu'}
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Section 1: Basic Details */}
+        <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+          <h2 className="text-xl font-semibold text-blue-900 mb-4 flex items-center">
+            <ChefHat className="h-5 w-5 mr-2" />
+            Basic Details
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="name">Food Name *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => handleFieldChange('name', e.target.value)}
+                placeholder="e.g., Smocha Deluxe, Beef Burger"
+                className={errors.name ? 'border-red-500' : ''}
+              />
+              {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+            </div>
+
+            <div>
+              <Label htmlFor="category">Category *</Label>
+              <Select 
+                value={formData.category} 
+                onValueChange={(value) => handleFieldChange('category', value)}
+              >
+                <SelectTrigger className={errors.category ? 'border-red-500' : ''}>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map(category => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.category && <p className="text-red-500 text-sm mt-1">{errors.category}</p>}
+            </div>
+
+            <div className="lg:col-span-2">
+              <Label htmlFor="shortDescription">Short Description *</Label>
+              <Textarea
+                id="shortDescription"
+                value={formData.shortDescription}
+                onChange={(e) => handleFieldChange('shortDescription', e.target.value)}
+                placeholder="e.g., Crispy samosa with special sauce"
+                className={errors.shortDescription ? 'border-red-500' : ''}
+                maxLength={300}
+              />
+              {errors.shortDescription && <p className="text-red-500 text-sm mt-1">{errors.shortDescription}</p>}
+            </div>
+          </div>
+
+          {/* Main Image */}
+          <div className="mt-6">
+            <Label>Main Image *</Label>
+            <div className="mt-2">
+              {mainImagePreview ? (
+                <div className="relative inline-block">
+                  <img
+                    src={mainImagePreview}
+                    alt="Main preview"
+                    className="h-48 w-48 object-cover rounded-md border-2 border-gray-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMainImagePreview('');
+                      setFormData(prev => ({ ...prev, mainImage: null }));
+                    }}
+                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-lg transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="border-2 border-dashed rounded-md p-6 text-center">
+                  <input
+                    type="file"
+                    id="mainImage"
+                    accept="image/*"
+                    onChange={handleMainImageChange}
+                    className="hidden"
+                  />
+                  <label
+                    htmlFor="mainImage"
+                    className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                  >
+                    <Upload className="h-8 w-8 text-gray-400" />
+                    <p className="text-sm text-gray-600">Click to upload main image</p>
+                    <p className="text-xs text-gray-500">PNG, JPG, JPEG (max 5MB)</p>
+                  </label>
+                </div>
+              )}
+              {errors.mainImage && <p className="text-red-500 text-sm mt-1">{errors.mainImage}</p>}
+            </div>
+          </div>
+
+          {/* Extra Images */}
+          <div className="mt-6">
+            <Label>Extra Images</Label>
+            <div className="mt-2">
+              {extraImagesPreview.length > 0 && (
+                <div className="flex flex-wrap gap-4 mb-4">
+                  {extraImagesPreview.map((preview, index) => (
+                    <div key={index} className="relative">
+                      <img
+                        src={preview}
+                        alt={`Extra ${index + 1}`}
+                        className="h-24 w-24 object-cover rounded-md border-2 border-gray-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeExtraImage(index)}
+                        className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {formData.extraImages.length < 5 && (
+                <div className="border-2 border-dashed rounded-md p-4 text-center">
+                  <input
+                    type="file"
+                    id="extraImages"
+                    accept="image/*"
+                    onChange={handleExtraImagesChange}
+                    className="hidden"
+                    multiple
+                  />
+                  <label
+                    htmlFor="extraImages"
+                    className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                  >
+                    <Upload className="h-6 w-6 text-gray-400" />
+                    <p className="text-sm text-gray-600">
+                      {extraImagesPreview.length === 0 ? 'Click to upload extra images' : 'Add more images'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {`${5 - extraImagesPreview.length} remaining (max 5)`}
+                    </p>
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Pricing & Availability */}
+        <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+          <h2 className="text-xl font-semibold text-green-900 mb-4 flex items-center">
+            <Clock className="h-5 w-5 mr-2" />
+            Pricing & Availability
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div>
+              <Label htmlFor="basePrice">Base Price (Ksh) *</Label>
+              <Input
+                id="basePrice"
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.basePrice}
+                onChange={(e) => handleFieldChange('basePrice', e.target.value)}
+                placeholder="0.00"
+                className={errors.basePrice ? 'border-red-500' : ''}
+              />
+              {errors.basePrice && <p className="text-red-500 text-sm mt-1">{errors.basePrice}</p>}
+            </div>
+
+            <div>
+              <Label htmlFor="discountPercentage">Discount (%)</Label>
+              <Input
+                id="discountPercentage"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={formData.discountPercentage}
+                onChange={(e) => handleFieldChange('discountPercentage', e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="availableFrom">Available From *</Label>
+              <Input
+                id="availableFrom"
+                type="time"
+                value={formData.availableFrom}
+                onChange={(e) => handleFieldChange('availableFrom', e.target.value)}
+                className={errors.availableFrom ? 'border-red-500' : ''}
+              />
+              {errors.availableFrom && <p className="text-red-500 text-sm mt-1">{errors.availableFrom}</p>}
+            </div>
+
+            <div>
+              <Label htmlFor="availableTo">Available To *</Label>
+              <Input
+                id="availableTo"
+                type="time"
+                value={formData.availableTo}
+                onChange={(e) => handleFieldChange('availableTo', e.target.value)}
+                className={errors.availableTo ? 'border-red-500' : ''}
+              />
+              {errors.availableTo && <p className="text-red-500 text-sm mt-1">{errors.availableTo}</p>}
+            </div>
+
+            <div className="lg:col-span-2">
+              <Label htmlFor="preparationTimeMinutes">Preparation Time (minutes) *</Label>
+              <Input
+                id="preparationTimeMinutes"
+                type="number"
+                min="1"
+                max="1440"
+                value={formData.preparationTimeMinutes}
+                onChange={(e) => handleFieldChange('preparationTimeMinutes', e.target.value)}
+                placeholder="e.g., 15"
+                className={errors.preparationTimeMinutes ? 'border-red-500' : ''}
+              />
+              {errors.preparationTimeMinutes && <p className="text-red-500 text-sm mt-1">{errors.preparationTimeMinutes}</p>}
+            </div>
+          </div>
+
+          {/* Availability Days */}
+          <div className="mt-6">
+            <Label>Availability Days *</Label>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
+              {formData.availabilityDays.map((day, index) => (
+                <div key={day.day} className="flex items-center space-x-2">
+                  <Checkbox
+                    checked={day.available}
+                    onCheckedChange={(checked) => handleAvailabilityDayChange(index, checked)}
+                  />
+                  <Label className="text-sm font-normal">{day.day}</Label>
+                </div>
+              ))}
+            </div>
+            {errors.availabilityDays && <p className="text-red-500 text-sm mt-1">{errors.availabilityDays}</p>}
+          </div>
+        </div>
+
+        {/* Section 3: Customization Options */}
+        <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
+          <h2 className="text-xl font-semibold text-purple-900 mb-4 flex items-center">
+            <Star className="h-5 w-5 mr-2" />
+            Customization Options
+          </h2>
+          
+          <div className="space-y-6">
+            {/* Size Variants */}
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <Checkbox
+                  checked={formData.sizeVariants.length > 0}
+                  onCheckedChange={(checked) => {
+                    if (checked && formData.sizeVariants.length === 0) {
+                      setFormData(prev => ({
+                        ...prev,
+                        sizeVariants: [
+                          { name: 'Regular', price: formData.basePrice || 0, description: '' }
+                        ]
+                      }));
+                    } else if (!checked) {
+                      setFormData(prev => ({ ...prev, sizeVariants: [] }));
+                    }
+                  }}
+                />
+                <Label>Size Variants</Label>
+              </div>
+
+              {formData.sizeVariants.length > 0 && (
+                <div className="space-y-4">
+                  {formData.sizeVariants.map((variant, index) => (
+                    <div key={index} className="flex items-center space-x-4 p-3 bg-white rounded-md border">
+                      <div className="flex-1 grid grid-cols-3 gap-3">
+                        <Input
+                          value={variant.name}
+                          onChange={(e) => {
+                            const newVariants = [...formData.sizeVariants];
+                            newVariants[index].name = e.target.value;
+                            setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                          }}
+                          placeholder="Size name"
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={variant.price}
+                          onChange={(e) => {
+                            const newVariants = [...formData.sizeVariants];
+                            newVariants[index].price = parseFloat(e.target.value) || 0;
+                            setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                          }}
+                          placeholder="Price"
+                        />
+                        <Input
+                          value={variant.description || ''}
+                          onChange={(e) => {
+                            const newVariants = [...formData.sizeVariants];
+                            newVariants[index].description = e.target.value;
+                            setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                          }}
+                          placeholder="Description"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeSizeVariant(index)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addSizeVariant}
+                    className="w-full"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Size Variant
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Combo Options */}
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <Checkbox
+                  checked={formData.isComboOption}
+                  onCheckedChange={(checked) => handleFieldChange('isComboOption', checked)}
+                />
+                <Label>Combo Option</Label>
+              </div>
+
+              {formData.isComboOption && (
+                <div className="space-y-4">
+                  {formData.comboOptions.map((combo, index) => (
+                    <div key={index} className="p-3 bg-white rounded-md border">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+                        <Input
+                          value={combo.name}
+                          onChange={(e) => {
+                            const newCombos = [...formData.comboOptions];
+                            newCombos[index].name = e.target.value;
+                            setFormData(prev => ({ ...prev, comboOptions: newCombos }));
+                          }}
+                          placeholder="Combo name"
+                        />
+                        <Input
+                          value={combo.items.join(', ')}
+                          onChange={(e) => {
+                            const newCombos = [...formData.comboOptions];
+                            newCombos[index].items = e.target.value.split(',').map(item => item.trim());
+                            setFormData(prev => ({ ...prev, comboOptions: newCombos }));
+                          }}
+                          placeholder="Items (comma-separated)"
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={combo.price}
+                          onChange={(e) => {
+                            const newCombos = [...formData.comboOptions];
+                            newCombos[index].price = parseFloat(e.target.value) || 0;
+                            setFormData(prev => ({ ...prev, comboOptions: newCombos }));
+                          }}
+                          placeholder="Combo price"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={combo.discountPercentage || ''}
+                          onChange={(e) => {
+                            const newCombos = [...formData.comboOptions];
+                            newCombos[index].discountPercentage = parseFloat(e.target.value) || 0;
+                            setFormData(prev => ({ ...prev, comboOptions: newCombos }));
+                          }}
+                          placeholder="Discount %"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeComboOption(index)}
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addComboOption}
+                    className="w-full"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Combo Option
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Section 4: Stock & Production */}
+        <div className="bg-orange-50 p-6 rounded-lg border border-orange-200">
+          <h2 className="text-xl font-semibold text-orange-900 mb-4 flex items-center">
+            <Users className="h-5 w-5 mr-2" />
+            Stock & Production
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="dailyLimit">Daily Limit (0 = unlimited)</Label>
+              <Input
+                id="dailyLimit"
+                type="number"
+                min="0"
+                value={formData.dailyLimit}
+                onChange={(e) => handleFieldChange('dailyLimit', e.target.value)}
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="kitchenVendor">Kitchen / Vendor *</Label>
+              <Input
+                id="kitchenVendor"
+                value={formData.kitchenVendor}
+                onChange={(e) => handleFieldChange('kitchenVendor', e.target.value)}
+                placeholder="Who prepares it"
+                className={errors.kitchenVendor ? 'border-red-500' : ''}
+              />
+              {errors.kitchenVendor && <p className="text-red-500 text-sm mt-1">{errors.kitchenVendor}</p>}
+            </div>
+          </div>
+
+          {/* Ingredients */}
+          <div className="mt-6">
+            <Label>Ingredients (Optional)</Label>
+            <div className="mt-2 space-y-3">
+              {formData.ingredients.map((ingredient, index) => (
+                <div key={index} className="flex items-center space-x-3 p-3 bg-white rounded-md border">
+                  <div className="flex-1 text-sm">
+                    <span className="font-medium">{ingredient.name}</span>
+                    <span className="text-gray-500"> - {ingredient.quantity} {ingredient.unit}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => removeIngredient(index)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+
+              <div className="flex space-x-3">
+                <Input
+                  value={newIngredient.name}
+                  onChange={(e) => setNewIngredient(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Ingredient name"
+                  className="flex-1"
+                />
+                <Input
+                  value={newIngredient.quantity}
+                  onChange={(e) => setNewIngredient(prev => ({ ...prev, quantity: e.target.value }))}
+                  placeholder="Quantity"
+                  className="w-20"
+                />
+                <Input
+                  value={newIngredient.unit}
+                  onChange={(e) => setNewIngredient(prev => ({ ...prev, unit: e.target.value }))}
+                  placeholder="Unit"
+                  className="w-20"
+                />
+                <Button type="button" onClick={addIngredient}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Active Status */}
+          <div className="mt-6">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                checked={formData.isActive}
+                onCheckedChange={(checked) => handleFieldChange('isActive', checked)}
+              />
+              <Label>Active (Item is available for ordering)</Label>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 5: Delivery Rules */}
+        <div className="bg-indigo-50 p-6 rounded-lg border border-indigo-200">
+          <h2 className="text-xl font-semibold text-indigo-900 mb-4 flex items-center">
+            <MapPin className="h-5 w-5 mr-2" />
+            Delivery Rules
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="deliveryTimeEstimateMinutes">Delivery Time Estimate (minutes) *</Label>
+              <Input
+                id="deliveryTimeEstimateMinutes"
+                type="number"
+                min="0"
+                value={formData.deliveryTimeEstimateMinutes}
+                onChange={(e) => handleFieldChange('deliveryTimeEstimateMinutes', e.target.value)}
+                placeholder="e.g., 30"
+                className={errors.deliveryTimeEstimateMinutes ? 'border-red-500' : ''}
+              />
+              {errors.deliveryTimeEstimateMinutes && <p className="text-red-500 text-sm mt-1">{errors.deliveryTimeEstimateMinutes}</p>}
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                checked={formData.pickupAvailable}
+                onCheckedChange={(checked) => handleFieldChange('pickupAvailable', checked)}
+              />
+              <Label>Pickup Available</Label>
+            </div>
+          </div>
+
+          {/* Delivery Areas */}
+          <div className="mt-6">
+            <Label>Delivery Areas</Label>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
+              {deliveryAreas.map(area => (
+                <div key={area} className="flex items-center space-x-2">
+                  <Checkbox
+                    checked={formData.deliveryAreaLimits.includes(area)}
+                    onCheckedChange={(checked) => handleDeliveryAreaChange(area, checked)}
+                  />
+                  <Label className="text-sm font-normal">{area}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Additional Information */}
+        <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Additional Information</h2>
+          
+          {/* Tags */}
+          <div className="mb-6">
+            <Label>Tags</Label>
+            <div className="mt-2">
+              {formData.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {formData.tags.map((tag, index) => (
+                    <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(index)}
+                        className="ml-2 text-blue-600 hover:text-blue-800"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex space-x-2">
+                <Input
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  placeholder="Add a tag"
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                />
+                <Button type="button" onClick={addTag}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Nutritional Information */}
+          <div className="mb-6">
+            <Label>Nutritional Information</Label>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+              <div>
+                <Label htmlFor="calories" className="text-sm">Calories</Label>
+                <Input
+                  id="calories"
+                  type="number"
+                  value={formData.nutritionalInfo.calories}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'calories', e.target.value)}
+                  placeholder="e.g., 450"
+                />
+              </div>
+              <div>
+                <Label htmlFor="protein" className="text-sm">Protein (g)</Label>
+                <Input
+                  id="protein"
+                  value={formData.nutritionalInfo.protein}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'protein', e.target.value)}
+                  placeholder="e.g., 25"
+                />
+              </div>
+              <div>
+                <Label htmlFor="carbs" className="text-sm">Carbs (g)</Label>
+                <Input
+                  id="carbs"
+                  value={formData.nutritionalInfo.carbs}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'carbs', e.target.value)}
+                  placeholder="e.g., 35"
+                />
+              </div>
+              <div>
+                <Label htmlFor="fat" className="text-sm">Fat (g)</Label>
+                <Input
+                  id="fat"
+                  value={formData.nutritionalInfo.fat}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'fat', e.target.value)}
+                  placeholder="e.g., 20"
+                />
+              </div>
+              <div>
+                <Label htmlFor="fiber" className="text-sm">Fiber (g)</Label>
+                <Input
+                  id="fiber"
+                  value={formData.nutritionalInfo.fiber}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'fiber', e.target.value)}
+                  placeholder="e.g., 5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="sodium" className="text-sm">Sodium (mg)</Label>
+                <Input
+                  id="sodium"
+                  value={formData.nutritionalInfo.sodium}
+                  onChange={(e) => handleNestedFieldChange('nutritionalInfo', 'sodium', e.target.value)}
+                  placeholder="e.g., 800"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Allergens */}
+          <div className="mb-6">
+            <Label>Allergens</Label>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-2">
+              {allergenOptions.map(allergen => (
+                <div key={allergen} className="flex items-center space-x-2">
+                  <Checkbox
+                    checked={formData.allergens.includes(allergen)}
+                    onCheckedChange={(checked) => handleAllergenChange(allergen, checked)}
+                  />
+                  <Label className="text-sm font-normal capitalize">{allergen.replace('_', ' ')}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Spice Level */}
+          <div>
+            <Label htmlFor="spiceLevel">Spice Level</Label>
+            <Select 
+              value={formData.spiceLevel} 
+              onValueChange={(value) => handleFieldChange('spiceLevel', value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select spice level" />
+              </SelectTrigger>
+              <SelectContent>
+                {spiceLevels.map(level => (
+                  <SelectItem key={level.value} value={level.value}>
+                    {level.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Submit Button */}
+        <div className="flex justify-end space-x-4 pt-6 border-t">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/dashboard/fastfood')}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {initialProduct ? 'Updating...' : 'Creating...'}
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {initialProduct ? 'Update Fast Food Item' : 'Create Fast Food Item'}
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default FastFoodForm;

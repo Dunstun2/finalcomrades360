@@ -1,0 +1,576 @@
+import React, { useState, useEffect } from 'react';
+import {
+  FaClock,
+  FaBox,
+  FaCheck,
+  FaTimes,
+  FaEye,
+  FaArrowLeft as FaBack,
+  FaUser,
+  FaTag,
+  FaDollarSign,
+  FaTrash,
+  FaEyeSlash,
+  FaPause,
+  FaPlay
+} from 'react-icons/fa';
+import { productApi } from '../../../services/api';
+import { useToast } from '../../../components/ui/use-toast';
+import ComradesProductForm from '../comrades/ComradesProductForm';
+import { getProductMainImage, FALLBACK_IMAGE } from '../../../utils/imageUtils';
+
+const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
+  const [pendingProducts, setPendingProducts] = useState([]);
+  const [recentlyApproved, setRecentlyApproved] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [hiddenProducts, setHiddenProducts] = useState([]);
+  const [suspendedProducts, setSuspendedProducts] = useState([]);
+  const { toast } = useToast();
+
+  // Fetch pending products
+  const fetchPendingProducts = async () => {
+    try {
+      setLoading(true);
+      console.log('Fetching pending products...');
+      
+      // Make the API call with error handling
+      let response;
+      try {
+        response = await productApi.getPending();
+        console.log('Raw API response:', response);
+      } catch (apiError) {
+        console.error('API Error:', apiError);
+        if (apiError.response) {
+          console.error('Response data:', apiError.response.data);
+          console.error('Response status:', apiError.response.status);
+          console.error('Response headers:', apiError.response.headers);
+        }
+        throw apiError;
+      }
+      
+      // Log the full response for debugging
+      console.log('Pending products response:', response);
+      
+      // Handle different response formats
+      let products = [];
+      if (Array.isArray(response?.data)) {
+        products = response.data;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        products = response.data.data;
+      } else if (response?.data?.products && Array.isArray(response.data.products)) {
+        products = response.data.products;
+      }
+      
+      console.log('Processed pending products:', products);
+      
+      // Ensure all products have the expected structure
+      const formattedProducts = products.map(product => {
+        console.log('Raw product variants:', product.variants, 'Type:', typeof product.variants);
+        return {
+          ...product,
+          // Ensure we're using the correct property names
+          Seller: product.Seller || product.seller,
+          Category: product.Category || product.category,
+          Subcategory: product.Subcategory || product.subcategory,
+          // Ensure unitOfMeasure is available
+          unitOfMeasure: product.unitOfMeasure || 'pcs',
+          // Ensure variants is an array - parse if it's a string
+          variants: Array.isArray(product.variants)
+            ? product.variants
+            : (typeof product.variants === 'string'
+                ? (() => {
+                    try {
+                      const parsed = JSON.parse(product.variants);
+                      return Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                      console.error('Error parsing variants string:', e);
+                      return [];
+                    }
+                  })()
+                : [])
+        };
+      });
+      
+      setPendingProducts(formattedProducts);
+    } catch (error) {
+      console.error('Error fetching pending products:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to load pending products',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch recently approved products (approved in last 7 days)
+  const fetchRecentlyApproved = async () => {
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const response = await productApi.getAll();
+      // Ensure we have an array and handle potential response formats
+      const allProducts = Array.isArray(response?.data) 
+        ? response.data 
+        : [];
+        
+      const approved = allProducts.filter(product => {
+        const isApproved = product.approved || product.reviewStatus === 'approved';
+        const updatedAt = product.updatedAt || product.reviewedAt;
+        return isApproved && new Date(updatedAt) >= sevenDaysAgo;
+      }).map(product => {
+        console.log('Approved product variants:', product.variants, 'Type:', typeof product.variants);
+        return {
+          ...product,
+          // Ensure we're using the correct property names for approved products too
+          Seller: product.Seller || product.seller,
+          Category: product.Category || product.category,
+          Subcategory: product.Subcategory || product.subcategory,
+          unitOfMeasure: product.unitOfMeasure || 'pcs',
+          variants: Array.isArray(product.variants)
+            ? product.variants
+            : (typeof product.variants === 'string'
+                ? (() => {
+                    try {
+                      const parsed = JSON.parse(product.variants);
+                      return Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                      console.error('Error parsing variants string for approved product:', e);
+                      return [];
+                    }
+                  })()
+                : [])
+        };
+      }) || [];
+      
+      console.log('Recently approved products:', approved);
+      setRecentlyApproved(approved);
+    } catch (error) {
+      console.error('Error fetching recently approved products:', error);
+    }
+  };
+
+  // Fetch all products including hidden and suspended ones
+  const fetchAllProducts = async () => {
+    try {
+      const response = await productApi.getAll();
+      const allProducts = Array.isArray(response?.data) 
+        ? response.data 
+        : [];
+      
+      // Filter for hidden but not suspended products
+      const hidden = allProducts.filter(product => product.isHidden && !product.isSuspended);
+      setHiddenProducts(hidden);
+      
+      // Filter for suspended products
+      const suspended = allProducts.filter(product => product.isSuspended);
+      setSuspendedProducts(suspended);
+      
+      return allProducts;
+    } catch (error) {
+      console.error('Error fetching all products:', error);
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      await Promise.all([
+        fetchPendingProducts(), 
+        fetchRecentlyApproved(),
+        fetchAllProducts()
+      ]);
+      setLoading(false);
+    };
+
+    fetchData();
+  }, []);
+
+  // Handle approve product
+  const handleApprove = async (productId) => {
+    // Prompt for display price
+    const displayPrice = prompt('Enter the display price (customer-facing price) for this product:');
+    if (!displayPrice || isNaN(parseFloat(displayPrice)) || parseFloat(displayPrice) <= 0) {
+      toast({
+        title: 'Error',
+        description: 'Valid display price is required to approve the product',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setActionLoading(productId);
+    try {
+      await productApi.approve(productId, { displayPrice: parseFloat(displayPrice) });
+      toast({
+        title: 'Success',
+        description: 'Product approved successfully with display price set',
+      });
+      // Refresh data
+      await fetchPendingProducts();
+      await fetchRecentlyApproved();
+    } catch (error) {
+      console.error('Error approving product:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to approve product',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle reject product
+  const handleReject = async (productId) => {
+    const reason = prompt('Please provide a reason for rejection:');
+    if (!reason) return;
+    
+    setActionLoading(productId);
+    try {
+      await productApi.reject(productId, reason);
+      toast({
+        title: 'Success',
+        description: 'Product has been rejected',
+      });
+      await fetchPendingProducts();
+    } catch (error) {
+      console.error('Error rejecting product:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to reject product',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+
+    setActionLoading(productId);
+    try {
+      await productApi.reject(productId, reason);
+      toast({
+        title: 'Success',
+        description: 'Product rejected',
+      });
+      // Refresh data
+      await fetchPendingProducts();
+    } catch (error) {
+      console.error('Error rejecting product:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to reject product',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+  // Product Card Component
+  const ProductCard = ({ product, onApprove, onReject, onDelete, onView, onList, onHide, onUnhide, onSuspend, onUnsuspend, showActions = false, showDelete = false, isHidden = false, isSuspended = false }) => {
+    return (
+      <div className={`bg-white rounded-lg shadow-md overflow-hidden border ${isSuspended ? 'border-orange-300' : isHidden ? 'border-gray-300' : 'border-gray-200'} hover:shadow-lg transition-shadow`}>
+        {/* Product Image */}
+        <div className="relative h-48 bg-gray-100">
+          <img
+            src={getProductMainImage(product) || FALLBACK_IMAGE}
+            alt={product.name}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.src = FALLBACK_IMAGE;
+            }}
+          />
+          {(isSuspended || isHidden) && (
+            <div className={`absolute top-2 right-2 px-2 py-1 rounded-md text-xs font-medium ${isSuspended ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>
+              {isSuspended ? 'Suspended' : 'Hidden'}
+            </div>
+          )}
+        </div>
+
+        {/* Product Details */}
+        <div className="p-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-medium text-gray-900 line-clamp-2 h-12">{product.name}</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {product.Seller?.businessName || product.seller?.businessName || 'No seller info'}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-lg font-semibold text-gray-900">
+                ${product.displayPrice || product.price || '0.00'}
+              </p>
+              {product.originalPrice && (
+                <p className="text-sm text-gray-500 line-through">${product.originalPrice}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Status Badge */}
+          <div className="mt-2">
+            {!product.approved ? (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                Pending Approval
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Approved
+              </span>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="mt-4 flex justify-between items-center">
+            <div className="flex space-x-2">
+              <button
+                onClick={() => onView('view', product)}
+                className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100 flex items-center"
+              >
+                <FaEye className="mr-1" />
+                View
+              </button>
+              
+              {!product.approved && onList && (
+                <button
+                  onClick={() => onList(product)}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100"
+                >
+                  List
+                </button>
+              )}
+            </div>
+
+            <div className="flex space-x-2">
+              {onHide && !isHidden && !isSuspended && (
+                <button
+                  onClick={() => onHide(product.id)}
+                  className="p-1 text-gray-500 hover:text-gray-700"
+                  title="Hide product"
+                >
+                  <FaEyeSlash />
+                </button>
+              )}
+              
+              {onUnhide && (isHidden || isSuspended) && (
+                <button
+                  onClick={() => onUnhide(product.id)}
+                  className="p-1 text-gray-500 hover:text-gray-700"
+                  title={isSuspended ? 'Unsuspend product' : 'Unhide product'}
+                >
+                  <FaEye />
+                </button>
+              )}
+              
+              {onSuspend && !isSuspended && (
+                <button
+                  onClick={() => onSuspend(product.id)}
+                  className="p-1 text-orange-500 hover:text-orange-700"
+                  title="Suspend product"
+                >
+                  <FaPause />
+                </button>
+              )}
+              
+              {onUnsuspend && isSuspended && (
+                <button
+                  onClick={() => onUnsuspend(product.id)}
+                  className="p-1 text-green-500 hover:text-green-700"
+                  title="Unsuspend product"
+                >
+                  <FaPlay />
+                </button>
+              )}
+              
+              {onDelete && (
+                <button
+                  onClick={() => onDelete(product.id)}
+                  className="p-1 text-red-500 hover:text-red-700"
+                  title="Delete product"
+                >
+                  <FaTrash />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">Product Management</h1>
+          <button
+            onClick={onBack}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md flex items-center"
+          >
+            <FaBack className="mr-2" /> Back
+          </button>
+        </div>
+        <div className="space-y-8">
+          {/* Pending Approval Section */}
+          <div className="mb-12">
+            <div className="flex items-center mb-6">
+              <div className="bg-yellow-100 p-3 rounded-lg mr-4">
+                <FaClock className="text-yellow-600 text-xl" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Pending Approval</h2>
+                <p className="text-sm text-gray-500">Products waiting for your review ({pendingProducts.length})</p>
+              </div>
+            </div>
+            
+            {loading ? (
+              <div className="flex justify-center items-center h-40">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : pendingProducts.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {pendingProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    onDelete={handleDelete}
+                    onView={onViewProduct}
+                    onList={onListProduct}
+                    onHide={handleToggleVisibility}
+                    onSuspend={handleSuspendProduct}
+                    showActions={true}
+                    showDelete={true}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <FaBox className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900">No pending products</h3>
+                <p className="mt-1 text-sm text-gray-500">All caught up! No products need review.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Hidden Products Section */}
+          <div className="mb-12">
+            <div className="flex items-center mb-6">
+              <div className="bg-gray-100 p-3 rounded-lg mr-4">
+                <FaEyeSlash className="text-gray-600 text-xl" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Hidden Products</h2>
+                <p className="text-sm text-gray-500">Products that are not visible to customers ({hiddenProducts.length})</p>
+              </div>
+            </div>
+            
+            {loading ? (
+              <div className="flex justify-center items-center h-40">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : hiddenProducts.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {hiddenProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onView={onViewProduct}
+                    onUnhide={handleToggleVisibility}
+                    onSuspend={handleSuspendProduct}
+                    isHidden={true}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <FaEyeSlash className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900">No hidden products</h3>
+                <p className="mt-1 text-sm text-gray-500">Products you hide will appear here</p>
+              </div>
+            )}
+          </div>
+
+          {/* Suspended Products Section */}
+          <div className="mb-12">
+            <div className="flex items-center mb-6">
+              <div className="bg-orange-100 p-3 rounded-lg mr-4">
+                <FaPause className="text-orange-600 text-xl" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Suspended Products</h2>
+                <p className="text-sm text-gray-500">Products that have been temporarily suspended ({suspendedProducts.length})</p>
+              </div>
+            </div>
+            
+            {loading ? (
+              <div className="flex justify-center items-center h-40">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : suspendedProducts.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {suspendedProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onView={onViewProduct}
+                    onUnsuspend={handleToggleSuspension}
+                    isSuspended={true}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <FaPause className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900">No suspended products</h3>
+                <p className="mt-1 text-sm text-gray-500">Suspended products will appear here</p>
+              </div>
+            )}
+          </div>
+
+          {/* Recently Approved Section */}
+          <div className="mb-12">
+            <div className="flex items-center mb-6">
+              <div className="bg-green-100 p-3 rounded-lg mr-4">
+                <FaCheck className="text-green-600 text-xl" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Recently Approved</h2>
+                <p className="text-sm text-gray-500">Products approved within the last 7 days ({recentlyApproved.length})</p>
+              </div>
+            </div>
+            
+            {loading ? (
+              <div className="flex justify-center items-center h-40">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : recentlyApproved.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {recentlyApproved.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onView={onViewProduct}
+                    onHide={handleToggleVisibility}
+                    onSuspend={handleSuspendProduct}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <FaBox className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900">No recently approved products</h3>
+                <p className="mt-1 text-sm text-gray-500">Approved products will appear here</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProductListingView;

@@ -1,0 +1,696 @@
+import React, { useState, useEffect } from 'react';
+import { usePersistentFetch } from '../hooks/usePersistentFetch';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Utensils, Clock, MapPin, Star, Shield, Share2, Heart, Plus, Minus, ArrowLeft, Truck, List, Settings, ShoppingBag } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { useCart } from '../contexts/CartContext';
+import { useToast } from '../components/ui/use-toast';
+import { fastFoodService } from '../services/fastFoodService';
+import { resolveImageUrl } from '../utils/imageUtils';
+import { recursiveParse, ensureArray, normalizeIngredient } from '../utils/parsingUtils';
+import Footer from '../components/Footer';
+
+const FastFoodDetails = () => {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const { addToCart } = useCart();
+    const { toast } = useToast();
+    const [item, setItem] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [quantity, setQuantity] = useState(1);
+    const [activeImage, setActiveImage] = useState(null);
+
+    // Instant Loading: Persistent Fetch
+    const { data: fetchResponse, loading: hookLoading, error: hookError } = usePersistentFetch(
+        `fastfood_detail_${id}`,
+        async () => {
+            const res = await fastFoodService.getFastFoodById(id);
+            return res;
+        },
+        { staleTime: 5 * 60 * 1000 }
+    );
+
+    useEffect(() => {
+        if (fetchResponse) {
+            if (fetchResponse.success) {
+                setItem(fetchResponse.data);
+                // Only set active image if not already set (prevents flicker on re-render)
+                setActiveImage(prev => prev || fetchResponse.data.mainImage);
+            } else {
+                if (!item) {
+                    toast({ title: 'Error', description: 'Failed to load item.', variant: 'destructive' });
+                }
+            }
+            setLoading(false);
+        } else if (hookLoading) {
+            if (!item) setLoading(true);
+        }
+
+        if (hookError && !item) {
+            toast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' });
+            setLoading(false);
+        }
+    }, [fetchResponse, hookLoading, hookError, toast]);
+
+    const handleAddToCart = (variant = null, combo = null) => {
+        if (!item) return;
+
+        const payload = {
+            product: item,
+            type: 'fastfood'
+        };
+
+        if (variant) {
+            payload.selectedVariant = variant;
+            payload.variantId = variant.id || variant.name;
+        }
+
+        if (combo) {
+            payload.selectedCombo = combo;
+            payload.comboId = combo.id || combo.name;
+        }
+
+        addToCart(item.id, quantity, payload);
+        toast({
+            title: 'Added to Cart',
+            description: `${quantity} x ${variant ? variant.name : (combo ? combo.name : item.name)} added to your cart.`,
+        });
+    };
+
+    const handleBuyNow = (variant = null, combo = null) => {
+        handleAddToCart(variant, combo);
+        navigate('/cart');
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+        );
+    }
+
+    if (!item) return null;
+
+    // Standardized Price Calculation
+    // [NEW] Logic: If displayPrice is not set (0 or null), show as blank
+    const isValidPrice = item.displayPrice && Number(item.displayPrice) > 0;
+    const finalPrice = isValidPrice ? Number(item.discountPrice || item.displayPrice || 0) : null;
+    const originalPrice = isValidPrice ? Number(item.displayPrice || 0) : null;
+    const discountPercentage = Number(item.discountPercentage || 0);
+    const hasDiscount = isValidPrice && discountPercentage > 0 && finalPrice < originalPrice;
+
+    // Availability Logic
+    const availabilityStatus = fastFoodService.getAvailabilityStatus(item);
+    const isOpen = availabilityStatus.isAvailable;
+    const schedule = (typeof item.availabilityDays === 'string' ? JSON.parse(item.availabilityDays || '[]') : item.availabilityDays) || [];
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    const parseNestedValue = (val) => {
+        if (typeof val !== 'string') return val;
+        const trimmed = val.trim();
+        if (!trimmed) return val;
+
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+            (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed !== val) return parseNestedValue(parsed);
+            } catch (_) {
+                return val;
+            }
+        }
+
+        return val;
+    };
+
+    const getOptionPrice = (option) => {
+        if (!option || typeof option !== 'object') return null;
+
+        // Try all common price field names
+        const candidates = [
+            option.discountPrice,
+            option.displayPrice,
+            option.basePrice,
+            option.price,
+            option.amount,
+            option.cost,
+            option.Price,
+            option.pricePerUnit,
+            option.unitPrice,
+            option.value
+        ];
+
+        for (const value of candidates) {
+            const num = Number(value);
+            if (Number.isFinite(num) && num > 0) return num;
+        }
+
+        // If still no price found, check if it's stored as string number
+        if (option.price && typeof option.price === 'string') {
+            const parsed = parseFloat(option.price.replace(/[^0-9.]/g, ''));
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+
+        return null;
+    };
+
+    const getComboItemsLabel = (comboOption) => {
+        if (!comboOption || typeof comboOption !== 'object') return 'None';
+
+        // Try multiple field names for combo items
+        const rawItems = comboOption.items ??
+            comboOption.comboItems ??
+            comboOption.includes ??
+            comboOption.servedWith ??
+            comboOption.components ??
+            comboOption.contents ??
+            comboOption.combination;
+
+        const parsedItems = parseNestedValue(rawItems);
+
+        if (!parsedItems) return 'None';
+
+        if (typeof parsedItems === 'string') {
+            // Handle comma-separated strings
+            if (parsedItems.includes(',')) {
+                return parsedItems.split(',').map(s => s.trim()).filter(Boolean).join(', ') || 'None';
+            }
+            const parsedString = parseNestedValue(parsedItems);
+            if (typeof parsedString === 'string') return parsedString || 'None';
+            return getComboItemsLabel({ items: parsedString });
+        }
+
+        if (Array.isArray(parsedItems)) {
+            const labels = parsedItems
+                .map((entry) => {
+                    const parsedEntry = parseNestedValue(entry);
+                    if (typeof parsedEntry === 'string') return parsedEntry;
+                    if (!parsedEntry || typeof parsedEntry !== 'object') return null;
+
+                    const name = parsedEntry.name ||
+                        parsedEntry.item ||
+                        parsedEntry.itemName ||
+                        parsedEntry.title ||
+                        parsedEntry.variant ||
+                        parsedEntry.option ||
+                        parsedEntry.food ||
+                        parsedEntry.product;
+                    if (!name) return null;
+
+                    const qty = parsedEntry.quantity || parsedEntry.qty || parsedEntry.count;
+                    const unit = parsedEntry.unit || parsedEntry.measure || '';
+                    return qty ? `${name} (${qty}${unit ? ` ${unit}` : ''})` : name;
+                })
+                .filter(Boolean);
+
+            return labels.length > 0 ? labels.join(', ') : 'None';
+        }
+
+        if (typeof parsedItems === 'object') {
+            if (Array.isArray(parsedItems.items)) {
+                return getComboItemsLabel({ items: parsedItems.items });
+            }
+
+            const objectValues = Object.values(parsedItems);
+            if (objectValues.length > 0) {
+                return getComboItemsLabel({ items: objectValues });
+            }
+        }
+
+        return 'None';
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 pt-20">
+            <div className="container mx-auto px-0 md:px-4 py-8">
+                <button
+                    onClick={() => {
+                        if (localStorage.getItem('marketing_mode') === 'true') {
+                            navigate('/marketing');
+                        } else {
+                            navigate('/fastfood');
+                        }
+                    }}
+                    className="flex items-center text-gray-600 hover:text-blue-600 mb-6 transition-colors"
+                >
+                    <ArrowLeft className="h-5 w-5 mr-2" />
+                    {localStorage.getItem('marketing_mode') === 'true' ? 'Back to Marketing' : 'Back to Menu'}
+                </button>
+
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-6 lg:p-10 border-b border-gray-100">
+                        {/* Image Gallery Column */}
+                        <div className="space-y-4">
+                            <div className="aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100 relative group">
+                                <img
+                                    src={resolveImageUrl(activeImage)}
+                                    alt={item.name}
+                                    className="w-full h-full object-cover transition-transform hover:scale-105 duration-500"
+                                />
+                                <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-black uppercase tracking-tighter shadow-sm border ${isOpen ? 'bg-green-500 text-white border-green-400' : 'bg-red-500 text-white border-red-400'}`}>
+                                    {isOpen ? 'Open Now' : 'Closed'}
+                                </div>
+                            </div>
+                            {item.galleryImages && item.galleryImages.length > 0 && (
+                                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                                    {[item.mainImage, ...item.galleryImages.slice(0, 3)].map((img, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => setActiveImage(img)}
+                                            className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${activeImage === img ? 'border-blue-600 shadow-md' : 'border-transparent hover:border-gray-300'}`}
+                                        >
+                                            <img src={resolveImageUrl(img)} alt={`Gallery ${index}`} className="w-full h-full object-cover" />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Price and Add to Cart Section - Repositioned below images */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-8 bg-gray-50 p-6 rounded-2xl border border-blue-50">
+                                <div className="flex-1 w-full sm:w-auto">
+                                    {isValidPrice ? (
+                                        <div className="flex flex-col">
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-3xl font-black text-blue-600">KES {finalPrice.toLocaleString()}</span>
+                                                {hasDiscount && (
+                                                    <span className="text-sm text-gray-400 line-through">KES {originalPrice.toLocaleString()}</span>
+                                                )}
+                                            </div>
+                                            {hasDiscount && (
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="bg-red-500 text-white px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter">
+                                                        {discountPercentage}% OFF
+                                                    </span>
+                                                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-tight">Limited Offer</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="h-10 flex items-center">
+                                            <span className="text-gray-400 italic text-sm">Price not available yet</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <Button
+                                    onClick={() => handleAddToCart()}
+                                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 h-14 px-8 text-lg font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2 rounded-xl"
+                                >
+                                    <ShoppingBag className="h-5 w-5" />
+                                    Add to Cart
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* Content Column */}
+                        <div className="flex flex-col">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-900 mb-2">{item.name}</h1>
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
+                                            <Utensils className="h-4 w-4" /> {item.category}
+                                        </span>
+                                        <div className="flex items-center text-amber-500">
+                                            <Star className="h-4 w-4 fill-current" />
+                                            <span className="ml-1 text-gray-700 font-medium">4.8</span>
+                                            <span className="ml-1 text-gray-400 text-sm">(120+ reviews)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button className="p-2 rounded-full bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all">
+                                    <Heart className="h-6 w-6" />
+                                </button>
+                            </div>
+
+                            {item.shortDescription && (
+                                <p className="text-lg font-bold text-blue-600 mb-2">{item.shortDescription}</p>
+                            )}
+
+                            <p className="text-gray-600 mb-6 leading-relaxed">
+                                {item.description}
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-4 mb-8">
+                                <div className="bg-gray-50 p-4 rounded-xl flex items-center gap-3">
+                                    <Clock className="h-5 w-5 text-blue-600" />
+                                    <div>
+                                        <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Prep Time</p>
+                                        <p className="text-sm font-semibold text-gray-900">{item.preparationTimeMinutes || 20} mins</p>
+                                    </div>
+                                </div>
+                                <div className="bg-gray-50 p-4 rounded-xl flex items-center gap-3">
+                                    <MapPin className="h-5 w-5 text-blue-600" />
+                                    <div>
+                                        <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Vendor</p>
+                                        <p className="text-sm font-semibold text-gray-900 truncate">{item.vendorDetail?.name || 'Comrades Kitchen'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                                {/* Order Details */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <Shield className="h-3 w-3" /> Order Details
+                                    </h4>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-500">Min Order</span>
+                                            <span className="font-bold">{item.minOrderQty || 1} unit</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-500">Max Order</span>
+                                            <span className="font-bold">{item.maxOrderQty || 'Unlimited'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Delivery Info */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <Truck className="h-3 w-3" /> Delivery
+                                    </h4>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-500">Est. Arrival</span>
+                                            <span className="font-bold">{item.deliveryTimeEstimateMinutes || 30} mins</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-500">Pickup</span>
+                                            <span className="font-bold">{item.pickupAvailable ? 'Available' : 'No'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-8">
+                                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                    <MapPin className="h-3 w-3" /> Coverage Zones
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {(Array.isArray(item.deliveryCoverageZones) ? item.deliveryCoverageZones : (typeof item.deliveryCoverageZones === 'string' ? item.deliveryCoverageZones.split(',').map(z => z.trim()) : [])).filter(Boolean).map((zone, i) => (
+                                        <span key={i} className="bg-blue-50 text-blue-700 px-3 py-1 rounded-md text-[10px] font-black uppercase border border-blue-100">{zone}</span>
+                                    ))}
+                                    {(!item.deliveryCoverageZones || (Array.isArray(item.deliveryCoverageZones) && item.deliveryCoverageZones.length === 0)) && (
+                                        <span className="text-xs text-gray-400 italic">Available in select zones.</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Weekly Availability Schedule - Bottom of Content Column */}
+                            <div className="mt-10 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <Clock className="h-3 w-3" /> Weekly Schedule
+                                </h4>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                                    {daysOfWeek.map((day) => {
+                                        const dayInfo = schedule.find(d => d.day === day) || schedule.find(d => d.day === 'All Days');
+                                        const isAvailable = dayInfo ? dayInfo.available : (day !== 'Sunday');
+                                        const from = dayInfo?.from || item.availableFrom || '08:00';
+                                        const to = dayInfo?.to || item.availableTo || '21:00';
+
+                                        return (
+                                            <div key={day} className={`p-2 rounded-xl border text-center transition-all ${isAvailable ? 'bg-white border-blue-100 shadow-sm' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{day.substring(0, 3)}</p>
+                                                <p className={`text-[11px] font-black ${isAvailable ? 'text-blue-600' : 'text-gray-400'}`}>
+                                                    {isAvailable ? `${from}-${to}` : 'Closed'}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6 lg:p-10 space-y-12">
+                        {/* Ingredients & Nutritional Info Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            {/* Ingredients Section */}
+                            {((Array.isArray(item.ingredients) && item.ingredients.length > 0) || (typeof item.ingredients === 'string' && item.ingredients.trim().length > 0)) && (
+                                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+                                    <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                                        <Utensils className="h-5 w-5 text-blue-600" /> Ingredients
+                                    </h3>
+                                    <div className="text-gray-600 leading-relaxed">
+                                        {(() => {
+                                            let ings = recursiveParse(item.ingredients);
+
+                                            if (Array.isArray(ings)) {
+                                                return (
+                                                    <ul className="space-y-2">
+                                                        {ings.map((ing, i) => {
+                                                            const { name, quantity } = normalizeIngredient(ing);
+                                                            if (!name) return null;
+
+                                                            return (
+                                                                <li key={i} className="flex items-baseline">
+                                                                    <span className="text-blue-600 mr-2 font-bold">•</span>
+                                                                    <span className="text-gray-700 font-medium">
+                                                                        {name} {quantity && `(${quantity})`}
+                                                                    </span>
+                                                                </li>
+                                                            );
+                                                        }).filter(Boolean)}
+                                                    </ul>
+                                                );
+                                            }
+
+                                            if (typeof ings === 'string' && ings.includes('\n')) {
+                                                return (
+                                                    <ul className="space-y-2">
+                                                        {ings.split('\n').filter(Boolean).map((line, i) => (
+                                                            <li key={i} className="flex items-baseline">
+                                                                <span className="text-blue-600 mr-2 font-bold">•</span>
+                                                                <span className="text-gray-700 font-medium">{line}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                );
+                                            }
+
+                                            return <p className="text-gray-700 font-medium">{ings || 'No ingredients listed.'}</p>;
+                                        })()}
+                                    </div>
+                                    {(() => {
+                                        const tags = typeof item.dietaryTags === 'string'
+                                            ? (item.dietaryTags.trim() ? JSON.parse(item.dietaryTags) : [])
+                                            : (Array.isArray(item.dietaryTags) ? item.dietaryTags : []);
+                                        return tags.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mt-6">
+                                                {tags.map((tag, i) => (
+                                                    <span key={i} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
+
+                            {/* Nutritional Info Section */}
+                            {item.nutritionalInfo && (Object.values(item.nutritionalInfo).some(val => val && val.toString().trim() !== '')) && (
+                                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+                                    <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                                        <Shield className="h-5 w-5 text-blue-600" /> Nutritional Info
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {[
+                                            { label: 'Calories', value: item.nutritionalInfo?.calories },
+                                            { label: 'Protein', value: item.nutritionalInfo?.protein },
+                                            { label: 'Carbs', value: item.nutritionalInfo?.carbs },
+                                            { label: 'Fat', value: item.nutritionalInfo?.fat }
+                                        ].filter(info => info.value).map((info, i) => (
+                                            <div key={i} className="bg-gray-50 p-4 rounded-xl border border-gray-100/50">
+                                                <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest">{info.label}</p>
+                                                <p className="text-lg font-black text-gray-900">{info.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Size Variants & Combo Options Grid */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {(() => {
+                                const variantsData = parseNestedValue(item.sizeVariants);
+                                const variants = Array.isArray(variantsData) ? variantsData : [];
+
+                                return variants.length > 0 && (
+                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                        <div className="p-6 border-b border-gray-50 bg-gray-50/50">
+                                            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                <List className="h-5 w-5 text-blue-600" /> Size Variants
+                                            </h3>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="text-left text-gray-500 border-b bg-gray-50/30">
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Variant Name</th>
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Price</th>
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-right">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-50">
+                                                    {variants.map((vValue, i) => {
+                                                        const v = parseNestedValue(vValue);
+                                                        const variantPrice = getOptionPrice(v);
+                                                        return (
+                                                            <tr key={i} className="group hover:bg-blue-50/30 transition-colors">
+                                                                <td className="p-4 font-medium text-gray-900">{v.name || v.size}</td>
+                                                                <td className="p-4 font-bold text-blue-600 whitespace-nowrap">
+                                                                    {variantPrice
+                                                                        ? `KES ${variantPrice.toLocaleString()}`
+                                                                        : <span className="text-gray-300">---</span>}
+                                                                </td>
+                                                                <td className="p-4 text-right">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        onClick={() => handleBuyNow(v)}
+                                                                        disabled={v.isAvailable === false}
+                                                                        className="bg-blue-600 hover:bg-blue-700 text-[10px] md:text-xs h-8 px-3 md:px-4 font-bold rounded-lg shadow-md shadow-blue-50 focus:ring-0"
+                                                                    >
+                                                                        <ShoppingBag className="h-3 w-3 mr-1 hidden md:inline" /> Buy
+                                                                    </Button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {(() => {
+                                const combosData = parseNestedValue(item.comboOptions);
+                                const combos = Array.isArray(combosData) ? combosData : [];
+
+                                return combos.length > 0 && (
+                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                                        <div className="p-6 border-b border-gray-50 bg-gray-50/50">
+                                            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                <Settings className="h-5 w-5 text-blue-600" /> Combo Options
+                                            </h3>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="text-left text-gray-500 border-b bg-gray-50/30">
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Combo Name</th>
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px] hidden md:table-cell">Items</th>
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px]">Price</th>
+                                                        <th className="p-4 font-bold uppercase tracking-wider text-[10px] text-right">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-50">
+                                                    {combos.map((optValue, i) => {
+                                                        const opt = parseNestedValue(optValue);
+                                                        const comboItemsLabel = getComboItemsLabel(opt);
+                                                        const comboPrice = getOptionPrice(opt);
+                                                        return (
+                                                            <tr key={i} className="group hover:bg-blue-50/30 transition-colors">
+                                                                <td className="p-4">
+                                                                    <p className="font-medium text-gray-900">{opt.name}</p>
+                                                                    <p className="text-[9px] text-gray-400 italic md:hidden">
+                                                                        {comboItemsLabel}
+                                                                    </p>
+                                                                </td>
+                                                                <td className="p-4 text-gray-500 italic max-w-xs truncate hidden md:table-cell">
+                                                                    {comboItemsLabel}
+                                                                </td>
+                                                                <td className="p-4 font-bold text-blue-600 whitespace-nowrap">
+                                                                    {comboPrice
+                                                                        ? `KES ${comboPrice.toLocaleString()}`
+                                                                        : <span className="text-gray-300">---</span>}
+                                                                </td>
+                                                                <td className="p-4 text-right">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        onClick={() => handleBuyNow(null, opt)}
+                                                                        disabled={opt.isAvailable === false}
+                                                                        className="bg-blue-600 hover:bg-blue-700 text-[10px] md:text-xs h-8 px-3 md:px-4 font-bold rounded-lg shadow-md shadow-blue-50 focus:ring-0"
+                                                                    >
+                                                                        <ShoppingBag className="h-3 w-3 mr-1 hidden md:inline" /> Buy
+                                                                    </Button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+
+                        {/* Additional Info Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2 border-b pb-2">
+                                    Estimated Servings
+                                </h3>
+                                <p className="text-gray-900 font-bold text-center py-4 bg-gray-50 rounded-xl">
+                                    {item.estimatedServings || '1 person'}
+                                </p>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2 border-b pb-2">
+                                    Allergens
+                                </h3>
+                                {(() => {
+                                    const recursiveParse = (val) => {
+                                        if (typeof val !== 'string') return val;
+                                        const trimmed = val.trim();
+                                        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                                            (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+                                            (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+                                            try {
+                                                const parsed = JSON.parse(val);
+                                                if (parsed !== val) return recursiveParse(parsed);
+                                            } catch (e) { }
+                                        }
+                                        return val;
+                                    };
+
+                                    const allergens = recursiveParse(item.allergens);
+                                    const validAllergens = Array.isArray(allergens) ? allergens : [];
+
+                                    return validAllergens.length > 0 ? (
+                                        validAllergens.map((alg, i) => (
+                                            <span key={i} className="bg-red-50 text-red-700 px-3 py-1 rounded-md text-[10px] font-black border border-red-100 uppercase">
+                                                {recursiveParse(alg)}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-gray-400 italic font-medium">None specified.</span>
+                                    );
+                                })()}
+                            </div>
+
+                            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2 border-b pb-2">
+                                    Context
+                                </h3>
+                                <p className={`text-center py-4 rounded-xl font-black text-[10px] uppercase tracking-tighter ${item.isComboOption ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+                                    {item.isComboOption ? 'Combo Ready' : 'Individual Item'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <Footer />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default FastFoodDetails;

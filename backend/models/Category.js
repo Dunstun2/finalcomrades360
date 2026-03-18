@@ -1,0 +1,106 @@
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize, DataTypes) => {
+  class Category extends Model {
+    static async isNameTaken(name, excludeId = null) {
+      const where = { 
+        name,
+        deletedAt: null
+      };
+      
+      if (excludeId) {
+        where.id = { [sequelize.Op.ne]: excludeId };
+      }
+      
+      const existing = await this.findOne({ where });
+      return !!existing;
+    }
+  }
+
+  Category.init({
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    emoji: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      defaultValue: '📦'
+    },
+    slug: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    parentId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Category',
+        key: 'id'
+      }
+    },
+    deletedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null
+    }
+  }, {
+    sequelize,
+    modelName: 'Category',
+    freezeTableName: true,
+    timestamps: true,
+    paranoid: true,
+    defaultScope: {
+      where: {
+        deletedAt: null
+      }
+    },
+    scopes: {
+      withDeleted: {
+        where: {},
+        paranoid: false
+      }
+    }
+  });
+  
+  // Add unique index for non-deleted records only
+  Category.addHook('beforeValidate', async (category) => {
+    if (category.changed('name') && category.name) {
+      const isTaken = await Category.isNameTaken(category.name, category.id);
+      if (isTaken) {
+        throw new Error('A category with this name already exists');
+      }
+    }
+  });
+
+  // Define associations
+  Category.associate = function(models) {
+    // Self-referential relationship for parent-child categories
+    Category.belongsTo(models.Category, {
+      foreignKey: 'parentId',
+      as: 'parent'
+    });
+
+    Category.hasMany(models.Category, {
+      foreignKey: 'parentId',
+      as: 'children'
+    });
+
+    // Relationship with Subcategory
+    Category.hasMany(models.Subcategory, {
+      foreignKey: 'categoryId',
+      as: 'Subcategory',
+      onDelete: 'CASCADE',
+      hooks: true
+    });
+
+
+  };
+
+  return Category;
+};

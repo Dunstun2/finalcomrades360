@@ -1,0 +1,158 @@
+﻿const express = require('express');
+const {
+  getAllUsers,
+  getPendingProducts,
+  approveProduct,
+  updateUserRole,
+  setProductFlashSale,
+  getAllProductsAdmin,
+  notifySellerForProduct,
+  deleteProduct,
+  listDeletionRequests,
+  approveDeletionRequest,
+  denyDeletionRequest,
+  rejectProduct,
+  requestProductChanges,
+  editAndApproveProduct,
+  listCommissionsAdmin,
+  bulkPayCommissions,
+  bulkCancelCommissions,
+  referralAnalytics,
+  listMarketers,
+  suspendMarketer,
+  reactivateMarketer,
+  revokeReferralCode,
+  assignReferralCode,
+  updateProductCommissionRate,
+  batchUpdateCategoryCommissionRate,
+  getInventoryOverview,
+  getInventoryItems,
+  getLowStockAlerts,
+  updateStockLevels,
+  bulkUpdateStock,
+  getProductAnalytics,
+  getTopPerformingProducts,
+  getProductPerformanceMetrics,
+  bulkUpdateProducts,
+  bulkUpdateCategories,
+  bulkUpdatePrices,
+  bulkUpdateStatus,
+  getQualityMetrics,
+  flagProductForReview,
+  getFlaggedProducts,
+  updateProductQualityScore,
+  createCategoryPromotion,
+  getPromotionAnalytics,
+  manageFeaturedProducts,
+  updateSearchPriority,
+  getUserAnalytics,
+  createUser,
+  updateUser,
+  deleteUser,
+  getSearchAnalytics,
+  getRevenueAnalytics,
+  verifyAdminPassword
+} = require('../controllers/adminController');
+
+const { auth, adminOnly, adminOrLogistics, adminOrFinance } = require('../middleware/auth');
+const { adminListDeliveryAgents, getAvailableAgentsForOrder, adminGetGlobalMapData } = require('../controllers/deliveryController');
+const { getConfig, updateConfig } = require('../controllers/PlatformConfigController');
+const adminHeroPromotionRoutes = require('./adminHeroPromotionRoutes');
+
+const router = express.Router();
+
+// Authentication is required for all routes
+router.use(auth);
+
+// Public / General Logistics access
+router.get('/config/:key', adminOrLogistics, getConfig);
+router.post('/config/:key', adminOnly, updateConfig);
+
+// User management (Admin Only)
+router.get('/users', adminOnly, getAllUsers);
+router.post('/users', adminOnly, createUser);
+router.patch('/users/:userId', adminOnly, updateUser);
+router.delete('/users/:userId', adminOnly, deleteUser);
+router.get('/users/deletion-requests', adminOnly, listDeletionRequests);
+router.post('/users/:userId/deletion-approve', adminOnly, approveDeletionRequest);
+router.post('/users/:userId/deletion-deny', adminOnly, denyDeletionRequest);
+router.patch('/users/:userId/role', adminOnly, updateUserRole);
+
+// Product management (Admin Only)
+router.get('/products/pending', adminOnly, getPendingProducts);
+router.get('/products', adminOnly, getAllProductsAdmin);
+router.patch('/products/:productId/approve', adminOnly, approveProduct);
+router.patch('/products/:productId/reject', adminOnly, rejectProduct);
+router.patch('/products/:productId/request-changes', adminOnly, requestProductChanges);
+router.patch('/products/:productId/edit-approve', adminOnly, editAndApproveProduct);
+router.get('/products/deletion-requests', adminOnly, listDeletionRequests);
+router.post('/products/deletion-approve', adminOnly, approveDeletionRequest);
+router.post('/products/deletion-deny', adminOnly, denyDeletionRequest);
+router.delete('/products/:productId', adminOnly, deleteProduct);
+router.patch('/products/:productId/flash-sale', adminOnly, setProductFlashSale);
+router.post('/products/:productId/notify', adminOnly, notifySellerForProduct);
+
+// Commission rate management
+router.patch('/products/:productId/commission-rate', adminOnly, updateProductCommissionRate);
+router.patch('/categories/:categoryId/commission-rate', adminOnly, batchUpdateCategoryCommissionRate);
+
+// Commissions management
+router.get('/commissions', adminOrFinance, listCommissionsAdmin);
+router.post('/commissions/pay-bulk', adminOrFinance, bulkPayCommissions);
+router.post('/commissions/cancel-bulk', adminOrFinance, bulkCancelCommissions);
+
+// Referral analytics
+router.get('/referrals/analytics', adminOrFinance, referralAnalytics);
+
+// Marketer management
+router.get('/marketers', adminOnly, listMarketers);
+router.post('/marketers/:userId/suspend', adminOnly, suspendMarketer);
+router.post('/marketers/:userId/reactivate', adminOnly, reactivateMarketer);
+router.post('/marketers/:userId/referral/revoke', adminOnly, revokeReferralCode);
+router.post('/marketers/:userId/referral/assign', adminOnly, assignReferralCode);
+
+// Delivery agents management
+router.get('/delivery/agents', adminOrLogistics, adminListDeliveryAgents);
+router.get('/delivery/agents/available/:orderId', adminOrLogistics, getAvailableAgentsForOrder);
+router.get('/delivery/global-map-data', adminOrLogistics, adminGetGlobalMapData);
+
+// User Analytics
+router.get('/analytics/users', getUserAnalytics);
+
+// Advanced inventory management
+router.get('/inventory/overview', getInventoryOverview);
+router.get('/inventory/items', getInventoryItems);
+router.get('/inventory/low-stock-alerts', getLowStockAlerts);
+router.patch('/products/:productId/stock', updateStockLevels);
+router.post('/inventory/bulk-update-stock', bulkUpdateStock);
+
+// Product analytics
+router.get('/analytics/products', getProductAnalytics);
+router.get('/analytics/top-products', getTopPerformingProducts);
+router.get('/products/:productId/performance', getProductPerformanceMetrics);
+
+// Bulk operations
+router.post('/products/bulk-update', bulkUpdateProducts);
+router.post('/products/bulk-update-categories', bulkUpdateCategories);
+router.post('/products/bulk-update-prices', bulkUpdatePrices);
+router.post('/products/bulk-update-status', bulkUpdateStatus);
+
+// Quality monitoring
+router.get('/quality/metrics', getQualityMetrics);
+router.post('/products/:productId/flag', flagProductForReview);
+router.get('/products/flagged', getFlaggedProducts);
+router.patch('/products/:productId/quality-score', updateProductQualityScore);
+
+// Advanced promotions
+router.use('/hero-promotions', adminHeroPromotionRoutes);
+router.post('/promotions/category', adminOnly, createCategoryPromotion);
+router.get('/promotions/analytics', adminOnly, getPromotionAnalytics);
+router.patch('/products/:productId/featured', adminOnly, manageFeaturedProducts);
+
+// Search and discovery
+router.patch('/products/:productId/search-priority', adminOnly, updateSearchPriority);
+router.get('/analytics/search', adminOnly, getSearchAnalytics);
+router.get('/analytics/revenue', adminOrFinance, getRevenueAnalytics);
+router.post('/verify-password', auth, verifyAdminPassword);
+
+module.exports = router;
