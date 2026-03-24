@@ -43,20 +43,20 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy API requests to the backend
       '/api': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5002',
         changeOrigin: true,
         secure: false,
         ws: true, // Enable WebSocket proxying
       },
       // Proxy WebSocket requests
       '/socket.io': {
-        target: 'ws://localhost:5000',
+        target: 'ws://localhost:5002',
         ws: true,
         changeOrigin: true,
       },
       // Proxy uploads directory for images
       '/uploads': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5002',
         changeOrigin: true,
         secure: false,
         ws: true,

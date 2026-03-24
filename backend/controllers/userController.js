@@ -3,7 +3,9 @@ const { Op } = require("sequelize");
 const { User, UserRole, Notification, Order } = require("../models");
 const { isValidEmail, normalizeKenyanPhone } = require("../middleware/validators");
 const { sendEmail } = require("../utils/mailer");
-const { sendSms } = require("../utils/sms");
+const { sendMessage } = require("../utils/messageService");
+const { getDynamicMessage } = require("../utils/templateUtils");
+
 const { uploadProfileImages } = require("../config/multer");
 const { geocodeAddress } = require("../utils/geocodingUtils");
 const genPublic = async () => { const y = new Date().getFullYear(); const seq = `${Math.floor(Math.random() * 1e6)}`.padStart(6, "0"); return `C360-${y}-${seq}`; };
@@ -100,10 +102,12 @@ const confirmEmailChange = async (req, res) => {
 // Request phone change: generate OTP, store pendingPhone
 const requestPhoneOtp = async (req, res) => {
   const userId = req.user.id;
-  const { newPhone } = req.body || {};
+  const { newPhone, method } = req.body || {};
   try {
+    if (!newPhone) return res.status(400).json({ message: 'New phone number is required.' });
+
     const norm = normalizeKenyanPhone(newPhone);
-    if (!norm) return res.status(400).json({ message: 'Invalid phone format.' });
+    if (!norm) return res.status(400).json({ message: 'Invalid phone format. Please use +254xxxxxxxxx.' });
 
     const user = await User.findByPk(userId);
     if (!user) return res.status(404).json({ message: 'User not found.' });
@@ -120,10 +124,21 @@ const requestPhoneOtp = async (req, res) => {
     await user.save();
 
     // Send OTP to the NEW phone number
-    try { await sendSms(norm, `Your Comrades360 verification OTP is ${otp}. It expires in 10 minutes.`); } catch (err) { }
-    try { await Notification.create({ userId, title: 'Phone OTP', message: `An OTP was sent to your new phone number.` }); } catch (err) { }
+    try {
+      const deliveryMethod = method === 'whatsapp' ? 'whatsapp' : 'sms';
+      const message = await getDynamicMessage('phoneVerification', 
+        `Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.`,
+        { otp }
+      );
+      await sendMessage(norm, message, deliveryMethod);
+    } catch (err) {
+      console.error(`Error sending OTP via ${method}:`, err.message);
+    }
 
-    res.json({ message: 'OTP sent to your new phone. Please confirm to update phone.' });
+
+    try { await Notification.create({ userId, title: 'Phone OTP', message: `An OTP was sent to your new phone number via ${method || 'SMS'}.` }); } catch (err) { }
+
+    res.json({ message: `OTP sent to your new phone via ${method === 'whatsapp' ? 'WhatsApp' : 'SMS'}. Please confirm to update phone.` });
   } catch (e) {
     console.error('Critical Error in requestPhoneOtp:', e);
     res.status(500).json({ message: 'Server error requesting phone OTP.', error: e.message });
@@ -197,7 +212,8 @@ const updateProfile = async (req, res) => {
   const userId = req.user.id;
   const {
     name, username, county, town, estate, houseNumber, additionalPhone, bio, gender, dateOfBirth, profileVisibility,
-    businessAddress, businessCounty, businessTown, businessLandmark, businessPhone
+    businessName, businessAddress, businessCounty, businessTown, businessLandmark, businessPhone,
+    businessLat, businessLng
   } = req.body || {};
   try {
     const user = await User.findByPk(userId);
@@ -245,6 +261,7 @@ const updateProfile = async (req, res) => {
 
     // Update business fields
     let businessLocationChanged = false;
+    if (businessName !== undefined) user.businessName = (businessName && String(businessName).trim()) || null;
     if (businessAddress !== undefined) {
       const newAddress = (businessAddress && String(businessAddress).trim()) || null;
       if (user.businessAddress !== newAddress) {
@@ -277,8 +294,11 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    // AUTOMATIC GPS RESOLUTION: If business location changed, geocode it!
-    if (businessLocationChanged) {
+    if (businessLat !== undefined) user.businessLat = businessLat;
+    if (businessLng !== undefined) user.businessLng = businessLng;
+
+    // AUTOMATIC GPS RESOLUTION: If business location changed AND manual coordinates weren't provided, geocode it!
+    if (businessLocationChanged && (businessLat === undefined || businessLat === null)) {
       try {
         console.log(`[Smart Geocoder] Address changed for user ${user.id}, resolving GPS...`);
         const coords = await geocodeAddress(user.businessAddress, user.businessTown, user.businessCounty);
@@ -454,6 +474,54 @@ const getUserById = async (req, res) => {
   }
 };
 
+// Set/Update dashboard password (requires current main password)
+const setDashboardPassword = async (req, res) => {
+  const userId = req.user.id;
+  const { currentPassword, dashboardPassword } = req.body || {};
+  try {
+    if (!currentPassword || !dashboardPassword) return res.status(400).json({ message: 'Current password and new dashboard password are required.' });
+    
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    // Verify main password first
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(400).json({ message: 'Current password is incorrect.' });
+
+    // Hash and save dashboard password
+    const hashed = await bcrypt.hash(dashboardPassword, 10);
+    user.dashboardPassword = hashed;
+    await user.save();
+
+    res.json({ message: 'Dashboard password set successfully.' });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error setting dashboard password.', error: e.message });
+  }
+};
+
+// Verify dashboard password for session access
+const verifyDashboardPassword = async (req, res) => {
+  const userId = req.user.id;
+  const { password } = req.body || {};
+  try {
+    if (!password) return res.status(400).json({ message: 'Password is required.' });
+
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (!user.dashboardPassword) {
+      return res.status(400).json({ message: 'Dashboard password not set. Please set it in your profile settings.' });
+    }
+
+    const ok = await bcrypt.compare(password, user.dashboardPassword);
+    if (!ok) return res.status(401).json({ message: 'Incorrect dashboard password.' });
+
+    res.json({ message: 'Dashboard password verified successfully.', success: true });
+  } catch (e) {
+    res.status(500).json({ message: 'Server error verifying dashboard password.', error: e.message });
+  }
+};
+
 module.exports = {
   adminSetUserRole,
   requestEmailChange,
@@ -471,5 +539,7 @@ module.exports = {
   requestAccountDeletion,
   getFullProfile,
   listUsersByRole,
-  getUserById
+  getUserById,
+  setDashboardPassword,
+  verifyDashboardPassword
 };

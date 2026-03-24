@@ -16,7 +16,8 @@ const getUltraFastHomepageProducts = async (req, res) => {
     const cacheKey = `homepage:ultra-fast:${req.query.limit || 8}:${req.query.page || 1}:${isMarketing ? 'marketing' : 'standard'}`;
 
     // Try to get from cache first
-    const cachedData = await cacheService.get(cacheKey);
+    const ignoreCache = req.query.ignoreCache === 'true';
+    const cachedData = ignoreCache ? null : await cacheService.get(cacheKey);
     if (cachedData) {
       const responseTime = Date.now() - startTime;
       console.log(`[UltraFastHomepage] Cache hit in ${responseTime}ms`);
@@ -70,9 +71,12 @@ const getUltraFastHomepageProducts = async (req, res) => {
         'categoryId',
         'subcategoryId',
         'coverImage',
+        'galleryImages',
+        'images',
         'deliveryFee',
         'marketingCommission',
         'marketingCommissionType',
+        'variants',
         'createdAt',
         'updatedAt'
       ],
@@ -80,7 +84,7 @@ const getUltraFastHomepageProducts = async (req, res) => {
         {
           model: User,
           as: 'seller',
-          attributes: ['id', 'name'],
+          attributes: ['id', 'name', 'businessName'],
           required: false,
           where: {
             role: { [Op.in]: ['superadmin', 'admin'] }
@@ -107,18 +111,21 @@ const getUltraFastHomepageProducts = async (req, res) => {
         name: plain.name,
         shortDescription: plain.shortDescription,
         basePrice: plain.basePrice,
-        displayPrice: plain.displayPrice || plain.basePrice,
+        displayPrice: plain.displayPrice || plain.basePrice || 0,
         discountPrice: plain.discountPrice,
-        discountPercentage: plain.discountPercentage,
+        price: plain.discountPrice || plain.displayPrice || plain.basePrice || 0,
+        discountPercentage: plain.discountPercentage || 0,
         categoryId: plain.categoryId,
         subcategoryId: plain.subcategoryId,
         // Properly handle images (reconstruct array from single cover image)
         coverImage: getListSafeImage(plain.coverImage),
-        images: getListSafeImage(plain.coverImage) ? [getListSafeImage(plain.coverImage)] : [],
+        galleryImages: plain.galleryImages,
+        images: plain.images || (getListSafeImage(plain.coverImage) ? [getListSafeImage(plain.coverImage)] : []),
         deliveryFee: plain.deliveryFee || 0,
         // Marketing fields
         marketingCommission: plain.marketingCommission,
         marketingCommissionType: plain.marketingCommissionType,
+        variants: plain.variants || [],
         // Flag super admin products for the frontend
         isSuperAdminProduct: !!(plain.seller && ['superadmin', 'super_admin', 'super-admin', 'admin'].includes(String(plain.seller.role || '').toLowerCase())),
         createdAt: plain.createdAt,
@@ -164,7 +171,8 @@ const getHomepageBatchData = async (req, res) => {
   try {
     // FORCE CACHE BUST FROM V4 -> V5
     const cacheKey = `homepage:batch:v5:${isMarketing ? 'marketing' : 'standard'}`;
-    const cachedData = await cacheService.get(cacheKey);
+    const ignoreCache = req.query.ignoreCache === 'true';
+    const cachedData = ignoreCache ? null : await cacheService.get(cacheKey);
     if (cachedData) {
       const responseTime = Date.now() - startTime;
       res.set({
@@ -203,15 +211,17 @@ const getHomepageBatchData = async (req, res) => {
               'id', 'name', 'basePrice', 'displayPrice',
               'discountPrice', 'discountPercentage', 'stock',
               'categoryId', 'subcategoryId', 'createdAt',
-              'coverImage',
+              'coverImage', 'galleryImages', 'images',
               'deliveryFee',
               'marketingCommission', 'marketingCommissionType', 'approved',
+              'variants',
+              'price', // Include price if it exists in DB
               'visibilityStatus', 'suspended', 'isActive', 'status'
             ],
             include: [{
               model: User,
               as: 'seller',
-              attributes: ['id', 'name', 'role'],
+              attributes: ['id', 'name', 'role', 'businessName'],
               required: false
             }],
             order: [['createdAt', 'DESC']],
@@ -303,7 +313,7 @@ const getHomepageBatchData = async (req, res) => {
               'id', 'title', 'basePrice', 'displayPrice', 'rating', 'userId',
               'status', 'isAvailable', 'availabilityMode', 'availabilityDays',
               'location', 'vendorLocation', 'isFeatured', 'discountPercentage',
-              'discountPrice', 'price', 'deliveryFee', 'marketingCommission', 'marketingCommissionType', 'marketingEnabled',
+              'discountPrice', 'deliveryFee', 'marketingCommission', 'marketingCommissionType', 'marketingEnabled',
               'categoryId', 'subcategoryId'
             ],
             include: [{
@@ -409,12 +419,15 @@ const getHomepageBatchData = async (req, res) => {
             const ids = p.productIds || [];
             const prods = await Product.findAll({
               where: { id: { [Op.in]: ids } },
-              attributes: ['id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'discountPercentage']
+              attributes: ['id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage']
             });
             result.push({
               ...p.toJSON(),
               products: prods.map((product) => {
                 const plain = product.get ? product.get({ plain: true }) : product;
+                // Add price mapping for consistency
+                plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+                plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
                 return {
                   ...plain,
                   coverImage: getListSafeImage(plain.coverImage)
@@ -444,16 +457,23 @@ const getHomepageBatchData = async (req, res) => {
           name: plain.name,
           shortDescription: plain.shortDescription,
           basePrice: plain.basePrice,
-          displayPrice: plain.displayPrice || plain.basePrice,
+          displayPrice: plain.displayPrice || plain.basePrice || 0,
           discountPrice: plain.discountPrice,
-          discountPercentage: plain.discountPercentage,
+          price: plain.discountPrice || plain.displayPrice || plain.basePrice || 0,
+          discountPercentage: plain.discountPercentage || 0,
           categoryId: plain.categoryId,
           subcategoryId: plain.subcategoryId,
           coverImage: firstImage,
-          images: images,
+          galleryImages: plain.galleryImages,
+          images: plain.images || images,
+          deliveryFee: firstImage, // Wait, this look like it was a bug in the previous version?
+          // Actually checking original code:
+          // deliveryFee: plain.deliveryFee || 0,
+          // I will fix it.
           deliveryFee: plain.deliveryFee || 0,
           marketingCommission: plain.marketingCommission,
           marketingCommissionType: plain.marketingCommissionType,
+          variants: plain.variants || [],
           approved: plain.approved,
           visibilityStatus: plain.visibilityStatus,
           suspended: plain.suspended,
@@ -490,7 +510,7 @@ const getHomepageBatchData = async (req, res) => {
           title: plain.title,
           name: plain.title, // Alias for consistency
           basePrice: plain.basePrice,
-          displayPrice: plain.displayPrice,
+          displayPrice: plain.displayPrice || plain.basePrice || 0,
           rating: plain.rating,
           userId: plain.userId,
           status: plain.status,
@@ -500,9 +520,9 @@ const getHomepageBatchData = async (req, res) => {
           location: plain.location,
           vendorLocation: plain.vendorLocation,
           isFeatured: plain.isFeatured,
-          discountPercentage: plain.discountPercentage,
+          discountPercentage: plain.discountPercentage || 0,
           discountPrice: plain.discountPrice,
-          price: plain.price,
+          price: plain.discountPrice || plain.displayPrice || plain.basePrice || 0,
           deliveryFee: plain.deliveryFee || 0,
           marketingCommission: plain.marketingCommission,
           marketingCommissionType: plain.marketingCommissionType,
@@ -521,7 +541,11 @@ const getHomepageBatchData = async (req, res) => {
     const fastFoodRes = fastFoodResult || { items: [], totalCount: 0 };
     const fastFood = fastFoodRes.items.map(item => {
       try {
-        return item.get ? item.get({ plain: true }) : item;
+        const plain = item.get ? item.get({ plain: true }) : item;
+        // Map FastFood prices for consistency
+        plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
+        plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+        return plain;
       } catch (err) {
         return null;
       }

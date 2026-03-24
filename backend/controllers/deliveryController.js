@@ -3,9 +3,17 @@ const { Order, OrderItem, User, DeliveryAgentProfile, DeliveryTask, DeliveryChar
 const { Op } = require('sequelize');
 const { sequelize } = require('../database/database');
 const { matchAgentsToOrder, isAgentAvailableNow, checkProfileCompleteness, calculateDistance, getTownCoordinates } = require('../utils/deliveryUtils');
-const { notifyDeliveryAgentAssignment, notifyAdminTaskRejection, notifyCustomerDeliveryUpdate, notifyCustomerReadyForPickupStation } = require('../utils/notificationHelpers');
+const { 
+  notifyDeliveryAgentAssignment, 
+  notifyAdminTaskRejection, 
+  notifyCustomerDeliveryUpdate, 
+  notifyCustomerReadyForPickupStation,
+  notifyCustomerAgentArrived,
+  notifyCustomerOutForDelivery
+} = require('../utils/notificationHelpers');
 const { creditPending, moveToSuccess, revertPending } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout, settleDeliveryChargeForTask, upsertDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
+const { creditAgentForTask } = require('../services/earningsService');
 
 const DELIVERY_AVAILABLE_ORDER_STATUSES = [
   'seller_confirmed',
@@ -36,7 +44,12 @@ const getProvisionalDeliveryType = (order) => {
   }
 
   if (routing === 'warehouse') {
-    if (deliveryMethod === 'home_delivery' && ['awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'in_transit'].includes(status)) {
+    // Orders at the warehouse or already moving toward it — next leg is hub → destination
+    const hubStageStatuses = ['en_route_to_warehouse', 'at_warehouse', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'in_transit'];
+    if (hubStageStatuses.includes(status)) {
+      if (deliveryMethod === 'pick_station') {
+        return 'warehouse_to_pickup_station';
+      }
       return 'warehouse_to_customer';
     }
     if (['en_route_to_pick_station', 'at_pick_station', 'ready_for_pickup'].includes(status)) {
@@ -75,15 +88,42 @@ const hydrateOrderItemsFallback = async (orders = []) => {
     const plain = typeof entry?.get === 'function' ? entry.get({ plain: true }) : entry;
     if (!plain || typeof plain !== 'object') return plain;
 
-    if (Array.isArray(plain.OrderItems) && plain.OrderItems.length > 0) return plain;
+    if (Array.isArray(plain.OrderItems) && plain.OrderItems.length > 0) {
+      // Ensure each item has a coverImage for the frontend
+      plain.OrderItems = plain.OrderItems.map(item => {
+        if (item.FastFood) {
+          item.FastFood.coverImage = item.FastFood.mainImage;
+        } else if (item.Service) {
+          if (Array.isArray(item.Service.images) && item.Service.images.length > 0) {
+            item.Service.coverImage = item.Service.images[0].imageUrl || item.Service.images[0];
+          }
+        }
+        return item;
+      });
+      return plain;
+    }
 
     const recoveredItems = await OrderItem.findAll({
       where: { orderId: plain.id },
-      include: orderItemIncludeConfig
+      include: [
+        { model: Product, attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images'], required: false },
+        { model: FastFood, attributes: ['id', 'name', 'mainImage'], required: false },
+        { model: Service, attributes: ['id', 'title'], include: [{ model: ServiceImage, as: 'images', attributes: ['imageUrl'] }], required: false }
+      ]
     });
 
     if (recoveredItems.length > 0) {
-      plain.OrderItems = recoveredItems.map((item) => item.get({ plain: true }));
+      plain.OrderItems = recoveredItems.map((item) => {
+        const itemPlain = item.get({ plain: true });
+        if (itemPlain.FastFood) {
+          itemPlain.FastFood.coverImage = itemPlain.FastFood.mainImage;
+        } else if (itemPlain.Service) {
+          if (Array.isArray(itemPlain.Service.images) && itemPlain.Service.images.length > 0) {
+            itemPlain.Service.coverImage = itemPlain.Service.images[0].imageUrl || itemPlain.Service.images[0];
+          }
+        }
+        return itemPlain;
+      });
     }
 
     return plain;
@@ -117,18 +157,29 @@ const listMyAssignedOrders = async (req, res) => {
       });
     }
 
-    const where = { deliveryAgentId: req.user.id };
-    if (status) where.status = status;
+    const where = {};
+    const isCancelled = req.query.cancelled === 'true';
+    const isHistory = req.query.history === 'true';
+
+    // Build the DeliveryTask child filter (association-level)
+    let taskWhereClause = { deliveryAgentId: req.user.id };
+
+    if (isCancelled) {
+      // Cancelled tab: tasks this agent was assigned but failed or rejected
+      taskWhereClause.status = { [Op.in]: ['failed', 'rejected'] };
+    } else if (isHistory) {
+      // Completed tab: tasks this agent completed
+      taskWhereClause.status = 'completed';
+    } else {
+      // In Progress tab: tasks in active states
+      taskWhereClause.status = { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] };
+      // Also match the order-level deliveryAgentId as the primary filter
+      where.deliveryAgentId = req.user.id;
+    }
+
     if (q) where.orderNumber = { [Op.like]: `%${q}%` };
     if (deliveryType) where.deliveryType = deliveryType;
 
-    // HISTORY MODE: If specifically requested, show orders where this agent has completed a task
-    // even if they are no longer the "active" agent (reassigned or finished)
-    if (req.query.history === 'true') {
-      delete where.deliveryAgentId; // Don't restrict by order.deliveryAgentId
-      where['$deliveryTasks.deliveryAgentId$'] = req.user.id;
-      where['$deliveryTasks.status$'] = 'completed';
-    }
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt[Op.gte] = new Date(from);
@@ -142,10 +193,15 @@ const listMyAssignedOrders = async (req, res) => {
       offset: (page - 1) * pageSize,
       include: [
         {
-          model: OrderItem, as: 'OrderItems', include: orderItemIncludeConfig
+          model: OrderItem, as: 'OrderItems', 
+          include: [
+            { model: Product, attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images'], required: false },
+            { model: FastFood, attributes: ['id', 'name', 'mainImage'], required: false },
+            { model: Service, attributes: ['id', 'title'], required: false }
+          ]
         },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'role', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'email', 'businessLandmark', 'businessPhone', 'businessLat', 'businessLng'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'email', 'businessLandmark', 'businessPhone', 'businessLat', 'businessLng', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
         { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
@@ -153,12 +209,15 @@ const listMyAssignedOrders = async (req, res) => {
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
-          where: req.query.history === 'true' ? { deliveryAgentId: req.user.id, status: 'completed' } : { deliveryAgentId: req.user.id },
-          required: req.query.history === 'true' ? true : false,
-          order: [['createdAt', 'DESC']]
+          where: taskWhereClause,
+          required: true, // Always require a matching task — this is the key filter
         }
       ],
-      subQuery: false // Necessary for filtering by included model fields
+      order: [
+        ['createdAt', 'DESC'],
+        [{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']
+      ],
+      subQuery: false
     });
     const rowsWithItems = await hydrateOrderItemsFallback(rows);
     res.json({ data: rowsWithItems, meta: { page, pageSize, total: count, totalPages: Math.ceil(count / pageSize) } });
@@ -210,10 +269,14 @@ const listAvailableOrders = async (req, res) => {
       include: [
         {
           model: OrderItem, as: 'OrderItems',
-          include: orderItemIncludeConfig
+          include: [
+            { model: Product, attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images'], required: false },
+            { model: FastFood, attributes: ['id', 'name', 'mainImage'], required: false },
+            { model: Service, attributes: ['id', 'title'], required: false }
+          ]
         },
-        { model: User, as: 'user', attributes: ['id', 'name', 'phone'] }, // Customer details
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'businessLandmark', 'businessPhone', 'businessLat', 'businessLng'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'phone', 'businessName'] }, // Customer details
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'businessLandmark', 'businessPhone', 'businessLat', 'businessLng', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
         { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
@@ -246,6 +309,16 @@ const listAvailableOrders = async (req, res) => {
       lockedOrderSet = new Set(openTasks
         .filter(t => LOCKED_DELIVERY_TASK_STATUSES.includes(t.status))
         .map(t => t.orderId));
+
+      // We also want to know if ANY agent has requested it, even if not yet locked.
+      const requestedAnySet = new Set(openTasks
+        .filter(t => t.status === 'requested')
+        .map(t => t.orderId));
+
+      rows.forEach(r => {
+        const plain = r.get({ plain: true });
+        r.hasAnyRequest = requestedAnySet.has(plain.id);
+      });
     }
 
     const { lat: queryLat, lng: queryLng } = req.query;
@@ -276,9 +349,11 @@ const listAvailableOrders = async (req, res) => {
 
     const rowsWithItems = await hydrateOrderItemsFallback(rows);
 
-    const enhancedRows = rowsWithItems.map((plain) => {
+    const enhancedRows = rowsWithItems.map((plain, idx) => {
+      const originalRow = rows[idx];
       plain.hasRequested = requestedSet.has(plain.id);
       plain.isLocked = lockedOrderSet.has(plain.id);
+      plain.hasAnyRequest = originalRow.hasAnyRequest || false;
 
       // Determine pickup coordinates based on current status and routing
       let pickupLat = null, pickupLng = null;
@@ -330,10 +405,10 @@ const listAvailableOrders = async (req, res) => {
       return plain;
     })
       .filter((plain) => {
-        // Hide orders that are locked by OTHER agents.
-        // If it's locked and I'm the one who has it, I'll see it in my Active Assignments,
-        // but we hide it from Available to prevent cluttering the "New Work" list.
-        return !plain.isLocked;
+        // Hide orders that are locked or ALREADY requested by ANY agent.
+        // This ensures that as soon as one agent requests an order, it disappears for all others.
+        // Note: we check hasAnyRequest which includes the 'requested' status.
+        return !plain.isLocked && !plain.hasAnyRequest;
       })
       .filter((plain) => {
         // Also hide orders that are ALREADY assigned to ME but not yet accepted.
@@ -547,76 +622,18 @@ const updateMyOrderStatus = async (req, res) => {
         agentNotes: notes || task.agentNotes
       };
 
-      // Calculate earnings if delivered
+      // Calculate earnings if delivered (Legacy Support / Direct Admin Update)
       if (status === 'delivered') {
-        const t = await sequelize.transaction();
         try {
-          const { DeliveryAgentProfile, Wallet, Transaction } = require('../models');
-
-          // Use the share percentage LOCKED at assignment time (task.agentShare).
-          // This ensures that changes to the global setting do NOT retroactively
-          // affect orders that have already been assigned to an agent.
-          const sharePercent = parseFloat(task.agentShare) || 70;
-
-          // Earnings must strictly use the task-level delivery fee.
-          const baseFee = parseFloat(task.deliveryFee) || 0;
-
-          const agentEarnings = baseFee * (sharePercent / 100);
-
-
-          updates.deliveryFee = baseFee;
-          updates.agentEarnings = agentEarnings;
-
-          // Update agent stats with ACTUAL earnings
-          const profile = await DeliveryAgentProfile.findOne({ where: { userId: req.user.id }, transaction: t });
-          if (profile) {
-            await profile.update({
-              completedDeliveries: (profile.completedDeliveries || 0) + 1,
-              totalEarnings: (profile.totalEarnings || 0) + agentEarnings
-            }, { transaction: t });
-          }
-
-          // WALLET INTEGRATION: Move from pending to success
-          if (agentEarnings > 0) {
-            await moveToSuccess(
-              req.user.id,
-              agentEarnings,
-              order.orderNumber,
-              `Delivery Earning for Order #${order.orderNumber} (Delivered)`,
-              order.id,
-              t
-            );
-
-            console.log(`[deliveryController] (updateMyOrderStatus) Moved ${agentEarnings} to agent ${req.user.id} success balance.`);
-          }
-
-          await upsertDeliveryChargeForTask({
-            DeliveryCharge,
-            transaction: t,
-            order,
-            task,
-            deliveryFee: baseFee,
-            agentSharePercent: sharePercent,
-            deliveryType: task.deliveryType,
-            deliveryAgentId: req.user.id
-          });
-          await settleDeliveryChargeForTask({
-            DeliveryCharge,
-            transaction: t,
-            taskId: task.id,
-            markCharged: true
-          });
-
-          await t.commit();
-
+          await creditAgentForTask(task.id);
+          
           // Unlink agent and update actual delivery date
           await order.update({
             deliveryAgentId: null,
             actualDelivery: new Date()
           });
         } catch (err) {
-          await t.rollback();
-          console.error('Error calculating agent earnings in updateMyOrderStatus:', err);
+          console.error('Error crediting agent in updateMyOrderStatus:', err);
         }
       }
 
@@ -887,6 +904,16 @@ const requestOrderAssignment = async (req, res) => {
       );
     }
 
+    const { getIO } = require('../realtime/socket');
+    getIO().to('admin').emit('deliveryRequestUpdate', {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      agentId: req.user.id,
+      agentName: req.user.name,
+      status: 'requested',
+      taskId: task.id
+    });
+
     res.json({ message: 'Request sent successfully', task });
   } catch (e) {
     console.error('Error in requestOrderAssignment:', e);
@@ -909,8 +936,8 @@ const listPendingRequests = async (req, res) => {
           model: Order,
           as: 'order',
           include: [
-            { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLandmark', 'businessPhone', 'phone', 'businessLat', 'businessLng'] },
-            { model: User, as: 'user', attributes: ['id', 'name', 'phone', 'email'] },
+            { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLandmark', 'businessPhone', 'phone', 'businessLat', 'businessLng', 'businessName'] },
+            { model: User, as: 'user', attributes: ['id', 'name', 'phone', 'email', 'businessName'] },
             { model: OrderItem, as: 'OrderItems' },
             { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
             { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
@@ -922,7 +949,7 @@ const listPendingRequests = async (req, res) => {
         {
           model: User,
           as: 'deliveryAgent',
-          attributes: ['id', 'name', 'email', 'phone'],
+          attributes: ['id', 'name', 'email', 'phone', 'businessName'],
           include: [{ model: DeliveryAgentProfile, as: 'deliveryProfile' }]
         }
       ],
@@ -933,6 +960,80 @@ const listPendingRequests = async (req, res) => {
   } catch (e) {
     console.error('Error in listPendingRequests:', e);
     res.status(500).json({ error: 'Failed to load requests' });
+  }
+};
+
+// POST /api/delivery/requests/:taskId/approve (Admin Only)
+const adminApproveRequest = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { deliveryType, deliveryFee, notes } = req.body;
+
+    const task = await DeliveryTask.findByPk(taskId, {
+      include: [{ model: Order, as: 'order' }]
+    });
+    
+    if (!task) return res.status(404).json({ error: 'Request not found' });
+    if (task.status !== 'requested') return res.status(400).json({ error: 'Only pending requests can be approved' });
+
+    const t = await sequelize.transaction();
+    try {
+      // Update the task to assigned status
+      await task.update({
+        status: 'assigned',
+        deliveryType: deliveryType || task.deliveryType,
+        deliveryFee: deliveryFee !== undefined ? deliveryFee : task.deliveryFee,
+        agentNotes: notes || task.agentNotes,
+        assignedAt: new Date()
+      }, { transaction: t });
+
+      // Update the order with the agent assignment
+      if (task.order) {
+        await task.order.update({
+          deliveryAgentId: task.deliveryAgentId,
+          deliveryType: deliveryType || task.deliveryType,
+          deliveryFee: deliveryFee !== undefined ? deliveryFee : task.order.deliveryFee
+        }, { transaction: t });
+      }
+
+      await t.commit();
+    } catch (txErr) {
+      await t.rollback();
+      throw txErr;
+    }
+
+    // Notify Agent
+    const { createNotification, notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
+    if (task.deliveryAgentId && task.order) {
+      await createNotification(
+        task.deliveryAgentId,
+        'Delivery Request Approved',
+        `Your request to deliver Order #${task.order.orderNumber} has been approved. Route: ${deliveryType || task.deliveryType}.`,
+        'success'
+      );
+
+      let assignedType = deliveryType || task.deliveryType;
+      await notifyDeliveryAgentAssignment(task.deliveryAgentId, task.order, task.order.orderNumber, assignedType);
+
+      const { getIO } = require('../realtime/socket');
+      getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
+        orderId: task.orderId,
+        status: 'approved',
+        taskId: task.id,
+        deliveryType: deliveryType || task.deliveryType
+      });
+    }
+
+    res.json({ 
+      message: 'Request approved successfully', 
+      task: {
+        ...task.get({ plain: true }),
+        status: 'assigned'
+      }
+    });
+  } catch (e) {
+    console.error('Error in adminApproveRequest:', e);
+    res.status(500).json({ error: 'Failed to approve request' });
   }
 };
 
@@ -961,6 +1062,14 @@ const adminRejectRequest = async (req, res) => {
         `Your request to deliver Order #${task.order?.orderNumber || 'Unknown'} was rejected. Reason: ${reason}`,
         'error'
       );
+
+      const { getIO } = require('../realtime/socket');
+      getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
+        orderId: task.orderId,
+        status: 'rejected',
+        taskId: task.id,
+        rejectionReason: reason
+      });
     }
 
     res.json({ message: 'Request rejected', task });
@@ -1021,95 +1130,10 @@ const updateTaskStatus = async (req, res) => {
         });
       }
 
-      const t = await sequelize.transaction();
       try {
-        updates.completedAt = new Date();
-        console.log(`[deliveryController] Task ${taskId} completing. Type: ${task.deliveryType}`);
-
-        // Earnings must strictly use the task-level delivery fee.
-        const baseFee = parseFloat(task.deliveryFee) || 0;
-
-        // DEDUCTION LOGIC: Distinguish between Logistics (Seller-Paid) and Customer-Paid legs
-        if (SELLER_PAID_ROUTE_TYPES.has(task.deliveryType)) {
-          const sellerId = task.order.sellerId;
-          if (sellerId && baseFee > 0) {
-            let sellerWallet = await Wallet.findOne({ where: { userId: sellerId }, transaction: t });
-            if (!sellerWallet) {
-              sellerWallet = await Wallet.create({ userId: sellerId, balance: 0 }, { transaction: t });
-            }
-
-            const deduction = baseFee;
-            await sellerWallet.update({ balance: sellerWallet.balance - deduction }, { transaction: t });
-
-            await Transaction.create({
-              userId: sellerId,
-              amount: deduction,
-              type: 'debit',
-              status: 'completed',
-              description: `Logistics Fee (${task.deliveryType}) for Order #${task.order.orderNumber}`
-            }, { transaction: t });
-
-            console.log(`[deliveryController] Deducted ${deduction} from seller ${sellerId} for ${task.deliveryType} route.`);
-          }
-        }
-
-        // Calculate and save agent earnings using locked share at assignment time.
-        const { PlatformConfig } = require('../models');
-        const config = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' }, transaction: t });
-        const sharePercent = parseFloat(task.agentShare) || (config ? parseFloat(config.value) : 70);
-
-        const agentEarnings = baseFee * (sharePercent / 100);
-        console.log(`[deliveryController] Calculated agentEarnings: ${agentEarnings} (Share: ${sharePercent}%)`);
-
-        updates.deliveryFee = baseFee;
-        updates.agentEarnings = agentEarnings;
-
-        await upsertDeliveryChargeForTask({
-          DeliveryCharge,
-          transaction: t,
-          order: task.order,
-          task,
-          deliveryFee: baseFee,
-          agentSharePercent: sharePercent,
-          deliveryType: task.deliveryType,
-          deliveryAgentId: req.user.id
-        });
-
-        // Update agent stats with ACTUAL earnings
-        const profile = await DeliveryAgentProfile.findOne({ where: { userId: req.user.id }, transaction: t });
-        if (profile) {
-          await profile.update({
-            completedDeliveries: (profile.completedDeliveries || 0) + 1,
-            totalEarnings: (profile.totalEarnings || 0) + agentEarnings
-          }, { transaction: t });
-        }
-
-        // WALLET INTEGRATION: Move agent's pending to success
-        if (agentEarnings > 0) {
-          console.log(`[deliveryController] Moving earnings to success for agent ${req.user.id}. Order: ${task.order.orderNumber}`);
-          await moveToSuccess(
-            req.user.id,
-            agentEarnings,
-            task.order.orderNumber,
-            `Delivery Earning for Order #${task.order.orderNumber} (${task.deliveryType})`,
-            task.orderId,
-            t
-          );
-        } else {
-          console.log(`[deliveryController] Skipping wallet update as agentEarnings is ${agentEarnings}`);
-        }
-
-        await settleDeliveryChargeForTask({
-          DeliveryCharge,
-          transaction: t,
-          taskId: task.id,
-          markCharged: SELLER_PAID_ROUTE_TYPES.has(task.deliveryType) || task.order?.paymentConfirmed
-        });
-
-        await t.commit();
+        await creditAgentForTask(task.id);
       } catch (err) {
-        await t.rollback();
-        console.error('Error in completion transaction:', err);
+        console.error('Error crediting agent in updateTaskStatus:', err);
         throw err;
       }
     }
@@ -1195,6 +1219,15 @@ const updateTaskStatus = async (req, res) => {
 
       await task.order.update(orderUpdates);
 
+      // Trigger wallet credit if task is newly completed
+      if (status === 'completed') {
+        try {
+          await creditAgentForTask(task.id);
+        } catch (creditErr) {
+          console.error(`[deliveryController] Failed to credit agent for task ${task.id}:`, creditErr.message);
+        }
+      }
+
       // Notify customer (Database Notification)
       await notifyCustomerDeliveryUpdate(task.order.userId, task.order.orderNumber, status, agentNotes);
 
@@ -1278,10 +1311,15 @@ const getDeliveryTaskDetails = async (req, res) => {
       include: [
         {
           model: Order, as: 'order', include: [{
-            model: OrderItem, as: 'OrderItems', include: orderItemIncludeConfig
+            model: OrderItem, as: 'OrderItems', 
+          include: [
+            { model: Product, attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images'], required: false },
+            { model: FastFood, attributes: ['id', 'name', 'mainImage'], required: false },
+            { model: Service, attributes: ['id', 'title'], required: false }
+          ]
           }]
         },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone'] }
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessName'] }
       ]
     });
 
@@ -1871,6 +1909,60 @@ const markArrivedAtPickup = async (req, res) => {
   }
 };
 
+/**
+ * Agent marks arrival at Customer location
+ * POST /api/delivery/tasks/:taskId/mark-arrived-customer
+ */
+const markArrivedAtCustomer = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = await DeliveryTask.findByPk(taskId, { 
+      include: [
+        { model: Order, as: 'order', include: [{ model: User, as: 'user' }] } 
+      ] 
+    });
+
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (task.deliveryAgentId !== req.user.id) {
+      return res.status(403).json({ error: 'This task is not assigned to you' });
+    }
+
+    // Must be in progress or in_transit to mark arrival at customer
+    if (!['in_progress', 'accepted'].includes(task.status)) {
+       return res.status(400).json({ error: 'Task must be in progress to mark arrival at customer' });
+    }
+
+    await task.update({
+      status: 'arrived_at_customer',
+      arrivedAtCustomerAt: new Date()
+    });
+
+    // Notify customer via WhatsApp
+    if (task.order) {
+      await notifyCustomerAgentArrived(task.order, req.user);
+    }
+
+    // Real-time update via Socket.IO
+    const { getIO } = require('../realtime/socket');
+    const io = getIO();
+    if (io && task.order) {
+      io.to(`user:${task.order.userId}`).emit('agentArrived', { 
+        orderId: task.order.id, 
+        orderNumber: task.order.orderNumber 
+      });
+      io.to('admin').emit('agentArrived', { 
+        orderId: task.order.id, 
+        agentName: req.user.name 
+      });
+    }
+
+    res.json({ success: true, message: 'Customer notified of your arrival', task });
+  } catch (error) {
+    console.error('Error in markArrivedAtCustomer:', error);
+    res.status(500).json({ error: 'Failed to notify arrival' });
+  }
+};
+
 const updateMyCurrentLocation = async (req, res) => {
   try {
     const { lat, lng } = req.body;
@@ -1907,7 +1999,7 @@ const adminGetGlobalMapData = async (req, res) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'name', 'phone']
+        attributes: ['id', 'name', 'phone', 'businessName']
       }]
     });
 
@@ -1927,7 +2019,7 @@ const adminGetGlobalMapData = async (req, res) => {
         }
       },
       include: [
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessLat', 'businessLng', 'businessAddress'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessLat', 'businessLng', 'businessAddress', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'lat', 'lng', 'address'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'lat', 'lng', 'location'] }
       ]
@@ -1972,6 +2064,153 @@ const adminGetGlobalMapData = async (req, res) => {
   }
 };
 
+
+
+// =====================
+// Admin: Per-Agent Detail, History, Toggle Status
+// =====================
+
+const getAdminAgentDetail = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    const agent = await User.findOne({
+      where: { id: agentId },
+      attributes: ['id', 'name', 'email', 'phone', 'createdAt', 'isDeactivated'],
+      include: [{
+        model: DeliveryAgentProfile,
+        as: 'deliveryProfile',
+        required: false
+      }]
+    });
+
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // All-time task stats
+    const allTasks = await DeliveryTask.findAll({
+      where: { deliveryAgentId: agentId },
+      attributes: ['id', 'status', 'agentEarnings', 'deliveryFee', 'agentShare', 'completedAt', 'deliveryType', 'createdAt']
+    });
+
+    const completed = allTasks.filter(t => t.status === 'completed');
+    const failed = allTasks.filter(t => t.status === 'failed');
+    const totalEarnings = completed.reduce((sum, t) => {
+      const stored = parseFloat(t.agentEarnings);
+      const fee = parseFloat(t.deliveryFee) || 0;
+      const share = parseFloat(t.agentShare) || 70;
+      return sum + (stored && stored !== fee ? stored : fee * (share / 100));
+    }, 0);
+
+    // Wallet balance
+    let wallet = null;
+    try {
+      wallet = await Wallet.findOne({ where: { userId: agentId } });
+    } catch (_) {}
+
+    res.json({
+      agent: agent.toJSON(),
+      stats: {
+        totalTasks: allTasks.length,
+        completedTasks: completed.length,
+        failedTasks: failed.length,
+        completionRate: allTasks.length > 0
+          ? ((completed.length / allTasks.length) * 100).toFixed(1)
+          : '0.0',
+        totalEarnings: parseFloat(totalEarnings.toFixed(2)),
+        walletBalance: wallet ? parseFloat(wallet.balance || 0) : null,
+        pendingBalance: wallet ? parseFloat(wallet.pendingBalance || 0) : null,
+        successBalance: wallet ? parseFloat(wallet.successBalance || 0) : null
+      }
+    });
+  } catch (e) {
+    console.error('Error in getAdminAgentDetail:', e);
+    res.status(500).json({ error: 'Failed to load agent details' });
+  }
+};
+
+const getAdminAgentHistory = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const pageSize = Math.min(50, parseInt(req.query.pageSize || '20', 10));
+
+    const { count, rows } = await DeliveryTask.findAndCountAll({
+      where: { deliveryAgentId: agentId },
+      include: [{
+        model: Order,
+        as: 'order',
+        attributes: ['id', 'orderNumber', 'status', 'total', 'deliveryMethod', 'deliveryAddress', 'deliveryRating'],
+        required: false
+      }],
+      order: [['createdAt', 'DESC']],
+      limit: pageSize,
+      offset: (page - 1) * pageSize
+    });
+
+    const tasks = rows.map(t => {
+      const stored = parseFloat(t.agentEarnings);
+      const fee = parseFloat(t.deliveryFee) || 0;
+      const share = parseFloat(t.agentShare) || 70;
+      const earning = stored && stored !== fee ? stored : fee * (share / 100);
+      return {
+        id: t.id,
+        status: t.status,
+        deliveryType: t.deliveryType,
+        deliveryFee: fee,
+        agentEarnings: parseFloat(earning.toFixed(2)),
+        agentShare: share,
+        rejectionReason: t.rejectionReason,
+        assignedAt: t.assignedAt,
+        acceptedAt: t.acceptedAt,
+        completedAt: t.completedAt,
+        createdAt: t.createdAt,
+        order: t.order ? {
+          id: t.order.id,
+          orderNumber: t.order.orderNumber,
+          status: t.order.status,
+          total: t.order.total,
+          deliveryMethod: t.order.deliveryMethod,
+          deliveryAddress: t.order.deliveryAddress,
+          rating: t.order.deliveryRating
+        } : null
+      };
+    });
+
+    res.json({
+      tasks,
+      meta: { page, pageSize, total: count, totalPages: Math.ceil(count / pageSize) }
+    });
+  } catch (e) {
+    console.error('Error in getAdminAgentHistory:', e);
+    res.status(500).json({ error: 'Failed to load agent history' });
+  }
+};
+
+const toggleAgentActiveStatus = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ error: 'isActive must be a boolean' });
+    }
+
+    const profile = await DeliveryAgentProfile.findOne({ where: { userId: agentId } });
+    if (!profile) return res.status(404).json({ error: 'Agent profile not found' });
+
+    await profile.update({ isActive });
+
+    res.json({
+      success: true,
+      message: `Agent ${isActive ? 'activated' : 'deactivated'} successfully`,
+      isActive
+    });
+  } catch (e) {
+    console.error('Error in toggleAgentActiveStatus:', e);
+    res.status(500).json({ error: 'Failed to update agent status' });
+  }
+};
+
 module.exports = {
   listMyAssignedOrders,
   getMyProfile,
@@ -1988,9 +2227,14 @@ module.exports = {
   getAvailableAgentsForOrder,
   rateDelivery,
   listPendingRequests,
+  adminApproveRequest,
   adminRejectRequest,
   confirmCollection,
   markArrivedAtPickup,
+  markArrivedAtCustomer,
   updateMyCurrentLocation,
-  adminGetGlobalMapData
+  adminGetGlobalMapData,
+  getAdminAgentDetail,
+  getAdminAgentHistory,
+  toggleAgentActiveStatus
 };

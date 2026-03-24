@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import api from '../../services/api'
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import DeleteConfirmationModal from '../../components/modals/DeleteConfirmationModal';
 import { useToast } from '../../components/ui/use-toast'
 import { useAuth } from '../../contexts/AuthContext';
+import { isSellerProfileComplete } from '../../utils/sellerUtils';
 
 // ── Diagnostic timing helper ──────────────────────────────────────────────────
 const timed = async (label, fn) => {
@@ -28,6 +29,12 @@ const withTimeout = (promise, ms, label) =>
 
 export default function SellerOverview() {
   const { user } = useAuth()
+  const location = useLocation()
+  
+  // Secondary check for profile completeness
+  if (user && !isSellerProfileComplete(user)) {
+    return <Navigate to="/seller/business-location" state={{ from: location, incompleteProfile: true }} replace />;
+  }
   const [products, setProducts] = useState([])
   const [fastFoods, setFastFoods] = useState([])
   const [orders, setOrders] = useState([])

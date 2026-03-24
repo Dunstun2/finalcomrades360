@@ -1,7 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
+import PhoneVerification from '../components/PhoneVerification'
 
 export default function Account({ user }) {
+  const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   if (!user) {
     return (
       <div className="container py-8">
@@ -32,7 +34,31 @@ export default function Account({ user }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-600">Phone</label>
-              <p className="text-lg">{user.phone}</p>
+              <div className="flex items-center gap-3">
+                <p className="text-lg">{user.phone || 'Not set'}</p>
+                {user.phoneVerified ? (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Verified ✅</span>
+                ) : (
+                  <button 
+                    onClick={() => setShowPhoneVerify(!showPhoneVerify)}
+                    className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 transition-colors"
+                  >
+                    {showPhoneVerify ? 'Cancel' : 'Verify'}
+                  </button>
+                )}
+              </div>
+              {showPhoneVerify && !user.phoneVerified && (
+                <div className="mt-4">
+                  <PhoneVerification 
+                    currentPhone={user.phone} 
+                    onVerified={(newPhone) => {
+                      setShowPhoneVerify(false);
+                      // Ideally trigger a context update or page reload
+                      window.location.reload(); 
+                    }} 
+                  />
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-600">Student ID</label>
@@ -122,7 +148,7 @@ export default function Account({ user }) {
                 </div>
               )}
 
-              {user.role === 'super_admin' && (
+              {['superadmin', 'super_admin'].includes(user.role) && (
                 <div className="space-y-3">
                   <Link to="/superadmin" className="btn w-full">
                     Super Admin Panel

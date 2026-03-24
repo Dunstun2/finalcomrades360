@@ -9,6 +9,7 @@ const HANDOVER_META = {
     agent_to_station:   { label: 'Agent → Pickup Station Drop-off', giverTitle: 'Agent Drop-off Code',  receiverTitle: 'Station Receipt Confirmation',    giverHint: 'Share this code with the pickup station staff when dropping off the order.', receiverHint: 'Enter the code from the delivery agent to confirm receipt at the pickup station.' },
     agent_to_customer:  { label: 'Agent → Customer Delivery',       giverTitle: 'Delivery Code',        receiverTitle: 'Customer Delivery Confirmation',  giverHint: 'Share this code with the customer when delivering their order.', receiverHint: 'Enter the code provided by the delivery agent to confirm you have received your order.' },
     station_to_customer:{ label: 'Station → Customer Collection',     giverTitle: 'Pickup Code',         receiverTitle: 'Customer Pickup Confirmation',    giverHint: 'Share this code with the customer when they arrive for collection.', receiverHint: 'Enter the code provided by the station manager to confirm you have picked up your order.' },
+    seller_to_warehouse:{ label: 'Seller → Warehouse (Internal)',    giverTitle: 'Dispatch Code',        receiverTitle: 'Warehouse Receipt Confirmation',  giverHint: 'Share this code with the warehouse staff when dropping off the order.', receiverHint: 'Enter the code from the seller/internal dispatcher to confirm receipt at the warehouse.' },
 };
 
 /**
@@ -21,14 +22,28 @@ const HANDOVER_META = {
  * @param {function} [onConfirmed] - callback fired when confirmation succeeds
  * @param {string}   [buttonLabel] - custom label for the generate button
  */
-export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId, onConfirmed, buttonLabel, autoGenerate = false }) {
+export default function HandoverCodeWidget({
+    mode,
+    handoverType,
+    orderId,
+    taskId,
+    onConfirmed,
+    buttonLabel,
+    autoGenerate = false,
+    title,
+    containerClass
+}) {
     const meta = HANDOVER_META[handoverType] || {};
+    const defaultContainerClass = `rounded-xl border-2 border-blue-200 bg-blue-50`;
+    const activeContainerClass = containerClass || defaultContainerClass;
 
     // GIVER state
     const [code, setCode] = useState('');
     const [expiresAt, setExpiresAt] = useState(null);
+    const [autoConfirmAt, setAutoConfirmAt] = useState(null);
     const [generating, setGenerating] = useState(false);
     const [timeLeft, setTimeLeft] = useState('');
+    const [autoTimeLeft, setAutoTimeLeft] = useState('');
 
     // RECEIVER state
     const [inputCode, setInputCode] = useState('');
@@ -38,6 +53,7 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [isConfirmed, setIsConfirmed] = useState(false);
+    const [isCodeHidden, setIsCodeHidden] = useState(false);
 
     // On mount: check if there's already an active or confirmed code
     useEffect(() => {
@@ -47,6 +63,9 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
                 if (res.data.active) {
                     setCode(res.data.code);
                     setExpiresAt(new Date(res.data.expiresAt));
+                    if (res.data.autoConfirmAt) {
+                        setAutoConfirmAt(new Date(res.data.autoConfirmAt));
+                    }
                 }
                 if (res.data.confirmed) {
                     setIsConfirmed(true);
@@ -65,13 +84,14 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
                     setIsConfirmed(true);
                     setSuccess('✅ Handover confirmed and completed!');
                     clearInterval(interval);
+                    if (onConfirmed) onConfirmed(res.data);
                 }
             } catch (err) {}
         }, 5000);
         return () => clearInterval(interval);
     }, [mode, code, isConfirmed, orderId, handoverType]);
 
-    // Countdown timer for the giver
+    // Countdown timer for the giver (code expiration)
     useEffect(() => {
         if (!expiresAt || isConfirmed) return;
         const interval = setInterval(() => {
@@ -88,7 +108,34 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
             }
         }, 1000);
         return () => clearInterval(interval);
-    }, [expiresAt]);
+    }, [expiresAt, isConfirmed]);
+
+    // Countdown timer for automatic confirmation (3-minute fallback)
+    useEffect(() => {
+        if (!autoConfirmAt || isConfirmed) return;
+        const interval = setInterval(() => {
+            const diffMs = new Date(autoConfirmAt) - Date.now();
+            if (diffMs <= 0) {
+                setAutoTimeLeft('Due now...');
+                clearInterval(interval);
+            } else {
+                const mins = Math.floor(diffMs / 60000);
+                const secs = Math.floor((diffMs % 60000) / 1000);
+                setAutoTimeLeft(`${mins}m ${String(secs).padStart(2, '0')}s`);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [autoConfirmAt, isConfirmed]);
+    
+    // Auto-hide code after 30 seconds
+    useEffect(() => {
+        if (code && !isConfirmed && !isCodeHidden) {
+            const timer = setTimeout(() => {
+                setIsCodeHidden(true);
+            }, 30000); // 30 seconds
+            return () => clearTimeout(timer);
+        }
+    }, [code, isConfirmed, isCodeHidden]);
 
     const handleGenerate = useCallback(async () => {
         setError('');
@@ -97,6 +144,10 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
             const res = await api.post('/handover/generate', { orderId, taskId, handoverType });
             setCode(res.data.code);
             setExpiresAt(new Date(res.data.expiresAt));
+            if (res.data.autoConfirmAt) {
+                setAutoConfirmAt(new Date(res.data.autoConfirmAt));
+            }
+            setIsCodeHidden(false); // Make sure it's visible after generation
             setSuccess('');
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to generate code. Please try again.');
@@ -146,40 +197,62 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
         }
 
         return (
-            <div className={`rounded-xl border-2 border-blue-200 bg-blue-50 ${code ? 'p-4' : 'p-2'} space-y-3`}>
-                {/* Header removed as requested by user */}
+            <div className={`${activeContainerClass} ${code ? 'p-4' : 'p-1'} transition-all duration-300`}>
+                {(title && code && !isCodeHidden) && (
+                    <p className={`text-[10px] font-black uppercase tracking-widest mb-2 ${activeContainerClass.includes('teal') ? 'text-teal-600' : (activeContainerClass.includes('amber') ? 'text-amber-600' : 'text-blue-600')}`}>
+                        {title}
+                    </p>
+                )}
 
                 {code ? (
-                    <div className="flex flex-col items-center gap-2 bg-white rounded-xl p-4 border border-blue-300 shadow-inner">
-                        {/* Big code display */}
-                        <div className="flex gap-2">
-                            {code.split('').map((digit, i) => (
-                                <span key={i} className="w-10 h-12 flex items-center justify-center text-2xl font-black text-blue-700 bg-blue-100 rounded-lg border-2 border-blue-300 tracking-widest select-all">
-                                    {digit}
-                                </span>
-                            ))}
-                        </div>
-                        <p className="text-xs text-gray-500">
-                            {timeLeft && timeLeft !== 'Expired'
-                                ? <span className="text-green-600 font-semibold">⏱ Expires in {timeLeft}</span>
-                                : <span className="text-red-500 font-semibold">⚠ Code has expired</span>
-                            }
-                        </p>
+                    <div className="flex flex-col items-center gap-2 bg-white rounded-xl p-2 border border-blue-300 shadow-inner">
+                        {isCodeHidden ? (
+                            <button
+                                onClick={() => setIsCodeHidden(false)}
+                                className="w-full py-1.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap"
+                            >
+                                <span className="text-sm">👁</span>
+                                <span className="text-[9px] uppercase tracking-wider">Show Handover Code</span>
+                            </button>
+                        ) : (
+                            <>
+                                {/* Big code display */}
+                                <div className="flex gap-2">
+                                    {(code || '').split('').map((digit, i) => (
+                                        <span key={i} className="w-10 h-11 flex items-center justify-center text-2xl font-black text-blue-700 bg-blue-100 rounded-lg border-2 border-blue-300 tracking-widest select-all">
+                                            {digit}
+                                        </span>
+                                    ))}
+                                </div>
+                                <p className="text-xs text-gray-500 text-center">
+                                    {timeLeft && timeLeft !== 'Expired'
+                                        ? <span className="text-green-600 font-semibold">⏱ Code expires in {timeLeft}</span>
+                                        : <span className="text-red-500 font-semibold italic">⚠ Code has expired</span>
+                                    }
+                                </p>
+                                {autoTimeLeft && (
+                                    <div className="mt-1 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-tight">
+                                        <p className="font-bold">✨ Auto-completion Active</p>
+                                        <p>If the customer doesn't enter the code, the order will automatically mark as <b>Delivered</b> in <b>{autoTimeLeft}</b>.</p>
+                                    </div>
+                                )}
+                            </>
+                        )}
                         <button
                             onClick={handleGenerate}
                             disabled={generating}
-                            className="text-xs text-blue-600 underline hover:text-blue-800 transition-colors"
+                            className="text-[9px] text-blue-500 underline hover:text-blue-700 mt-1 font-bold"
                         >
-                            {generating ? 'Regenerating...' : 'Regenerate new code'}
+                            {generating ? 'Regenerating...' : 'Regenerate Code'}
                         </button>
                     </div>
                 ) : (
                     <button
                         onClick={handleGenerate}
                         disabled={generating}
-                        className={`w-full py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all ${generating ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-95'}`}
+                        className={`w-full py-1 rounded-lg font-bold text-[9px] text-white uppercase tracking-wider shadow-md transition-all ${generating ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 active:scale-95'}`}
                     >
-                        {generating ? 'Generating...' : (buttonLabel || (meta.giverTitle ? `🔑 ${meta.giverTitle}` : '🔑 Generate Code'))}
+                        {generating ? 'Generating...' : (buttonLabel || (meta.giverTitle ? `🔑 ${meta.giverTitle}` : '🔑 Generate'))}
                     </button>
                 )}
 
@@ -231,6 +304,16 @@ export default function HandoverCodeWidget({ mode, handoverType, orderId, taskId
                         {confirming ? '...' : '✓ Confirm'}
                     </button>
                 </div>
+
+                {autoTimeLeft && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-800 space-y-1 shadow-sm">
+                        <div className="flex items-center gap-2">
+                             <span className="animate-pulse">⏱</span>
+                             <p className="font-bold">Smartphone-free Delivery Support</p>
+                        </div>
+                        <p>If you cannot enter the code now, this delivery will automatically confirm in <b>{autoTimeLeft}</b>. Your payment serves as proof of delivery.</p>
+                    </div>
+                )}
 
                 {error && <p className="text-xs text-red-600 font-semibold text-center bg-red-50 rounded-lg p-2">{error}</p>}
             </div>

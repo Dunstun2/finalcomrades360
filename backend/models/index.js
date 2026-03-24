@@ -49,9 +49,11 @@ const PaymentRetryQueue = require('./PaymentRetryQueue')(sequelize, Sequelize.Da
 const PaymentReconciliation = require('./PaymentReconciliation')(sequelize, Sequelize.DataTypes);
 const Refund = require('./Refund')(sequelize, Sequelize.DataTypes);
 const PaymentDispute = require('./PaymentDispute')(sequelize, Sequelize.DataTypes);
+const ReturnRequest = require('./ReturnRequest')(sequelize, Sequelize.DataTypes);
 const Batch = require('./Batch')(sequelize, Sequelize.DataTypes);
 const FastFoodPickupPoint = require('./FastFoodPickupPoint')(sequelize, Sequelize.DataTypes);
 const HandoverCode = require('./HandoverCode')(sequelize, Sequelize.DataTypes);
+const Otp = require('./Otp')(sequelize, Sequelize.DataTypes);
 
 const models = {
   User,
@@ -102,9 +104,11 @@ const models = {
   PaymentReconciliation,
   Refund,
   PaymentDispute,
+  ReturnRequest,
   Batch,
   FastFoodPickupPoint,
-  HandoverCode
+  HandoverCode,
+  Otp
 };
 
 // Set up associations
@@ -164,9 +168,11 @@ module.exports = {
   PaymentReconciliation,
   Refund,
   PaymentDispute,
+  ReturnRequest,
   Batch,
   FastFoodPickupPoint,
   HandoverCode,
+  Otp,
   sequelize,
   Sequelize,
   Op: Sequelize.Op

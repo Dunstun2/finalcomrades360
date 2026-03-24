@@ -253,7 +253,7 @@ const checkLowStockAndNotify = async () => {
         stock: { [Op.lte]: sequelize.col('lowStockThreshold') },
         status: 'active'
       },
-      include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email'] }]
+      include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'businessName'] }]
     });
 
     // Check warehouse-specific stock
@@ -509,7 +509,7 @@ const bulkStockExport = async (req, res) => {
       // Export all products with main stock
       stockData = await Product.findAll({
         attributes: ['id', 'name', 'sku', 'stock', 'lowStockThreshold', 'price', 'status'],
-        include: [{ model: User, as: 'seller', attributes: ['name', 'email'] }]
+        include: [{ model: User, as: 'seller', attributes: ['name', 'email', 'businessName'] }]
       });
 
       const exportData = stockData.map(p => ({

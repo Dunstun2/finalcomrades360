@@ -1866,7 +1866,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
                 <FastFoodForm
                   onSuccess={handleFastFoodSuccess}
                   onCancel={() => navigate('/seller/products')}
-                  id={id}
+                  id={productId}
                   mode={mode}
                   product={{
                     ...initialProduct,

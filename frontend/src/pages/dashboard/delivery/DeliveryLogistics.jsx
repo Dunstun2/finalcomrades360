@@ -112,7 +112,9 @@ const DeliveryLogistics = () => {
 
             // Compute agentEarnings per order matches Orders.jsx logic style
             const enriched = rawOrders.map(order => {
-                const task = order.deliveryTasks?.[0];
+                const task = (order.deliveryTasks && order.deliveryTasks.length > 0) 
+                  ? [...order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] 
+                  : null;
                 const items = order.OrderItems || [];
                 const itemsTotal = items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0);
                 const itemDeliveryTotal = items.reduce((sum, item) => sum + ((Number(item.deliveryFee) || 0) * (item.quantity || 1)), 0);

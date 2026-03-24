@@ -1,5 +1,6 @@
 const cron = require('node-cron');
-const { Product, Notification, User, DeletedProduct, Order, HandoverCode, DeliveryTask, sequelize } = require('../models');
+const { Product, Notification, User, DeletedProduct, Order, OrderItem, HandoverCode, DeliveryTask, Payment, DeliveryCharge, PlatformConfig, sequelize } = require('../models');
+const { revertPending } = require('../utils/walletHelpers');
 const { Op } = require('sequelize');
 
 const initScheduledTasks = () => {
@@ -188,25 +189,66 @@ const initScheduledTasks = () => {
         }
     });
 
-    // Run every 5 minutes - Auto-expire unaccepted delivery task assignments (30-min window)
+    // Run every 5 minutes - Auto-expire unaccepted delivery task assignments + Auto-Reassignment broadcast
     cron.schedule('*/5 * * * *', async () => {
         try {
-            const { DeliveryTask } = require('../models');
-            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+            const { DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification } = require('../models');
+            const { getIO } = require('../realtime/socket');
+
+            // Get per-type expiry times from config
+            const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
+            let fastfoodExpiryMinutes = 5;
+            let productExpiryMinutes = 30;
+            if (config) {
+                try {
+                    const settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+                    if (settings.fastfoodTaskExpiryMinutes) fastfoodExpiryMinutes = parseInt(settings.fastfoodTaskExpiryMinutes, 10);
+                    if (settings.productTaskExpiryMinutes) productExpiryMinutes = parseInt(settings.productTaskExpiryMinutes, 10);
+                } catch (e) {
+                    console.error('[DeliveryExpiry] Failed to parse logistic_settings:', e.message);
+                }
+            }
+
+            // Use the smaller threshold to find all candidates — we'll filter per-task below
+            const earliestThreshold = new Date(Date.now() - fastfoodExpiryMinutes * 60 * 1000);
 
             const expiredTasks = await DeliveryTask.findAll({
                 where: {
                     status: 'assigned',
-                    assignedAt: { [Op.lte]: thirtyMinutesAgo }
+                    assignedAt: { [Op.lte]: earliestThreshold }
                 },
-                include: [{ model: Order, as: 'order' }]
+                include: [{
+                    model: Order,
+                    as: 'order',
+                    include: [{ model: OrderItem, as: 'OrderItems', attributes: ['id', 'fastFoodId', 'productId'] }]
+                }]
             });
 
             if (expiredTasks.length === 0) return;
 
-            console.log(`⏰ [DeliveryExpiry] Expiring ${expiredTasks.length} unaccepted delivery tasks...`);
+            // Filter: apply the correct timeout per order type
+            const now = Date.now();
+            const trulyExpired = expiredTasks.filter(task => {
+                if (!task.order || !task.assignedAt) return false;
+                const isFastfood = (task.order.OrderItems || []).some(i => i.fastFoodId != null);
+                const thresholdMs = (isFastfood ? fastfoodExpiryMinutes : productExpiryMinutes) * 60 * 1000;
+                return (now - new Date(task.assignedAt).getTime()) >= thresholdMs;
+            });
 
-            for (const task of expiredTasks) {
+            if (trulyExpired.length === 0) return;
+
+            console.log(`⏰ [DeliveryExpiry] Expiring ${trulyExpired.length} unaccepted tasks (fastfood: ${fastfoodExpiryMinutes}min, product: ${productExpiryMinutes}min)...`);
+
+            // --- Find online agents for broadcast ---
+            const onlineAgents = await DeliveryAgentProfile.findAll({
+                where: { isActive: true },
+                attributes: ['id', 'userId', 'location']
+            });
+            const onlineAgentUserIds = onlineAgents.map(a => a.userId);
+
+            const io = getIO();
+
+            for (const task of trulyExpired) {
                 await task.update({ status: 'failed' });
 
                 if (task.order) {
@@ -216,10 +258,244 @@ const initScheduledTasks = () => {
                         status: revertStatus
                     });
                     console.log(`↩️  Order #${task.order.orderNumber} reverted to '${revertStatus}' — agent did not accept in time.`);
+
+                    // --- AUTO-REASSIGNMENT: Broadcast to all online agents ---
+                    if (io && onlineAgentUserIds.length > 0) {
+                        const broadcastPayload = {
+                            orderId: task.order.id,
+                            orderNumber: task.order.orderNumber,
+                            deliveryAddress: task.order.deliveryAddress,
+                            deliveryType: task.deliveryType,
+                            message: `📦 Order #${task.order.orderNumber} needs a delivery agent. Be the first to accept!`
+                        };
+
+                        // Notify each online agent via their personal socket room
+                        for (const agentUserId of onlineAgentUserIds) {
+                            io.to(`user_${agentUserId}`).emit('new_task_available', broadcastPayload);
+                        }
+
+                        console.log(`📡 [AutoReassign] Broadcasted order #${task.order.orderNumber} to ${onlineAgentUserIds.length} online agents.`);
+
+                        // Also notify admin room
+                        io.to('admin_room').emit('task_auto_expired', {
+                            orderId: task.order.id,
+                            orderNumber: task.order.orderNumber,
+                            message: `Task for order #${task.order.orderNumber} expired. Broadcasted to ${onlineAgentUserIds.length} online agents.`
+                        });
+                    }
                 }
             }
         } catch (error) {
             console.error('❌ Error in delivery task expiry cleanup:', error);
+        }
+    });
+
+    // Run every hour - Auto-Cancel Unpaid Prepay Orders
+    cron.schedule('0 * * * *', async () => {
+        console.log('🕒 Running auto-cancel unpaid orders check...');
+        try {
+            // Get auto-cancel threshold from config (default 24 hours)
+            const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
+            let cancelHours = 24;
+            if (config) {
+                try {
+                    const settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+                    if (settings.autoCancelUnpaidHours) {
+                        cancelHours = parseFloat(settings.autoCancelUnpaidHours);
+                    }
+                } catch (e) {
+                    console.error('[AutoCancel] Failed to parse logistic_settings:', e.message);
+                }
+            }
+
+            const threshold = new Date(Date.now() - cancelHours * 60 * 60 * 1000);
+
+            // Find unconfirmed prepay orders older than threshold
+            const unpaidOrders = await Order.findAll({
+                where: {
+                    paymentConfirmed: false,
+                    paymentType: 'prepay',
+                    status: { [Op.notIn]: ['cancelled', 'failed', 'delivered', 'completed'] },
+                    createdAt: { [Op.lte]: threshold }
+                },
+                include: [{
+                    model: OrderItem,
+                    as: 'OrderItems',
+                    include: [{ model: Product, as: 'Product' }]
+                }]
+            });
+
+            if (unpaidOrders.length === 0) return;
+
+            console.log(`🕒 [AutoCancel] Found ${unpaidOrders.length} unpaid orders to cancel (threshold: ${cancelHours}h).`);
+
+            for (const order of unpaidOrders) {
+                const t = await sequelize.transaction();
+                try {
+                    // 1. Update order status
+                    await order.update({
+                        status: 'cancelled',
+                        cancelledAt: new Date(),
+                        cancelReason: `Auto-cancelled by system: Payment not confirmed within ${cancelHours} hours.`,
+                        cancelledBy: 'system',
+                        deliveryAgentId: null
+                    }, { transaction: t });
+
+                    // 2. Restore Stock
+                    for (const item of order.OrderItems || []) {
+                        if ((item.itemType === 'product' || item.productId) && item.Product) {
+                            await item.Product.update({ 
+                                stock: item.Product.stock + (item.quantity || 0) 
+                            }, { transaction: t });
+                        }
+                    }
+
+                    // 3. Revert Pending Wallet Credits
+                    const sellerPayout = Number(order.total || 0) - Number(order.deliveryFee || 0);
+                    if (sellerPayout > 0 && order.sellerId) {
+                        await revertPending(order.sellerId, sellerPayout, order.id, t);
+                    }
+
+                    // Revert Delivery Agent Credits
+                    const charges = await DeliveryCharge.findAll({ where: { orderId: order.id }, transaction: t });
+                    for (const charge of charges) {
+                        if (charge.payeeUserId && charge.agentAmount > 0) {
+                            await revertPending(charge.payeeUserId, charge.agentAmount, order.id, t);
+                        }
+                        await charge.update({ 
+                            fundingStatus: 'reversed', 
+                            note: 'System auto-cancelled: Unpaid order timeout' 
+                        }, { transaction: t });
+                    }
+
+                    // 4. Update Delivery Tasks
+                    await DeliveryTask.update(
+                        { status: 'cancelled', notes: 'System auto-cancelled: Unpaid order timeout' },
+                        { where: { orderId: order.id, status: { [Op.notIn]: ['delivered', 'completed', 'cancelled'] } }, transaction: t }
+                    );
+
+                    // 5. Update Payment records
+                    await Payment.update(
+                        { status: 'cancelled', failureReason: 'Payment timeout' },
+                        { where: { orderId: order.id, status: ['pending', 'processing'] }, transaction: t }
+                    );
+
+                    await t.commit();
+
+                    // Real-time notification to user
+                    try {
+                        const { getIO } = require('../realtime/socket');
+                        const io = getIO();
+                        if (io) {
+                            io.to(`user:${order.userId}`).emit('orderStatusUpdate', {
+                                orderId: order.id,
+                                status: 'cancelled',
+                                orderNumber: order.orderNumber,
+                                autoCancelled: true
+                            });
+                        }
+                    } catch (_) {}
+
+                    console.log(`✅ [AutoCancel] Order #${order.orderNumber} auto-cancelled successfully.`);
+
+                } catch (innerErr) {
+                    await t.rollback();
+                    console.error(`❌ [AutoCancel] Failed for order #${order.orderNumber}:`, innerErr.message);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error in auto-cancel unpaid orders cron:', error);
+        }
+    });
+
+    // Run every 30 minutes - Stuck Delivery Detector
+    // Finds tasks stuck in 'in_progress' for too long and alerts admin WITHOUT auto-failing them
+    cron.schedule('*/30 * * * *', async () => {
+        try {
+            const { DeliveryTask, PlatformConfig, Notification, User } = require('../models');
+            const { getIO } = require('../realtime/socket');
+
+            // Get stuck threshold from config (default 3 hours)
+            const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
+            let stuckHours = 3;
+            if (config) {
+                try {
+                    const settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+                    if (settings.stuckDeliveryHours) {
+                        stuckHours = parseInt(settings.stuckDeliveryHours, 10);
+                    }
+                } catch (e) {}
+            }
+
+            const stuckThreshold = new Date(Date.now() - stuckHours * 60 * 60 * 1000);
+
+            const stuckTasks = await DeliveryTask.findAll({
+                where: {
+                    status: 'in_progress',
+                    startedAt: { [Op.lte]: stuckThreshold }
+                },
+                include: [
+                    { model: Order, as: 'order', attributes: ['id', 'orderNumber', 'deliveryAddress'] },
+                    { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }
+                ]
+            });
+
+            if (stuckTasks.length === 0) return;
+
+            console.log(`🚨 [StuckDetector] Found ${stuckTasks.length} deliveries stuck in progress!`);
+
+            // Find all admin users to notify
+            const admins = await User.findAll({
+                where: { role: { [Op.in]: ['admin', 'super_admin', 'superadmin'] } },
+                attributes: ['id']
+            });
+
+            const io = getIO();
+
+            for (const task of stuckTasks) {
+                const agentName = task.deliveryAgent?.name || 'Unknown Agent';
+                const orderNumber = task.order?.orderNumber || task.orderId;
+                const hoursElapsed = stuckHours;
+                const title = '🚨 Delivery Stuck Alert';
+                const message = `Order #${orderNumber} has been in transit for over ${hoursElapsed} hours (Agent: ${agentName}). Manual follow-up may be needed.`;
+
+                // Create DB notification for each admin
+                for (const admin of admins) {
+                    // Avoid duplicate alerts — check if one was sent in the last hour
+                    const recentAlert = await Notification.findOne({
+                        where: {
+                            userId: admin.id,
+                            type: 'stuck_delivery',
+                            createdAt: { [Op.gte]: new Date(Date.now() - 60 * 60 * 1000) }
+                        }
+                    });
+                    if (recentAlert) continue; // Skip if recently alerted
+
+                    await Notification.create({
+                        userId: admin.id,
+                        title,
+                        message,
+                        type: 'stuck_delivery'
+                    });
+                }
+
+                // Real-time push to admin dashboard
+                if (io) {
+                    io.to('admin_room').emit('stuck_delivery_alert', {
+                        taskId: task.id,
+                        orderId: task.order?.id,
+                        orderNumber,
+                        agentName,
+                        agentPhone: task.deliveryAgent?.phone,
+                        hoursElapsed,
+                        message
+                    });
+                }
+
+                console.log(`🚨 [StuckDetector] Alert sent for order #${orderNumber} (Agent: ${agentName}).`);
+            }
+        } catch (error) {
+            console.error('❌ Error in stuck delivery detector:', error);
         }
     });
 

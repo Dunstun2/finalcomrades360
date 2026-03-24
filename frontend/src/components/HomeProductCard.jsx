@@ -7,8 +7,12 @@ import { useToast } from '../components/ui/use-toast';
 import { FaHeart, FaRegHeart } from 'react-icons/fa';
 import { resolveImageUrl, FALLBACK_IMAGE, getResizedImageUrl } from '../utils/imageUtils';
 import { useImageVersion } from '../hooks/useImageVersion';
-
 import { formatPrice } from '../utils/currency';
+import { 
+  normalizeVariants as unifyVariants, 
+  getVariantId as unifiedGetVariantId, 
+  getDefaultVariant as unifiedGetDefaultVariant 
+} from '../utils/variantUtils';
 
 function HomeProductCard({
   product,
@@ -23,7 +27,7 @@ function HomeProductCard({
   className // Added className prop
 }) {
   const isMarketing = localStorage.getItem('marketing_mode') === 'true';
-  const { addToCart, removeFromCart, refresh } = useCart();
+  const { cart, addToCart, removeFromCart, refresh } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { user: authUser } = useAuth();
   const { toast } = useToast();
@@ -31,123 +35,103 @@ function HomeProductCard({
   // Keep image URL derivation stable between renders for large grids.
   const imageUrls = useMemo(() => {
     let urls = [];
-    if (product.coverImage) urls.push(product.coverImage);
+    
+    // 1. Prioritize coverImage (already resolved or a simple string)
+    if (product.coverImage) {
+      urls.push(product.coverImage);
+    }
 
-    if (product.galleryImages) {
-      let gallery = product.galleryImages;
-      if (typeof gallery === 'string') {
-        try { gallery = JSON.parse(gallery); } catch (e) { }
+    // 2. Fallback to galleryImages or images
+    const gallery = product.galleryImages || product.images || [];
+    if (Array.isArray(gallery)) {
+      urls.push(...gallery.filter(img => img !== product.coverImage));
+    } else if (typeof gallery === 'string' && gallery.length > 2) {
+      try {
+        const parsed = JSON.parse(gallery);
+        if (Array.isArray(parsed)) {
+          urls.push(...parsed.filter(img => img !== product.coverImage));
+        }
+      } catch (e) {
+        // Not JSON, just a string URL?
+        if (gallery !== product.coverImage) urls.push(gallery);
       }
-      if (Array.isArray(gallery)) urls.push(...gallery);
     }
 
-    if (urls.length === 0 && product.images) {
-      let legacy = product.images;
-      if (typeof legacy === 'string') {
-        try { legacy = JSON.parse(legacy); } catch (e) { }
-      }
-      if (Array.isArray(legacy)) urls = legacy;
-    }
-
-    if (urls.length === 0) {
-      return [FALLBACK_IMAGE];
-    }
-
-    return urls;
+    return urls.length > 0 ? urls : [FALLBACK_IMAGE];
   }, [product.coverImage, product.galleryImages, product.images]);
 
   const { getVersionedUrl, refreshImages } = useImageVersion(imageUrls, product.id);
+  const getVariantId = (v) => {
+    const finalId = unifiedGetVariantId(v);
+    console.log('[HomeProductCard] getVariantId debug:', { 
+      input: v, 
+      final: finalId 
+    });
+    return finalId;
+  };
+
   const productImageUrl = useMemo(() => {
     const originalUrl = resolveImageUrl(imageUrls?.[0] || FALLBACK_IMAGE);
     return getVersionedUrl(getResizedImageUrl(originalUrl, { width: 400, quality: 80 }));
   }, [imageUrls, getVersionedUrl]);
 
   const handleAddToCart = async (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
 
-    // Login check removed to allow guest cart
-    // if (!authUser) {
-    //   navigate('/login');
-    //   return;
-    // }
-
-    // Optimistic UI update for instant feedback
+    // Use current isInCart status from props
     const wasInCart = isInCart;
 
     try {
       if (wasInCart) {
-        // Fire and forget - optimistic update already happened in removeFromCart
-        removeFromCart(product.id).then(() => {
-          toast({
-            title: 'Removed from Cart',
-            description: `${product.name} has been removed from your cart`,
-          });
-        }).catch((error) => {
-          console.error('Cart operation failed:', error);
+        // Find all cart items for this product and remove them (matches ProductDetails)
+        const productItems = cart?.items?.filter(item => 
+          String(item.productId || item.product?.id || '') === String(product.id)
+        ) || [];
 
-          // Provide specific error messages based on error type
-          let errorMessage = 'Failed to update cart. Please try again.';
-
-          if (error.response?.status === 400) {
-            errorMessage = error.response.data?.message || 'Invalid product or quantity.';
-          } else if (error.response?.status === 404) {
-            errorMessage = 'Product not found or no longer available.';
-          } else if (error.response?.status === 500) {
-            errorMessage = 'Server error. Please try again later.';
+        if (productItems.length > 0) {
+          for (const item of productItems) {
+            await removeFromCart(product.id, 'product', { variantId: item.variantId });
           }
+        } else {
+          await removeFromCart(product.id, 'product');
+        }
 
-          toast({
-            title: 'Cart Error',
-            description: errorMessage,
-            variant: 'destructive'
-          });
+        toast({
+          title: 'Removed from Cart',
+          description: `${product.name} has been removed from your cart`,
         });
       } else {
-        // Fire and forget - optimistic update already happened in addToCart
-        addToCart(product.id, 1, { product }).then(() => {
-          toast({
-            title: 'Added to Cart',
-            description: `${product.name} has been added to your cart`,
+        if (firstVariant) {
+          const vId = getVariantId(firstVariant);
+          await addToCart(product.id, 1, {
+            type: 'product',
+            product,
+            variantId: vId,
+            selectedVariant: {
+              id: vId,
+              name: firstVariant.name || firstVariant.variantName || firstVariant.size || firstVariant.title || vId,
+              sku: firstVariant.sku,
+              basePrice: firstVariant.basePrice || firstVariant.displayPrice || firstVariant.price,
+              discountPrice: firstVariant.discountPrice || firstVariant.displayPrice || firstVariant.price,
+            }
           });
-        }).catch((error) => {
-          console.error('Cart operation failed:', error);
+        } else {
+          await addToCart(product.id, 1, { product });
+        }
 
-          // Provide specific error messages based on error type
-          let errorMessage = 'Failed to update cart. Please try again.';
-
-          if (error.response?.status === 400) {
-            errorMessage = error.response.data?.message || 'Invalid product or quantity.';
-          } else if (error.response?.status === 404) {
-            errorMessage = 'Product not found or no longer available.';
-          } else if (error.response?.status === 500) {
-            errorMessage = 'Server error. Please try again later.';
-          }
-
-          toast({
-            title: 'Cart Error',
-            description: errorMessage,
-            variant: 'destructive'
-          });
+        toast({
+          title: 'Added to Cart',
+          description: `${product.name} has been added to your cart`,
         });
       }
     } catch (error) {
-      console.error('Cart operation failed:', error);
-
-      // Provide specific error messages based on error type
-      let errorMessage = 'Failed to update cart. Please try again.';
-
-      if (error.response?.status === 400) {
-        errorMessage = error.response.data?.message || 'Invalid product or quantity.';
-      } else if (error.response?.status === 404) {
-        errorMessage = 'Product not found or no longer available.';
-      } else if (error.response?.status === 500) {
-        errorMessage = 'Server error. Please try again later.';
-      }
-
+      console.error('💥 Cart operation failed!', error);
       toast({
         title: 'Cart Error',
-        description: errorMessage,
+        description: error.response?.data?.message || 'Failed to update cart. Please try again.',
         variant: 'destructive'
       });
     }
@@ -193,11 +177,11 @@ function HomeProductCard({
     }
   };
 
-  // Removed handleMoveToCart function entirely
-
   const handleView = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
 
     try {
       if (onView) {
@@ -220,10 +204,43 @@ function HomeProductCard({
   const isWishlisted = isInWishlist(product.id);
   const isAuthenticated = !!authUser;
 
-  // Standardized Price Calculation
-  const finalDisplayPrice = Number(product.discountPrice || product.displayPrice || product.price || 0);
-  const originalPrice = Number(product.displayPrice || product.price || 0);
-  const discountPercent = Number(product.discountPercentage || 0);
+  const isFastFood = product.itemType === 'fastfood' || !!product.fastFoodId;
+  const isService = product.itemType === 'service' || !!product.serviceId;
+
+  // Unified Variant Logic
+  const variants = useMemo(() => {
+    if (isFastFood || isService) return [];
+    return unifyVariants(product);
+  }, [product, isFastFood, isService]);
+
+  const firstVariant = useMemo(() => unifiedGetDefaultVariant(variants), [variants]);
+
+  const finalDisplayPrice = Number(
+    firstVariant?.discountPrice || 
+    firstVariant?.displayPrice || 
+    firstVariant?.basePrice || 
+    firstVariant?.price || 
+    product.discountPrice || 
+    product.displayPrice || 
+    product.basePrice || 
+    product.price || 
+    0
+  );
+
+  const originalPrice = Number(
+    firstVariant?.displayPrice || 
+    firstVariant?.basePrice || 
+    firstVariant?.price || 
+    product.displayPrice || 
+    product.basePrice || 
+    product.price || 
+    0
+  );
+
+  const discountPercent = firstVariant
+    ? Number(firstVariant.discountPercentage || 0)
+    : Number(product.discountPercentage || 0);
+
   const hasDiscount = discountPercent > 0 && finalDisplayPrice < originalPrice;
   const savings = originalPrice - finalDisplayPrice;
 
@@ -293,16 +310,16 @@ function HomeProductCard({
         )}
       </div>
 
-      <div className={`${contentClassName} px-2 sm:px-4 py-0 flex flex-col`}>
+      <div className={`${contentClassName} px-0 py-0 flex flex-col`}>
         {/* Product Name */}
         <h3
-          className="font-display font-semibold text-gray-900 mb-1 text-sm sm:text-base tracking-tight group-hover:text-blue-600 transition-colors truncate whitespace-nowrap"
+          className="px-2 sm:px-3 font-display font-semibold text-gray-900 mb-1 text-sm sm:text-base tracking-tight group-hover:text-blue-600 transition-colors truncate whitespace-nowrap"
           title={product.name}
         >
           {product.name}
         </h3>
 
-        <div className="mb-0.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
+        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
           <p className="font-sans text-sm sm:text-base font-black text-gray-900">
             {formatPrice(finalDisplayPrice)}
           </p>
@@ -315,25 +332,22 @@ function HomeProductCard({
           )}
         </div>
 
-        {/* Keep only a tiny buffer between price and actions */}
-        {/* Removed spacer below price */}
-
         {/* Action Bar - Conditional rendering based on renderActions prop */}
         {renderActions ? (
           // Custom actions from parent component (e.g., ProductListingView)
           renderActions({ handleView, handleAddToCart, handleWishlistToggle })
         ) : (
           // Default action bar for homepage and other standard views
-          <div className="flex items-center justify-between pt-1 border-t border-gray-100 gap-1">
+          <div className="flex items-center border-t border-gray-100 gap-1">
             <button
               onClick={handleAddToCart}
               disabled={product.stock <= 0}
-              className={`flex-1 px-1.5 py-1 sm:px-3 sm:py-3 rounded font-bold transition-colors whitespace-nowrap text-[11px] sm:text-sm
+              className={`flex-1 min-w-0 px-1 py-1.5 sm:py-2 rounded font-bold transition-colors text-[10px] sm:text-xs truncate
                 ${product.stock <= 0
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : isInCart
                   ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-                  : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-200'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
                 }`}
             >
               {product.stock <= 0 ? 'Out of Stock' : isInCart ? 'Remove' : (
@@ -346,7 +360,7 @@ function HomeProductCard({
 
             <button
               onClick={handleView}
-              className="flex-1 px-1.5 py-1 sm:px-3 sm:py-3 text-[11px] sm:text-sm font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
+              className="flex-1 min-w-0 px-1 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors truncate"
             >
               View
             </button>
@@ -368,7 +382,9 @@ const areEqual = (prevProps, nextProps) => {
     prevProps.product?.displayPrice === nextProps.product?.displayPrice &&
     prevProps.product?.discountPrice === nextProps.product?.discountPrice &&
     prevProps.product?.discountPercentage === nextProps.product?.discountPercentage &&
-    prevProps.product?.coverImage === nextProps.product?.coverImage
+    prevProps.product?.coverImage === nextProps.product?.coverImage &&
+    (prevProps.product?.variants === nextProps.product?.variants || 
+     prevProps.product?.tags?.variants === nextProps.product?.tags?.variants)
   );
 };
 

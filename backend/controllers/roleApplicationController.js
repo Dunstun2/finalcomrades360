@@ -319,7 +319,7 @@ const createRoleApplication = async (req, res) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id']
+        attributes: ['id', 'businessName']
       }]
     });
 
@@ -363,7 +363,7 @@ const createRoleApplication = async (req, res) => {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id']
+          attributes: ['id', 'businessName']
         }]
       });
 
@@ -448,7 +448,7 @@ const getRoleApplications = async (req, res) => {
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'name', 'email', 'phone', 'role']
+          attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName']
         },
         {
           model: User,
@@ -702,7 +702,7 @@ const getRoleApplicationById = async (req, res) => {
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'name', 'email', 'phone', 'role']
+          attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName']
         },
         {
           model: User,

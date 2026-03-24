@@ -6,11 +6,19 @@ const { isValidTransition, getValidTransitionsForOrder, autoCreateDeliveryTask }
 const { calculateItemCommission } = require('../utils/commissionUtils');
 const { sendEmail } = require('../utils/mailer');
 const { sendSms } = require('../utils/sms');
+const { 
+  notifyCustomerOrderPlaced, 
+  notifyCustomerOutForDelivery, 
+  notifyCustomerReadyForPickupStation 
+} = require('../utils/notificationHelpers');
 const { Op } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { creditPending, revertPending } = require('../utils/walletHelpers');
 const { checkProfileCompleteness } = require('../utils/deliveryUtils');
 const { upsertDeliveryChargeForTask, invoiceSellerChargeImmediately } = require('../utils/deliveryChargeHelpers');
+
+const currentShare = 70; // 70% share for agent
+const currentRate = 30; // 30% rate for platform
 
 const parseMaybeJson = (value, fallback) => {
   if (value === null || value === undefined || value === '') return fallback;
@@ -162,10 +170,17 @@ const cleanupExpiredAssignments = async () => {
       console.log(`[Lifecycle] Cleaning up ${expiredTasks.length} expired delivery assignments`);
       for (const task of expiredTasks) {
         const order = await Order.findByPk(task.orderId);
-        if (order && order.status === 'seller_confirmed') {
-          await order.update({ deliveryAgentId: null, status: 'order_placed' });
+        if (order) {
+          // Revert status: if it was seller_confirmed, go back to order_placed. 
+          // If it was at_warehouse, it stays at_warehouse but unassigned.
+          let revertStatus = order.status;
+          if (order.status === 'seller_confirmed') {
+            revertStatus = 'order_placed';
+          }
+          await order.update({ deliveryAgentId: null, status: revertStatus });
+          console.log(`[Lifecycle] Expired task ${task.id}: Order #${order.orderNumber} unassigned.`);
         }
-        await task.update({ status: 'cancelled', notes: 'Assignment expired due to agent inactivity' });
+        await task.update({ status: 'failed', notes: 'Assignment expired due to agent inactivity' });
       }
     }
   } catch (error) {
@@ -184,7 +199,7 @@ const gen = () => `ORD-${Date.now()}-${Math.floor(Math.random() * 999)}`;
 const calculateCommissionAmount = (total, referralCode) => referralCode ? total * 0.1 : 0;
 
 // Allowed statuses and transitions
-const ALLOWED_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned'];
+const ALLOWED_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned'];
 
 const notifyLifecycleStatusChange = async (orderId, status) => {
   if (!['ready_for_pickup', 'in_transit'].includes(status)) {
@@ -194,8 +209,8 @@ const notifyLifecycleStatusChange = async (orderId, status) => {
   try {
     const order = await Order.findByPk(orderId, {
       include: [
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone', 'businessName'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone'] },
         { model: PickupStation, as: 'DestinationPickStation', attributes: ['id', 'name', 'location', 'contactPhone'] },
         { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint', attributes: ['id', 'name', 'address', 'contactPhone'] }
@@ -234,6 +249,8 @@ const notifyLifecycleStatusChange = async (orderId, status) => {
       }
       if (customer.phone) {
         await sendSms(customer.phone, message);
+        // WhatsApp Notification
+        await notifyCustomerReadyForPickupStation(order, pickupDestination);
       }
       if (io) {
         io.to(`user:${customer.id}`).emit('orderLifecycleNotification', {
@@ -268,6 +285,8 @@ const notifyLifecycleStatusChange = async (orderId, status) => {
       }
       if (customer.phone) {
         await sendSms(customer.phone, message);
+        // WhatsApp Notification
+        await notifyCustomerOutForDelivery(order, order.deliveryAgent);
       }
       if (io) {
         io.to(`user:${customer.id}`).emit('orderLifecycleNotification', {
@@ -329,9 +348,7 @@ const getOrderRoutePolicy = async (orderId, transaction = undefined) => {
 
 // Create order from cart (checkout)
 const createOrderFromCart = async (req, res) => {
-  console.log('🔍 DEBUG: [NODE_MODULES orderController.js] createOrderFromCart called - UNIQUE_ID_67890');
-
-  console.log('🔍 DEBUG: [orderController.js] createOrderFromCart called - UNIQUE_ID_12345');
+  console.log('🔍 DEBUG: [orderController.js] createOrderFromCart called - VERIFY_CODE_V2_ACTIVE');
 
   const {
     deliveryAddress,
@@ -347,7 +364,9 @@ const createOrderFromCart = async (req, res) => {
     total,
     referralCode,
     primaryReferralCode, // Fallback for frontend naming
-    deliveryInstructions
+    deliveryInstructions,
+    paymentProofUrl,
+    paymentId // New field to link pre-initiated payment
   } = req.body;
   const userId = req.user.id;
   const effectiveReferralCode = referralCode || primaryReferralCode;
@@ -671,7 +690,8 @@ const createOrderFromCart = async (req, res) => {
       marketingDeliveryAddress: req.body.marketingDeliveryAddress || null,
       deliveryAddress: req.body.deliveryAddress || null,
       deliveryInstructions: deliveryInstructions || req.body.specialInstructions || null,
-      batchId: sharedBatchId ? Number(sharedBatchId) : null
+      batchId: sharedBatchId ? Number(sharedBatchId) : null,
+      paymentProofUrl: paymentProofUrl || null
     }, { transaction: t });
 
     console.log(`✅ Order created with ID: ${order.id}. Step 6: Creating OrderItems...`);
@@ -679,6 +699,7 @@ const createOrderFromCart = async (req, res) => {
     let orderSubtotal = 0;
     let orderDeliveryFee = 0;
     let fastFoodPickupPointFee = null;
+    let totalOrderCommission = 0;
     const sellerEarnings = {}; // Track earnings per seller for wallet credits
 
     for (const cartItem of cartItems) {
@@ -701,6 +722,7 @@ const createOrderFromCart = async (req, res) => {
       }
 
       const itemCommission = calculateItemCommission(product, price, cartItem.quantity);
+      totalOrderCommission += itemCommission;
       const itemLabelParts = [product.name];
       if (variantName) itemLabelParts.push(variantName);
       if (comboName) itemLabelParts.push(comboName);
@@ -728,23 +750,22 @@ const createOrderFromCart = async (req, res) => {
 
       await OrderItem.create({
         orderId: order.id,
-        sellerId: sellerId || null, // NEW: Store seller at item level
-        name: product.name,
-        price: price,
-        basePrice: Number(product.basePrice || 0),
+        productId: cartItem.productId || product.id,
         quantity: cartItem.quantity,
+        price,
         total: itemQtyTotal,
+        sellerId,
         deliveryFee: itemDeliveryFee,
         commissionAmount: itemCommission,
-        itemType: cartItem.type || 'product',
-        productId: cartItem.type === 'fastfood' ? null : (cartItem.type === 'service' ? null : product.id),
-        fastFoodId: cartItem.type === 'fastfood' ? product.id : null,
-        serviceId: cartItem.type === 'service' ? product.id : null,
         variantId: cartItem.variantId || null,
         comboId: cartItem.comboId || null,
-        itemLabel
+        itemType: cartItem.type || 'product',
+        fastFoodId: cartItem.type === 'fastfood' ? product.id : null,
+        serviceId: cartItem.type === 'service' ? product.id : null,
+        itemLabel,
+        name: product.name || 'Unknown Item'
       }, { transaction: t });
-      console.log(`✅ Created OrderItem for cartItem ${cartItem.id}`);
+      console.log(`✅ Created OrderItem for: ${product.name} (${cartItem.type || 'product'})`);
 
       // Stock reduction
       if (cartItem.type !== 'fastfood' && cartItem.type !== 'service') {
@@ -752,9 +773,42 @@ const createOrderFromCart = async (req, res) => {
       }
     }
 
+    // Link Payment if provided
+    if (paymentId) {
+      const { Payment } = require('../models');
+      const payment = await Payment.findByPk(paymentId, { transaction: t });
+      if (payment) {
+        await payment.update({ 
+          orderId: order.id,
+          // If payment was already completed via callback, update order status
+          ...(payment.status === 'completed' && { status: 'completed' })
+        }, { transaction: t });
+
+        if (payment.status === 'completed') {
+          await order.update({ 
+            paymentConfirmed: true, 
+            status: 'paid' 
+          }, { transaction: t });
+          
+          // Emit socket update if possible
+          try {
+            const { getIO } = require('../realtime/socket');
+            const io = getIO();
+            if (io) {
+              io.to(`user:${userId}`).emit('paymentStatusUpdate', {
+                paymentId: payment.id,
+                status: 'completed',
+                orderId: order.id
+              });
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
     console.log('🚀 Step 7: Updating order total and commission...');
     // If fastfood pickup point routing was NOT already determined, check if we need to apply pickup point fee
-    if (!adminRoutingStrategy && deliveryMethod === 'pick_station' && selectedStation) {
+    if (!adminRoutingStrategy && deliveryMethod === 'pick_station' && pickStation) {
       // For non-fastfood, we might have different logic, but let's ensure we don't break existing behavior
       // This is a placeholder for any future routing logic
     }
@@ -764,7 +818,7 @@ const createOrderFromCart = async (req, res) => {
       deliveryFee: orderDeliveryFee,
       items: cartItems.length,
       paymentId: req.body.paymentId || null,
-      totalCommission: calculateCommissionAmount(orderTotal, effectiveReferralCode)
+      totalCommission: totalOrderCommission
     }, { transaction: t });
 
     console.log('🚀 Step 8: Crediting seller pending wallets...');
@@ -865,7 +919,6 @@ const createOrderFromCart = async (req, res) => {
               orderId: order.id,
               orderNumber: order.orderNumber,
               message: 'New order requires approval',
-              type: 'order_approval_needed'
             });
           }
         }
@@ -874,8 +927,21 @@ const createOrderFromCart = async (req, res) => {
       console.warn('Failed to send real-time notifications:', socketError);
     }
 
+    // Step 12: Customer Notifications (WhatsApp)
+    try {
+      // Find the user to get their phone number (order.user is not populated from create)
+      const customer = await User.findByPk(order.userId);
+      if (customer) {
+        const itemNames = cartItems.map(item => `${item.quantity}x ${item.product?.name || 'Item'} - KES ${item.price?.toLocaleString()}`).join('\n');
+        await notifyCustomerOrderPlaced(order, customer, cartItems.length, itemNames);
+        console.log(`✅ WhatsApp notification sent for order ${order.orderNumber}`);
+      }
+    } catch (notifErr) {
+      console.warn('WhatsApp Order Placed notification failed:', notifErr.message);
+    }
+
     // Step 13: Return unified order response
-    res.json({
+    res.status(201).json({
       success: true,
       message: 'Order placed successfully',
       order: {
@@ -903,7 +969,7 @@ const createOrderFromCart = async (req, res) => {
     // PERSIST TO FILE FOR DEBUGGING
     const fs = require('fs');
     const path = require('path');
-    const logPath = 'C:\\Users\\user\\Desktop\\comrades360plus\\checkout_error_final.log';
+    const logPath = 'C:\\Users\\user\\Desktop\\comrades360-main\\checkout_error_final.log';
     
     let fkViolations = [];
     try {
@@ -963,18 +1029,21 @@ const myOrders = async (req, res) => {
     const orders = await Order.findAll({
       where: whereClause,
       include: [
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'contactPhone'], required: false },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name'], required: false },
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
           required: false,
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }]
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessName'] }]
         },
         { model: require('../models').Batch, as: 'batch', attributes: ['id', 'name', 'expectedDelivery'], required: false }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [
+        ['createdAt', 'DESC'],
+        [{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']
+      ]
     });
 
     if (orders.length === 0) {
@@ -991,13 +1060,13 @@ const myOrders = async (req, res) => {
           model: Product,
           required: false,
           attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images', 'sellerId'],
-          include: [{ model: User, as: 'seller', attributes: ['id', 'name'] }]
+          include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'businessName'] }]
         },
         {
           model: FastFood,
           required: false,
           attributes: ['id', 'name', 'mainImage', 'vendor', 'ingredients', 'allergens'],
-          include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name'] }]
+          include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
         }
       ]
     });
@@ -1081,9 +1150,9 @@ const getSuperAdminProductOrders = async (req, res) => {
         },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'price'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'contactPhone'] },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role'] }
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'businessName'] }
       ],
       order: [['createdAt', 'DESC']]
     });
@@ -1144,12 +1213,20 @@ const listAllOrders = async (req, res) => {
 
     if (q) {
       const searchQ = q.startsWith('#') ? q.slice(1) : q;
-      where[Op.or] = [
+      // Define search conditions
+      const searchConditions = [
         { orderNumber: { [Op.like]: `%${searchQ}%` } },
-        { checkoutOrderNumber: { [Op.like]: `%${searchQ}%` } },
-        { '$user.name$': { [Op.like]: `%${q}%` } },
-        { '$user.email$': { [Op.like]: `%${q}%` } }
+        { checkoutOrderNumber: { [Op.like]: `%${searchQ}%` } }
       ];
+
+      // Only add user-based search if it doesn't look like an order ID
+      if (!q.startsWith('#') && q.length > 3) {
+        searchConditions.push({ '$user.name$': { [Op.like]: `%${q}%` } });
+        searchConditions.push({ '$user.email$': { [Op.like]: `%${q}%` } });
+      }
+
+      where[Op.or] = searchConditions;
+      
       // If searching, we relax all other filters to allow "Global search"
       delete where.status;
       delete where.createdAt;
@@ -1158,7 +1235,11 @@ const listAllOrders = async (req, res) => {
     // Hiding fast food orders from admin's pending queue must be done either via a join on OrderItems 
     // or handled on frontend. Removing this block since Order.orderCategory column does not exist and crashes DB.
 
-    const { rows, count } = await Order.findAndCountAll({
+    console.log('[listAllOrders] req.query:', JSON.stringify(req.query));
+    console.log('[listAllOrders] Final Where:', JSON.stringify(where));
+
+    try {
+      const { rows, count } = await Order.findAndCountAll({
       where,
       subQuery: false,
       order: [['createdAt', 'DESC'], ['id', 'DESC']],
@@ -1170,18 +1251,18 @@ const listAllOrders = async (req, res) => {
           model: OrderItem,
           as: 'OrderItems',
           include: [
-            { model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone'] },
+            { model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] },
             {
               model: Product,
               required: false,
               attributes: ['id', 'name', 'deliveryFee', 'coverImage', 'sellerId', 'basePrice', 'displayPrice', 'discountPrice'],
-              include: [{ model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone'] }]
+              include: [{ model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] }]
             },
             {
               model: FastFood,
               required: false,
               attributes: ['id', 'name', 'deliveryFee', 'mainImage', 'vendor', 'ingredients', 'allergens', 'basePrice', 'displayPrice'],
-              include: [{ model: User, as: 'vendorDetail', required: false, attributes: ['id', 'name', 'email', 'phone'] }]
+              include: [{ model: User, as: 'vendorDetail', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] }]
             }
           ]
         },
@@ -1191,15 +1272,20 @@ const listAllOrders = async (req, res) => {
         { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
         { model: PickupStation, as: 'DestinationPickStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
         { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint', attributes: ['id', 'name', 'address', 'contactPhone', 'deliveryFee', 'isActive'] },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'role', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessPhone'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty', 'businessName'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessPhone', 'businessName'] },
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone'] }]
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] }]
         }
-      ]
+      ],
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+        [{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']
+      ],
     });
 
     // Calculate global stats for the dashboard summary cards and workflow tabs
@@ -1265,9 +1351,16 @@ const listAllOrders = async (req, res) => {
     res.set('X-Page-Size', pageSize);
     res.set('X-Total-Pages', Math.ceil(count / pageSize));
     res.json({ orders: rows, stats });
+    } catch (dbError) {
+      console.error('❌ [listAllOrders] DATABASE ERROR:', dbError);
+      if (dbError.name) console.error('Error Name:', dbError.name);
+      if (dbError.message) console.error('Error Message:', dbError.message);
+      if (dbError.sql) console.error('SQL:', dbError.sql);
+      throw dbError; // Rethrow to be caught by the outer catch if needed, or handle here
+    }
   } catch (error) {
     console.error('Error in listAllOrders:', error);
-    res.status(500).json({ error: 'Failed to load orders' });
+    res.status(500).json({ error: 'Failed to load orders', detail: error.message });
   }
 };
 
@@ -1282,8 +1375,12 @@ const updateOrderStatus = async (req, res) => {
   if (typeof status !== 'string' || !ALLOWED_STATUSES.includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
+
+  if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+    return res.status(400).json({ error: 'Status "At Warehouse" must be confirmed via handover code entry to ensure proper logistics tracking.' });
+  }
   const order = await Order.findByPk(orderId, {
-    include: [{ model: User, as: 'seller', attributes: ['businessAddress'] }]
+    include: [{ model: User, as: 'seller', attributes: ['businessAddress', 'businessName'] }]
   });
   if (!order) return res.status(404).json({ error: 'Order not found' });
   const prevStatus = order.status;
@@ -1319,7 +1416,21 @@ const updateOrderStatus = async (req, res) => {
   }
 
   const createdDeliveryTask = await autoCreateDeliveryTask(order, prevStatus, status);
-  await order.update({ status });
+  
+  const updates = { status };
+  if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+    updates.warehouseArrivalDate = new Date();
+    updates.deliveryAgentId = null; // Clear agent so new one can be assigned for next leg
+
+    // Mark any active delivery task for this order as completed
+    const { DeliveryTask } = require('../models');
+    await DeliveryTask.update(
+      { status: 'completed', actualDeliveryDate: new Date() },
+      { where: { orderId: order.id, status: ['accepted', 'in_progress'] } }
+    );
+  }
+  
+  await order.update(updates);
 
   // When dispatching out for delivery from warehouse, apply per-product delivery fees
   if (status === 'in_transit' && prevStatus !== 'in_transit') {
@@ -1358,29 +1469,28 @@ const updateOrderStatus = async (req, res) => {
   const { getIO } = require('../realtime/socket');
   const io = getIO();
   if (io) {
-    // Emit to the specific user who owns the order
-    io.to(`user:${order.userId}`).emit('orderStatusUpdate', {
+    const socketData = {
       orderId: order.id,
       status: status,
       orderNumber: order.orderNumber,
-      timestamp: new Date().toISOString()
-    });
+      warehouseId: order.warehouseId,
+      destinationWarehouseId: order.destinationWarehouseId,
+      pickupStationId: order.pickupStationId,
+      destinationPickStationId: order.destinationPickStationId,
+      adminRoutingStrategy: order.adminRoutingStrategy,
+      shippingType: order.shippingType,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Emit to the specific user who owns the order
+    io.to(`user:${order.userId}`).emit('orderStatusUpdate', socketData);
 
     // Also emit to admin rooms for real-time dashboard updates
-    io.to('admin').emit('orderStatusUpdate', {
-      orderId: order.id,
-      status: status,
-      userId: order.userId,
-      orderNumber: order.orderNumber
-    });
+    io.to('admin').emit('orderStatusUpdate', socketData);
 
     // Notify seller if assigned
     if (order.sellerId) {
-      io.to(`user:${order.sellerId}`).emit('orderStatusUpdate', {
-        orderId: order.id,
-        status: status,
-        orderNumber: order.orderNumber
-      });
+      io.to(`user:${order.sellerId}`).emit('orderStatusUpdate', socketData);
     }
   }
 
@@ -1493,6 +1603,9 @@ const assignDeliveryAgent = async (req, res) => {
 
 
     // Safety Check: Lock re-assignment if already accepted or started
+    // EXCEPTION: For hub-arrived orders (at_warehouse, received_at_warehouse), old tasks from the previous
+    // leg are stale. We auto-complete them so the next leg can be assigned.
+    const isAtHub = ['at_warehouse', 'received_at_warehouse'].includes(order.status);
     const activeTask = await DeliveryTask.findOne({
       where: {
         orderId: order.id,
@@ -1502,8 +1615,14 @@ const assignDeliveryAgent = async (req, res) => {
     });
 
     if (activeTask) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Cannot re-assign: The current agent has already accepted or started the job.' });
+      if (isAtHub) {
+        // Auto-complete the stale task from the previous delivery leg
+        await activeTask.update({ status: 'completed', completedAt: new Date() }, { transaction: t });
+        console.log(`[assignDeliveryAgent] Auto-completed stale task #${activeTask.id} for hub-arrived order #${order.orderNumber}`);
+      } else {
+        await t.rollback();
+        return res.status(400).json({ error: 'Cannot re-assign: The current agent has already accepted or started the job.' });
+      }
     }
 
     // Check if already delivered
@@ -1536,6 +1655,21 @@ const assignDeliveryAgent = async (req, res) => {
     if (routePolicy.isFastFoodOnlyOrder) {
       dType = fastFoodExpectedDeliveryType;
     }
+
+    // Auto-detect next leg if not provided
+    if (!deliveryType && !routePolicy.isFastFoodOnlyOrder) {
+      if (order.status === 'at_warehouse' || order.status === 'received_at_warehouse') {
+        // Warehouse -> Customer OR Warehouse -> Pickup Station
+        if (order.deliveryMethod === 'pick_station') {
+          dType = 'warehouse_to_pickup_station';
+        } else {
+          dType = 'warehouse_to_customer';
+        }
+      } else if (order.status === 'at_pick_station' || order.status === 'ready_for_pickup') {
+        dType = 'pickup_station_to_customer';
+      }
+    }
+
     if (!dType) {
       dType = FASTFOOD_DIRECT_DELIVERY_TYPE;
     }
@@ -1548,12 +1682,14 @@ const assignDeliveryAgent = async (req, res) => {
     if (pickupStationId) updates.pickupStationId = pickupStationId;
 
     // Maintain status continuity or set initial assignment status
-    if (order.status === 'order_placed' || order.status === 'returned' || order.status === 'failed') {
+    if (order.status === 'order_placed' || order.status === 'returned' || order.status === 'failed' || order.status === 'cancelled') {
       updates.status = 'seller_confirmed'; // Reset for initial or re-attempt pickup
     } else if (order.status === 'at_warehouse' && dType === 'warehouse_to_customer') {
-      updates.status = 'at_warehouse'; // Keep as is, agent will confirm collection next
+      updates.status = 'ready_for_pickup'; // Change to ready_for_pickup so agent can confirm collection
     } else if (order.status === 'ready_for_pickup' && dType === 'warehouse_to_customer') {
       updates.status = 'ready_for_pickup';
+    } else if (order.status === 'at_warehouse' && dType === 'warehouse_to_pickup_station') {
+      updates.status = 'ready_for_pickup'; // Also allow pickup station assignments from warehouse
     }
     // If it's already en_route or in_transit, we usually don't re-assign unless there's a problem, 
     // but keeping it as is allows the new agent to pick up where the last one left off.
@@ -1584,9 +1720,13 @@ const assignDeliveryAgent = async (req, res) => {
         if (seller) return seller.businessAddress || seller.address || 'Seller Address';
       }
 
-      if (['warehouse_to_customer', 'warehouse_to_seller', 'warehouse_to_pickup_station'].includes(dType) && order.warehouseId) {
-        const wh = await Warehouse.findByPk(order.warehouseId, { transaction: t });
-        if (wh) return `${wh.name} - ${wh.address}`;
+      if (['warehouse_to_customer', 'warehouse_to_seller', 'warehouse_to_pickup_station'].includes(dType)) {
+        // Check for destination warehouse first (for warehouse_to_customer), then fallback to warehouseId
+        const warehouseIdToUse = order.destinationWarehouseId || order.warehouseId;
+        if (warehouseIdToUse) {
+          const wh = await Warehouse.findByPk(warehouseIdToUse, { transaction: t });
+          if (wh) return `${wh.name} - ${wh.address}`;
+        }
       }
 
       if (['pickup_station_to_customer', 'pickup_station_to_warehouse'].includes(dType) && order.pickupStationId) {
@@ -1624,12 +1764,22 @@ const assignDeliveryAgent = async (req, res) => {
       return order.deliveryAddress;
     })();
 
-    // Get current global agent share config to lock it for this task
-    const shareConfig = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' }, transaction: t });
-    const currentShare = shareConfig ? parseFloat(shareConfig.value) : 70;
+    // Clear out any other pending "requested" tasks for this order
+    // as soon as an explicit assignment is made to a specific agent.
+    await DeliveryTask.update(
+      { status: 'rejected', rejectionReason: 'Another agent was assigned to this delivery leg.' },
+      { 
+        where: { 
+          orderId: order.id, 
+          status: 'requested',
+          deliveryAgentId: { [Op.ne]: deliveryAgentId }
+        }, 
+        transaction: t 
+      }
+    );
 
     const existingTask = await DeliveryTask.findOne({
-      where: { orderId: order.id, status: { [Op.notIn]: ['completed', 'failed', 'cancelled'] } },
+      where: { orderId: order.id, status: { [Op.notIn]: ['completed', 'failed', 'cancelled', 'rejected'] } },
       transaction: t
     });
 
@@ -1743,13 +1893,13 @@ const assignDeliveryAgent = async (req, res) => {
     const updatedOrder = await Order.findByPk(orderId, {
       include: [
         { model: OrderItem, as: 'OrderItems' },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] },
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone'] }]
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] }]
         },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] }
@@ -1758,10 +1908,26 @@ const assignDeliveryAgent = async (req, res) => {
 
     // Notify agent
     const { notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
+    const { getIO } = require('../realtime/socket');
     const agent = await User.findByPk(deliveryAgentId);
     if (agent && updatedOrder) {
-      await notifyDeliveryAgentAssignment(agent, updatedOrder);
+      await notifyDeliveryAgentAssignment(agent, updatedOrder, updatedOrder.orderNumber, dType);
     }
+
+    // Real-time Update for Seller and Customer
+    getIO().emit('orderStatusUpdate', {
+      orderId: updatedOrder.id,
+      status: updatedOrder.status,
+      orderNumber: updatedOrder.orderNumber,
+      warehouseId: updatedOrder.warehouseId,
+      destinationWarehouseId: updatedOrder.destinationWarehouseId,
+      pickupStationId: updatedOrder.pickupStationId,
+      destinationPickStationId: updatedOrder.destinationPickStationId,
+      adminRoutingStrategy: updatedOrder.adminRoutingStrategy,
+      shippingType: updatedOrder.shippingType,
+      deliveryType: dType,
+      updatedAt: updatedOrder.updatedAt
+    });
 
     res.json({
       success: true,
@@ -1769,9 +1935,91 @@ const assignDeliveryAgent = async (req, res) => {
       order: updatedOrder
     });
   } catch (error) {
-    await t.rollback();
+    if (t && t.rollback) await t.rollback();
     console.error('Error in assignDeliveryAgent:', error);
-    res.status(500).json({ error: 'Failed to assign delivery agent' });
+    res.status(500).json({ error: 'Failed to assign delivery agent', details: error.message });
+  }
+};
+
+const unassignDeliveryAgent = async (req, res) => {
+  const userId = req.user.id;
+  const { orderId } = req.params;
+
+  const t = await sequelize.transaction();
+  try {
+    const order = await Order.findByPk(orderId, { transaction: t });
+    if (!order) {
+      if (t) await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (['delivered', 'completed', 'cancelled'].includes(order.status)) {
+      if (t) await t.rollback();
+      return res.status(400).json({ error: `Cannot unassign agent from an order in status: ${order.status}` });
+    }
+
+    const { DeliveryTask, Op } = require('../models');
+    const { revertPending } = require('../utils/walletHelpers');
+
+    const activeTasks = await DeliveryTask.findAll({
+      where: {
+        orderId: order.id,
+        status: { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] }
+      },
+      transaction: t
+    });
+
+    for (const task of activeTasks) {
+      if (task.deliveryAgentId) {
+        const agentShare = parseFloat(task.agentShare) || 70;
+        const potentialEarnings = (parseFloat(task.deliveryFee) || 0) * (agentShare / 100);
+        if (potentialEarnings > 0) {
+          await revertPending(task.deliveryAgentId, potentialEarnings, order.id, t);
+        }
+      }
+      await task.update({
+        status: 'cancelled',
+        rejectionReason: 'Unassigned by Admin'
+      }, { transaction: t });
+    }
+
+    await order.update({
+      deliveryAgentId: null,
+      deliveryType: null
+    }, { transaction: t });
+
+    let trackingUpdates = [];
+    try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
+    trackingUpdates.push({
+      status: 'unassigned',
+      message: `Delivery agent unassigned by admin: ${req.user.name || req.user.id}`,
+      timestamp: new Date().toISOString(),
+      updatedBy: userId
+    });
+    await order.update({ trackingUpdates: JSON.stringify(trackingUpdates) }, { transaction: t });
+
+    await t.commit();
+
+    const { getIO } = require('../realtime/socket');
+    const io = getIO();
+    if (io) {
+      activeTasks.forEach(task => {
+        if (task.deliveryAgentId) {
+          io.to(`user:${task.deliveryAgentId}`).emit('assignmentCancelled', {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            message: 'You have been unassigned from this delivery task.'
+          });
+        }
+      });
+      io.to('admin').emit('orderStatusUpdate', { orderId: order.id, status: order.status, orderNumber: order.orderNumber });
+    }
+
+    res.json({ success: true, message: 'Delivery agent unassigned successfully', order: await Order.findByPk(order.id) });
+  } catch (error) {
+    if (t) await t.rollback();
+    console.error('Error in unassignDeliveryAgent:', error);
+    res.status(500).json({ error: 'Failed to unassign delivery agent' });
   }
 };
 
@@ -1786,8 +2034,8 @@ const getOrderTracking = async (req, res) => {
     // Load order with expanded associations
     const order = await Order.findByPk(id, {
       include: [
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLat', 'businessLng', 'businessTown'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLat', 'businessLng', 'businessTown', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
       ]
@@ -1996,55 +2244,6 @@ const sellerUpdateStatus = async (req, res) => {
   }
 };
 
-const markReceivedAtWarehouse = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { warehouseId, notes } = req.body;
-    const order = await Order.findByPk(orderId);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-
-    const routePolicy = await getOrderRoutePolicy(order.id);
-    if (routePolicy.isFastFoodOnlyOrder) {
-      return res.status(400).json({
-        error: `Fast-food orders only support ${FASTFOOD_DIRECT_DELIVERY_TYPE} and cannot be moved to warehouse.`
-      });
-    }
-
-    const status = 'at_warehouse';
-    await order.update({
-      status,
-      warehouseId: warehouseId || order.warehouseId,
-      warehouseArrivalDate: new Date()
-    });
-
-    // Add tracking update
-    let trackingUpdates = [];
-    try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
-    trackingUpdates.push({
-      status,
-      message: notes || 'Order received at warehouse',
-      timestamp: new Date().toISOString(),
-      updatedBy: req.user.id
-    });
-    await order.update({ trackingUpdates: JSON.stringify(trackingUpdates) });
-
-    const updatedOrder = await Order.findByPk(orderId);
-
-    // Real-time status update via Socket.IO
-    const { getIO } = require('../realtime/socket');
-    const io = getIO();
-    if (io) {
-      io.to(`user:${order.userId}`).emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-      if (order.sellerId) io.to(`user:${order.sellerId}`).emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-      io.to('admin').emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-    }
-
-    res.json({ success: true, message: 'Order marked as received at warehouse (Warehouse Receipt Processed)', status, order: updatedOrder });
-  } catch (error) {
-    console.error('Error in markReceivedAtWarehouse:', error);
-    res.status(500).json({ success: false, error: 'Failed to mark as received' });
-  }
-};
 
 const markReadyAtPickupStation = async (req, res) => {
   try {
@@ -2121,8 +2320,16 @@ const confirmWarehouseArrival = async (req, res) => {
     const status = 'at_warehouse';
     await order.update({
       status,
-      warehouseArrivalDate: new Date()
+      warehouseArrivalDate: new Date(),
+      deliveryAgentId: null // Reset for next leg assignment
     });
+
+    // Mark any active delivery task for this order as completed
+    const { DeliveryTask } = require('../models');
+    await DeliveryTask.update(
+      { status: 'completed', actualDeliveryDate: new Date() },
+      { where: { orderId: order.id, status: ['accepted', 'in_progress'] } }
+    );
 
     // Handle group consolidation check
     if (order.checkoutGroupId) {
@@ -2176,6 +2383,10 @@ const bulkUpdateOrderStatus = async (req, res) => {
       return res.status(400).json({ error: 'orderIds (array) and status are required' });
     }
 
+    if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+      return res.status(400).json({ error: 'Status "At Warehouse" must be confirmed via handover code entry.' });
+    }
+
     await Order.update({ status }, { where: { id: { [Op.in]: orderIds } } });
 
     // Real-time status update via Socket.IO
@@ -2223,7 +2434,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       where: { id: { [Op.in]: orderIds } },
       include: [
         { model: OrderItem, as: 'OrderItems' },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'email'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessCounty', 'businessTown', 'phone', 'email', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location'] },
         { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint', attributes: ['id', 'name', 'address'] }
@@ -2314,6 +2525,20 @@ const bulkAssignDeliveryAgent = async (req, res) => {
         ? parsedBulkDeliveryFee
         : (parseFloat(order.deliveryFee) || 0);
       updates.deliveryFee = finalFee;
+
+      // Special handling for warehouse arrival logic (if somehow triggered internally)
+      if (['at_warehouse', 'received_at_warehouse'].includes(order.status || updates.status)) {
+        updates.warehouseArrivalDate = new Date();
+        updates.deliveryAgentId = null; // Reset for next leg assignment
+
+        // Mark any active delivery task for this order as completed
+        const { DeliveryTask } = require('../models');
+        await DeliveryTask.update(
+          { status: 'completed', actualDeliveryDate: new Date() },
+          { where: { orderId: order.id, status: ['accepted', 'in_progress'] } },
+          { transaction: t }
+        );
+      }
 
       await order.update(updates, { transaction: t });
 
@@ -2469,7 +2694,8 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       orders.forEach(o => {
         if (results.find(r => r.orderId === o.id && r.status === 'success')) {
           // Robust notification helper handles the full agent and order objects
-          notifyDeliveryAgentAssignment(agent, o).catch(err => console.error('Bulk Notify Error:', err));
+          let currentLegType = deliveryType || o.deliveryType || 'seller_to_customer';
+          notifyDeliveryAgentAssignment(agent, o, o.orderNumber, currentLegType).catch(err => console.error('Bulk Notify Error:', err));
         }
       });
     }
@@ -2482,57 +2708,6 @@ const bulkAssignDeliveryAgent = async (req, res) => {
   }
 };
 
-const bulkMarkReceivedAtWarehouse = async (req, res) => {
-  const t = await sequelize.transaction();
-  try {
-    const { orderIds, warehouseId, notes } = req.body;
-    if (!Array.isArray(orderIds) || orderIds.length === 0) {
-      if (t) await t.rollback();
-      return res.status(400).json({ error: 'orderIds (array) is required' });
-    }
-
-    const status = 'at_warehouse';
-    const { getIO } = require('../realtime/socket');
-    const io = getIO();
-
-    for (const orderId of orderIds) {
-      const order = await Order.findByPk(orderId, { transaction: t });
-      if (!order) continue;
-
-      const routePolicy = await getOrderRoutePolicy(order.id, t);
-      if (routePolicy.isFastFoodOnlyOrder) continue;
-
-      await order.update({
-        status,
-        warehouseId: warehouseId || order.warehouseId,
-        warehouseArrivalDate: new Date()
-      }, { transaction: t });
-
-      let trackingUpdates = [];
-      try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
-      trackingUpdates.push({
-        status,
-        message: notes || 'Bulk: Order received at warehouse',
-        timestamp: new Date().toISOString(),
-        updatedBy: req.user.id
-      });
-      await order.update({ trackingUpdates: JSON.stringify(trackingUpdates) }, { transaction: t });
-
-      if (io) {
-        io.to(`user:${order.userId}`).emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-        if (order.sellerId) io.to(`user:${order.sellerId}`).emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-        io.to('admin').emit('orderStatusUpdate', { orderId: order.id, status, orderNumber: order.orderNumber });
-      }
-    }
-
-    await t.commit();
-    res.json({ success: true, message: `Marked ${orderIds.length} orders as received at warehouse` });
-  } catch (error) {
-    if (t) await t.rollback();
-    console.error('Error in bulkMarkReceivedAtWarehouse:', error);
-    res.status(500).json({ error: 'Failed to bulk mark as received' });
-  }
-};
 
 const bulkMarkReadyAtPickupStation = async (req, res) => {
   const t = await sequelize.transaction();
@@ -2923,8 +3098,8 @@ const superAdminConfirmOrder = async (req, res) => {
     const updatedOrder = await Order.findByPk(orderId, {
       include: [
         { model: OrderItem, as: 'OrderItems' },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'businessName'] },
         { model: Warehouse, as: 'DestinationWarehouse' },
         { model: PickupStation, as: 'DestinationPickStation' },
         { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint' }
@@ -3431,7 +3606,8 @@ const cancelOrder = async (req, res) => {
         status: 'cancelled',
         cancelledAt: new Date(),
         cancelReason: reason || 'Cancelled by customer',
-        cancelledBy: cancelledBy || (req.user.role === 'customer' ? 'customer' : 'admin')
+        cancelledBy: cancelledBy || (req.user.role === 'customer' ? 'customer' : 'admin'),
+        deliveryAgentId: null // Crucial: clear agent if assigned so it leaves their active dashboard
       }, { transaction: t });
 
       // Add Tracking Update
@@ -3546,8 +3722,8 @@ const updateOrderAddress = async (req, res) => {
 const getOrderDetails = async (req, res) => {
   const { orderId } = req.params;
   try {
-    const order = await Order.findByPk(orderId, {
-      include: [
+    let order;
+    const include = [
         {
           model: OrderItem,
           as: 'OrderItems',
@@ -3557,29 +3733,76 @@ const getOrderDetails = async (req, res) => {
               model: Product,
               required: false,
               attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images', 'sellerId', 'basePrice', 'deliveryFee'],
-              include: [{ model: User, as: 'seller', attributes: ['id', 'name'] }]
+              include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'businessName'] }]
             },
             {
               model: FastFood,
               required: false,
               attributes: ['id', 'name', 'mainImage', 'vendor', 'ingredients', 'allergens', 'basePrice', 'deliveryFee'],
-              include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name'] }]
+              include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
             }
           ]
         },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone'] },
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] },
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone'] }]
+          required: false,
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] }]
         }
-      ]
-    });
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    ];
+
+    if (orderId && String(orderId).includes('group')) {
+      const gId = orderId.replace('group-', '');
+
+      const orders = await Order.findAll({
+        where: {
+          [Op.or]: [
+            { checkoutGroupId: gId },
+            { checkoutOrderNumber: gId }
+          ]
+        },
+        include,
+        order: [[{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']]
+      });
+
+      if (orders.length === 0) {
+        console.warn(`[getOrderDetails] No orders found for group ID: ${gId}`);
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      // Build a unified "virtual" order object for the group
+      const first = orders[0];
+      // Include orderId on each OrderItem so the frontend can split returns per sub-order
+      const items = orders.flatMap(o => {
+        const plainOrder = o.get({ plain: true });
+        return (plainOrder.OrderItems || []).map(item => ({ ...item, orderId: plainOrder.id }));
+      });
+
+      // Virtual order (plain object)
+      order = {
+        ...first.get({ plain: true }),
+        id: orderId,
+        orderNumber: first.checkoutOrderNumber || first.orderNumber,
+        isGroup: true,
+        subOrderIds: orders.map(o => o.id),
+        OrderItems: items,
+        total: orders.reduce((sum, o) => sum + Number(o.total || 0), 0),
+        deliveryFee: orders.reduce((sum, o) => sum + Number(o.deliveryFee || 0), 0),
+        status: orders.every(o => o.status === first.status) ? first.status : 'delivered'
+      };
+    } else {
+      const dbOrder = await Order.findByPk(orderId, { 
+        include,
+        order: [[{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']]
+      });
+      if (!dbOrder) return res.status(404).json({ error: 'Order not found' });
+      order = dbOrder.get({ plain: true });
+    }
 
     // Ownership check
     const userRole = String(req.user.role || '').toLowerCase();
@@ -3593,13 +3816,14 @@ const getOrderDetails = async (req, res) => {
     }
 
     let trackingUpdates = [];
-    try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
+    try { trackingUpdates = order.trackingUpdates ? (typeof order.trackingUpdates === 'string' ? JSON.parse(order.trackingUpdates) : order.trackingUpdates) : []; } catch (_) { }
     let communicationLog = [];
-    try { communicationLog = order.communicationLog ? JSON.parse(order.communicationLog) : []; } catch (_) { }
-    return res.json({ ...order.toJSON(), trackingUpdates, communicationLog });
+    try { communicationLog = order.communicationLog ? (typeof order.communicationLog === 'string' ? JSON.parse(order.communicationLog) : order.communicationLog) : []; } catch (_) { }
+
+    return res.json({ ...order, trackingUpdates, communicationLog });
   } catch (error) {
-    console.error('Error getting order details:', error);
-    return res.status(500).json({ error: 'Failed to get order details' });
+    console.error('[getOrderDetails] Error:', error.message, '\nStack:', error.stack);
+    return res.status(500).json({ error: 'Failed to get order details', detail: error.message });
   }
 };
 
@@ -3781,7 +4005,7 @@ const getOrdersByBatch = async (req, res) => {
       },
       include: [
         { model: Batch, as: 'batch' },
-        { model: User, as: 'user', attributes: ['name', 'phone'] },
+        { model: User, as: 'user', attributes: ['name', 'phone', 'businessName'] },
         { model: OrderItem, as: 'OrderItems' }
       ],
       order: [['batchId', 'DESC'], ['createdAt', 'DESC']]
@@ -3817,6 +4041,7 @@ module.exports = {
   listAllOrders,
   updateOrderStatus,
   assignDeliveryAgent,
+  unassignDeliveryAgent,
   cancelOrder,
   updateOrderAddress,
   addTrackingUpdate,
@@ -3837,12 +4062,9 @@ module.exports = {
   listDisputes,
   getOrderAnalytics,
   sellerUpdateStatus,
-  markReceivedAtWarehouse,
   markReadyAtPickupStation,
-  confirmWarehouseArrival,
   bulkUpdateOrderStatus,
   bulkAssignDeliveryAgent,
-  bulkMarkReceivedAtWarehouse,
   bulkMarkReadyAtPickupStation,
   sellerHandoverOrder,
   getOrderPayments,

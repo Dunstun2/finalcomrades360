@@ -29,7 +29,8 @@ import {
   FaTimes,
   FaMapMarkerAlt,
   FaBoxes,
-  FaUtensils
+  FaUtensils,
+  FaUndo
 } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -48,9 +49,8 @@ const adminMenuItems = [
     roles: ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent'],
     children: [
       { name: 'All Orders', path: '/dashboard/orders', icon: <FaShoppingCart className="mr-2" /> },
+      { name: 'Return Requests', path: '/dashboard/orders/returns', icon: <FaUndo className="mr-2" /> },
       { name: 'My Sales Management', path: '/dashboard/orders/my-sales', icon: <FaMoneyBillWave className="mr-2" /> },
-      { name: 'Active Assignments', path: '/dashboard/orders/assignments', icon: <FaTruckLoading className="mr-2" /> },
-      { name: 'Delivery Requests', path: '/dashboard/orders/requests', icon: <FaClipboardList className="mr-2" /> },
       { name: 'Order Analytics', path: '/dashboard/orders/analytics', icon: <FaChartLine className="mr-2" /> }
     ]
   },
@@ -88,6 +88,8 @@ const adminMenuItems = [
     icon: <FaTruck className="mr-3" />,
     roles: ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent'],
     children: [
+      { name: 'Delivery Requests', path: '/dashboard/orders/requests', icon: <FaClipboardList className="mr-2" /> },
+      { name: 'Active Assignments', path: '/dashboard/orders/assignments', icon: <FaTruckLoading className="mr-2" /> },
       { name: 'Global Live Map', path: '/dashboard/delivery/live-map', icon: <FaMapMarkerAlt className="mr-2" /> },
       { name: 'Warehouse Management', path: '/dashboard/delivery/warehouses', icon: <FaStore className="mr-2" /> },
       { name: 'Pickup Stations', path: '/dashboard/delivery/pickup-stations', icon: <FaMapMarkerAlt className="mr-2" /> },

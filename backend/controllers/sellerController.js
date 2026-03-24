@@ -410,24 +410,24 @@ const getMyOrders = async (req, res) => {
               model: Product,
               required: false,
               attributes: ['id', 'name', 'coverImage', 'basePrice', 'sellerId'],
-              include: [{ model: User, as: 'seller', attributes: ['id', 'name'] }]
+              include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'businessName'] }]
             },
             {
               model: FastFood,
               required: false,
               attributes: ['id', 'name', 'mainImage', 'basePrice', 'vendor'],
-              include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name'] }]
+              include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
             }
           ]
         },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
         {
           model: DeliveryTask,
           as: 'deliveryTasks',
           required: false,
           attributes: ['id', 'status', 'deliveryType', 'orderId', 'deliveryAgentId'],
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }]
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessName'] }]
         },
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'contactPhone'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name'] },
@@ -592,23 +592,23 @@ const getOverview = async (req, res) => {
               {
                 model: Product,
                 required: false,
-                include: [{ model: User, as: 'seller', attributes: ['id', 'name'] }]
+                include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'businessName'] }]
               },
               {
                 model: FastFood,
                 required: false,
-                include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name'] }]
+                include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
               }
             ]
           },
-          { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-          { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone'] },
+          { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+          { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
           {
             model: DeliveryTask,
             as: 'deliveryTasks',
             required: false,
             attributes: ['id', 'status', 'deliveryType', 'orderId', 'deliveryAgentId'],
-            include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }]
+            include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessName'] }]
           },
           { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'contactPhone'] },
           { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name'] }

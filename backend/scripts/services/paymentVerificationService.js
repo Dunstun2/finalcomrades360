@@ -159,33 +159,47 @@ class PaymentVerificationService {
 
   // Verify bank transfer payment (manual verification)
   async verifyBankTransfer(paymentId, adminUserId, verificationData) {
+    return this.verifyManualPayment(paymentId, adminUserId, {
+      ...verificationData,
+      method: 'bank_transfer'
+    });
+  }
+
+  // Generic manual verification for M-Pesa, Bank Transfer, Airtel, etc.
+  async verifyManualPayment(paymentId, verifierUserId, verificationData = {}) {
     try {
       const payment = await Payment.findByPk(paymentId, {
         include: [{ model: Order, as: 'order' }]
       });
 
-      if (!payment || payment.paymentMethod !== 'bank_transfer') {
-        throw new Error('Invalid payment or payment method');
+      if (!payment) {
+        throw new Error('Payment not found');
       }
+
+      const method = verificationData.method || payment.paymentMethod;
 
       // Update payment with verification data
       await payment.update({
         status: 'completed',
-        bankReference: verificationData.reference,
-        bankName: verificationData.bankName,
+        bankReference: verificationData.reference || null,
+        bankName: verificationData.bankName || null,
         paymentDate: new Date(),
         completedAt: new Date(),
         metadata: JSON.stringify({
           ...payment.metadata ? JSON.parse(payment.metadata) : {},
           verificationData,
-          verifiedBy: adminUserId,
-          verifiedAt: new Date()
+          verifiedBy: verifierUserId,
+          verifiedAt: new Date(),
+          isManual: true
         })
       });
 
       // Update order
       const statusGuards = ['order_placed', 'super_admin_confirmed'];
-      const updateData = { paymentConfirmed: true };
+      const updateData = { 
+        paymentConfirmed: true,
+        paymentMethod: method?.toLowerCase().includes('mpesa') ? 'M-Pesa' : (method === 'bank_transfer' ? 'Bank Transfer' : method)
+      };
       
       if (statusGuards.includes(payment.order.status)) {
         updateData.status = 'paid';
@@ -193,14 +207,25 @@ class PaymentVerificationService {
 
       await payment.order.update(updateData);
 
+      // Add tracking update
+      let trackingUpdates = [];
+      try { trackingUpdates = payment.order.trackingUpdates ? JSON.parse(payment.order.trackingUpdates) : []; } catch (_) { }
+      trackingUpdates.push({
+        status: payment.order.status,
+        message: `Payment of KES ${payment.amount} manually verified by agent/admin.`,
+        timestamp: new Date().toISOString(),
+        updatedBy: verifierUserId
+      });
+      await payment.order.update({ trackingUpdates: JSON.stringify(trackingUpdates) });
+
       return {
         verified: true,
         status: 'completed',
-        message: 'Bank transfer verified successfully'
+        message: 'Payment verified manually successfully'
       };
 
     } catch (error) {
-      console.error('Bank transfer verification error:', error);
+      console.error('Manual verification error:', error);
       return {
         verified: false,
         status: 'error',

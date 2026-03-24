@@ -3,21 +3,77 @@ const { PlatformConfig } = require('../models');
 exports.getConfig = async (req, res) => {
     try {
         const { key } = req.params;
+        
+        // Define system defaults
+        const defaults = {
+            platform_settings: { siteName: 'Comrades360', siteDescription: 'Your trusted marketplace', contactEmail: 'admin@comrades360.com', supportPhone: '+254700000000', currency: 'KES', timezone: 'Africa/Nairobi' },
+            mpesa_config: { consumerKey: '', consumerSecret: '', passkey: '', shortcode: '174379', stkTimeout: 60, mockMode: false },
+            mpesa_manual_instructions: { paybill: '714888', accountNumber: '223052' },
+            airtel_config: { clientId: '', clientSecret: '', callbackUrl: '' },
+            sms_config: { username: '', apiKey: '', provider: 'africastalking' },
+            whatsapp_config: { 
+                method: 'local',
+                templates: {
+                    orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
+                    orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
+                    orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
+                    orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',
+                    agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.',
+                    agentTaskAssigned: 'You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}',
+                    agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
+                    adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
+                    phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
+                    withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+                }
+            },
+            finance_settings: { referralSplit: { primary: 0.6, secondary: 0.4 }, minPayout: { seller: 1000, marketer: 500, delivery_agent: 200, station_manager: 500, warehouse_manager: 1000, service_provider: 500 } },
+            logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0 },
+            security_settings: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
+            notification_settings: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
+            seo_settings: { title: 'Comrades360', description: 'Student Marketplace', keywords: 'university, marketplace', socialLinks: { facebook: '', instagram: '', twitter: '' } },
+            maintenance_settings: { enabled: false, message: 'System is currently under maintenance.' },
+            system_env: { server: { port: 4000, nodeEnv: 'development', baseUrl: 'http://localhost:4000', apiUrl: '/api' }, app: { frontendUrl: 'http://localhost:3000', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } }
+        };
+
         const config = await PlatformConfig.findOne({ where: { key } });
+        const baseDefaults = defaults[key] || {};
 
         if (!config) {
-            return res.status(404).json({ success: false, message: 'Config not found' });
+            return res.json({ success: true, data: baseDefaults, isDefault: true });
         }
 
-        // Attempt to parse JSON value if possible, else return string
-        let parsedValue = config.value;
+        // Attempt to parse JSON value if possible
+        let dbValue = {};
         try {
-            parsedValue = JSON.parse(config.value);
+            dbValue = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
         } catch (e) {
-            // Keep as string
+            // If not JSON, use as literal if string, else ignore
+            dbValue = typeof config.value === 'string' ? config.value : {};
         }
 
-        res.json({ success: true, data: parsedValue });
+        // Final result: Start with base defaults, overlay DB values
+        let finalData = baseDefaults;
+
+        if (dbValue && typeof dbValue === 'object' && !Array.isArray(dbValue)) {
+            // Deep merge for known structures
+            finalData = { ...baseDefaults, ...dbValue };
+            
+            // Nested merge for templates
+            if (baseDefaults.templates && dbValue.templates && typeof dbValue.templates === 'object') {
+                finalData.templates = { ...baseDefaults.templates, ...dbValue.templates };
+            }
+            
+            // Nested merge for minPayout in finance_settings
+            if (baseDefaults.minPayout && dbValue.minPayout && typeof dbValue.minPayout === 'object') {
+                finalData.minPayout = { ...baseDefaults.minPayout, ...dbValue.minPayout };
+            }
+        } else if (dbValue !== undefined && dbValue !== null && dbValue !== '') {
+            // If DB value is a primitive but we have defaults, prioritize DB value if it's not empty,
+            // but for keys with defaults we expect objects, so this is a fallback.
+            finalData = dbValue;
+        }
+
+        res.json({ success: true, data: finalData });
     } catch (error) {
         console.error('Get Config Error:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch config' });
@@ -32,8 +88,8 @@ exports.updateConfig = async (req, res) => {
         // Strict Role Check (Double Layer Security)
         // Strict Role Check (Double Layer Security)
         const userRoleStr = String(req.user?.role || '').toLowerCase();
-        if (!['superadmin', 'super_admin', 'super-admin'].includes(userRoleStr)) {
-            return res.status(403).json({ success: false, message: 'Access denied. Super Admin only.' });
+        if (!['superadmin', 'super_admin', 'super-admin', 'admin'].includes(userRoleStr)) {
+            return res.status(403).json({ success: false, message: 'Access denied. Admin or Super Admin only.' });
         }
 
         let stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);

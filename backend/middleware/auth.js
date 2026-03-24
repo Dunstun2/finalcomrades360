@@ -231,6 +231,34 @@ const superAdminOnly = (req, res, next) => {
   next();
 };
 
+/**
+ * Middleware to ensure sellers have completed their business profile.
+ * Redirects or blocks if required fields (address, phone, coordinates) are missing.
+ */
+const checkSellerProfile = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Authentication required' });
+
+  const normalize = (r) => String(r || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const userRole = normalize(req.user.role || '');
+  const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(normalize) : [userRole];
+
+  const isAdmin = userRole === 'admin' || userRole === 'superadmin' || userRoles.includes('admin') || userRoles.includes('superadmin');
+  const isSeller = userRole === 'seller' || userRoles.includes('seller');
+
+  // Skip check for non-sellers (Admins who are NOT sellers are skipped, but Admins who ARE sellers are caught)
+  if (!isSeller) return next();
+
+  // Perform completeness check
+  if (!User.isSellerProfileComplete(req.user)) {
+    return res.status(403).json({
+      message: 'Seller profile incomplete. Please provide all business location details.',
+      code: 'SELLER_PROFILE_INCOMPLETE'
+    });
+  }
+
+  next();
+};
+
 const authorize = checkRole; // Alias
 
 // Marketer only
@@ -306,5 +334,6 @@ module.exports = {
   marketerOnly,
   adminOrLogistics,
   adminOrFinance,
-  adminOrSeller
+  adminOrSeller,
+  checkSellerProfile
 };

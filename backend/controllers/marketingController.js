@@ -276,7 +276,7 @@ const getMyCustomers = async (req, res) => {
         userId: { [Op.ne]: marketerId }
       },
       attributes: ['userId', 'customerName', 'customerEmail', 'customerPhone', 'createdAt'],
-      include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'referralCode', 'createdAt'], required: false }]
+      include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'referralCode', 'createdAt', 'businessName'], required: false }]
     });
 
     ordersPlacedByMarketer.forEach(order => {

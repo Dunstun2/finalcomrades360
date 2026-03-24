@@ -10,6 +10,7 @@ import { useToast } from '../components/ui/use-toast';
 import { isFastFoodOpen } from '../utils/availabilityUtils';
 
 import { formatPrice } from '../utils/currency';
+import { findVariant, getVariantLabel, isSku } from '../utils/variantUtils';
 
 const FALLBACK_IMAGE = '/placeholder.jpg';
 
@@ -331,47 +332,29 @@ export default function Cart() {
                 // Create unique key that includes variant/combo info
                 const uniqueKey = `${item.itemType}-${id}-${item.variantId || 'novar'}-${item.comboId || 'nocombo'}`;
 
-                // Reconstruct variant/combo objects from IDs
-                let variantName = item.variantName || null;
-                let comboName = null;
+                // Unified Variant/Combo Resolution
+                let variantName = (item.variantName && !isSku(item.variantName)) ? item.variantName : null;
+                let comboName = item.comboName || null;
 
-                if (!variantName && !isFastFood && product && item.variantId) {
-                  const productVariants = (() => {
-                    try {
-                      if (Array.isArray(product.variants)) return product.variants;
-                      if (typeof product.variants === 'string') return JSON.parse(product.variants || '[]');
-                    } catch (_) { }
-                    return [];
-                  })();
-
-                  const targetVariantId = String(item.variantId).toLowerCase();
-                  const matchedVariant = productVariants.find((v) => {
-                    if (!v || typeof v !== 'object') return false;
-                    const candidates = [v.id, v.name, v.size, v.sku].filter(Boolean).map((x) => String(x).toLowerCase());
-                    return candidates.includes(targetVariantId);
-                  });
-                  variantName = matchedVariant?.name || matchedVariant?.size || matchedVariant?.sku || item.variantId;
+                if (!isFastFood && product && item.variantId && !variantName) {
+                  const variant = findVariant(product, item.variantId);
+                  variantName = getVariantLabel(variant);
                 }
 
                 if (isFastFood && product) {
-                  if (item.variantId) {
+                  if (item.variantId && !variantName) {
                     const variants = typeof product.sizeVariants === 'string'
                       ? JSON.parse(product.sizeVariants || '[]')
                       : (product.sizeVariants || []);
-                    const variant = variants.find(v =>
-                      v.id === item.variantId || v.name === item.variantId || v.size === item.variantId
-                    );
-                    variantName = variant?.name || variant?.size || item.variantId;
+                    const v = variants.find(v => v.id === item.variantId || v.name === item.variantId || v.size === item.variantId);
+                    variantName = v?.name || v?.size || item.variantId;
                   }
-
-                  if (item.comboId) {
+                  if (item.comboId && !comboName) {
                     const combos = typeof product.comboOptions === 'string'
                       ? JSON.parse(product.comboOptions || '[]')
                       : (product.comboOptions || []);
-                    const combo = combos.find(c =>
-                      c.id === item.comboId || c.name === item.comboId
-                    );
-                    comboName = combo?.name || item.comboId;
+                    const c = combos.find(c => c.id === item.comboId || c.name === item.comboId);
+                    comboName = c?.name || item.comboId;
                   }
                 }
 
@@ -430,9 +413,9 @@ export default function Cart() {
                           >
                             {typeof product?.name === 'object' ? JSON.stringify(product?.name) : product?.name || typeof product?.title === 'object' ? JSON.stringify(product?.title) : product?.title || typeof item.name === 'object' ? JSON.stringify(item.name) : item.name || 'Unknown Item'}
                           </h3>
-                          {(variantName || comboName) && (
+                          {(variantName || comboName) && (variantName !== '0-0' || comboName) && (
                             <div className="text-[10px] text-blue-600 font-bold mb-1 uppercase tracking-tight">
-                              {variantName && `Size: ${variantName} `}
+                              {variantName && variantName !== '0-0' && `Size: ${variantName} `}
                               {comboName && `Combo: ${comboName}`}
                             </div>
                           )}
@@ -444,10 +427,15 @@ export default function Cart() {
                           <p className="text-xs text-gray-500 mb-2 truncate">
                             Seller: <span className="text-gray-900 font-bold">{
                               (isFastFood ? product?.kitchenVendor : null) ||
+                              product?.seller?.businessName ||
                               product?.seller?.name ||
+                              product?.provider?.businessName ||
                               product?.provider?.name ||
+                              product?.vendorDetail?.businessName ||
                               product?.vendorDetail?.name ||
+                              product?.Seller?.businessName ||
                               product?.Seller?.name ||
+                              product?.vendor?.businessName ||
                               product?.vendor?.name ||
                               (isFastFood ? 'Comrades Kitchen' : 'Unknown Seller')
                             }</span>
@@ -577,18 +565,6 @@ export default function Cart() {
                 </div>
               </div>
 
-              <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-4">
-                <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-800 mb-2">Delivery Information</h3>
-                {cartScope === 'fastfood' ? (
-                  <p className="text-xs text-blue-900 leading-relaxed">
-                    Fast food orders use <span className="font-black">Fast Food Pickup Points</span> selected during checkout/details flow.
-                  </p>
-                ) : (
-                  <p className="text-xs text-blue-900 leading-relaxed">
-                    Product orders use <span className="font-black">Pickup Stations</span> for collection and routing.
-                  </p>
-                )}
-              </div>
 
               {(() => {
                 const hasUnavailableItems = visibleItems.some(item => !isItemAvailable(item));

@@ -138,7 +138,7 @@ const getCategoryByIdWithProducts = async (req, res) => {
       include: [{
         model: models.User,
         as: 'seller',
-        attributes: ['id', 'name', 'role'],
+        attributes: ['id', 'name', 'role', 'businessName'],
         required: false
       }],
       order: [['createdAt', 'DESC']],
@@ -213,7 +213,7 @@ const getSubcategoryByIdWithProducts = async (req, res) => {
       include: [{
         model: models.User,
         as: 'seller',
-        attributes: ['id', 'name', 'role'],
+        attributes: ['id', 'name', 'role', 'businessName'],
         required: false
       }],
       order: [['createdAt', 'DESC']],

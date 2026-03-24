@@ -39,13 +39,17 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
         e.stopPropagation();
 
         const isFastFood = currentItem.type === 'fastfood' || currentItem.fastFoodId;
-        if (isFastFood && firstProduct) {
-            try {
+        try {
+            if (isFastFood && firstProduct) {
                 await addToCart(productId, 1, { type: 'fastfood', fastFood: firstProduct });
-            } catch (error) {
-                // Optionally show a toast here if desired
+            } else {
+                // For regular products, add to cart (default variant auto-picked by context)
+                await addToCart(productId, 1);
             }
+        } catch (error) {
+            console.error('HeroSlider cart operation failed:', error);
         }
+
         const productType = isFastFood ? 'fastfood' : 'products';
         navigate(`/${productType}/${productId}`, { state: { from: location.pathname } });
 

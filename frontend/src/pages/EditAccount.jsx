@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaArrowLeft } from 'react-icons/fa';
 import api from '../services/api';
+import PhoneVerification from '../components/PhoneVerification';
 
 export default function EditAccount() {
   const navigate = useNavigate();
@@ -165,23 +166,22 @@ export default function EditAccount() {
         </div>
       </section>
 
-      {/* Change Phone with OTP */}
+      {/* Change Phone with SMS Verification */}
       <section className="card max-w-xl">
         <h2 className="text-xl font-semibold mb-3">Change Phone</h2>
-        {phoneMsg && (
-          <div className={`mb-3 p-3 rounded ${phoneMsg.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>{phoneMsg.text}</div>
-        )}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">New Phone</label>
-            <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className="mt-1 w-full border rounded px-3 py-2" placeholder="07xxxxxxxx" />
-          </div>
-          <button type="button" disabled={phoneLoading} onClick={requestPhoneOtp} className="btn">{phoneLoading ? 'Sending...' : 'Send OTP'}</button>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">OTP</label>
-            <input value={phoneOtp} onChange={(e) => setPhoneOtp(e.target.value)} className="mt-1 w-full border rounded px-3 py-2" placeholder="Enter OTP" />
-          </div>
-          <button type="button" disabled={phoneLoading || !phoneOtp} onClick={confirmPhoneOtp} className="btn">Confirm Phone Change</button>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Use the form below to verify and update your phone number via SMS.
+          </p>
+          <PhoneVerification 
+            currentPhone={newPhone}
+            onVerified={(verifiedPhone) => {
+              setPhoneMsg({ type: 'success', text: `Phone number ${verifiedPhone} verified and updated successfully!` });
+              // The backend verify-firebase endpoint already updates the DB, 
+              // but we might want to refresh the local user state.
+              setTimeout(() => window.location.reload(), 2000);
+            }} 
+          />
         </div>
       </section>
 

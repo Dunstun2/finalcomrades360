@@ -13,6 +13,8 @@ import userService from '../../services/userService';
 import { toast } from 'react-toastify';
 import Addresses from './Addresses';
 import ProfileComponent from '../../components/ProfileComponent';
+import PhoneVerification from '../../components/PhoneVerification';
+import ProfileSettings from './ProfileSettings';
 
 const AccountSettings = () => {
   const { user: authUser, logout, updateUser } = useAuth();
@@ -80,6 +82,13 @@ const AccountSettings = () => {
       name: 'Profile',
       path: '/customer/settings',
       icon: <FaUser />,
+      roles: ['customer', 'seller', 'admin', 'superadmin']
+    },
+    {
+      id: 'contact',
+      name: 'Contact',
+      path: '/customer/settings',
+      icon: <FaPhone />,
       roles: ['customer', 'seller', 'admin', 'superadmin']
     },
     {
@@ -196,12 +205,14 @@ const AccountSettings = () => {
 
   // Fetch security data
   const fetchSecurityData = useCallback(async () => {
+    /* Temporarily disabled - route missing in backend
     try {
       const security = await userService.getSecurityData();
       setSecurityData(security);
     } catch (error) {
       console.error('Error fetching security data:', error);
     }
+    */
   }, []);
 
   // Handle password change form submission
@@ -599,6 +610,9 @@ const AccountSettings = () => {
                   setActiveTab={setActiveTab}
                 />
               )}
+              {activeTab === 'contact' && (
+                <ProfileSettings />
+              )}
               {activeTab === 'security' && (
                 <div className="space-y-6">
                   {/* Security Overview Header */}
@@ -722,55 +736,30 @@ const AccountSettings = () => {
                         {verifyPhoneStep === 'status' ? (
                           <div className="space-y-4">
                             {!userData?.phoneVerified && (
-                              <button
-                                onClick={handlePhoneVerificationRequest}
-                                disabled={isVerifying}
-                                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 group"
-                              >
-                                {isVerifying ? <FaSpinner className="animate-spin" /> : <FaMobile className="transition-transform group-hover:scale-110" />}
-                                Verify Now
-                              </button>
+                              <PhoneVerification 
+                                currentPhone={userData?.phone}
+                                onVerified={(verifiedPhone) => {
+                                  toast.success('Phone number verified successfully!');
+                                  fetchUserProfile();
+                                  setVerifyPhoneStep('status');
+                                }}
+                              />
                             )}
-                            <p className="text-xs text-gray-400 text-center">
-                              Mobile verification is required for OTP login and secure payments.
-                            </p>
+                            {userData?.phoneVerified && (
+                                <p className="text-xs text-gray-400 text-center">
+                                    Your phone number is verified and secure.
+                                </p>
+                            )}
                           </div>
                         ) : (
-                          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                            <div>
-                              <div className="flex justify-between items-center mb-2">
-                                <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400">Mobile OTP Code</label>
-                                <button
-                                  onClick={handlePhoneVerificationRequest}
-                                  className="text-[10px] font-bold text-blue-600 uppercase hover:underline"
-                                >
-                                  Resend
-                                </button>
-                              </div>
-                              <input
-                                type="text"
-                                maxLength={6}
-                                value={phoneOtp}
-                                onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
-                                placeholder="6-digit code"
-                                className="w-full px-4 py-3 bg-gray-50 border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 text-center font-black text-2xl tracking-[0.5em]"
-                              />
-                            </div>
-                            <div className="flex flex-col sm:flex-row gap-2">
-                              <button
-                                onClick={handlePhoneVerification}
-                                disabled={isVerifying || phoneOtp.length < 6}
-                                className="w-full sm:flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50"
-                              >
-                                {isVerifying ? <FaSpinner className="animate-spin inline mr-2" /> : 'Verify'}
-                              </button>
-                              <button
+                          <div className="text-center py-4">
+                            <p className="text-sm text-gray-500 italic">Please use the verification form above.</p>
+                            <button 
                                 onClick={() => setVerifyPhoneStep('status')}
-                                className="w-full sm:w-auto px-6 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200"
-                              >
-                                Back
-                              </button>
-                            </div>
+                                className="mt-2 text-blue-600 hover:underline text-sm font-bold"
+                            >
+                                Reset Verification View
+                            </button>
                           </div>
                         )}
                       </div>

@@ -9,7 +9,8 @@ module.exports = (sequelize, DataTypes) => {
     checkoutGroupId: { type: DataTypes.STRING, allowNull: true }, // Links multiple split orders from one checkout
     checkoutOrderNumber: { type: DataTypes.STRING, allowNull: true }, // Unified order number for the customer
     total: { type: DataTypes.FLOAT, defaultValue: 0 },
-    status: { type: DataTypes.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned'), defaultValue: "order_placed" },
+    status: { type: DataTypes.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned', 'return_in_progress'), defaultValue: "order_placed" },
+    returnStatus: { type: DataTypes.ENUM('none', 'requested', 'approved', 'rejected', 'partially_returned', 'returned'), defaultValue: 'none' },
     paymentMethod: { type: DataTypes.STRING, allowNull: false },
     paymentType: { type: DataTypes.ENUM('cash_on_delivery', 'prepay'), allowNull: true },
     paymentSubType: { type: DataTypes.ENUM('cash', 'mpesa', 'bank_transfer', 'paypal', 'mpesa_prepay', 'airtel_money_prepay', 'bank_transfer_prepay', 'lipa_mdogo_mdogo'), allowNull: true },
@@ -38,6 +39,7 @@ module.exports = (sequelize, DataTypes) => {
     lastDeliveryAttempt: { type: DataTypes.DATE, allowNull: true },
     paymentId: { type: DataTypes.STRING, allowNull: true }, // Reference to payment record for prepay orders
     items: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    paymentProofUrl: { type: DataTypes.STRING, allowNull: true, comment: 'URL to uploaded payment screenshot' },
     // New fields for seller and super admin confirmation
     sellerId: { type: DataTypes.INTEGER, allowNull: true }, // FK to User (seller)
     shippingType: { type: DataTypes.ENUM('shipped_from_seller', 'collected_from_seller'), allowNull: true },
@@ -103,7 +105,9 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['sellerId'] },
       { fields: ['marketerId'] },
       { fields: ['status'] },
-      { fields: ['createdAt'] }
+      { fields: ['createdAt'] },
+      { fields: ['customerEmail'] },
+      { fields: ['customerPhone'] }
     ]
   });
 

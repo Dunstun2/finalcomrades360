@@ -7,6 +7,8 @@ import {
 } from 'react-icons/fa';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { getSocket } from '../../services/socket';
+import { useToast } from '../../components/ui/use-toast';
 
 const DeliveryAgentDashboard = () => {
   const { user } = useAuth();
@@ -16,9 +18,50 @@ const DeliveryAgentDashboard = () => {
   const [missingFields, setMissingFields] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { toast } = useToast();
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
 
   useEffect(() => {
     fetchStatus();
+
+    const socket = getSocket();
+    const handleSync = (data) => {
+      console.log('🔔 Delivery agent real-time sync:', data);
+      setLastUpdate(Date.now());
+      if (data.label) {
+        toast({ title: 'Real-time Update', description: `Update received: ${data.label}` });
+      }
+    };
+
+    // New task available after auto-expiry + broadcast
+    const handleNewTask = (data) => {
+      console.log('📦 [AutoReassign] New task broadcast received:', data);
+      setLastUpdate(Date.now());
+      toast({
+        title: '📦 New Order Available!',
+        description: data.message || `Order #${data.orderNumber} is looking for a delivery agent. Check Available Orders now!`,
+        duration: 8000,
+      });
+    };
+
+    socket.on('orderStatusUpdate', handleSync);
+    socket.on('deliveryRequestUpdate', handleSync);
+    socket.on('handover:generated', handleSync);
+    socket.on('handover:confirmed', handleSync);
+    socket.on('new_task_available', handleNewTask);
+
+    const interval = setInterval(() => {
+      fetchStatus();
+    }, 30000);
+
+    return () => {
+      socket.off('orderStatusUpdate', handleSync);
+      socket.off('deliveryRequestUpdate', handleSync);
+      socket.off('handover:generated', handleSync);
+      socket.off('handover:confirmed', handleSync);
+      socket.off('new_task_available', handleNewTask);
+      clearInterval(interval);
+    };
   }, []);
 
   const fetchStatus = async () => {
@@ -299,7 +342,7 @@ const DeliveryAgentDashboard = () => {
                 </div>
               </div>
 
-              <Outlet context={{ fetchStatus }} />
+              <Outlet context={{ fetchStatus, lastUpdate }} />
             </div>
           </div>
         </main>

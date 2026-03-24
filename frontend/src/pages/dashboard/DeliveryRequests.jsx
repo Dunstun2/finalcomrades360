@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { FaTruck, FaUserTie, FaClock, FaCheckCircle, FaTimesCircle, FaExclamationCircle, FaRoute } from 'react-icons/fa';
 import { formatPrice } from '../../utils/currency';
 import Dialog from '../../components/Dialog';
-import DeliveryAssignmentModal from '../../components/delivery/DeliveryAssignmentModal';
+import { getSocket, joinAdminRoom } from '../../services/socket';
 
 const DeliveryRequests = () => {
     const [requests, setRequests] = useState([]);
@@ -14,24 +14,39 @@ const DeliveryRequests = () => {
     const [rejectModal, setRejectModal] = useState({ isOpen: false, request: null, reason: '' });
     const [agentShare, setAgentShare] = useState(80); // Default 80%
 
-    // Assignment modal state (replaces old approve modal)
-    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-    const [orderForAssignment, setOrderForAssignment] = useState(null);
-    const [pendingRequestId, setPendingRequestId] = useState(null);
-
     useEffect(() => {
         fetchRequests();
+        joinAdminRoom();
+
+        // Socket.IO listeners for real-time updates
+        const socket = getSocket();
+        const handleNewRequest = (data) => {
+            console.log('🔔 New delivery request received:', data);
+            fetchRequests(false);
+        };
+        socket.on('deliveryRequestUpdate', handleNewRequest);
+
+        // Polling every 30 seconds as fallback
+        const interval = setInterval(() => {
+            fetchRequests(false);
+        }, 30000);
+
         // Fetch finance config
         api.get('/finance/config')
             .then(res => {
                 if (res.data?.agentShare) setAgentShare(res.data.agentShare);
             })
             .catch(err => console.error('Failed to load finance config', err));
+
+        return () => {
+            socket.off('deliveryRequestUpdate', handleNewRequest);
+            clearInterval(interval);
+        };
     }, []);
 
-    const fetchRequests = async () => {
+    const fetchRequests = async (showLoading = true) => {
         try {
-            setLoading(true);
+            if (showLoading) setLoading(true);
             const res = await api.get('/delivery/requests');
             setRequests(res.data || []);
             setError(null);
@@ -44,43 +59,66 @@ const DeliveryRequests = () => {
     };
 
     /**
-     * Opens the full DeliveryAssignmentModal so the admin can specify:
-     * - Delivery route type (seller_to_warehouse, seller_to_customer, etc.)
-     * - Destination warehouse / pickup station
-     * - Delivery fee
-     * The agent from the request is pre-selected in the modal.
+     * Derive the correct deliveryType based on the order's current routing state.
+     * Mirrors getProvisionalDeliveryType() in deliveryController.js.
      */
-    const confirmApprove = (request) => {
-        // Build a synthetic "order" object that the assignment modal expects.
-        // Pre-populate the agent with the one who made the request.
-        const orderObj = {
-            ...(request.order || {}),
-            // Pre-select the requesting agent
-            deliveryAgentId: request.deliveryAgentId,
-            deliveryAgent: request.deliveryAgent,
-        };
-        setOrderForAssignment(orderObj);
-        setPendingRequestId(request.id);
-        setIsAssignModalOpen(true);
+    const resolveDeliveryType = (order, taskType) => {
+        if (!order) return taskType || 'seller_to_customer';
+        const status = order.status;
+        const routing = order.adminRoutingStrategy;
+        const method = order.deliveryMethod;
+
+        if (routing === 'direct_delivery') return 'seller_to_customer';
+
+        if (routing === 'warehouse') {
+            const hubStage = ['en_route_to_warehouse', 'at_warehouse', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'in_transit'];
+            if (hubStage.includes(status)) {
+                return method === 'pick_station' ? 'warehouse_to_pickup_station' : 'warehouse_to_customer';
+            }
+            if (['en_route_to_pick_station', 'at_pick_station', 'ready_for_pickup'].includes(status)) {
+                return method === 'home_delivery' ? 'pickup_station_to_customer' : 'warehouse_to_pickup_station';
+            }
+            return 'seller_to_warehouse';
+        }
+
+        if (routing === 'pick_station') {
+            if (['awaiting_delivery_assignment', 'in_transit', 'ready_for_pickup'].includes(status)) {
+                return 'pickup_station_to_customer';
+            }
+            return 'seller_to_pickup_station';
+        }
+
+        if (routing === 'fastfood_pickup_point') return 'fastfood_pickup_point';
+
+        return taskType || 'seller_to_customer';
     };
 
     /**
-     * Called when admin confirms the assignment from the modal.
-     * Calls PATCH /orders/:orderId/assign with full route details including deliveryType.
+     * Approves the delivery request directly using the new approval endpoint
      */
-    const handleAssignFromModal = async (orderId, assignmentData) => {
+    const confirmApprove = async (request) => {
         try {
-            setProcessingId(pendingRequestId);
-            await api.patch(`/orders/${orderId}/assign`, assignmentData);
+            setProcessingId(request.id);
+
+            // Re-derive deliveryType from the order's current state (same logic as backend)
+            const resolvedType = resolveDeliveryType(request.order, request.deliveryType);
+
+            const approvalData = {
+                deliveryType: resolvedType,
+                deliveryFee: request.order?.deliveryFee,
+                notes: 'Approved by admin'
+            };
+
+            await api.post(`/admin/delivery/requests/${request.id}/approve`, approvalData);
 
             setModal({
                 isOpen: true,
                 type: 'success',
                 title: 'Request Approved',
-                message: `Order assigned successfully. Route: ${assignmentData.deliveryType || 'specified'}. The agent has been notified.`
+                message: `Delivery request approved successfully. The agent has been notified.`
             });
-            // Remove the approved request from the list
-            setRequests(prev => prev.filter(r => r.id !== pendingRequestId));
+            // Remove approved request from list
+            setRequests(prev => prev.filter(r => r.id !== request.id));
         } catch (err) {
             setModal({
                 isOpen: true,
@@ -90,8 +128,6 @@ const DeliveryRequests = () => {
             });
         } finally {
             setProcessingId(null);
-            setPendingRequestId(null);
-            setOrderForAssignment(null);
         }
     };
 
@@ -105,7 +141,7 @@ const DeliveryRequests = () => {
 
         try {
             setProcessingId(request.id);
-            await api.post(`/delivery/requests/${request.id}/reject`, { reason });
+            await api.post(`/admin/delivery/requests/${request.id}/reject`, { reason });
 
             setModal({
                 isOpen: true,
@@ -143,7 +179,7 @@ const DeliveryRequests = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-black text-gray-900 font-outfit tracking-tight">Delivery Requests</h1>
-                    <p className="text-gray-500 text-sm">Review and approve delivery assignments requested by agents. You will specify the route when approving.</p>
+                    <p className="text-gray-500 text-sm">Review and approve delivery assignments requested by agents. Approval automatically assigns the route and notifies the agent.</p>
                 </div>
                 <button
                     onClick={fetchRequests}
@@ -155,9 +191,9 @@ const DeliveryRequests = () => {
 
             {/* Info banner */}
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
-                <FaRoute className="text-blue-500 mt-0.5 flex-shrink-0" />
+                <FaCheckCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
                 <p className="text-sm text-blue-700">
-                    <strong>Route Assignment:</strong> When you approve a request, a detailed assignment form will open so you can set the delivery route (e.g. Seller → Warehouse, Warehouse → Customer) and fee. This ensures the correct leg is determined at assignment time, not before.
+                    <strong>Quick Approval:</strong> When you approve a request, the system automatically assigns the route and fee based on the order configuration. The agent will be immediately notified and can begin delivery.
                 </p>
             </div>
 
@@ -259,9 +295,9 @@ const DeliveryRequests = () => {
                                                     </div>
                                                 </div>
 
-                                                {/* Route will be set on approval */}
-                                                <div className="mt-2 text-[10px] text-orange-600 bg-orange-50 px-2 py-1 rounded font-bold">
-                                                    Route set on approval
+                                                {/* Show actual route type */}
+                                                <div className="mt-2 text-[10px] text-blue-600 bg-blue-50 px-2 py-1 rounded font-bold">
+                                                    {req.deliveryType?.replace(/_/g, ' ') || 'Auto-assigned'}
                                                 </div>
                                             </div>
                                         </td>
@@ -273,8 +309,8 @@ const DeliveryRequests = () => {
                                                     disabled={processingId === req.id}
                                                     className="w-32 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 shadow-sm transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5"
                                                 >
-                                                    <FaRoute />
-                                                    Approve & Route
+                                                    <FaCheckCircle />
+                                                    Approve
                                                 </button>
                                                 <button
                                                     onClick={() => confirmReject(req)}
@@ -328,18 +364,6 @@ const DeliveryRequests = () => {
                 </div>
             )}
 
-            {/* Full Assignment Modal — opens when admin approves a request */}
-            <DeliveryAssignmentModal
-                isOpen={isAssignModalOpen}
-                order={orderForAssignment}
-                onClose={() => {
-                    setIsAssignModalOpen(false);
-                    setOrderForAssignment(null);
-                    setPendingRequestId(null);
-                }}
-                onAssign={handleAssignFromModal}
-                isBulk={false}
-            />
 
             <Dialog
                 isOpen={modal.isOpen}

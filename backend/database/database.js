@@ -120,8 +120,7 @@ const testConnection = async () => {
 
     // Sync all models ONLY in production or if explicitly requested via env
     // Scaling issue: Syncing 40+ models on every dev restart causes SQLite locks/hangs
-    console.log(`[Database] Debug: env=${env}, DB_SYNC=${process.env.DB_SYNC} (type: ${typeof process.env.DB_SYNC})`);
-    if (env === 'production' || process.env.DB_SYNC === 'true' || process.env.DB_SYNC === true) {
+    if (env === 'production' || process.env.DB_SYNC === 'true') {
       console.log('🔄 Synchronizing database models...');
       await sequelize.sync({ force: false, alter: false });
       console.log('✅ Database models synchronized');
@@ -129,21 +128,196 @@ const testConnection = async () => {
       console.log('ℹ️ Skipping auto-sync (Development mode). Use DB_SYNC=true if schema changed.');
     }
 
-    // Self-healing: Enforce default roles to fix FK constraints on registration
-    if (env === 'production') {
-      try {
-        const [results] = await sequelize.query("SELECT id FROM Roles WHERE id = 'customer' LIMIT 1");
-        if (results.length === 0) {
-          console.log('🌱 Seeding default roles...');
-          // Using raw query to be safe
-          await sequelize.query("INSERT INTO Roles (id, name, createdAt, updatedAt) VALUES ('customer', 'Customer', NOW(), NOW())");
-          await sequelize.query("INSERT INTO Roles (id, name, createdAt, updatedAt) VALUES ('admin', 'Admin', NOW(), NOW())");
-          console.log('✅ Default roles created');
+    // Self-healing: Enforce default roles
+    try {
+      const [results] = await sequelize.query("SELECT id FROM Roles WHERE id = 'seller' LIMIT 1");
+      if (results.length === 0) {
+        console.log('🌱 Seeding default roles...');
+        const now = new Date().toISOString();
+        const defaultRoles = [
+          { id: 'seller', name: 'Seller' },
+          { id: 'admin', name: 'Admin' },
+          { id: 'super_admin', name: 'Super Admin' },
+          { id: 'delivery_agent', name: 'Delivery Agent' },
+          { id: 'marketer', name: 'Marketer' },
+        ];
+        for (const r of defaultRoles) {
+          await sequelize.query(
+            "INSERT OR IGNORE INTO Roles (id, name, isSystem, permissions, accessLevels, createdAt, updatedAt) VALUES ('" +
+            r.id + "', '" + r.name + "', 1, '[]', '{}', '" + now + "', '" + now + "')"
+          );
         }
-      } catch (roleErr) {
-        console.warn('⚠️ Warning: Could not check/seed roles (this is okay if table is missing or already filled):', roleErr.message);
+        console.log('✅ Default roles seeded.');
       }
+    } catch (roleErr) {
+      console.warn('⚠️ Warning: Could not seed roles:', roleErr.message);
     }
+
+    // Self-healing: Enforce default platform configs
+    try {
+      const defaultConfigs = [
+        { 
+          key: 'platform_settings', 
+          value: JSON.stringify({
+            siteName: 'Comrades360',
+            siteDescription: 'Your trusted marketplace',
+            contactEmail: 'admin@comrades360.com',
+            supportPhone: '+254700000000',
+            currency: 'KES',
+            timezone: 'Africa/Nairobi'
+          })
+        },
+        {
+          key: 'mpesa_config',
+          value: JSON.stringify({
+            consumerKey: process.env.MPESA_CONSUMER_KEY || '',
+            consumerSecret: process.env.MPESA_CONSUMER_SECRET || '',
+            passkey: process.env.MPESA_PASSKEY || '',
+            shortcode: process.env.MPESA_SHORTCODE || '174379',
+            stkTimeout: 60,
+            mockMode: process.env.MPESA_MOCK_MODE === 'true'
+          })
+        },
+        {
+          key: 'mpesa_manual_instructions',
+          value: JSON.stringify({ paybill: '714888', accountNumber: '223052' })
+        },
+        {
+          key: 'airtel_config',
+          value: JSON.stringify({
+            clientId: process.env.AIRTEL_CLIENT_ID || '',
+            clientSecret: process.env.AIRTEL_CLIENT_SECRET || '',
+            callbackUrl: process.env.AIRTEL_CALLBACK_URL || ''
+          })
+        },
+        {
+          key: 'sms_config',
+          value: JSON.stringify({
+            username: process.env.AFRICASTALKING_USERNAME || '',
+            apiKey: process.env.AFRICASTALKING_API_KEY || '',
+            provider: 'africastalking'
+          })
+        },
+        {
+          key: 'whatsapp_config',
+          value: JSON.stringify({ 
+            method: 'local',
+            templates: {
+              orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
+              orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
+              orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
+              orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',
+              agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.',
+              agentTaskAssigned: 'You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}',
+              agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
+              adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
+              phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
+              withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+            }
+          })
+        },
+        {
+          key: 'finance_settings',
+          value: JSON.stringify({
+            referralSplit: { primary: 0.6, secondary: 0.4 },
+            minPayout: { 
+              seller: 1000, 
+              marketer: 500, 
+              delivery_agent: 200,
+              station_manager: 500,
+              warehouse_manager: 1000,
+              service_provider: 500
+            }
+
+          })
+        },
+        {
+          key: 'logistic_settings',
+          value: JSON.stringify({
+            warehouseHours: { open: '08:00', close: '20:00' },
+            autoCancelUnpaidHours: 24,
+            deliveryFeeBuffer: 0 
+          })
+        },
+        {
+          key: 'security_settings',
+          value: JSON.stringify({
+            sessionTimeout: 30,
+            passwordMinLength: 8,
+            twoFactorEnabled: false,
+            loginAttempts: 5,
+            ipWhitelist: []
+          })
+        },
+        {
+          key: 'notification_settings',
+          value: JSON.stringify({
+            emailNotifications: true,
+            smsNotifications: true,
+            pushNotifications: false,
+            orderConfirmations: true,
+            deliveryUpdates: true
+          })
+        },
+        {
+          key: 'seo_settings',
+          value: JSON.stringify({
+            title: 'Comrades360 | University Marketplace',
+            description: 'The #1 marketplace for university students in Kenya.',
+            keywords: 'university, marketplace, students, kenya, electronics, fashion, food',
+            socialLinks: {
+              facebook: 'https://facebook.com/comrades360',
+              instagram: 'https://instagram.com/comrades360',
+              twitter: 'https://twitter.com/comrades360'
+            }
+          })
+        },
+        {
+          key: 'maintenance_settings',
+          value: JSON.stringify({
+            enabled: false,
+            message: 'Comrades360 is currently undergoing scheduled maintenance. We will be back shortly!'
+          })
+        },
+        {
+          key: 'system_env',
+          value: JSON.stringify({
+            server: {
+              port: process.env.PORT || 4000,
+              nodeEnv: process.env.NODE_ENV || 'development',
+              baseUrl: process.env.BASE_URL || 'http://localhost:4000',
+              apiUrl: '/api'
+            },
+            app: {
+              frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+              supportEmail: 'support@comrades360.com'
+            },
+            database: {
+              dialect: 'sqlite',
+              storage: './database.sqlite'
+            }
+          })
+        }
+      ];
+
+      for (const cfg of defaultConfigs) {
+        const [config] = await sequelize.query(
+          "SELECT key FROM PlatformConfig WHERE key = '" + cfg.key + "' LIMIT 1"
+        );
+        if (config.length === 0) {
+          const now = new Date().toISOString();
+          await sequelize.query(
+            "INSERT INTO PlatformConfig (key, value, createdAt, updatedAt) VALUES ('" + 
+            cfg.key + "', '" + cfg.value.replace(/'/g, "''") + "', '" + now + "', '" + now + "')"
+          );
+          console.log(`🌱 Seeded default config: ${cfg.key}`);
+        }
+      }
+    } catch (configErr) {
+      console.warn('⚠️ Warning: Could not seed platform configs:', configErr.message);
+    }
+
+
   } catch (error) {
     console.error('❌ Unable to connect to the database:', error);
     throw error;

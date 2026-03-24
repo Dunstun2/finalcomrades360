@@ -36,11 +36,13 @@ const runMigrations = async () => {
         console.log('📊 Current User table columns:', userColumnNames.join(', '));
 
         const missingColumns = [
+            'businessName',
             'businessAddress',
             'businessCounty',
             'businessTown',
             'businessLandmark',
-            'businessPhone'
+            'businessPhone',
+            'dashboardPassword'
         ].filter(col => !userColumnNames.includes(col));
 
         if (missingColumns.length > 0) {
@@ -64,7 +66,9 @@ const runMigrations = async () => {
             '20260216_create_pickup_station_table.js',
             '20260216_create_warehouse_table.js',
             '20260216_add_warehouse_id_to_orders.js',
-            '20260303_add_checkout_group_to_orders.js'
+            '20260303_add_checkout_group_to_orders.js',
+            '20260320142000-add-business-name-to-users.js',
+            '20260320142600-add-dashboard-password-to-users.js'
         ];
 
         for (const migrationFile of tableMigrations) {

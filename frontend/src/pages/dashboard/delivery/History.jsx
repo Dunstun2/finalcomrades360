@@ -61,7 +61,10 @@ const DeliveryAgentHistory = () => {
       }
 
       const deliveryTime = calculateDeliveryTime(order);
-      const agentEarnings = (order.deliveryTasks && order.deliveryTasks[0]) ? order.deliveryTasks[0].agentEarnings : (order.deliveryFee || 0);
+      const latestTask = (order.deliveryTasks && order.deliveryTasks.length > 0) 
+        ? [...order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] 
+        : null;
+      const agentEarnings = latestTask ? latestTask.agentEarnings : (order.deliveryFee || 0);
 
       grouped[dateKey].ordersCompleted++;
       grouped[dateKey].totalEarnings += parseFloat(agentEarnings || 0);

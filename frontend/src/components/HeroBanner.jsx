@@ -20,7 +20,15 @@ const HeroBanner = ({
     if (promotions && promotions.length > 0) {
         return <HeroSlider items={promotions} onAddToCart={onAddToCart} />;
     }
-    return null;
+
+    // Default static fallback banner
+    const defaultPromotion = [{
+        title: title,
+        subtitle: subtitle,
+        products: []
+    }];
+
+    return <HeroSlider items={defaultPromotion} onAddToCart={onAddToCart} />;
 };
 
 export default HeroBanner;

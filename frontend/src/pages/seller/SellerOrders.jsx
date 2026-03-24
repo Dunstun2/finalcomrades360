@@ -122,10 +122,10 @@ export default function SellerOrders() {
 
     loadOrders(true)
 
-    // Polling every 120 seconds to avoid DB piling
+    // Polling every 30 seconds as fallback
     const interval = setInterval(() => {
       loadOrders(false);
-    }, 120000);
+    }, 30000);
 
     return () => {
       alive = false;
@@ -175,13 +175,23 @@ export default function SellerOrders() {
       }
     }
     socket.on('orderMessage', handleOrderMessage)
+    socket.on('handover:generated', handleHandoverGenerated)
 
     return () => {
       socket.off('orderStatusUpdate', handleStatusUpdate)
       socket.off('orderNotification', handleNewOrder)
       socket.off('orderMessage', handleOrderMessage)
+      socket.off('handover:generated', handleHandoverGenerated)
     }
   }, [selectedOrder, activeTab])
+
+  const handleHandoverGenerated = (data) => {
+    // data: { orderId, orderNumber, handoverType, label ... }
+    setRows(prevRows => prevRows.map(order =>
+      order.id === data.orderId ? { ...order, activeHandoverCode: true } : order
+    ))
+    toast({ title: 'New Handover Code', description: `A code for ${data.label} has been generated.` })
+  }
 
   // Sync modal local state with selectedOrder's logistics data (handles group consolidation sync)
   useEffect(() => {
@@ -477,7 +487,9 @@ export default function SellerOrders() {
                                 }}
                               />
                             </div>
-                          : <span className="text-[10px] text-amber-600 font-bold px-2 py-1 bg-amber-50 rounded-lg border border-amber-200">⏳ Waiting for agent to arrive…</span>
+                          : <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2 text-center">
+                              <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">⏳ Waiting for agent…</span>
+                            </div>
                       )}
 
                       {o.status !== 'order_placed' && o.shippingType === 'collected_from_seller' && !directDeliveryOrder && !o.sellerHandoverConfirmed && (
@@ -495,44 +507,64 @@ export default function SellerOrders() {
                                 toast({ title: '✅ Handover Confirmed', description: 'The delivery agent has confirmed collection.' });
                               }}
                             />
-                          : <span className="text-[10px] text-amber-600 font-bold px-2 py-1 bg-amber-50 rounded-lg border border-amber-200">⏳ Waiting for agent to arrive…</span>
+                          : <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2 text-center">
+                              <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">⏳ Waiting for agent…</span>
+                            </div>
                       )}
                       {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
                         <div className="flex flex-col items-center">
-                          {!(o.deliveryTasks || []).some(t => ['accepted', 'in_progress', 'completed'].includes(t.status)) && !o.selfDispatcherName && (
-                            <span className="text-[10px] text-orange-600 font-bold mb-1 animate-pulse">Waiting for Driver...</span>
-                          )}
-                          <button
-                            disabled={processingOrderId === o.id}
-                            onClick={() => {
-                              const hasSystemDriver = (o.deliveryTasks || []).some(t => ['accepted', 'in_progress', 'completed'].includes(t.status));
-                              if (hasSystemDriver) {
-                                if (window.confirm('Mark this order as dispatched (en route to warehouse)?')) {
-                                  handleUpdateStatus(o.id, 'en_route_to_warehouse', 'Order dispatched by seller')
-                                }
-                              } else {
-                                setSelectedOrder(o);
-                                setShowDispatchModal(true);
-                              }
-                            }}
-                            className={`px-3 py-1 text-white text-xs rounded font-bold transition-all bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-gray-400`}
-                            title="Click when you have dispatched the item to the warehouse"
-                          >
-                            {processingOrderId === o.id ? 'Processing...' : 'Dispatch'}
-                          </button>
+                          {(() => {
+                            const task = (o.deliveryTasks || []).find(t => ['accepted', 'in_progress'].includes(t.status));
+                            
+                            if (task) {
+                              return (
+                                <HandoverCodeWidget
+                                  mode="giver"
+                                  handoverType="seller_to_agent"
+                                  orderId={o.id}
+                                  taskId={task.id}
+                                  buttonLabel="Handover to Driver"
+                                  onConfirmed={() => {
+                                    setRows(rows.map(order =>
+                                      order.id === o.id ? { ...order, sellerHandoverConfirmed: true } : order
+                                    ));
+                                    toast({ title: '✅ Handover Confirmed', description: 'The delivery agent has confirmed collection.' });
+                                  }}
+                                />
+                              );
+                            }
+
+                            return (
+                              <>
+                                {!o.selfDispatcherName && (
+                                  <span className="text-[10px] text-orange-600 font-bold mb-1 animate-pulse">Waiting for Driver...</span>
+                                )}
+                                <button
+                                  disabled={processingOrderId === o.id}
+                                  onClick={() => {
+                                    setSelectedOrder(o);
+                                    setShowDispatchModal(true);
+                                  }}
+                                  className={`px-3 py-1 text-white text-xs rounded font-bold transition-all bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-gray-400`}
+                                  title="Click when you have dispatched the item to the warehouse"
+                                >
+                                  {processingOrderId === o.id ? 'Processing...' : 'Dispatch'}
+                                </button>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
                       {o.status === 'en_route_to_warehouse' && o.shippingType === 'shipped_from_seller' && (
-                        <div className="flex flex-col gap-2 p-3 bg-teal-50 rounded-xl border border-teal-100">
-                          <p className="text-[10px] font-black text-teal-600 uppercase tracking-widest">Handover at Warehouse</p>
-                          <HandoverCodeWidget
-                            orderId={o.id}
-                            handoverType="seller_to_warehouse"
-                            mode="giver"
-                            buttonLabel="Dispatch"
-                          />
-                        </div>
+                        <HandoverCodeWidget
+                          orderId={o.id}
+                          handoverType={((o.deliveryTasks || []).some(t => ['accepted', 'in_progress'].includes(t.status))) ? "seller_to_agent" : "seller_to_warehouse"}
+                          mode="giver"
+                          buttonLabel="Handover code"
+                          title="Collection Confirmation"
+                          containerClass="rounded-xl border-2 border-teal-100 bg-teal-50"
+                        />
                       )}
                       <button
                         onClick={() => {
@@ -1034,7 +1066,26 @@ export default function SellerOrders() {
                     {(selectedOrder.deliveryTasks || []).filter(t => t.status !== 'cancelled').map((task, idx) => (
                       <div key={idx} className="space-y-1">
                         <p className="text-[10px] font-bold text-blue-600 uppercase">
-                          Leg: {task.deliveryType?.replace(/_/g, ' ')}
+                          Leg: {(() => {
+                            const type = task.deliveryType;
+                            const routing = o.adminRoutingStrategy;
+                            const oStatus = o.status;
+
+                            if (type === 'seller_to_warehouse') return 'Leg 1: Seller to Warehouse';
+                            if (type === 'warehouse_to_customer') return 'Leg 2: Warehouse to Customer';
+                            if (type === 'warehouse_to_pickup_station') return 'Leg 2: Warehouse to Pick Station';
+                            if (type === 'pickup_station_to_customer') return 'Leg 3: Pick Station to Customer';
+                            if (type === 'seller_to_pickup_station') return 'Leg 1: Seller to Pick Station';
+                            if (type === 'seller_to_customer') return 'Direct: Seller to Customer';
+                            
+                            // Context fallback
+                            if (routing === 'warehouse') {
+                                if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse'].includes(oStatus)) return 'Leg 1: Seller to Warehouse';
+                                if (['at_warehouse', 'received_at_warehouse'].includes(oStatus)) return 'Leg 2: Warehouse to Customer';
+                            }
+
+                            return type?.replace(/_/g, ' ').toUpperCase() || 'DELIVERY LEG';
+                          })()}
                         </p>
                         {task.deliveryAgent ? (
                           <>

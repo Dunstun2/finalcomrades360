@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const {
   getAllUsers,
   getPendingProducts,
@@ -55,7 +55,16 @@ const {
 } = require('../controllers/adminController');
 
 const { auth, adminOnly, adminOrLogistics, adminOrFinance } = require('../middleware/auth');
-const { adminListDeliveryAgents, getAvailableAgentsForOrder, adminGetGlobalMapData } = require('../controllers/deliveryController');
+const { 
+  adminListDeliveryAgents, 
+  getAvailableAgentsForOrder, 
+  adminGetGlobalMapData,
+  adminApproveRequest,
+  adminRejectRequest,
+  getAdminAgentDetail,
+  getAdminAgentHistory,
+  toggleAgentActiveStatus
+} = require('../controllers/deliveryController');
 const { getConfig, updateConfig } = require('../controllers/PlatformConfigController');
 const adminHeroPromotionRoutes = require('./adminHeroPromotionRoutes');
 
@@ -114,34 +123,39 @@ router.post('/marketers/:userId/referral/assign', adminOnly, assignReferralCode)
 // Delivery agents management
 router.get('/delivery/agents', adminOrLogistics, adminListDeliveryAgents);
 router.get('/delivery/agents/available/:orderId', adminOrLogistics, getAvailableAgentsForOrder);
+router.get('/delivery/agents/:agentId/detail', adminOrLogistics, getAdminAgentDetail);
+router.get('/delivery/agents/:agentId/history', adminOrLogistics, getAdminAgentHistory);
+router.patch('/delivery/agents/:agentId/toggle-status', adminOrLogistics, toggleAgentActiveStatus);
 router.get('/delivery/global-map-data', adminOrLogistics, adminGetGlobalMapData);
+router.post('/delivery/requests/:taskId/approve', adminOrLogistics, adminApproveRequest);
+router.post('/delivery/requests/:taskId/reject', adminOrLogistics, adminRejectRequest);
 
 // User Analytics
-router.get('/analytics/users', getUserAnalytics);
+router.get('/analytics/users', adminOnly, getUserAnalytics);
 
 // Advanced inventory management
-router.get('/inventory/overview', getInventoryOverview);
-router.get('/inventory/items', getInventoryItems);
-router.get('/inventory/low-stock-alerts', getLowStockAlerts);
-router.patch('/products/:productId/stock', updateStockLevels);
-router.post('/inventory/bulk-update-stock', bulkUpdateStock);
+router.get('/inventory/overview', adminOrLogistics, getInventoryOverview);
+router.get('/inventory/items', adminOrLogistics, getInventoryItems);
+router.get('/inventory/low-stock-alerts', adminOrLogistics, getLowStockAlerts);
+router.patch('/products/:productId/stock', adminOrLogistics, updateStockLevels);
+router.post('/inventory/bulk-update-stock', adminOrLogistics, bulkUpdateStock);
 
 // Product analytics
-router.get('/analytics/products', getProductAnalytics);
-router.get('/analytics/top-products', getTopPerformingProducts);
-router.get('/products/:productId/performance', getProductPerformanceMetrics);
+router.get('/analytics/products', adminOnly, getProductAnalytics);
+router.get('/analytics/top-products', adminOnly, getTopPerformingProducts);
+router.get('/products/:productId/performance', adminOnly, getProductPerformanceMetrics);
 
 // Bulk operations
-router.post('/products/bulk-update', bulkUpdateProducts);
-router.post('/products/bulk-update-categories', bulkUpdateCategories);
-router.post('/products/bulk-update-prices', bulkUpdatePrices);
-router.post('/products/bulk-update-status', bulkUpdateStatus);
+router.post('/products/bulk-update', adminOnly, bulkUpdateProducts);
+router.post('/products/bulk-update-categories', adminOnly, bulkUpdateCategories);
+router.post('/products/bulk-update-prices', adminOnly, bulkUpdatePrices);
+router.post('/products/bulk-update-status', adminOnly, bulkUpdateStatus);
 
 // Quality monitoring
-router.get('/quality/metrics', getQualityMetrics);
-router.post('/products/:productId/flag', flagProductForReview);
-router.get('/products/flagged', getFlaggedProducts);
-router.patch('/products/:productId/quality-score', updateProductQualityScore);
+router.get('/quality/metrics', adminOnly, getQualityMetrics);
+router.post('/products/:productId/flag', adminOnly, flagProductForReview);
+router.get('/products/flagged', adminOnly, getFlaggedProducts);
+router.patch('/products/:productId/quality-score', adminOnly, updateProductQualityScore);
 
 // Advanced promotions
 router.use('/hero-promotions', adminHeroPromotionRoutes);
@@ -153,6 +167,6 @@ router.patch('/products/:productId/featured', adminOnly, manageFeaturedProducts)
 router.patch('/products/:productId/search-priority', adminOnly, updateSearchPriority);
 router.get('/analytics/search', adminOnly, getSearchAnalytics);
 router.get('/analytics/revenue', adminOrFinance, getRevenueAnalytics);
-router.post('/verify-password', auth, verifyAdminPassword);
+router.post('/verify-password', adminOnly, verifyAdminPassword);
 
 module.exports = router;

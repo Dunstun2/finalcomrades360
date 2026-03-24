@@ -4,6 +4,9 @@ const { auth: protect, adminOnly: admin } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Debug ping route
+router.get('/ping', (req, res) => res.json({ message: 'adminCategoryRoutes ping OK', originalUrl: req.originalUrl, url: req.url }));
+
 // @route   POST /api/admin/categories
 // @desc    Create a new category
 // @access  Private/Admin

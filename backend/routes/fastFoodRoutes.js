@@ -10,7 +10,7 @@ const {
 } = require('../controllers/fastFoodController');
 
 // Import authentication middleware if needed
-const { auth: protect, authorize, optionalAuth } = require('../middleware/auth');
+const { auth: protect, authorize, optionalAuth, checkSellerProfile } = require('../middleware/auth');
 
 const { uploadProductMedia } = require('../config/multer');
 const { compressUploadedImages } = require('../utils/imageCompression');
@@ -23,14 +23,14 @@ const uploadFastFood = uploadProductMedia.fields([
 
 router.route('/')
     .get(optionalAuth, getAllFastFoods)
-    .post(protect, uploadFastFood, compressUploadedImages, createFastFood); // Add protect/authorize if needed
+    .post(protect, checkSellerProfile, uploadFastFood, compressUploadedImages, createFastFood); // Add protect/authorize if needed
 
 router.get('/vendor/me', protect, getVendorFastFoods);
 router.get('/vendor/:vendorId', protect, getVendorFastFoods);
 
 router.route('/:id')
     .get(optionalAuth, getFastFoodById)
-    .put(protect, uploadFastFood, compressUploadedImages, updateFastFood) // For full updates with files
+    .put(protect, checkSellerProfile, uploadFastFood, compressUploadedImages, updateFastFood) // For full updates with files
     .patch(protect, updateFastFood) // For simple field updates (bulk operations) - NO file upload middleware
     .delete(protect, deleteFastFood); // Add protect/authorize if needed
 

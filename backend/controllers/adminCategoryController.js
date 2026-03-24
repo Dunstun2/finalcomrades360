@@ -1,5 +1,6 @@
 const { Category, Subcategory, Product } = require('../models');
-const { Op } = require('sequelize');
+const Sequelize = require('sequelize');
+const { Op } = Sequelize;
 
 // Update a category
 const updateCategory = async (req, res) => {
@@ -12,10 +13,11 @@ const updateCategory = async (req, res) => {
     }
 
     // Check if name is already taken by another category
+    const SafeOp = Op || (sequelize && sequelize.Op) || { ne: '$ne' };
     const existingCategory = await Category.findOne({
       where: {
         name,
-        id: { [Op.ne]: id } // Exclude current category from the check
+        id: { [SafeOp.ne]: id } // Exclude current category from the check
       }
     });
 
@@ -38,7 +40,10 @@ const updateCategory = async (req, res) => {
     res.json(category);
   } catch (error) {
     console.error('Error updating category:', error);
-    res.status(500).json({ error: 'Server error while updating category' });
+    res.status(500).json({ 
+      error: 'Server error while updating category',
+      details: error.message
+    });
   }
 };
 
@@ -86,7 +91,10 @@ const updateSubcategory = async (req, res) => {
     res.json(subcategory);
   } catch (error) {
     console.error('Error updating subcategory:', error);
-    res.status(500).json({ error: 'Server error while updating subcategory' });
+    res.status(500).json({ 
+      error: 'Server error while updating subcategory',
+      details: error.message
+    });
   }
 };
 

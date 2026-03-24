@@ -1,5 +1,5 @@
-const NAME_LENGTH_REFERENCE = 'kidaga kimemwoea';
-const MAX_ITEM_NAME_LENGTH = NAME_LENGTH_REFERENCE.length;
+const NAME_LENGTH_REFERENCE = 'this is a long enough product name to avoid being truncated early';
+const MAX_ITEM_NAME_LENGTH = 32; // Reverted to 32 for single-line layout as requested by user
 
 const normalizeItemName = (value) => {
   if (typeof value !== 'string') return value;

@@ -1,5 +1,5 @@
 const express = require('express');
-const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReceivedAtWarehouse, bulkMarkReadyAtPickupStation, markReadyAtPickupStation, assignDeliveryAgent, cancelOrder, updateOrderAddress, addTrackingUpdate, getOrderTracking, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, markReceivedAtWarehouse, sellerUpdateStatus, confirmWarehouseArrival, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
+const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, addTrackingUpdate, getOrderTracking, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { transitionOrderStatus, getValidTransitions } = require('../controllers/orderTransitionController');
 const { validate } = require('../middleware/validation');
@@ -52,19 +52,14 @@ router.patch('/:orderId/seller-status', auth, sellerUpdateStatus);
 router.post('/:orderId/message', auth, sendOrderMessage);
 router.get('/:orderId/communication', auth, getOrderCommunication);
 
-// Warehouse Logistics
-router.post('/:orderId/warehouse-received', auth, requirePermission('orders.updateStatus'), markReceivedAtWarehouse);
-router.post('/:orderId/ready-at-pickup-station', auth, requirePermission('orders.updateStatus'), markReadyAtPickupStation);
-router.post('/:orderId/warehouse-arrival', auth, confirmWarehouseArrival);
-
 // Admin endpoints
 router.get('/', auth, requirePermission('orders.view'), listAllOrders);
 router.patch('/bulk-status', auth, requirePermission('orders.updateStatus'), bulkUpdateOrderStatus);
 router.patch('/bulk-assign', auth, requirePermission('orders.assign'), bulkAssignDeliveryAgent);
-router.post('/bulk-warehouse-received', auth, requirePermission('orders.updateStatus'), bulkMarkReceivedAtWarehouse);
 router.post('/bulk-ready-at-station', auth, requirePermission('orders.updateStatus'), bulkMarkReadyAtPickupStation);
 router.patch('/:orderId/status', auth, requirePermission('orders.updateStatus'), updateOrderStatus);
 router.patch('/:orderId/assign', auth, requirePermission('orders.assign'), assignDeliveryAgent);
+router.patch('/:orderId/unassign', auth, requirePermission('orders.assign'), unassignDeliveryAgent);
 router.post('/:orderId/lock', auth, acquireOrderActionLock);
 router.post('/:orderId/unlock', auth, releaseOrderActionLock);
 // Order routing lifecycle transitions

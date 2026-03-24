@@ -242,7 +242,7 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
         as: 'product',
         required: false,
         attributes: ['id', 'name', 'stock', 'approved', 'displayPrice', 'basePrice', 'discountPrice', 'discountPercentage', 'sellerId', 'deliveryFee', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType', 'coverImage', 'variants', 'tags'],
-        include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'role'] }]
+        include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'role', 'businessName'] }]
       },
       {
         model: FastFood,
@@ -255,16 +255,16 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
           'deliveryFee', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType',
           'sizeVariants', 'comboOptions'
         ],
-        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name'] }]
+        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
       },
       {
         model: Service,
         as: 'service',
         required: false,
-        attributes: ['id', 'title', 'price', 'displayPrice', 'basePrice', 'isAvailable', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType', 'deliveryFee', 'userId', 'status'],
+        attributes: ['id', 'title', 'displayPrice', 'basePrice', 'isAvailable', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType', 'deliveryFee', 'userId', 'status'],
         include: [
           { model: ServiceImage, as: 'images', attributes: ['imageUrl'] },
-          { model: User, as: 'provider', attributes: ['id', 'name', 'role'] }
+          { model: User, as: 'provider', attributes: ['id', 'name', 'role', 'businessName'] }
         ]
       }
     ],
@@ -387,9 +387,9 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
 const addToCart = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { productId, fastFoodId, serviceId, quantity = 1, type = 'product', cartType = 'personal', variantId, comboId, batchId } = req.body;
+    let { productId, fastFoodId, serviceId, quantity = 1, type = 'product', cartType = 'personal', variantId, comboId, batchId } = req.body;
 
-    console.log('🛒 [CART DEBUG] addToCart Request:', {
+    console.log('🛒 [CART DEBUG] addToCart Request - VERIFY_CART_FIX_V2_ACTIVE:', {
       userId,
       userRole: req.user.role,
       isVerified: req.user.isVerified,
@@ -529,14 +529,28 @@ const addToCart = async (req, res) => {
       price = Number(itemDetails.discountPrice || itemDetails.displayPrice || itemDetails.basePrice || itemDetails.price || 0);
       stock = itemDetails.stock;
 
-      // Support product variants from either product.variants or tags.variants
-      if (variantId) {
+      // Handle Default Variant Selection if missing
+      let effectiveVariantId = variantId;
+      if (!effectiveVariantId) {
         const variants = getItemVariants(itemDetails, false);
-        const variant = findVariantById(variants, variantId);
+        if (variants.length > 0) {
+          // Pick first variant with stock, or just the first one
+          const defaultVariant = variants.find(v => Number(v.stock ?? 1) > 0) || variants[0];
+          effectiveVariantId = defaultVariant.id || defaultVariant.name || defaultVariant.size;
+          console.log(`📦 [CART DEBUG] Auto-picked default variant: ${effectiveVariantId} for product ${itemDetails.id}`);
+        }
+      }
+
+      // Support product variants from either product.variants or tags.variants
+      if (effectiveVariantId) {
+        const variants = getItemVariants(itemDetails, false);
+        const variant = findVariantById(variants, effectiveVariantId);
         if (variant) {
           price = Number(variant.discountPrice || variant.displayPrice || variant.basePrice || price);
+          // Use the effective variant ID for the cart record
+          variantId = effectiveVariantId; 
         } else {
-          console.warn(`⚠️ [CART DEBUG] Product variant ${variantId} not found for product ${itemDetails.id}`);
+          console.warn(`⚠️ [CART DEBUG] Product variant ${effectiveVariantId} not found for product ${itemDetails.id}`);
         }
       }
 

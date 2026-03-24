@@ -18,7 +18,9 @@ module.exports = (sequelize, DataTypes) => {
     commissionAmount: { type: DataTypes.FLOAT, defaultValue: 0, comment: 'marketing commission for this item' },
     deliveryFee: { type: DataTypes.FLOAT, defaultValue: 0, comment: 'item-specific delivery fee' },
     itemType: { type: DataTypes.ENUM('product', 'fastfood', 'service'), defaultValue: 'product' },
-    sellerId: { type: DataTypes.INTEGER, allowNull: true, comment: 'FK to User (seller) who owns this item' }
+    sellerId: { type: DataTypes.INTEGER, allowNull: true, comment: 'FK to User (seller) who owns this item' },
+    returnStatus: { type: DataTypes.ENUM('none', 'requested', 'approved', 'rejected', 'completed'), defaultValue: 'none' },
+    returnedQuantity: { type: DataTypes.INTEGER, defaultValue: 0 }
   }, {
     freezeTableName: true,
     timestamps: true,

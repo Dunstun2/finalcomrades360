@@ -62,13 +62,41 @@ class MpesaService {
     this.tokenExpiry = null;
   }
 
+  // Sync configuration from database
+  async syncConfig() {
+    try {
+      // Lazy load model to avoid circular dependency
+      const { PlatformConfig } = require('../../models');
+      const configRecord = await PlatformConfig.findOne({ where: { key: 'mpesa_config' } });
+      if (configRecord) {
+        const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+        
+        // Merge into MPESA_CONFIG
+        if (dbConfig.consumerKey) MPESA_CONFIG.consumerKey = dbConfig.consumerKey;
+        if (dbConfig.consumerSecret) MPESA_CONFIG.consumerSecret = dbConfig.consumerSecret;
+        if (dbConfig.shortcode) MPESA_CONFIG.shortcode = dbConfig.shortcode;
+        if (dbConfig.passkey) MPESA_CONFIG.passkey = dbConfig.passkey;
+        if (dbConfig.stkTimeout) MPESA_CONFIG.stkPushTimeout = dbConfig.stkTimeout * 1000;
+        if (typeof dbConfig.mockMode === 'boolean') MPESA_CONFIG.mockMode = dbConfig.mockMode;
+        
+        console.log('✅ M-Pesa config synced from database');
+      }
+    } catch (err) {
+      console.warn('⚠️  Could not sync M-Pesa config from DB, using fallback defaults:', err.message);
+    }
+  }
+
   // Generate M-Pesa access token with retry logic
   async getAccessToken(forceRefresh = false) {
     try {
+      // Sync config before every fresh token request or if forced
+      await this.syncConfig();
+
       // Check if we have a valid cached token
       if (!forceRefresh && this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
         return this.accessToken;
       }
+
 
       // Return mock token in mock mode
       if (MPESA_CONFIG.mockMode) {

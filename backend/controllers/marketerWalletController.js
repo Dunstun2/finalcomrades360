@@ -58,6 +58,24 @@ const withdraw = async (req, res) => {
             return res.status(400).json({ error: 'Insufficient balance' });
         }
 
+        // Role-based min payout check for marketer
+        try {
+            const { PlatformConfig } = require('../models');
+            const configRecord = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+            if (configRecord) {
+                const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+                const thresholds = dbConfig.minPayout || {};
+                const minAmount = thresholds['marketer'] || 0;
+                
+                if (amount < minAmount) {
+                    return res.status(400).json({ error: `Minimum withdrawal amount for marketers is KES ${minAmount}` });
+                }
+            }
+        } catch (err) {
+            console.warn('⚠️  Could not check marketer payout threshold:', err.message);
+        }
+
+
         // Subtract from balance and add a pending transaction
         // In a real system, you might want a separate WithdrawalRequest model
         // but for now we'll use a transaction with status 'pending'

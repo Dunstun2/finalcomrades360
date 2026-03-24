@@ -275,15 +275,7 @@ export default function Navbar() {
 
                             {activeCategory === i && hasSub && (
                               <div className="bg-gray-50 border-y border-gray-100 py-1 overflow-hidden transition-all duration-300">
-                                <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                                  <Link
-                                    to={cat.name === 'Student Services' ? `/services` : cat.name === 'Food & Drinks' ? `/fastfood` : `/products?categoryId=${cat.id}`}
-                                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center"
-                                    onClick={() => setShowCategories(false)}
-                                  >
-                                    📦 View All {cat.name}
-                                  </Link>
-                                </div>
+                                 {/* Removed View All Category link */}
                                 {cat.subcategories.map((sub) => (
                                   <Link
                                     key={sub.id}
@@ -608,7 +600,7 @@ export default function Navbar() {
               
               {/* Header logic depends on menu type */}
               {mobileMenuType === 'account' ? (
-                <div className="p-4 bg-gray-900 text-white">
+                <div className="p-4 bg-gradient-to-br from-blue-700 to-blue-900 text-white shadow-xl">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-xl font-black italic tracking-tighter">My Account</span>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
@@ -617,8 +609,8 @@ export default function Navbar() {
                   </div>
 
                   {isLoggedIn ? (
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold border-2 border-blue-400">
+                    <div className="flex items-center space-x-3 mt-4">
+                      <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold border-2 border-blue-400 shadow-lg">
                         {firstName[0]}
                       </div>
                       <div>
@@ -626,12 +618,7 @@ export default function Navbar() {
                         <p className="text-gray-400 text-[10px] font-medium opacity-80">{user?.email}</p>
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-gray-400 mb-4">Sign in to track orders, manage addresses and more.</p>
-                      <Link to="/account" className="inline-block w-full text-center bg-blue-600 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg" onClick={() => setIsMobileMenuOpen(false)}>Sign In</Link>
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <div className="p-4 bg-blue-600 text-white">
@@ -827,13 +814,30 @@ export default function Navbar() {
                           )}
                         </>
                       ) : (
-                        <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
-                           <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 text-gray-300">
-                              <FaUser size={40} />
+                        <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                           <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 text-blue-600 shadow-inner">
+                              <FaUser size={44} />
                            </div>
-                           <h3 className="text-lg font-black text-gray-900 mb-2">Login Required</h3>
-                           <p className="text-xs text-gray-500 mb-8 leading-relaxed">Please sign in to your Comrades360 account to access your orders, profile and more.</p>
-                           <Link to="/account" className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-black transition-colors" onClick={() => setIsMobileMenuOpen(false)}>Sign In Now</Link>
+                           <h3 className="text-xl font-black text-gray-900 mb-3">Hi there!</h3>
+                           <p className="text-sm text-gray-500 mb-10 leading-relaxed px-4">Sign in to track orders, manage addresses and discover more of Comrades360.</p>
+                           
+                           <div className="w-full space-y-4">
+                              <Link 
+                                to="/login" 
+                                className="inline-block w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-700 active:scale-95 transition-all" 
+                                onClick={() => setIsMobileMenuOpen(false)}
+                              >
+                                Sign In Now
+                              </Link>
+                              
+                              <Link 
+                                to="/register" 
+                                className="inline-block w-full py-4 bg-white text-blue-600 border-2 border-blue-600/20 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-50 active:scale-95 transition-all" 
+                                onClick={() => setIsMobileMenuOpen(false)}
+                              >
+                                Create Account
+                              </Link>
+                           </div>
                         </div>
                       )}
                     </div>

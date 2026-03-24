@@ -1,4 +1,4 @@
-const { Order, PlatformConfig, sequelize, Transaction, Wallet, User, DeliveryCharge } = require('../models');
+const { Order, PlatformConfig, sequelize, Transaction, Wallet, User, DeliveryCharge, Notification } = require('../models');
 const { Op } = require('sequelize');
 const { moveToPaid } = require('../utils/walletHelpers');
 const { DeliveryTask, OrderItem, Product, FastFood, Warehouse, PickupStation } = require('../models');
@@ -65,7 +65,6 @@ const getSystemIncome = async (req, res) => {
 
         const totalDeliveryFees = completedTasks.reduce((sum, t) => sum + (t.deliveryFee || 0), 0);
         const totalAgentEarnings = completedTasks.reduce((sum, t) => sum + (t.agentEarnings || 0), 0);
-        const platformDeliveryEarnings = totalDeliveryFees - totalAgentEarnings;
 
         // 2. Calculate Item Sales Revenue (Markup)
         // We look at OrderItems from 'delivered' orders
@@ -121,14 +120,34 @@ const getSystemIncome = async (req, res) => {
 const getPendingPayouts = async (req, res) => {
     try {
         const transactions = await Transaction.findAll({
-            where: { status: 'success' },
-            include: [{ model: User, attributes: ['id', 'name', 'role', 'phone'] }],
+            where: {
+                [Op.or]: [
+                    { status: 'success' },
+                    { type: 'debit', status: 'pending' }
+                ]
+            },
+            include: [{ model: User, as: 'user', attributes: ['id', 'name', 'role', 'phone'] }],
             order: [['createdAt', 'DESC']]
         });
-        res.json(transactions);
+
+        // Map user to User for frontend compatibility
+        const mappedTransactions = transactions.map(tx => {
+            const data = tx.toJSON ? tx.toJSON() : tx;
+            if (data.user) {
+                data.User = data.user;
+            }
+            return data;
+        });
+
+        res.json(mappedTransactions);
     } catch (error) {
         console.error('Error fetching pending payouts:', error);
         res.status(500).json({ error: 'Failed to fetch pending payouts' });
+        // Also log to error.log for easier debugging
+        const fs = require('fs');
+        const path = require('path');
+        const errorDetail = `\n--- [getPendingPayouts Error] ${new Date().toISOString()} ---\n${error.stack}\n`;
+        fs.appendFileSync(path.join(__dirname, '../error.log'), errorDetail);
     }
 };
 
@@ -163,6 +182,22 @@ const processPayout = async (req, res) => {
             if (tx && tx.status === 'success') {
                 await moveToPaid(tx.userId, tx.amount, id, t);
 
+                // NOTIFICATION: Notify user about successful payout
+                try {
+                    const user = await User.findByPk(tx.userId, { transaction: t });
+                    if (user && user.phone) {
+                        const { getDynamicMessage } = require('../utils/templateUtils');
+                        const { sendMessage } = require('../utils/messageService');
+                        const msg = await getDynamicMessage('withdrawalStatus', 
+                            'Your withdrawal of KES {amount} has been processed successfully! 💰', 
+                            { amount: tx.amount }
+                        );
+                        sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send payout notification:', e.message));
+                    }
+                } catch (notifyErr) {
+                    console.error('Error notifying user about payout:', notifyErr.message);
+                }
+
                 // AUTOMATION: Claim system revenue for the associated task
                 const task = tx.order?.deliveryTasks?.[0];
                 if (task && !task.systemRevenueClaimed) {
@@ -174,18 +209,48 @@ const processPayout = async (req, res) => {
                         await task.update({
                             systemRevenueClaimed: true,
                             systemRevenueClaimedAt: new Date(),
-                            systemRevenueAmount: revenue // Fixed field name
+                            systemRevenueAmount: revenue 
                         }, { transaction: t });
 
                         totalSystemRevenue += revenue;
                         tasksClaimed++;
                     } else {
-                        // Even if 0, mark as settled to keep history clean
                         await task.update({
                             systemRevenueClaimed: true,
                             systemRevenueClaimedAt: new Date()
                         }, { transaction: t });
                     }
+                }
+            } else if (tx && tx.type === 'debit' && tx.status === 'pending') {
+                // This is a manual withdrawal request from balance
+                await tx.update({ status: 'completed' }, { transaction: t });
+
+                // Send System Notification
+                try {
+                    await Notification.create({
+                        userId: tx.userId,
+                        title: 'Withdrawal Approved',
+                        message: `Your withdrawal request for KES ${tx.amount} has been approved and processed! 💰`,
+                        type: 'success'
+                    }, { transaction: t });
+                } catch (notifErr) {
+                    console.error('Failed to create system notification for withdrawal:', notifErr.message);
+                }
+
+                // NOTIFICATION: Notify user about successful withdrawal
+                try {
+                    const user = await User.findByPk(tx.userId, { transaction: t });
+                    if (user && user.phone) {
+                        const { getDynamicMessage } = require('../utils/templateUtils');
+                        const { sendMessage } = require('../utils/messageService');
+                        const msg = await getDynamicMessage('withdrawalStatus', 
+                            'Your withdrawal request for KES {amount} has been approved and processed! 💰', 
+                            { amount: tx.amount }
+                        );
+                        sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send withdrawal notification:', e.message));
+                    }
+                } catch (notifyErr) {
+                    console.error('Error notifying user about withdrawal approval:', notifyErr.message);
                 }
             }
         }
@@ -264,8 +329,8 @@ const getDeliveryTaskHistory = async (req, res) => {
                     as: 'order',
                     attributes: ['id', 'orderNumber', 'total', 'deliveryFee', 'status', 'createdAt', 'updatedAt'],
                     include: [
-                        { model: User, as: 'user', attributes: ['id', 'name', 'phone'] },
-                        { model: User, as: 'seller', attributes: ['id', 'name'] },
+                        { model: User, as: 'user', attributes: ['id', 'name', 'phone', 'businessName'] },
+                        { model: User, as: 'seller', attributes: ['id', 'name', 'businessName'] },
                         {
                             model: OrderItem,
                             as: 'OrderItems',
@@ -449,7 +514,7 @@ const getAgentSuccessTransactions = async (req, res) => {
                                 { model: FastFood, attributes: ['id', 'name'] }
                             ]
                         },
-                        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress'] },
+                        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessName'] },
                         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address'] },
                         { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
                     ]

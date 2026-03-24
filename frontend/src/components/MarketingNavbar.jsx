@@ -103,15 +103,7 @@ export default function MarketingNavbar() {
                             {showCategories && (
                                 <div className="absolute left-0 mt-2 bg-white text-gray-800 border rounded shadow-xl z-50 w-64 py-1">
                                     <ul>
-                                        <li className="px-4 py-2 border-b border-gray-100">
-                                            <Link
-                                                to="/"
-                                                className="font-bold text-blue-600 hover:text-blue-800 block"
-                                                onClick={() => setShowCategories(false)}
-                                            >
-                                                View All Products
-                                            </Link>
-                                        </li>
+                                        {/* Removed View All Products top link */}
                                         {categoriesWithSubcategories.map((cat, i) => {
                                             const hasSub = cat.subcategories?.length > 0;
                                             return (
@@ -143,15 +135,7 @@ export default function MarketingNavbar() {
                                                     {/* Subcategories */}
                                                     {activeCategory === i && hasSub && (
                                                         <div className="bg-gray-50 border-y border-gray-100 py-1">
-                                                            <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                                                                <Link
-                                                                    to={cat.name === 'Student Services' ? `/services` : cat.name === 'Food & Drinks' ? `/fastfood` : `/products?categoryId=${cat.id}`}
-                                                                    className="text-xs font-bold text-blue-600 hover:text-blue-700 block"
-                                                                    onClick={() => setShowCategories(false)}
-                                                                >
-                                                                    View All {cat.name}
-                                                                </Link>
-                                                            </div>
+                                                            {/* Removed View All Category link */}
                                                             {cat.subcategories.map((sub) => (
                                                                 <Link
                                                                     key={sub.id}

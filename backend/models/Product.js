@@ -1,16 +1,17 @@
-const { DataTypes, Model, Op } = require('sequelize');
+const { DataTypes, Model } = require('sequelize');
 const { normalizeItemName } = require('../utils/itemNamePolicy');
 
 module.exports = (sequelize, DataTypes) => {
   class Product extends Model {
     static async isNameTaken(name, excludeId = null) {
-      const where = {
+      const where = { 
         name,
         deletedAt: null
       };
-
+      
       if (excludeId) {
-        where.id = { [Op.ne]: excludeId };
+        const SafeOp = sequelize.Op || (sequelize.Sequelize && sequelize.Sequelize.Op) || { ne: '$ne' };
+        where.id = { [SafeOp.ne]: excludeId };
       }
 
       const existing = await this.findOne({ where });

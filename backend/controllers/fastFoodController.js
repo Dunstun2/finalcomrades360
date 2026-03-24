@@ -187,7 +187,7 @@ exports.getAllFastFoods = async (req, res) => {
             {
                 model: User,
                 as: 'vendorDetail',
-                attributes: ['id', 'name', 'email', 'phone']
+                attributes: ['id', 'name', 'email', 'phone', 'businessName']
             }
         ];
 
@@ -255,7 +255,7 @@ exports.getFastFoodById = async (req, res) => {
                 {
                     model: User,
                     as: 'vendorDetail',
-                    attributes: ['id', 'name', 'email', 'phone']
+                    attributes: ['id', 'name', 'email', 'phone', 'businessName']
                 }
             ]
         });

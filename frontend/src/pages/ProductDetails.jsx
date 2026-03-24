@@ -11,6 +11,11 @@ import { useImageVersion } from '../hooks/useImageVersion';
 import { Share2, Heart, Shield, Truck, RotateCcw, Package, X, Star, Info, PlayCircle, ArrowLeft, MapPin, ShoppingBag, List, Settings } from 'lucide-react';
 import { toast } from '../components/ui/use-toast';
 import { formatPrice } from '../utils/currency';
+import { 
+  normalizeVariants as unifyVariants, 
+  getVariantId as unifiedGetVariantId, 
+  getDefaultVariant as unifiedGetDefaultVariant 
+} from '../utils/variantUtils';
 import { FaHeart } from 'react-icons/fa';
 import { usePersistentFetch } from '../hooks/usePersistentFetch';
 import Footer from '../components/Footer';
@@ -299,53 +304,11 @@ export default function ProductDetails() {
     const parsed = ensureObject(product?.attributes || product?.tags?.physicalFeatures || product?.tags?.attributes);
     return isCorruptedAttributePayload(parsed) ? {} : parsed;
   }, [product]);
-  const variants = useMemo(() => {
-    const rootVariants = ensureArray(product?.variants);
-    if (rootVariants.length > 0) return rootVariants;
-    return ensureArray(product?.tags?.variants);
-  }, [product]);
+  // Unified Variant Logic
   const normalizedVariantRows = useMemo(() => {
-    return variants.flatMap((v, vIdx) => {
-      // Legacy shape: { options: [...], optionDetails: { [opt]: {...} } }
-      if (v && Array.isArray(v.options)) {
-        const detailsMap = v.optionDetails || {};
-        return v.options.map((option, oIdx) => {
-          const details = detailsMap[option] || {};
-          return {
-            key: `legacy-${vIdx}-${oIdx}`,
-            optionName: option,
-            sku: details.sku || v.sku || '-',
-            basePrice: Number(details.basePrice || details.displayPrice || 0),
-            discountPercentage: Number(details.discountPercentage || 0),
-            discountPrice: Number(details.discountPrice || details.displayPrice || 0),
-            stock: Number(details.stock || 0),
-            payload: { variant: v, option, details }
-          };
-        });
-      }
+    return unifyVariants(product);
+  }, [product]);
 
-      // Current simple shape: { name, basePrice, stock, ... }
-      if (v && typeof v === 'object') {
-        const optionName = v.name || v.variantName || v.title || v.sku || `Variant ${vIdx + 1}`;
-        const basePrice = Number(v.basePrice || v.displayPrice || v.price || 0);
-        const discountPercentage = Number(v.discountPercentage || 0);
-        const discountPrice = Number(v.discountPrice || (discountPercentage > 0 ? Math.round(basePrice * (1 - discountPercentage / 100)) : basePrice));
-        const stock = Number(v.stock || 0);
-        return [{
-          key: `simple-${vIdx}`,
-          optionName,
-          sku: v.sku || '-',
-          basePrice,
-          discountPercentage,
-          discountPrice,
-          stock,
-          payload: { variant: v }
-        }];
-      }
-
-      return [];
-    });
-  }, [variants]);
   const reviews = useMemo(() => Array.isArray(product?.reviews) ? product.reviews : [], [product]);
   const [visibleReviewsCount, setVisibleReviewsCount] = useState(3);
   const visibleReviews = useMemo(() => reviews.slice(0, visibleReviewsCount), [reviews, visibleReviewsCount]);
@@ -364,10 +327,10 @@ export default function ProductDetails() {
     product?.category?.name ? { label: 'Category', value: product.category.name } : null,
     product?.subcategory?.name ? { label: 'Subcategory', value: product.subcategory.name } : null,
     product?.warranty ? { label: 'Warranty', value: product.warranty } : null,
+    product?.returnPolicy ? { label: 'Return Policy', value: product.returnPolicy } : null,
   ].filter(Boolean);
 
   const shippingItems = [
-    product?.deliveryMethod ? { label: 'Delivery Method', value: product.deliveryMethod } : null,
     (product?.deliveryFee !== undefined && product?.deliveryFee !== null && String(product.deliveryFee).trim() !== '')
       ? { label: 'Delivery Fee', value: Number(product.deliveryFee) > 0 ? formatPrice(product.deliveryFee) : 'Free' }
       : null,
@@ -381,8 +344,12 @@ export default function ProductDetails() {
   const hasAnyLowerSection = hasDescriptionFeaturesRow || relatedProducts.length > 0 || hasReviews;
 
   const getVariantId = (row) => {
-    if (row?.sku && row.sku !== '-') return row.sku;
-    return row?.optionName || '';
+    const finalId = unifiedGetVariantId(row);
+    console.log('[ProductDetails] getVariantId debug:', { 
+      input: row, 
+      final: finalId 
+    });
+    return finalId;
   };
 
   const isVariantInCart = (row) => {
@@ -404,10 +371,21 @@ export default function ProductDetails() {
   const defaultVariantId = defaultVariantRow ? getVariantId(defaultVariantRow) : null;
   const hasProductVariants = normalizedVariantRows.length > 0;
   const isItemInCart = cart?.items?.some((item) => {
-    if (String(item.productId) !== String(id) && String(item.product?.id) !== String(id)) return false;
-    if (!hasProductVariants) return true;
-    return String(item.variantId || '') === String(defaultVariantId || '');
+    // Check if the base product ID matches
+    const idMatch = String(item.productId) === String(id) || String(item.product?.id) === String(id);
+    if (!idMatch) return false;
+    
+    // If we're looking for the specific DEFAULT variant (old logic), we'd check item.variantId === defaultVariantId.
+    // But for the main header button, we want to know if ANY variant of this product is in the cart.
+    return true; 
   });
+
+  const cartItemCount = cart?.items?.reduce((acc, item) => {
+    if (String(item.productId) === String(id) || String(item.product?.id) === String(id)) {
+      return acc + (item.quantity || 1);
+    }
+    return acc;
+  }, 0);
 
   // Life Cycle Effects
   useEffect(() => {
@@ -470,9 +448,17 @@ export default function ProductDetails() {
   const addToCartHandler = async () => {
     try {
       if (isItemInCart) {
-        if (hasProductVariants && defaultVariantId) {
-          await removeFromCart(id, 'product', { variantId: defaultVariantId });
+        // Find all cart items for this product and remove them
+        const productItems = cart?.items?.filter(item => 
+          String(item.productId) === String(id) || String(item.product?.id) === String(id)
+        );
+
+        if (productItems && productItems.length > 0) {
+          for (const item of productItems) {
+            await removeFromCart(id, item.itemType || 'product', { variantId: item.variantId });
+          }
         } else {
+          // Fallback if filter fails but isItemInCart was true
           await removeFromCart(id);
         }
       } else {
@@ -484,7 +470,6 @@ export default function ProductDetails() {
             selectedVariant: {
               id: defaultVariantId,
               name: defaultVariantRow.optionName,
-              sku: defaultVariantRow.sku,
               basePrice: defaultVariantRow.basePrice,
               discountPrice: defaultVariantRow.discountPrice,
             },
@@ -559,7 +544,7 @@ export default function ProductDetails() {
   const ogDescription = product.shortDescription || product.description || 'Shop on Comrades360.';
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-14 md:pt-20">
+    <div className="min-h-screen bg-gray-50 pt-2 md:pt-4">
       <Helmet>
         <title>{pageTitle}</title>
         <meta name="description" content={ogDescription} />
@@ -602,9 +587,21 @@ export default function ProductDetails() {
                 </div>
               )}
 
-              {/* Product Name */}
+              {/* Product Name & Brand/Model */}
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2 md:mb-3 uppercase tracking-tight">{product.name}</h1>
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  {product.brand && (
+                    <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                      Brand: {product.brand}
+                    </span>
+                  )}
+                  {product.model && (
+                    <span className="text-sm font-bold text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                      Model: {product.model}
+                    </span>
+                  )}
+                </div>
                 {(hasCategory || hasRatings) && (
                   <div className="flex items-center gap-3 mb-3">
                     {hasCategory && (
@@ -847,9 +844,11 @@ export default function ProductDetails() {
               </div>
             )}
 
-            {/* Specifications */}
+            {/* Specifications & Physical Features */}
             {(() => {
-              const allSpecs = { ...ensureObject(specifications), ...ensureObject(physicalFeatures) };
+              const specs = ensureObject(product?.specifications);
+              const physical = ensureObject(product?.physicalFeatures);
+              const allSpecs = { ...specs, ...physical };
               const INTERNAL_FIELDS = ['cost', 'barcode', 'addedBy', 'sellerId', 'status', 'isBestSeller', 'condition', 'featured', 'isFeatured', 'isActive', 'approved'];
               const filteredSpecs = Object.entries(allSpecs).filter(([key, value]) => value && value !== 'null' && !INTERNAL_FIELDS.includes(key));
 

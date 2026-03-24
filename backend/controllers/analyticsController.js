@@ -304,7 +304,7 @@ const getDeliveryEfficiencyMetrics = async (req, res) => {
       include: [{
         model: User,
         as: 'deliveryAgent',
-        attributes: ['name', 'email']
+        attributes: ['name', 'email', 'businessName']
       }],
       order: [[fn('COUNT', col('id')), 'DESC']],
       limit: 20
@@ -452,7 +452,52 @@ const getMarketingCampaignROI = async (req, res) => {
   }
 };
 
+// General Platform Overview Stats
+const getGeneralOverview = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const [
+      totalUsers,
+      totalOrders,
+      totalRevenue,
+      totalProducts,
+      activeUsers
+    ] = await Promise.all([
+      User.count(),
+      Order.count({ where: { status: { [Op.in]: ['completed', 'delivered'] } } }),
+      Order.sum('total', { where: { status: { [Op.in]: ['completed', 'delivered'] } } }),
+      Product.count(),
+      Order.count({
+        distinct: true,
+        col: 'userId',
+        where: { createdAt: { [Op.between]: [start, end] } }
+      })
+    ]);
+
+    const conversionRate = totalUsers > 0 ? (totalOrders / totalUsers) * 100 : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalUsers,
+        totalOrders,
+        totalRevenue: parseFloat(totalRevenue || 0),
+        totalProducts,
+        activeUsers,
+        conversionRate: parseFloat(conversionRate.toFixed(2))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching general overview:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch overview stats', error: error.message });
+  }
+};
+
 module.exports = {
+  getGeneralOverview,
   getHistoricalTrends,
   getRevenueForecast,
   getSellerPerformanceScores,

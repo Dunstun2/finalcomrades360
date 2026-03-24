@@ -380,7 +380,7 @@ const Products = () => {
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                 {products.map(product => {
-                  const isProductInCart = cart?.items?.some(item => item.productId === product.id || item.product?.id === product.id);
+                  const isProductInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(product.id));
                   return (
                     <HomeProductCard
                       key={product.id}

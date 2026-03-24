@@ -32,10 +32,32 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     const normalizeDeliveryType = (type) => type;
 
     const getKnownRouteLocations = (currentOrder, currentSuggestions = null) => {
-        const sellerAddress = currentOrder?.pickupLocation
-            || currentOrder?.seller?.businessAddress
-            || currentSuggestions?.sellerAddress
-            || '';
+        const getSellerAddr = (seller) => {
+            if (!seller) return null;
+            return seller.businessAddress 
+                || seller.address 
+                || (seller.businessTown && seller.businessCounty ? `${seller.businessTown}, ${seller.businessCounty}` : null) 
+                || seller.businessTown 
+                || seller.businessCounty;
+        };
+
+        let sellerAddress = currentOrder?.pickupLocation || getSellerAddr(currentOrder?.seller);
+        
+        // Fallback for multi-seller orders: lookup in items
+        if (!sellerAddress && currentOrder?.OrderItems?.length > 0) {
+            for (const item of currentOrder.OrderItems) {
+                const itemSeller = item.seller || item.Product?.seller || item.FastFood?.vendorDetail;
+                const addr = getSellerAddr(itemSeller);
+                if (addr) {
+                    sellerAddress = addr;
+                    break;
+                }
+            }
+        }
+
+        if (!sellerAddress && currentSuggestions?.sellerAddress) {
+            sellerAddress = currentSuggestions.sellerAddress;
+        }
 
         const warehouseAddress = currentOrder?.DestinationWarehouse?.address
             || currentOrder?.DestinationWarehouse?.landmark
@@ -59,7 +81,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             || '';
 
         return {
-            sellerAddress,
+            sellerAddress: sellerAddress || '',
             warehouseAddress,
             pickupStationAddress,
             customerAddress
@@ -84,34 +106,54 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             seller_to_pickup_station: { pickup: sellerAddr, destination: pickupStationAddr },
             fastfood_pickup_point: { pickup: sellerAddr, destination: pickupStationAddr },
             pickup_station_to_customer: { pickup: pickupStationAddr, destination: customerAddr },
-            pickup_station_to_warehouse: { pickup: pickupStationAddr, destination: warehouseAddr },
-            fastfood_pickup_point: { pickup: sellerAddr, destination: pickupStationAddr }
+            pickup_station_to_warehouse: { pickup: pickupStationAddr, destination: warehouseAddr }
         };
 
         return routeMapping[normalizeDeliveryType(route)] || { pickup: sellerAddr, destination: customerAddr || pickupStationAddr };
     };
 
     // Dynamic route visibility based on order status
+    // Dynamic route visibility based on order status and delivery method
     const getVisibleRoutes = () => {
         if (!order) return Object.entries(DELIVERY_TYPE_CONFIG);
         const allRoutes = Object.entries(DELIVERY_TYPE_CONFIG);
         const status = order.status;
+        const method = order.deliveryMethod;
 
         const isFastFood = order.orderCategory === 'fastfood' || order.OrderItems?.some(i => i.FastFood);
         if (isFastFood) {
-            if (order.adminRoutingStrategy === 'fastfood_pickup_point' || order.deliveryMethod === 'pickup_point') {
+            if (order.adminRoutingStrategy === 'fastfood_pickup_point' || method === 'pickup_point' || method === 'pick_station') {
                 return allRoutes.filter(([key]) => ['seller_to_customer', 'fastfood_pickup_point'].includes(key));
             }
             return allRoutes.filter(([key]) => ['seller_to_customer'].includes(key));
         }
 
-        // Logic-based filtering
-        // Initial outbound routes from seller
+        // Home Delivery preference: Prioritize direct delivery if confirmed
+        if (method === 'home_delivery' && ['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(status)) {
+             return allRoutes.filter(([key]) => [
+                'seller_to_customer',
+                'seller_to_warehouse',
+                'warehouse_to_customer'
+            ].includes(key));
+        }
+
+        // Pick Station preference
+        if (method === 'pick_station' && ['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(status)) {
+            return allRoutes.filter(([key]) => [
+                'seller_to_pickup_station',
+                'seller_to_warehouse',
+                'warehouse_to_pickup_station'
+            ].includes(key));
+        }
+
+        // Logic-based filtering by status (fallback)
         if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse'].includes(status)) {
             return allRoutes.filter(([key]) => [
                 'seller_to_warehouse',
                 'seller_to_customer',
-                'seller_to_pickup_station'
+                'seller_to_pickup_station',
+                'warehouse_to_customer',
+                'warehouse_to_pickup_station'
             ].includes(key));
         }
 
@@ -125,7 +167,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
         }
 
         // Pick Station stage routes
-        if (status === 'ready_for_pickup' || order.deliveryMethod === 'pick_station') {
+        if (status === 'ready_for_pickup' || method === 'pick_station') {
             return allRoutes.filter(([key]) => [
                 'pickup_station_to_customer',
                 'warehouse_to_pickup_station',
@@ -182,6 +224,14 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                     if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
                         initialRoute = 'warehouse_to_customer';
                     }
+                } else if (order.status !== 'delivered' && order.selfDispatcherName) {
+                    // If seller is self-dispatching, Leg 1 is handled by them.
+                    // Anticipate assigning the *next* leg.
+                    if (order.deliveryMethod === 'pick_station' && possibleRoutes.some(([key]) => key === 'warehouse_to_pickup_station')) {
+                        initialRoute = 'warehouse_to_pickup_station';
+                    } else if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
+                        initialRoute = 'warehouse_to_customer';
+                    }
                 }
 
                 setDeliveryType(initialRoute);
@@ -192,10 +242,13 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                 setIsDestLocked(true); // Re-arm lock for new order
 
                 const preferredDriverId = order.deliveryAgentId || order.deliveryAgent?.id || '';
+                const isHubStatus = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
 
                 // For delivery-request approval, preserve the requesting agent even if the modal
                 // normalizes the route type from a provisional/null value.
-                if (preferredDriverId) {
+                if (isHubStatus) {
+                    setSelectedDriverId(''); // Always force new agent selection for hub dispatch
+                } else if (preferredDriverId) {
                     setSelectedDriverId(String(preferredDriverId));
                 } else if (initialRoute !== order.deliveryType || (initialRoute === 'warehouse_to_customer' && order.status === 'at_warehouse' && !order.deliveryAgentId)) {
                     setSelectedDriverId('');
@@ -301,6 +354,25 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
         }
     }, [deliveryType, routeFees, order]);
 
+    // Update locations when deliveryType changes
+    useEffect(() => {
+        if (!order || !deliveryType) return;
+        
+        const locations = getRouteLocations(deliveryType, order);
+        
+        // Prevent clearing if nothing found but previous was better? No, usually we want it to stay in sync.
+        // But for hub routes, if an origin/destination is already selected, let that logic handle it.
+        const startsWithHub = deliveryType.startsWith('warehouse') || deliveryType.startsWith('pickup_station');
+        const endsWithHub = deliveryType.endsWith('warehouse') || deliveryType.endsWith('pickup_station');
+
+        if (!startsWithHub) {
+            setPickupLocation(locations.pickup || '');
+        }
+        if (!endsWithHub) {
+            setDeliveryLocation(locations.destination || '');
+        }
+    }, [deliveryType, order]);
+
     const fetchAgentDistances = async (orderId) => {
         setLoadingAgents(true);
         try {
@@ -321,28 +393,8 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
 
     // Handle dynamic address population and ID initialization
     useEffect(() => {
-        if (!suggestions || !order) return;
-
-        // 1. Determine target route (priority to admin routing strategy)
-        let targetRoute = deliveryType;
-        const isInitialStage = ['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(order.status);
-        const isWarehouseStage = ['at_warehouse'].includes(order.status);
-
-        if (isInitialStage) {
-            const isFastFood = order.orderCategory === 'fastfood' || order.OrderItems?.some(i => i.FastFood);
-            if (isFastFood) {
-                targetRoute = order.deliveryMethod === 'pickup_point' || order.adminRoutingStrategy === 'fastfood_pickup_point' 
-                    ? 'fastfood_pickup_point' 
-                    : 'seller_to_customer';
-            } else {
-                if (order.adminRoutingStrategy === 'warehouse') targetRoute = 'seller_to_warehouse';
-                else if (order.adminRoutingStrategy === 'pick_station') targetRoute = 'seller_to_pickup_station';
-                else if (order.adminRoutingStrategy === 'direct_delivery') targetRoute = 'seller_to_customer';
-            }
-        } else if (isWarehouseStage) {
-            if (order.deliveryMethod === 'pick_station') targetRoute = 'warehouse_to_pickup_station';
-            else targetRoute = 'warehouse_to_customer';
-        }
+        if (!suggestions || !order) return;        // 1. Use the actively selected delivery type
+        const targetRoute = deliveryType;
 
         // 2. Set IDs and Lock state
         let destId = '';
@@ -986,18 +1038,23 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                                 Agent has {Math.ceil((new Date(activeAssignment.assignedAt).getTime() + 30 * 60 * 1000 - Date.now()) / 60000)} min left to accept
                             </div>
                         </div>
-                    ) : (
-                        <button
-                            onClick={handleConfirm}
-                            disabled={!selectedDriverId || assigning || order.status !== 'seller_confirmed'}
-                            className={`flex-1 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-lg transition-all ${!selectedDriverId || assigning || order.status !== 'seller_confirmed'
-                                ? 'bg-gray-300 cursor-not-allowed'
-                                : 'bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-blue-200'
-                                }`}
-                        >
-                            {assigning ? 'Assigning...' : 'Complete Assignment'}
-                        </button>
-                    )}
+                    ) : (() => {
+                        const canSubmit = ['seller_confirmed', 'super_admin_confirmed', 'at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
+                        const isSubmitDisabled = !selectedDriverId || assigning || !canSubmit;
+                        
+                        return (
+                            <button
+                                onClick={handleConfirm}
+                                disabled={isSubmitDisabled}
+                                className={`flex-1 px-4 py-3 rounded-xl text-white font-bold text-sm shadow-lg transition-all ${isSubmitDisabled
+                                    ? 'bg-gray-300 cursor-not-allowed'
+                                    : 'bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-blue-200'
+                                    }`}
+                            >
+                                {assigning ? 'Assigning...' : 'Complete Assignment'}
+                            </button>
+                        );
+                    })()}
                 </div>
 
                 <AdminPasswordDialog

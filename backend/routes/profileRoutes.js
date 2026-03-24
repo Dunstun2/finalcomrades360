@@ -12,6 +12,7 @@ const {
   updateTwoFactorAuth,
   updateSocialLogin
 } = require('../controllers/profileController');
+const { setDashboardPassword, verifyDashboardPassword } = require('../controllers/userController');
 
 // All profile routes require authentication
 router.use(authenticate);
@@ -30,5 +31,9 @@ router.delete('/sessions/:sessionId', terminateSession);
 // 2FA and social login routes
 router.put('/2fa', updateTwoFactorAuth);
 router.put('/social-login', updateSocialLogin);
+
+// Dashboard security routes (mapped to /api/profile/...)
+router.post('/dashboard-password', setDashboardPassword);
+router.post('/dashboard-password/verify', verifyDashboardPassword);
 
 module.exports = router;

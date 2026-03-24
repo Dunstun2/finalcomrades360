@@ -236,12 +236,24 @@ const PendingPayouts = () => {
                                                     <FaUser className="w-4 h-4" />
                                                 </div>
                                                 <div>
-                                                    <p className="font-bold text-gray-900 text-sm">{tx.User?.name || 'Unknown'}</p>
-                                                    <p className="text-xs text-gray-400">{tx.User?.phone || '-'}</p>
+                                                    <p className="font-bold text-gray-900 text-sm">{tx.User?.name || tx.user?.name || 'Unknown'}</p>
+                                                    <p className="text-xs text-gray-400">{tx.User?.phone || tx.user?.phone || '-'}</p>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-gray-700">{tx.description}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="text-sm text-gray-700">{tx.description}</div>
+                                            {tx.metadata && (
+                                                <div className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded inline-block mt-1 font-bold">
+                                                    {(() => {
+                                                        try {
+                                                            const meta = typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata;
+                                                            return `${meta.method?.toUpperCase()}: ${meta.details}`;
+                                                        } catch (e) { return null; }
+                                                    })()}
+                                                </div>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-sm text-gray-500">
                                             {new Date(tx.createdAt).toLocaleDateString('en-GB', {
                                                 day: 'numeric', month: 'short', year: 'numeric'
@@ -249,7 +261,7 @@ const PendingPayouts = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-500 uppercase tracking-wider capitalize">
-                                                {tx.User?.role?.replace('_', ' ') || '-'}
+                                                {(tx.User?.role || tx.user?.role)?.replace('_', ' ') || '-'}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">

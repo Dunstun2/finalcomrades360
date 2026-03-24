@@ -66,7 +66,7 @@ export default function Category() {
   }, [id]);
 
   const handleAddToCart = async (productId) => {
-    const isItemInCart = cart?.items?.some(item => item.productId === productId || item.product?.id === productId);
+    const isItemInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(productId));
     if (isItemInCart) {
       await removeFromCart(productId);
     } else {
@@ -99,7 +99,7 @@ export default function Category() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 px-4 md:px-0">
           {items.map(p => {
-            const isItemInCart = cart?.items?.some(item => item.productId === p.id || item.product?.id === p.id);
+            const isItemInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(p.id));
             return (
               <div key={p.id}>
                 <HomeProductCard

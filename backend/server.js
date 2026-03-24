@@ -1,4 +1,5 @@
-const express = require('express'); // Force restart - Timestamp: 1742337900000
+console.log('🚀 SERVER STARTING - VERSION: ' + Date.now());
+const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
@@ -9,6 +10,9 @@ const fs = require('fs');
 // Load environment variables
 dotenv.config();
 
+// Initialize OTP services (including WhatsApp Free Client)
+require('./utils/messageService');
+
 // Initialize Express app with timeout configuration
 const app = express();
 
@@ -16,7 +20,7 @@ const app = express();
 app.set('timeout', 60000);
 
 // Security Middleware
-app.use(helmet());
+// app.use(helmet({ ... })); // Disabled for CSP debugging
 app.use(compression());
 
 // CORS Configuration
@@ -66,6 +70,7 @@ const { realtimeSyncMiddleware } = require('./middleware/realtimeSync');
 app.use(realtimeSyncMiddleware);
 
 // Import routes
+const platformRoutes = require('./routes/platformRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -106,14 +111,46 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const paymentEnhancementsRoutes = require('./routes/paymentEnhancementsRoutes');
 const batchRoutes = require('./routes/batchRoutes');
+const returnRoutes = require('./routes/returnRoutes');
 const { startBatchAutomation } = require('./services/batchAutomation');
+const { runAutoHandoverWorker } = require('./services/autoHandoverService');
 // Initialize database connection
 const { testConnection } = require('./database/database');
 
+// Global Maintenance Mode Middleware
+app.use(async (req, res, next) => {
+  // Allow critical paths even in maintenance
+  const allowList = ['/api/auth/login', '/api/auth/me', '/api/admin', '/api/config', '/api/platform/config'];
+  const isAllowed = allowList.some(path => req.path.startsWith(path));
+
+  if (isAllowed) return next();
+
+  try {
+    const { PlatformConfig } = require('./models');
+    const config = await PlatformConfig.findOne({ where: { key: 'maintenance_settings' } });
+    if (config) {
+      const settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+      if (settings.enabled) {
+        return res.status(503).json({ 
+          success: false, 
+          maintenance: true,
+          message: settings.message || 'System is currently under maintenance. Please try again later.' 
+        });
+      }
+    }
+  } catch (err) {
+    // Fail silent to allow app startup
+    console.warn('[server] Maintenance check failed:', err.message);
+  }
+  next();
+});
+
 // Use routes
+app.use('/api/platform', platformRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/categories/admin/categories', adminCategoryRoutes);
 app.use('/api/categories', categoryRoutes);
 
 app.use('/api/admin', adminRoutes);
@@ -156,6 +193,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/payment-enhancements', paymentEnhancementsRoutes);
 app.use('/api/batches', batchRoutes);
+app.use('/api/returns', returnRoutes);
 console.log('✅ Delivery Routes Mounted');
 console.log('✅ Warehouse Routes Mounted');
 console.log('✅ Pickup Station Routes Mounted');
@@ -221,7 +259,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     message: 'Server is running',
-    version: '1.1.0-marketing-fix',
+    version: '1.1.0-payment-fix',
     timestamp: new Date().toISOString()
   });
 });
@@ -231,6 +269,10 @@ app.get('/api/health', (req, res) => {
 // Error handling middleware
 
 app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  
   const errorDetail = `\n--- ${new Date().toISOString()} ---\n` +
     `Request: ${req.method} ${req.url}\n` +
     `Error: ${err.message}\n` +
@@ -265,7 +307,7 @@ const { Server } = require('socket.io');
 const { setIO } = require('./realtime/socket');
 
 // Start server after database connection
-const DEFAULT_PORT = process.env.PORT || 5000;
+const DEFAULT_PORT = process.env.PORT || 5001;
 
 async function startServer() {
   try {
@@ -276,11 +318,8 @@ async function startServer() {
       console.error('⚠️ Database connection failed, but starting server anyway:', dbError.message);
     }
 
-    // Use port from DEFAULT_PORT (5000 for user access)
-    const port = DEFAULT_PORT;
-
     // Create HTTP server with timeout configuration
-    const server = createServer(app);
+    const server = require('http').createServer(app);
 
     // Set server timeout to 60 seconds (60000ms)
     server.timeout = 60000;
@@ -290,7 +329,9 @@ async function startServer() {
     const { initScheduledTasks } = require('./cron/scheduledTasks');
     try {
       initScheduledTasks();
-    } catch (e) { console.error('Cron Init Failed:', e.message); }
+      // Start the auto-handover background worker
+      runAutoHandoverWorker();
+    } catch (e) { console.error('Cron/Worker Init Failed:', e.message); }
 
     // Initialize Socket.IO with CORS
     const io = new Server(server, {
@@ -345,15 +386,15 @@ async function startServer() {
     });
 
     // Start the server
-    server.listen(port, () => {
-      console.log(`🚀 Server running on port ${port} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+    server.listen(DEFAULT_PORT, () => {
+      console.log(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
     });
 
     // Handle server errors
     server.on('error', (err) => {
       console.error('❌ Server error:', err);
       if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${port} is already in use. Please stop any other services using this port.`);
+        console.error(`Port ${DEFAULT_PORT} is already in use. Please stop any other services using this port.`);
       }
       // Do NOT process.exit(1) here in production managed environments
     });
@@ -388,4 +429,4 @@ module.exports = {
   startServer,
 };
 
-// Restart 1772711452057
+// Restart 1772711452057// Restart 1774100536.86857

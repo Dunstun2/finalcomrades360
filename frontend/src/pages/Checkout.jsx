@@ -10,8 +10,12 @@ import api from '../services/api';
 import { resolveImageUrl } from '../utils/imageUtils';
 import { formatPrice } from '../utils/currency';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
-import { validateKenyanPhone, PHONE_VALIDATION_ERROR, formatKenyanPhoneInput } from '../utils/validation';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../utils/validation';
 import { fastFoodService } from '../services/fastFoodService';
+import { findVariant, getVariantLabel, isSku } from '../utils/variantUtils';
+import PhoneVerification from '../components/PhoneVerification';
+import MpesaManualInstructions from '../components/payment/MpesaManualInstructions';
+import { getSocket } from '../services/socket';
 
 const getFastFoodSellerKey = (item) => {
   const fastFood = item?.fastFood || {};
@@ -159,7 +163,8 @@ function Checkout() {
     customerPhone: '',
     customerEmail: '',
     customerAddress: '',
-    specialInstructions: ''
+    specialInstructions: '',
+    paymentProofUrl: ''
   });
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const [batchSystemEnabled, setBatchSystemEnabled] = useState(false);
@@ -349,7 +354,32 @@ function Checkout() {
     }
   }, [userProfile, user, formData.referralCode]);
 
-  // Poll payment status for prepay orders
+  // Real-time payment updates via Socket.io
+  useEffect(() => {
+    if (!user) return;
+    
+    const socket = getSocket();
+    
+    const handleStatusUpdate = (data) => {
+      console.log('📡 Payment status update received:', data);
+      if (data.status === 'completed') {
+        setPaymentCompleted(true);
+        setPollingPayment(false);
+      } else if (data.status === 'failed') {
+        setPollingPayment(false);
+        setPaymentId(null);
+        alert('Payment failed. Please try again.');
+      }
+    };
+
+    socket.on('paymentStatusUpdate', handleStatusUpdate);
+    
+    return () => {
+      socket.off('paymentStatusUpdate', handleStatusUpdate);
+    };
+  }, [user]);
+
+  // Poll payment status for prepay orders (as fallback)
   useEffect(() => {
     if (paymentId && pollingPayment && !paymentCompleted) {
       const pollInterval = setInterval(async () => {
@@ -359,18 +389,15 @@ function Checkout() {
             if (statusResponse.payment.status === 'completed') {
               setPaymentCompleted(true);
               setPollingPayment(false);
-              alert('Payment completed successfully! You can now place your order.');
             } else if (statusResponse.payment.status === 'failed') {
               setPollingPayment(false);
-              alert('Payment failed. Please try again or select a different payment method.');
               setPaymentId(null);
             }
           }
         } catch (error) {
           console.error('Error polling payment status:', error);
-          setPollingPayment(false);
         }
-      }, 3000); // Poll every 3 seconds
+      }, 5000); // Poll every 5 seconds as a fallback
 
       return () => clearInterval(pollInterval);
     }
@@ -459,6 +486,63 @@ function Checkout() {
     if (lookupInput) lookupInput.value = '';
   };
 
+  const handleInitiatePrepay = async () => {
+    if (!formData.mobileMoneyPhone || !validateKenyanPhone(formData.mobileMoneyPhone)) {
+      alert(PHONE_VALIDATION_ERROR);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      console.log('💳 Initiating prepay payment...');
+      let paymentResponse;
+
+      switch (formData.paymentSubMethod) {
+        case 'mpesa_prepay':
+          paymentResponse = await paymentService.initiateMpesaPayment(
+            null,
+            formData.mobileMoneyPhone.trim(),
+            scopedSummary.total || 0,
+            null // Skip checkoutGroupId since orders aren't created yet
+          );
+          break;
+
+        case 'airtel_money_prepay':
+          paymentResponse = await paymentService.initiateAirtelMoneyPayment(
+            null,
+            formData.mobileMoneyPhone.trim()
+          );
+          break;
+
+        default:
+          alert('Unknown payment method selected');
+          return;
+      }
+
+      if (paymentResponse?.data?.success || paymentResponse?.success) {
+        const paymentInfo = paymentResponse.data || paymentResponse;
+        setPaymentId(paymentInfo.payment?.id || paymentInfo.id);
+        setPollingPayment(true);
+
+        const paymentInstructions = getPaymentInstructions(formData.paymentSubMethod, paymentInfo);
+        
+        if ((formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'airtel_money_prepay') && paymentInfo.payment) {
+          const provider = formData.paymentSubMethod === 'mpesa_prepay' ? 'M-Pesa' : 'Airtel Money';
+          alert(`${provider} payment initiated!\n\n${paymentInfo.payment.customerMessage || 'Check your phone for payment prompt'}\n\nAmount: KES ${scopedSummary.total?.toLocaleString()}\n\nPlease complete the payment to proceed.`);
+        } else {
+          alert(`Payment initiated!\n\n${paymentInstructions}\n\nAmount: KES ${scopedSummary.total?.toLocaleString()}\n\nPlease complete the payment to proceed.`);
+        }
+      } else {
+        alert(`Payment initiation failed: ${paymentResponse?.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('❌ Payment initiation error:', error);
+      alert(`Payment failed: ${error.response?.data?.message || error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -532,7 +616,7 @@ function Checkout() {
 
     // Validate mobile money phone number
     if ((formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'airtel_money_prepay' ||
-      formData.paymentSubMethod === 'mpesa' || formData.paymentSubMethod === 'airtel_money') &&
+      formData.paymentSubMethod === 'airtel_money') &&
       !formData.mobileMoneyPhone.trim()) {
       alert('Please enter your mobile money phone number');
       return;
@@ -575,90 +659,9 @@ function Checkout() {
 
     try {
       if (formData.paymentMethod === 'prepay' && !paymentCompleted) {
-        // Step 2: For prepay, initiate payment first
-        console.log('💳 Step 2: Initiating prepay payment...');
-
-        try {
-          let paymentResponse;
-
-          // Handle different prepay methods
-          switch (formData.paymentSubMethod) {
-            case 'mpesa_prepay':
-              console.log('📱 Initiating M-Pesa payment...');
-              paymentResponse = await paymentService.initiateMpesaPayment(
-                null, // Order ID will be generated after payment completion
-                formData.mobileMoneyPhone.trim(),
-                scopedSummary.total || 0, // Pass the total amount
-                checkoutGroupId
-              );
-              break;
-
-            case 'airtel_money_prepay':
-              console.log('📱 Initiating Airtel Money payment...');
-              paymentResponse = await paymentService.initiateAirtelMoneyPayment(
-                null, // No order ID yet
-                formData.mobileMoneyPhone.trim()
-              );
-              break;
-
-            case 'bank_transfer_prepay':
-              console.log('🏦 Creating bank transfer payment...');
-              paymentResponse = await paymentService.createBankTransferPayment(
-                null, // No order ID yet
-                {
-                  bankName: 'Equity Bank',
-                  accountNumber: '1130180617720',
-                  accountName: 'Comrades360 Ltd',
-                  expectedAmount: scopedSummary.total || 0
-                }
-              );
-              break;
-
-            case 'lipa_mdogo_mdogo':
-              console.log('💰 Creating Lipa Mdogo Mdogo payment...');
-              paymentResponse = await paymentService.createLipaMdogoMdogoPayment(
-                null, // No order ID yet
-                formData.mobileMoneyPhone.trim()
-              );
-              break;
-
-            default:
-              console.log('⚠️ Unknown prepay method');
-              alert('Unknown payment method selected');
-              return;
-          }
-
-          if (paymentResponse?.data?.success) {
-            console.log('✅ Payment initiated successfully');
-
-            // Store payment info for status tracking
-            const paymentInfo = paymentResponse.data;
-            setPaymentId(paymentInfo.payment?.id || paymentInfo.id);
-            setPollingPayment(true);
-
-            // Show payment-specific instructions
-            const paymentInstructions = getPaymentInstructions(formData.paymentSubMethod, paymentInfo);
-
-            // For mobile money, show STK push message
-            if ((formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'airtel_money_prepay') && paymentInfo.payment) {
-              const provider = formData.paymentSubMethod === 'mpesa_prepay' ? 'M-Pesa' : 'Airtel Money';
-              alert(`${provider} payment initiated!\n\n${paymentInfo.payment.customerMessage || 'Check your phone for payment prompt'}\n\nAmount: KES ${scopedSummary.total?.toLocaleString()}\n\nPlease complete the payment to proceed with your order.`);
-            } else {
-              alert(`Payment initiated!\n\n${paymentInstructions}\n\nAmount: KES ${scopedSummary.total?.toLocaleString()}\n\nPlease complete the payment to proceed with your order.`);
-            }
-
-          } else {
-            console.error('❌ Payment initiation failed:', paymentResponse?.data);
-            alert(`Payment initiation failed: ${paymentResponse?.data?.message || 'Unknown error'}`);
-            return;
-          }
-
-        } catch (paymentError) {
-          console.error('❌ Payment error:', paymentError);
-          alert(`Payment failed: ${paymentError.response?.data?.message || paymentError.message}`);
-          return;
-        }
-
+        // Now handled by explicit initiate button
+        alert('Please initiate and complete your payment first.');
+        return;
       } else {
         // Step 2: Prepare order data (for cash on delivery or completed prepay)
         if (batchSystemEnabled && isFastFoodScope) {
@@ -696,7 +699,7 @@ function Checkout() {
           paymentMethod: `${formData.paymentMethod.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} - ${formData.paymentSubMethod.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
           paymentType: formData.paymentMethod, // 'cash_on_delivery' or 'prepay'
           paymentSubType: formData.paymentSubMethod, // specific payment method
-          paymentId: formData.paymentMethod === 'prepay' ? paymentId : null, // Attach payment ID for prepay
+          paymentId: paymentId, // Attach payment ID for prepay
           primaryReferralCode: formData.referralCode.trim() || null, // Include referral code if provided (order-specific)
           items: scopedItems.map((item, idx) => {
             // Determine item-level delivery fee
@@ -752,7 +755,8 @@ function Checkout() {
           customerEmail: isMarketingMode ? formData.customerEmail : (userProfile?.email || formData.customerEmail),
           marketingDeliveryAddress: isMarketingMode ? formData.customerAddress : formData.deliveryAddress,
           deliveryInstructions: isFastFoodScope ? (formData.specialInstructions?.trim() || null) : null,
-          totalCommission: scopedSummary.totalCommission || 0
+          totalCommission: scopedSummary.totalCommission || 0,
+          paymentProofUrl: formData.paymentProofUrl || null
         };
 
         console.log('📦 [Checkout Debug] Final Order Data Payload:', JSON.stringify(orderData, null, 2));
@@ -821,18 +825,6 @@ function Checkout() {
         }
         return 'Airtel Money Payment Instructions:\nPaybill: 714888\nAccount: 223117\nAmount: Order Total\n\nPlease complete payment within 24 hours.';
 
-      case 'bank_transfer_prepay':
-        if (paymentInfo?.instructions) {
-          return `Bank Transfer Instructions:\nBank: ${paymentInfo.instructions.bankName}\nAccount: ${paymentInfo.instructions.accountNumber}\nAccount Name: ${paymentInfo.instructions.accountName}\nAmount: KES ${paymentInfo.instructions.amount?.toLocaleString()}\nReference: ${paymentInfo.instructions.reference}\n\nPlease complete transfer within 24 hours. Payment will be verified manually.`;
-        }
-        return 'Bank Transfer Instructions:\nBank: Equity Bank\nAccount: 1130180617720\nAmount: Order Total\n\nPlease complete payment within 24 hours.';
-
-      case 'lipa_mdogo_mdogo':
-        if (paymentInfo?.instructions) {
-          return `Lipa Mdogo Mdogo Setup:\nPhone: ${paymentInfo.instructions.phoneNumber}\nAmount: KES ${paymentInfo.instructions.amount?.toLocaleString()}\nPlan: ${paymentInfo.instructions.plan}\n\n${paymentInfo.instructions.note}`;
-        }
-        return 'Lipa Mdogo Mdogo Instructions:\nPaybill: 714888\nAccount: 223117\nAmount: Order Total\n\nPlease complete payment within 24 hours.';
-
       default:
         return 'Please complete payment as per instructions provided.';
     }
@@ -840,8 +832,8 @@ function Checkout() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-4 md:py-8">
-      <div className="max-w-4xl mx-auto px-0 md:px-4">
-        <div className="flex items-center justify-between mb-4 md:mb-8 border-b border-gray-100 pb-4">
+      <div className="max-w-[1400px] mx-auto px-0 md:px-4">
+        <div className="flex items-center justify-between mb-4 md:mb-8 border-b border-gray-100 pb-4 px-4 md:px-0">
           <Link
             to={checkoutBackTarget}
             className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors"
@@ -863,11 +855,136 @@ function Checkout() {
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Main Form Fields */}
-          <div className="space-y-6 order-1 lg:col-start-1 lg:row-start-1">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Column 1: Order Summary */}
+          <div className="space-y-6 order-1 lg:order-1">
+            <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6 sticky top-4">
+              <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
+
+              {/* Order Items */}
+              <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {scopedItems.map((item) => {
+                  // Unified Variant/Combo Resolution
+                  let variantName = (item.variantName && !isSku(item.variantName)) ? item.variantName : null;
+                  let comboName = item.comboName || null;
+
+                  if ((item.itemType === 'fastfood' || item.type === 'fastfood') && item.fastFood) {
+                    if (item.variantId && !variantName) {
+                      const variants = typeof item.fastFood.sizeVariants === 'string'
+                        ? JSON.parse(item.fastFood.sizeVariants || '[]')
+                        : (item.fastFood.sizeVariants || []);
+                      const v = variants.find(v => (String(v.id) === String(item.variantId) || v.name === item.variantId || v.size === item.variantId));
+                      variantName = v?.size || v?.name || item.variantId;
+                    }
+                    if (item.comboId && !comboName) {
+                      const combos = typeof item.fastFood.comboOptions === 'string'
+                        ? JSON.parse(item.fastFood.comboOptions || '[]')
+                        : (item.fastFood.comboOptions || []);
+                      const c = combos.find(c => (String(c.id) === String(item.comboId) || c.name === item.comboId));
+                      comboName = c?.name || item.comboId;
+                    }
+                  } else if ((item.itemType === 'product' || item.type === 'product' || !item.itemType) && item.product) {
+                    if (item.variantId && !variantName) {
+                      const variant = findVariant(item.product, item.variantId);
+                      variantName = getVariantLabel(variant);
+                    }
+                  }
+
+                  return (
+                    <div key={item.id} className="flex items-center space-x-3 sm:space-x-4 border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                        <img
+                          src={
+                            resolveImageUrl(
+                              item.itemType === 'fastfood' || item.type === 'fastfood'
+                                ? (item.fastFood?.mainImage || item.product?.mainImage)
+                                : (item.product?.coverImage || item.product?.images?.[0] || item.service?.images?.[0]?.url || item.service?.coverImage),
+                              fileBase
+                            )
+                          }
+                          alt={item.product?.name || item.fastFood?.name || item.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.currentTarget.src = '/placeholder.jpg'; }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-gray-900 text-xs">
+                          {item.product?.name || item.fastFood?.name || item.service?.title || item.name || 'Unnamed Item'}
+                        </h3>
+                        {/* Display variant/combo names for all items */}
+                        {(variantName || comboName || item.variantName) && (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {(variantName || item.variantName) && item.variantName !== '0-0' && variantName !== '0-0' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                                {item.variantName || variantName}
+                              </span>
+                            )}
+                            {comboName && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                                {comboName}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-baseline mt-1">
+                          <p className="text-xs text-gray-600">Qty: {item.quantity}</p>
+                          <p className="text-xs font-bold text-gray-900">{formatPrice(item.total)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Order Totals */}
+              <div className="border-t pt-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="font-medium">{formatPrice(scopedSummary.subtotal || 0)}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Delivery Fee</span>
+                  <span className="font-medium">
+                    {formData.deliveryMethod === 'pick_station' ? (
+                      selectedStation?.price > 0
+                        ? formatPrice(isFastFoodScope
+                          ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
+                          : selectedStation.price * totalQuantity)
+                        : <span className="text-green-600">FREE</span>
+                    ) : formData.deliveryMethod === 'home_delivery' ? (
+                      scopedSummary.deliveryFee === 0
+                        ? <span className="text-green-600">FREE</span>
+                        : formatPrice(scopedSummary.deliveryFee || 0)
+                    ) : (
+                      <span className="text-green-600">FREE</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="border-t border-gray-100 pt-3">
+                  <div className="flex justify-between text-xl font-bold text-blue-900 leading-none">
+                    <span>Total</span>
+                    <span>{formatPrice(
+                      formData.deliveryMethod === 'home_delivery'
+                        ? (scopedSummary.total || 0)
+                        : formData.deliveryMethod === 'pick_station'
+                          ? (scopedSummary.subtotal || 0) + (isFastFoodScope
+                            ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
+                            : (selectedStation?.price || 0) * totalQuantity)
+                          : (scopedSummary.subtotal || 0)
+                    )}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 2: Delivery Information */}
+          <div className="space-y-6 order-2 lg:order-2">
             <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6">
-              <h2 className="text-xl font-semibold mb-4">Delivery Information</h2>
+              <h2 className="text-xl font-semibold mb-4 text-gray-800">Delivery Information</h2>
               <div className="space-y-4">
                 {/* Delivery Method Selection */}
                 <div>
@@ -1405,6 +1522,15 @@ function Checkout() {
                   </div>
                 )}
 
+              </div>
+            </div>
+          </div>
+
+          {/* Column 3: Payment Method & Bottom Actions */}
+          <div className="space-y-6 order-3 lg:order-3">
+            <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6">
+              <h2 className="text-xl font-semibold mb-4 text-gray-800">Payment Method</h2>
+              <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-4">
                     Payment Method *
@@ -1416,7 +1542,7 @@ function Checkout() {
                       onClick={() => setFormData(prev => ({
                         ...prev,
                         paymentMethod: 'cash_on_delivery',
-                        paymentSubMethod: 'cash' // Set default sub-method
+                        paymentSubMethod: 'cash'
                       }))}
                       className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${formData.paymentMethod === 'cash_on_delivery'
                         ? 'border-green-500 bg-green-50 ring-2 ring-green-200'
@@ -1434,7 +1560,7 @@ function Checkout() {
                         </div>
                         <div>
                           <div className="font-medium text-gray-900">Cash on Delivery</div>
-                          <div className="text-sm text-gray-600">Pay when your order arrives</div>
+                          <div className="text-sm text-gray-600 font-normal">Pay on arrival</div>
                         </div>
                       </div>
                     </div>
@@ -1443,7 +1569,7 @@ function Checkout() {
                       onClick={() => setFormData(prev => ({
                         ...prev,
                         paymentMethod: 'prepay',
-                        paymentSubMethod: 'mpesa_prepay' // Set default sub-method
+                        paymentSubMethod: 'mpesa_prepay'
                       }))}
                       className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${formData.paymentMethod === 'prepay'
                         ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
@@ -1461,318 +1587,148 @@ function Checkout() {
                         </div>
                         <div>
                           <div className="font-medium text-gray-900">Prepay</div>
-                          <div className="text-sm text-gray-600">Pay before delivery</div>
+                          <div className="text-sm text-gray-600 font-normal">Pay before delivery</div>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Sub-payment Methods */}
+                  {/* Sub-payment Methods Selection */}
                   {formData.paymentMethod === 'cash_on_delivery' && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <h4 className="font-medium text-green-900 mb-3">Cash on Delivery Options</h4>
+                      <h4 className="font-medium text-green-900 mb-3 text-xs uppercase tracking-wider">COD Options</h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div
                           onClick={() => setFormData(prev => ({ ...prev, paymentSubMethod: 'cash' }))}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all duration-200 ${formData.paymentSubMethod === 'cash'
-                            ? 'border-green-500 bg-white'
-                            : 'border-gray-200 hover:border-gray-300'
-                            }`}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all ${formData.paymentSubMethod === 'cash' ? 'border-green-500 bg-white' : 'border-gray-200 bg-white/50'}`}
                         >
-                          <div className="flex items-center">
-                            <div className={`w-3 h-3 rounded-full border mr-2 ${formData.paymentSubMethod === 'cash'
-                              ? 'border-green-500 bg-green-500'
-                              : 'border-gray-300'
-                              }`}>
-                              {formData.paymentSubMethod === 'cash' && (
-                                <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                              )}
-                            </div>
-                            <span className="text-sm font-medium">Cash</span>
-                          </div>
+                          <span className="text-sm font-medium">Cash</span>
                         </div>
-
                         <div
                           onClick={() => setFormData(prev => ({ ...prev, paymentSubMethod: 'mpesa' }))}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all duration-200 ${formData.paymentSubMethod === 'mpesa'
-                            ? 'border-green-500 bg-white'
-                            : 'border-gray-200 hover:border-gray-300'
-                            }`}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all ${formData.paymentSubMethod === 'mpesa' ? 'border-green-500 bg-white' : 'border-gray-200 bg-white/50'}`}
                         >
-                          <div className="flex items-center">
-                            <div className={`w-3 h-3 rounded-full border mr-2 ${formData.paymentSubMethod === 'mpesa'
-                              ? 'border-green-500 bg-green-500'
-                              : 'border-gray-300'
-                              }`}>
-                              {formData.paymentSubMethod === 'mpesa' && (
-                                <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                              )}
-                            </div>
-                            <span className="text-sm font-medium">M-Pesa (Mobile Money)</span>
-                          </div>
+                          <span className="text-sm font-medium">M-Pesa (Manual)</span>
                         </div>
                       </div>
+                      {formData.paymentSubMethod === 'mpesa' && (
+                        <div className="mt-4">
+                          <MpesaManualInstructions 
+                            amount={scopedSummary.total} 
+                            onScreenshotUpload={(url) => setFormData(prev => ({...prev, paymentProofUrl: url}))}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {formData.paymentMethod === 'prepay' && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h4 className="font-medium text-blue-900 mb-3">Prepay Options</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <h4 className="font-medium text-blue-900 mb-3 text-xs uppercase tracking-wider">Prepay Options</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div
                           onClick={() => setFormData(prev => ({ ...prev, paymentSubMethod: 'mpesa_prepay' }))}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all duration-200 ${formData.paymentSubMethod === 'mpesa_prepay'
-                            ? 'border-blue-500 bg-white'
-                            : 'border-gray-200 hover:border-gray-300'
-                            }`}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all ${formData.paymentSubMethod === 'mpesa_prepay' ? 'border-blue-500 bg-white' : 'border-gray-200 bg-white/50'}`}
                         >
-                          <div className="flex items-center">
-                            <div className={`w-3 h-3 rounded-full border mr-2 ${formData.paymentSubMethod === 'mpesa_prepay'
-                              ? 'border-blue-500 bg-blue-500'
-                              : 'border-gray-300'
-                              }`}>
-                              {formData.paymentSubMethod === 'mpesa_prepay' && (
-                                <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                              )}
-                            </div>
-                            <span className="text-sm font-medium">M-Pesa (STK Push)</span>
-                          </div>
+                          <span className="text-sm font-medium">M-Pesa (STK)</span>
+                        </div>
+                        <div
+                          onClick={() => setFormData(prev => ({ ...prev, paymentSubMethod: 'airtel_money_prepay' }))}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all ${formData.paymentSubMethod === 'airtel_money_prepay' ? 'border-blue-500 bg-white' : 'border-gray-200 bg-white/50'}`}
+                        >
+                          <span className="text-sm font-medium">Airtel Money</span>
+                        </div>
+                        <div
+                          onClick={() => setFormData(prev => ({ ...prev, paymentSubMethod: 'mpesa' }))}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all ${formData.paymentSubMethod === 'mpesa' ? 'border-blue-500 bg-white' : 'border-gray-200 bg-white/50'}`}
+                        >
+                          <span className="text-sm font-medium">M-Pesa (Manual)</span>
                         </div>
                       </div>
+
+                      {formData.paymentSubMethod === 'mpesa' && (
+                        <div className="mt-4">
+                          <MpesaManualInstructions 
+                            amount={scopedSummary.total} 
+                            required={true}
+                            onScreenshotUpload={(url) => {
+                              setFormData(prev => ({...prev, paymentProofUrl: url}));
+                              setPaymentCompleted(true); // Treat screenshot upload as "completed" for manual prepay
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Mobile Money Phone Number Input */}
-                {(formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'airtel_money_prepay' ||
-                  formData.paymentSubMethod === 'mpesa' || formData.paymentSubMethod === 'airtel_money') && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Mobile Money Phone Number *
-                      </label>
-                      <input
-                        type="tel"
-                        name="mobileMoneyPhone"
-                        value={formData.mobileMoneyPhone}
-                        onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
-                        onChange={handleInputChange}
-                        placeholder="e.g., 0712345678, 0123456789, or +254712345678"
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        required={formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'airtel_money_prepay' ||
-                          formData.paymentSubMethod === 'mpesa' || formData.paymentSubMethod === 'airtel_money'}
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Enter the phone number linked to your {formData.paymentSubMethod === 'mpesa_prepay' || formData.paymentSubMethod === 'mpesa' ? 'M-Pesa' : 'Airtel Money'} account
-                      </p>
-                    </div>
-                  )}
+                {/* Mobile Money Input Section */}
+                {['mpesa_prepay', 'airtel_money_prepay'].includes(formData.paymentSubMethod) && (
+                  <div className="pt-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Phone Number *</label>
+                    <input
+                      type="tel"
+                      value={formData.mobileMoneyPhone}
+                      onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                      onChange={(e) => setFormData(prev => ({ ...prev, mobileMoneyPhone: e.target.value }))}
+                      placeholder="e.g., 0712345678"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                    {formData.paymentMethod === 'prepay' && formData.paymentSubMethod !== 'mpesa' && (
+                      <button
+                        type="button"
+                        onClick={handleInitiatePrepay}
+                        disabled={loading || pollingPayment}
+                        className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-bold disabled:opacity-50"
+                      >
+                        {pollingPayment ? 'Waiting for confirmation...' : 'Initiate Payment'}
+                      </button>
+                    )}
+                    {paymentCompleted && (
+                      <div className="mt-3 p-3 bg-green-100 text-green-700 rounded-md text-sm font-bold flex items-center gap-2">
+                        <span>✓</span> Payment Confirmed!
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Bottom Actions */}
-          <div className="space-y-6 order-3 lg:col-start-1 lg:row-start-2">
-
-            <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6 space-y-4">
-              {/* Referral Code Input */}
+            {/* Bottom Actions: Referral & Submit */}
+            <div className="bg-orange-50 md:rounded-lg shadow-sm border border-orange-100 p-4 md:p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Referral Code (Optional) - For this order
-                </label>
+                <label className="block text-sm font-medium text-orange-800 mb-1">Referral Code (Optional)</label>
                 <input
                   type="text"
                   name="referralCode"
                   value={formData.referralCode}
                   onChange={handleInputChange}
                   readOnly={localStorage.getItem('marketing_mode') === 'true'}
-                  placeholder={localStorage.getItem('marketing_mode') === 'true' ? "Referral code locked in marketing mode" : "Enter referral code if someone influenced this specific purchase"}
-                  className={`w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${localStorage.getItem('marketing_mode') === 'true' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
-                  maxLength={20}
+                  placeholder={localStorage.getItem('marketing_mode') === 'true' ? "Referral code locked" : "Enter code..."}
+                  className="w-full border border-orange-200 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  If a marketer recommended this specific purchase, enter their code here.
-                </p>
-
-                {/* Display Registration Referral if exists */}
-                {userProfile?.referredByReferralCode && (
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-md">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0 text-blue-500 mt-0.5">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                      </div>
-                      <div className="ml-2">
-                        <p className="text-sm font-medium text-blue-800">Registration Referral Applied</p>
-                        <p className="text-xs text-blue-600 mt-0.5">
-                          Code <strong>{userProfile.referredByReferralCode}</strong> from your registration will be automatically applied as a secondary referral (40% commission).
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
-              <button
-                type="submit"
-                disabled={loading || (formData.paymentMethod === 'prepay' && !paymentCompleted && pollingPayment)}
-                className="w-full bg-orange-500 text-white py-3 px-4 rounded-lg hover:bg-orange-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Processing...' :
-                  (formData.paymentMethod === 'prepay' && !paymentCompleted) ?
-                    (pollingPayment ? 'Waiting for Payment...' : 'Pay Now') :
-                    'Place Order'}
-              </button>
+              {!user?.phoneVerified ? (
+                <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
+                  <h3 className="text-sm font-semibold text-blue-800 mb-2">Phone Verification Required</h3>
+                  <PhoneVerification currentPhone={user?.phone} onVerified={() => window.location.reload()} />
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={loading || (formData.paymentMethod === 'prepay' && !paymentCompleted)}
+                  className={`w-full py-4 rounded-xl font-black text-xl shadow-xl transition-all transform active:scale-95 ${
+                    (formData.paymentMethod === 'prepay' && !paymentCompleted)
+                      ? 'bg-gray-300 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:shadow-orange-200'
+                  }`}
+                >
+                  {loading ? 'Processing...' : 'Place Order'}
+                </button>
+              )}
             </div>
-          </div>
-
-          {/* Order Summary */}
-          <div className="space-y-6 order-2 lg:col-start-2 lg:row-start-1 lg:row-span-2">
-            <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6">
-              <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
-
-              {/* Order Items */}
-              <div className="space-y-4 mb-6">
-                {scopedItems.map((item) => {
-                  // Reconstruct variant and combo names for fast food items
-                  let variantName = null;
-                  let comboName = null;
-
-                  console.log('🛒 [Checkout] Processing item:', {
-                    id: item.id,
-                    name: item.product?.name || item.fastFood?.name,
-                    itemType: item.itemType,
-                    type: item.type,
-                    variantId: item.variantId,
-                    comboId: item.comboId,
-                    hasFastFood: !!item.fastFood,
-                    sizeVariants: item.fastFood?.sizeVariants,
-                    comboOptions: item.fastFood?.comboOptions
-                  });
-
-                  if ((item.itemType === 'fastfood' || item.type === 'fastfood') && item.fastFood) {
-                    // Find variant name
-                    if (item.variantId && item.fastFood.sizeVariants) {
-                      const variants = typeof item.fastFood.sizeVariants === 'string'
-                        ? JSON.parse(item.fastFood.sizeVariants || '[]')
-                        : (item.fastFood.sizeVariants || []);
-                      const variant = variants.find(
-                        v => (v.id === item.variantId || v.name === item.variantId || v.size === item.variantId)
-                      );
-                      variantName = variant?.size || variant?.name || item.variantId;
-                      if (variant) console.log('✅ [Checkout] Found variant name:', variantName);
-                    }
-
-                    // Find combo name
-                    if (item.comboId && item.fastFood.comboOptions) {
-                      const combos = typeof item.fastFood.comboOptions === 'string'
-                        ? JSON.parse(item.fastFood.comboOptions || '[]')
-                        : (item.fastFood.comboOptions || []);
-                      const combo = combos.find(
-                        c => (c.id === item.comboId || c.name === item.comboId)
-                      );
-                      comboName = combo?.name || item.comboId;
-                      if (combo) console.log('✅ [Checkout] Found combo name:', comboName);
-                    }
-                  }
-
-                  return (
-                    <div key={item.id} className="flex items-center space-x-3 sm:space-x-4 border-b border-gray-200 pb-4 last:border-b-0 last:pb-0">
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                        <img
-                          src={
-                            resolveImageUrl(
-                              item.itemType === 'fastfood' || item.type === 'fastfood'
-                                ? (item.fastFood?.mainImage || item.product?.mainImage)
-                                : (item.product?.coverImage || item.product?.images?.[0] || item.service?.images?.[0]?.url || item.service?.coverImage),
-                              fileBase
-                            )
-                          }
-                          alt={item.product?.name || item.fastFood?.name || item.name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => { e.currentTarget.src = '/placeholder.jpg'; }}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-medium text-gray-900 text-sm">
-                          {item.product?.name || item.fastFood?.name || item.service?.title || item.name || 'Unnamed Item'}
-                        </h3>
-                        {/* Display variant/combo names for fast food items */}
-                        {(variantName || comboName) && (
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {variantName && <span>{variantName}</span>}
-                            {variantName && comboName && <span> • </span>}
-                            {comboName && <span>{comboName}</span>}
-                          </p>
-                        )}
-                        <p className="text-sm text-gray-600">
-                          Quantity: {item.quantity}
-                        </p>
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            {Number(item.product?.discountPercentage || item.fastFood?.discountPercentage || 0) > 0 && (
-                              <span className="text-xs text-gray-400 line-through">
-                                {formatPrice(item.product?.displayPrice || item.product?.basePrice || item.fastFood?.displayPrice || item.fastFood?.basePrice || 0)}
-                              </span>
-                            )}
-                            <span className="text-sm font-medium text-gray-900">
-                              {formatPrice(item.price)}
-                            </span>
-                          </div>
-                          <p className="text-sm font-bold text-gray-900">
-                            Total: {formatPrice(item.total)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Order Totals */}
-              <div className="border-t pt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subtotal ({scopedSummary.itemCount} items)</span>
-                  <span className="font-medium">{formatPrice(scopedSummary.subtotal || 0)}</span>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Delivery Fee {formData.deliveryMethod === 'pick_station' && totalQuantity > 1 && !isFastFoodScope && `(${totalQuantity} items)`}</span>
-                  <span className="font-medium">
-                    {formData.deliveryMethod === 'pick_station' ? (
-                      selectedStation?.price > 0
-                        ? formatPrice(isFastFoodScope
-                          ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
-                          : selectedStation.price * totalQuantity)
-                        : <span className="text-green-600">FREE</span>
-                    ) : formData.deliveryMethod === 'home_delivery' ? (
-                      scopedSummary.deliveryFee === 0
-                        ? <span className="text-green-600">FREE</span>
-                        : formatPrice(scopedSummary.deliveryFee || 0)
-                    ) : (
-                      <span className="text-green-600">FREE</span>
-                    )}
-                  </span>
-                </div>
-
-                <div className="border-t pt-2">
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total</span>
-                    <span>{formatPrice(
-                      formData.deliveryMethod === 'home_delivery'
-                        ? (scopedSummary.total || 0)
-                        : formData.deliveryMethod === 'pick_station'
-                          ? (scopedSummary.subtotal || 0) + (isFastFoodScope
-                            ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
-                            : (selectedStation?.price || 0) * totalQuantity)
-                          : (scopedSummary.subtotal || 0)
-                    )}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-
           </div>
         </form>
       </div>

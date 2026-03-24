@@ -4,7 +4,6 @@ const { User } = require('../models');
  * Calculate and return user verification status
  * Checks 4 requirements: profile, address, email, phone
  */
-// Fixed syntax error: removed space in function name
 const getVerificationStatus = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -121,6 +120,54 @@ const getVerificationStatus = async (req, res) => {
             error: error.message
         });
     }
+};
+
+/**
+ * Verify Firebase ID Token and update user phone verification status
+ */
+const verifyFirebaseToken = async (req, res) => {
+  try {
+    const { idToken, phone } = req.body;
+    
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: 'Firebase ID token is required' });
+    }
+
+    // Verify the ID token using Firebase Admin
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const firebasePhone = decodedToken.phone_number;
+
+    if (!firebasePhone) {
+      return res.status(400).json({ success: false, message: 'Token does not contain a verified phone number' });
+    }
+
+    // Normalize phone numbers for comparison
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Update user record
+    user.phone = firebasePhone;
+    user.phoneVerified = true;
+    await user.save();
+
+    console.log(`✅ [Firebase Verify] User ${user.id} verified phone: ${firebasePhone}`);
+
+    res.json({
+      success: true,
+      message: 'Phone number verified successfully',
+      phone: firebasePhone
+    });
+
+  } catch (error) {
+    console.error('❌ [Firebase Verify] Verification failed:', error);
+    res.status(401).json({
+      success: false,
+      message: 'Phone verification failed',
+      error: error.message
+    });
+  }
 };
 
 module.exports = {

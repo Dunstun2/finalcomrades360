@@ -127,6 +127,26 @@ const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified })
         }
     };
 
+    const handleConfirmManually = async () => {
+        if (!window.confirm("Are you sure you want to MANUALLY confirm this payment? Use this only after verifying the customer's payment screenshot or bank statement.")) return;
+
+        try {
+            setLoading(true);
+            setError(null);
+            const res = await api.post('/payments/verify', { 
+                orderId: order.id,
+                manual: true
+            });
+            if (res.data.success) {
+                setPaymentStatus('completed');
+            }
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to manually verify payment');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleProceed = () => {
         if (onPaymentVerified) {
             onPaymentVerified();
@@ -257,6 +277,47 @@ const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified })
                                     </div>
                                 )}
                             </div>
+
+                            {/* Manual Verification Option (Show Screenshot) */}
+                            {order?.paymentProofUrl ? (
+                                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
+                                    <h5 className="font-black text-amber-900 text-sm flex items-center gap-2 mb-3 uppercase tracking-tight">
+                                        <FaCheckCircle className="text-amber-500" /> Manual Payment Verification
+                                    </h5>
+                                    
+                                    <div className="mb-4 aspect-video bg-gray-200 rounded-xl overflow-hidden border-2 border-white shadow-inner group relative">
+                                        <img 
+                                            src={order.paymentProofUrl} 
+                                            alt="Payment Proof" 
+                                            className="w-full h-full object-contain cursor-zoom-in"
+                                            onClick={() => window.open(order.paymentProofUrl, '_blank')}
+                                        />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none">
+                                            <span className="text-white text-[10px] font-black uppercase tracking-widest">Click to Expand</span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={handleConfirmManually}
+                                        disabled={loading}
+                                        className="w-full bg-amber-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-700 active:scale-95 disabled:opacity-50 shadow-md shadow-amber-200 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {loading ? <FaSpinner className="animate-spin" /> : <>Confirm Payment Manually</>}
+                                    </button>
+                                    <p className="text-[9px] text-amber-700 font-bold text-center mt-2 italic uppercase">Verify screenshot before confirming</p>
+                                </div>
+                            ) : (
+                                <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl border-dashed text-center">
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">No manual payment screenshot uploaded</p>
+                                    <button
+                                        onClick={handleConfirmManually}
+                                        disabled={loading}
+                                        className="mt-2 text-blue-600 text-[10px] font-black uppercase hover:underline"
+                                    >
+                                        Force Manual Confirm
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 

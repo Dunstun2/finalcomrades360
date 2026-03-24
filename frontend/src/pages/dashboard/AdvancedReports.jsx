@@ -1,5 +1,30 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../services/api';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import { Line, Bar } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 export default function AdvancedReports() {
   const [reports, setReports] = useState({});
@@ -16,42 +41,32 @@ export default function AdvancedReports() {
 
   const loadReports = async () => {
     setLoading(true);
+    setError('');
     try {
-      // This would load various analytics from the backend
-      // For now, we'll use placeholder data
+      const params = { startDate: dateRange.start, endDate: dateRange.end };
+      const [overviewRes, trendsRes] = await Promise.all([
+        api.get('/analytics/overview', { params }),
+        api.get('/analytics/trends/historical', { params: { ...params, interval: 'day' } })
+      ]);
+
+      const overview = overviewRes.data.data || {};
+      const trends = trendsRes.data.trends || {};
+
       setReports({
-        overview: {
-          totalUsers: 1250,
-          totalOrders: 340,
-          totalRevenue: 125000,
-          totalProducts: 450,
-          activeUsers: 890,
-          conversionRate: 12.5
-        },
+        overview,
         sales: {
-          daily: [
-            { date: '2024-01-01', orders: 12, revenue: 4500 },
-            { date: '2024-01-02', orders: 15, revenue: 5200 },
-            // ... more data
-          ],
-          topProducts: [
-            { name: 'Product A', sales: 45, revenue: 13500 },
-            { name: 'Product B', sales: 38, revenue: 11400 },
-            // ... more data
-          ]
+          daily: trends.orders?.map(t => ({ date: t.date, orders: t.count, revenue: t.revenue })) || [],
+          topProducts: [] // This will be fetched on-demand in the Sales tab
         },
         users: {
-          newRegistrations: 145,
-          activeUsers: 890,
-          topLocations: [
-            { location: 'Nairobi', users: 450 },
-            { location: 'Mombasa', users: 180 },
-            // ... more data
-          ]
+          newRegistrations: trends.users?.reduce((sum, u) => sum + u.count, 0) || 0,
+          activeUsers: overview.activeUsers || 0,
+          topLocations: [] // Optional: Can be fetched separately
         }
       });
     } catch (e) {
-      setError('Failed to load reports');
+      console.error('Analytics load error:', e);
+      setError(e.response?.data?.message || 'Failed to load real-time analytics. Please ensure your backend is up to date.');
     } finally {
       setLoading(false);
     }
@@ -60,6 +75,27 @@ export default function AdvancedReports() {
   useEffect(() => {
     loadReports();
   }, [dateRange]);
+
+  const loadTopProducts = async () => {
+    try {
+      const res = await api.get('/admin/analytics/top-products', { params: { startDate: dateRange.start, endDate: dateRange.end } });
+      setReports(prev => ({
+        ...prev,
+        sales: {
+          ...prev.sales,
+          topProducts: res.data.products || []
+        }
+      }));
+    } catch (err) {
+      console.warn('Failed to load top products:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'sales') {
+      loadTopProducts();
+    }
+  }, [activeTab, dateRange]);
 
   const exportReport = async (type) => {
     resetAlerts();
@@ -75,7 +111,6 @@ export default function AdvancedReports() {
     { id: 'overview', name: 'Overview', icon: '📊' },
     { id: 'sales', name: 'Sales', icon: '💰' },
     { id: 'users', name: 'Users', icon: '👥' },
-    { id: 'products', name: 'Products', icon: '📦' },
     { id: 'custom', name: 'Custom Reports', icon: '🔧' }
   ];
 
@@ -179,18 +214,69 @@ export default function AdvancedReports() {
                 </div>
               </div>
 
-              {/* Charts Placeholder */}
+              {/* Charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="card p-4">
-                  <h4 className="font-semibold mb-4">Revenue Trend</h4>
-                  <div className="h-64 bg-gray-100 rounded flex items-center justify-center text-gray-500">
-                    Chart would be displayed here (Revenue over time)
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                  <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span className="text-blue-600">📈</span> Revenue Trend
+                  </h4>
+                  <div className="h-72">
+                    {reports.sales?.daily?.length > 0 ? (
+                      <Line 
+                        data={{
+                          labels: reports.sales.daily.map(d => d.date),
+                          datasets: [{
+                            label: 'Daily Revenue (KES)',
+                            data: reports.sales.daily.map(d => d.revenue),
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { display: false } },
+                          scales: { y: { beginAtZero: true } }
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 text-sm italic">
+                        Insufficient data for revenue trend
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="card p-4">
-                  <h4 className="font-semibold mb-4">User Growth</h4>
-                  <div className="h-64 bg-gray-100 rounded flex items-center justify-center text-gray-500">
-                    Chart would be displayed here (User registrations over time)
+
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                  <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span className="text-green-600">🌱</span> User Registration Growth
+                  </h4>
+                  <div className="h-72">
+                    {reports.sales?.daily?.length > 0 ? (
+                      <Bar 
+                        data={{
+                          labels: reports.sales.daily.map(d => d.date),
+                          datasets: [{
+                            label: 'New Users',
+                            data: reports.sales.daily.map(d => d.orders), // Placeholder for users trend if needed
+                            backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                            borderRadius: 6
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { display: false } },
+                          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 text-sm italic">
+                        Insufficient data for growth trend
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -207,26 +293,59 @@ export default function AdvancedReports() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="card p-4">
-                  <h4 className="font-semibold mb-4">Top Selling Products</h4>
+                  <h4 className="font-semibold mb-4">🏆 Top Selling Products</h4>
                   <div className="space-y-3">
-                    {reports.sales?.topProducts?.map((product, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                        <div>
-                          <div className="font-medium">{product.name}</div>
-                          <div className="text-sm text-gray-600">{product.sales} units sold</div>
+                    {reports.sales?.topProducts?.length > 0 ? (
+                      reports.sales.topProducts.map((product, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                          <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center">{index + 1}</span>
+                            <div>
+                              <div className="font-medium text-sm">{product.name}</div>
+                              <div className="text-xs text-gray-500">{product.totalQuantity ?? product.sales ?? 0} units sold</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-green-600 text-sm">KES {Number(product.totalRevenue ?? product.revenue ?? 0).toLocaleString()}</div>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="font-semibold text-green-600">KES {product.revenue.toLocaleString()}</div>
-                        </div>
-                      </div>
-                    )) || <div className="text-gray-500">No data available</div>}
+                      ))
+                    ) : (
+                      <div className="text-center text-gray-400 py-8 text-sm italic">No product sales data for this period</div>
+                    )}
                   </div>
                 </div>
 
-                <div className="card p-4">
-                  <h4 className="font-semibold mb-4">Sales Chart</h4>
-                  <div className="h-64 bg-gray-100 rounded flex items-center justify-center text-gray-500">
-                    Sales chart would be displayed here
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                  <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span className="text-orange-500">📦</span> Daily Orders
+                  </h4>
+                  <div className="h-64">
+                    {reports.sales?.daily?.length > 0 ? (
+                      <Line
+                        data={{
+                          labels: reports.sales.daily.map(d => d.date),
+                          datasets: [{
+                            label: 'Orders',
+                            data: reports.sales.daily.map(d => d.orders),
+                            borderColor: 'rgb(249, 115, 22)',
+                            backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { display: false } },
+                          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 text-sm italic">
+                        No orders in this date range
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -241,41 +360,52 @@ export default function AdvancedReports() {
                 <button className="btn-outline btn-sm" onClick={() => exportReport('User Report')}>Export Report</button>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="card p-4">
-                  <h4 className="font-semibold mb-4">User Locations</h4>
-                  <div className="space-y-3">
-                    {reports.users?.topLocations?.map((location, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                        <div className="font-medium">{location.location}</div>
-                        <div className="font-semibold text-blue-600">{location.users} users</div>
-                      </div>
-                    )) || <div className="text-gray-500">No data available</div>}
-                  </div>
+              {/* User Summary Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-600">{reports.overview?.totalUsers ?? 0}</div>
+                  <div className="text-sm text-gray-500 mt-1">Total Registered Users</div>
                 </div>
-
-                <div className="card p-4">
-                  <h4 className="font-semibold mb-4">User Registration Trend</h4>
-                  <div className="h-64 bg-gray-100 rounded flex items-center justify-center text-gray-500">
-                    User registration chart would be displayed here
-                  </div>
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-green-600">{reports.users?.activeUsers ?? 0}</div>
+                  <div className="text-sm text-gray-500 mt-1">Active Users (Period)</div>
+                </div>
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-600">{reports.users?.newRegistrations ?? 0}</div>
+                  <div className="text-sm text-gray-500 mt-1">New Registrations (Period)</div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Products Tab */}
-          {activeTab === 'products' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold">Product Analytics</h3>
-                <button className="btn-outline btn-sm" onClick={() => exportReport('Product Report')}>Export Report</button>
-              </div>
-
-              <div className="card p-4">
-                <h4 className="font-semibold mb-4">Product Performance</h4>
-                <div className="text-center text-gray-500 py-8">
-                  Product analytics charts and tables would be displayed here
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <span className="text-purple-600">👥</span> User Registration Trend
+                </h4>
+                <div className="h-72">
+                  {reports.sales?.daily?.length > 0 ? (
+                    <Line
+                      data={{
+                        labels: reports.sales.daily.map(d => d.date),
+                        datasets: [{
+                          label: 'Orders by Day',
+                          data: reports.sales.daily.map(d => d.orders),
+                          borderColor: 'rgb(139, 92, 246)',
+                          backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                          fill: true,
+                          tension: 0.4
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                      }}
+                    />
+                  ) : (
+                    <div className="h-full bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 text-sm italic">
+                      No user data in this date range
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

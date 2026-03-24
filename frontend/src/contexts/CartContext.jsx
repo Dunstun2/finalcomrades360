@@ -4,6 +4,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/ui/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Checkbox } from '../components/ui/checkbox';
+import { 
+  normalizeVariants as unifyVariants, 
+  getVariantId as unifiedGetVariantId, 
+  getVariantLabel as unifiedGetVariantLabel 
+} from '../utils/variantUtils';
 
 const CartContext = createContext({
   count: 0,
@@ -93,24 +98,23 @@ export function CartProvider({ children }) {
   };
 
   const getProductVariants = (productData = {}) => {
-    const direct = parseMaybeJson(productData.variants, []);
-    if (Array.isArray(direct) && direct.length > 0) return direct;
-
-    const tags = parseMaybeJson(productData.tags, {});
-    const fromTags = parseMaybeJson(tags?.variants, []);
-    return Array.isArray(fromTags) ? fromTags : [];
+    const normalized = unifyVariants(productData);
+    return normalized;
   };
 
   const getVariantIdentifier = (variant) => {
-    if (!variant || typeof variant !== 'object') return '';
-    return String(variant.id || variant.sku || variant.name || variant.size || '').trim();
+    const finalId = unifiedGetVariantId(variant);
+    
+    console.log('[CartContext] getVariantIdentifier debug:', { 
+      input: variant, 
+      final: finalId 
+    });
+
+    return finalId;
   };
 
   const getVariantLabel = (variantOrId) => {
-    if (!variantOrId) return '';
-    if (typeof variantOrId === 'string') return variantOrId;
-    if (typeof variantOrId === 'object') return variantOrId.name || variantOrId.size || variantOrId.sku || variantOrId.id || '';
-    return String(variantOrId);
+    return unifiedGetVariantLabel(variantOrId);
   };
 
   const openVariantConflictDialog = useCallback(({ existingVariantLabel, attemptedVariantLabel }) => {
@@ -378,9 +382,12 @@ export function CartProvider({ children }) {
         else payload.productId = productIdNum;
 
         const response = await api.post('/cart', payload);
+
         if (response.data.items && response.data.summary) {
           setCart({ items: response.data.items, summary: response.data.summary });
           setCount(response.data.summary.itemCount || 0);
+        } else if (response.data.alreadyInCart) {
+          await refresh(true);
         } else {
           await refresh(true);
         }
@@ -650,7 +657,7 @@ export function CartProvider({ children }) {
     }
 
     // ORIGINAL ADDTOCART LOGIC (now calling internal)
-    return addToCartInternal(productId, quantity, options);
+    return addToCartInternal(productId, quantity, { ...options, variantId, selectedVariant });
   }, [refresh, calculateSummary, getActiveCartType, cart?.items, toast, openVariantConflictDialog, openFastFoodConflictDialog, clearCart, addToQueue, addToCartInternal]);
 
   const processQueue = useCallback(async () => {
@@ -686,9 +693,9 @@ export function CartProvider({ children }) {
     setCart(prevCart => {
       if (!prevCart) return prevCart;
       const updatedItems = prevCart.items.map(item => {
-        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && item.variantId === options.variantId && item.comboId === options.comboId) ||
+        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
           (type === 'service' && item.serviceId === parseInt(productId)) ||
-          (type === 'product' && item.productId === parseInt(productId) && item.variantId === options.variantId);
+          (type === 'product' && item.productId === parseInt(productId) && (item.variantId || null) === (options.variantId || null));
         if (isMatch) {
           const unitPrice = Number(item.price || 0);
           const productData = item.fastFood || item.service || item.product || {};
@@ -722,9 +729,9 @@ export function CartProvider({ children }) {
     setCart(prevCart => {
       if (!prevCart) return prevCart;
       const updatedItems = prevCart.items.filter(item => {
-        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && item.variantId === options.variantId && item.comboId === options.comboId) ||
+        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
           (type === 'service' && item.serviceId === parseInt(productId)) ||
-          (type === 'product' && item.productId === parseInt(productId) && item.variantId === options.variantId);
+          (type === 'product' && item.productId === parseInt(productId) && (item.variantId || null) === (options.variantId || null));
         return !isMatch;
       });
       const newCart = { ...prevCart, items: updatedItems, summary: calculateSummary(updatedItems) };

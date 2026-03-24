@@ -688,14 +688,15 @@ const getHomepageProducts = async (req, res) => {
       where: whereClause,
       attributes: [
         'id', 'name', 'shortDescription', 'basePrice', 'displayPrice',
+        'discountPrice', 'discountPercentage',
         'stock', 'categoryId', 'subcategoryId', 'createdAt',
-        'coverImage'
+        'coverImage', 'variants', 'tags'
       ],
       include: [
         {
           model: User,
           as: 'seller',
-          attributes: ['id', 'name', 'role'],
+          attributes: ['id', 'name', 'role', 'businessName'],
           required: false
         }
       ],
@@ -713,7 +714,8 @@ const getHomepageProducts = async (req, res) => {
 
 
       // Add price field mapping for frontend compatibility
-      plain.price = plain.displayPrice || plain.basePrice || 0;
+      plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+      plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
 
       // Add super admin flag
       if (plain.seller && ['superadmin', 'super_admin', 'super-admin', 'admin'].includes(String(plain.seller.role || '').toLowerCase())) {
@@ -892,7 +894,7 @@ const getAllProducts = async (req, res) => {
         'stock', 'status', 'approved', 'reviewStatus', 'categoryId',
         'subcategoryId', 'sellerId', 'createdAt', 'isActive', 'visibilityStatus',
         'marketingEnabled', 'marketingCommission', 'marketingCommissionType',
-        'coverImage', 'isFlashSale' // Added isFlashSale for UI badges
+        'coverImage', 'isFlashSale', 'variants', 'tags'
       ];
     }
 
@@ -926,7 +928,7 @@ const getAllProducts = async (req, res) => {
       }
 
       // Add price field mapping for frontend compatibility
-      plain.price = plain.displayPrice || plain.discountPrice || plain.basePrice || 0;
+      plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
 
       // Ensure critical status fields are present and correctly typed for frontend filters
       // This helps if they are missing from certain database rows or cache objects
@@ -996,7 +998,7 @@ const getRecentlyApprovedProducts = async (req, res) => {
         updatedAt: { [Op.gte]: thirtyDaysAgo }
       },
       include: [
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'role'], required: false },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'role', 'businessName'], required: false },
         { model: Category, as: 'category', attributes: ['id', 'name'], required: false },
         { model: Subcategory, as: 'subcategory', attributes: ['id', 'name'], required: false }
       ],
@@ -1009,6 +1011,8 @@ const getRecentlyApprovedProducts = async (req, res) => {
     const sanitized = products.map(p => {
       const plain = removeInlineListImages(p.get({ plain: true }));
       plain.images = [plain.coverImage, ...(plain.galleryImages || [])].filter(Boolean);
+      plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+      plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
       plain.isSuperAdminProduct = plain.seller && ['superadmin', 'super_admin', 'admin'].includes(String(plain.seller.role || '').toLowerCase());
       return plain;
     });
@@ -1047,7 +1051,7 @@ const getSuperAdminProducts = async (req, res) => {
           {
             model: User,
             as: 'seller',
-            attributes: ['id', 'name', 'email', 'phone', 'role'],
+            attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'],
             where: {
               role: { [Op.in]: ['superadmin', 'super_admin', 'super-admin', 'admin'] }
             },
@@ -1072,6 +1076,8 @@ const getSuperAdminProducts = async (req, res) => {
       const sanitized = await Promise.all(products.map(async (p) => {
         const plain = p.get({ plain: true });
         plain.images = await ensureImagesExist((plain.galleryImages ? [plain.coverImage, ...plain.galleryImages] : [plain.coverImage]));
+        plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+        plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
         return plain;
       }));
 
@@ -1091,7 +1097,7 @@ const getSuperAdminProducts = async (req, res) => {
           {
             model: User,
             as: 'seller',
-            attributes: ['id', 'name', 'email', 'phone', 'role'],
+            attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'],
             where: {
               role: { [Op.in]: ['superadmin', 'super_admin', 'super-admin', 'admin'] }
             },
@@ -1116,6 +1122,8 @@ const getSuperAdminProducts = async (req, res) => {
       const sanitized = await Promise.all(products.map(async (p) => {
         const plain = p.get({ plain: true });
         plain.images = await ensureImagesExist((plain.galleryImages ? [plain.coverImage, ...plain.galleryImages] : [plain.coverImage]));
+        plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+        plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
         return plain;
       }));
 
@@ -1139,7 +1147,7 @@ const getPendingProducts = async (req, res) => {
         reviewStatus: 'pending'
       },
       include: [
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role'], required: true },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: true },
         { model: Category, as: 'category', attributes: ['id', 'name'], required: false },
         { model: Subcategory, as: 'subcategory', attributes: ['id', 'name'], required: false }
       ],
@@ -1163,6 +1171,8 @@ const getPendingProducts = async (req, res) => {
     const sanitized = products.map(p => {
       const plain = p.get({ plain: true });
       plain.images = [plain.coverImage, ...(plain.galleryImages || [])].filter(Boolean);
+      plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+      plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
       return plain;
     });
 
@@ -1271,7 +1281,7 @@ const getProductById = async (req, res) => {
           {
             model: User,
             as: 'seller',
-            attributes: ['id', 'name', 'email', 'phone'],
+            attributes: ['id', 'name', 'email', 'phone', 'businessName'],
             required: false
           },
           {
@@ -2045,7 +2055,7 @@ const updateProduct = async (req, res) => {
         {
           model: User,
           as: 'seller',
-          attributes: ['id', 'name', 'email', 'phone', 'role'],
+          attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'],
           required: false
         },
         {
@@ -2327,7 +2337,7 @@ const suspendProduct = async (req, res) => {
       include: [{
         model: User,
         as: 'seller',
-        attributes: ['id', 'name', 'email'],
+        attributes: ['id', 'name', 'email', 'businessName'],
         required: true
       }]
     });
@@ -2474,7 +2484,7 @@ const getDeletedProducts = async (req, res) => {
       include: [{
         model: User,
         as: 'seller',
-        attributes: ['id', 'name', 'email'],
+        attributes: ['id', 'name', 'email', 'businessName'],
         required: false
       }],
       order: [['deletedAt', 'DESC']]

@@ -79,18 +79,31 @@ export default function DispatchDetailsModal({ isOpen, onClose, onConfirm, order
 
                     {/* Destination Banner */}
                     {dest && (
-                        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 flex gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
-                            <div className="bg-white p-2 rounded-lg shadow-sm h-fit">
-                                {dest.icon}
+                        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 space-y-3 animate-in fade-in slide-in-from-left-2 duration-300">
+                            <div className="flex gap-3">
+                                <div className="bg-white p-2 rounded-lg shadow-sm h-fit">
+                                    {dest.icon}
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{dest.type}</p>
+                                    <p className="text-sm font-bold text-gray-900">{dest.name}</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{dest.address}</p>
+                                    {dest.landmark && (
+                                        <p className="text-[10px] text-blue-600 font-bold mt-1">📍 {dest.landmark}</p>
+                                    )}
+                                </div>
                             </div>
-                            <div>
-                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{dest.type}</p>
-                                <p className="text-sm font-bold text-gray-900">{dest.name}</p>
-                                <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{dest.address}</p>
-                                {dest.landmark && (
-                                    <p className="text-[10px] text-blue-600 font-bold mt-1">📍 {dest.landmark}</p>
-                                )}
-                            </div>
+
+                            {/* Submission Deadline Display */}
+                            {initialEta && (
+                                <div className="pt-2 border-t border-indigo-100/50">
+                                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Submission Deadline</p>
+                                    <p className="text-sm font-black text-red-600">
+                                        {new Date(initialEta).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">Please ensure the item reaches the hub by this time.</p>
+                                </div>
+                            )}
                         </div>
                     )}
 

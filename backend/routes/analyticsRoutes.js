@@ -1,5 +1,6 @@
 const express = require('express');
 const {
+  getGeneralOverview,
   getHistoricalTrends,
   getRevenueForecast,
   getSellerPerformanceScores,
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // All analytics routes require admin or finance authorization
 router.use(auth);
+
+// Overview stats - admin/finance only
+router.get('/overview', adminOrFinance, getGeneralOverview);
 
 // Historical trends - admin/finance only
 router.get('/trends/historical', adminOrFinance, getHistoricalTrends);

@@ -28,14 +28,14 @@ module.exports = (sequelize, DataTypes) => {
             comment: 'Type of handover: seller_to_agent | agent_to_warehouse | warehouse_to_agent | agent_to_station | agent_to_customer'
         },
         initiatorId: {
-            type: DataTypes.INTEGER,
+            type: DataTypes.STRING,
             allowNull: false,
-            comment: 'User ID of the person who generated the code (the giver)'
+            comment: 'User ID of the person who generated the code (the giver). Can be an INTEGER or a synthetic STRING for stations.'
         },
         confirmerId: {
-            type: DataTypes.INTEGER,
+            type: DataTypes.STRING,
             allowNull: true,
-            comment: 'User ID of the person who confirmed the code (the receiver)'
+            comment: 'User ID of the person who confirmed the code (the receiver). Can be an INTEGER or a synthetic STRING for stations.'
         },
         status: {
             type: DataTypes.STRING,
@@ -57,6 +57,11 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.TEXT,
             allowNull: true,
             comment: 'Optional notes recorded at the time of handover'
+        },
+        autoConfirmAt: {
+            type: DataTypes.DATE,
+            allowNull: true,
+            comment: 'Timestamp for automatic status update to Delivered if code is ignored'
         }
     }, {
         freezeTableName: true,

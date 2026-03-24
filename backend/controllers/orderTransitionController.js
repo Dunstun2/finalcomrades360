@@ -294,7 +294,7 @@ const transitionOrderStatus = async (req, res) => {
 
     const order = await Order.findByPk(orderId, {
       include: [
-        { model: User, as: 'seller', attributes: ['businessAddress'] },
+        { model: User, as: 'seller', attributes: ['businessAddress', 'businessName'] },
         { model: OrderItem, as: 'OrderItems' },
       ],
     });
@@ -345,6 +345,28 @@ const transitionOrderStatus = async (req, res) => {
     });
 
     await updatedOrder.update({ trackingUpdates: JSON.stringify(trackingUpdates) });
+
+    const { getIO } = require('../realtime/socket');
+    const io = getIO();
+    if (io) {
+      const socketData = {
+        orderId: updatedOrder.id,
+        status: newStatus,
+        orderNumber: updatedOrder.orderNumber,
+        warehouseId: updatedOrder.warehouseId,
+        destinationWarehouseId: updatedOrder.destinationWarehouseId,
+        pickupStationId: updatedOrder.pickupStationId,
+        destinationPickStationId: updatedOrder.destinationPickStationId,
+        adminRoutingStrategy: updatedOrder.adminRoutingStrategy,
+        shippingType: updatedOrder.shippingType,
+        updatedAt: updatedOrder.updatedAt
+      };
+      io.to(`user:${updatedOrder.userId}`).emit('orderStatusUpdate', socketData);
+      io.to('admin').emit('orderStatusUpdate', socketData);
+      if (updatedOrder.sellerId) {
+        io.to(`user:${updatedOrder.sellerId}`).emit('orderStatusUpdate', socketData);
+      }
+    }
 
     return res.json({
       success: true,

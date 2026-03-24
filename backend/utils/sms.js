@@ -1,29 +1,46 @@
-// Send SMS via Twilio if configured; otherwise fallback to console log.
-async function sendSms(to, text) {
-  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM } = process.env || {};
-  const canUseTwilio = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM;
+const africastalking = require('africastalking');
 
-  if (canUseTwilio) {
-    try {
-      const twilio = require('twilio');
-      const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-      const msg = await client.messages.create({ from: TWILIO_FROM, to, body: text });
-      console.log(`✅ [SMS SENT] To: ${to} | Sid: ${msg.sid}`);
-      return { success: true, method: 'twilio', sid: msg.sid };
-    } catch (e) {
-      console.warn('⚠️ [SMS FAILED] Twilio send failed, falling back to console log:', e.message);
-    }
+/**
+ * Send SMS using Africatalking
+ * @param {string} to - Recipient phone number in E.164 format (e.g., +254...)
+ * @param {string} message - SMS content
+ */
+const sendSms = async (to, message) => {
+  // Use .trim() to prevent issues with whitespace in .env file
+  const username = (process.env.AFRICASTALKING_USERNAME || '').trim();
+  const apiKey = (process.env.AFRICASTALKING_API_KEY || '').trim();
+
+  if (!username || !apiKey) {
+    console.warn('⚠️ [Africatalking] Credentials missing. Logging SMS to console only.');
+    console.log(`[SMS MOCK] To: ${to}, Message: ${message}`);
+    return { success: true, message: 'SMS logged to console (Mock)' };
   }
 
-  // Fallback: console log (SIMULATION MODE)
-  console.log('\n' + '='.repeat(80));
-  console.log('📱 [SMS SIMULATION - DEV MODE]');
-  console.log('='.repeat(80));
-  console.log(`To: ${to}`);
-  console.log('-'.repeat(80));
-  console.log(text);
-  console.log('='.repeat(80) + '\n');
-  return { success: true, method: 'simulation' };
-}
+  // Initialize Africatalking
+  const at = africastalking({ username, apiKey });
+  const sms = at.SMS;
+
+  try {
+    console.log(`[Africatalking] Sending to: ${to}...`);
+    const result = await sms.send({
+      to: [to],
+      message: message,
+      enqueue: true // Enqueue for reliability
+    });
+    
+    // Log detailed status for each recipient
+    if (result.SMSMessageData && result.SMSMessageData.Recipients) {
+      result.SMSMessageData.Recipients.forEach(rec => {
+        console.log(`[Africatalking] Recipient: ${rec.number}, Status: ${rec.status}, StatusCode: ${rec.statusCode}, Cost: ${rec.cost}`);
+      });
+    }
+
+    console.log('✅ [Africatalking] API Response:', JSON.stringify(result, null, 2));
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('❌ [Africatalking] Error sending SMS:', error);
+    throw error;
+  }
+};
 
 module.exports = { sendSms };

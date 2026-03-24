@@ -318,9 +318,9 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
   // Handlers required for Product Cards
   const isInCart = useCallback((productId, itemType = 'product') => {
     return cart?.items?.some(item => {
-      if (itemType === 'fastfood') return item.fastFoodId === productId || item.fastFood?.id === productId;
-      if (itemType === 'service') return item.serviceId === productId || item.service?.id === productId;
-      return item.productId === productId || item.product?.id === productId;
+      if (itemType === 'fastfood') return String(item.fastFoodId || item.fastFood?.id || '') === String(productId);
+      if (itemType === 'service') return String(item.serviceId || item.service?.id || '') === String(productId);
+      return String(item.productId || item.product?.id || '') === String(productId);
     });
   }, [cart]);
 
@@ -332,13 +332,28 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
     if (!user) { navigate('/login'); return; }
     try {
       const isProductInCart = cart?.items?.some(item => {
-        if (itemType === 'fastfood') return item.fastFoodId === productId || item.fastFood?.id === productId;
-        if (itemType === 'service') return item.serviceId === productId || item.service?.id === productId;
-        return item.productId === productId || item.product?.id === productId;
+        if (itemType === 'fastfood') return String(item.fastFoodId || item.fastFood?.id || '') === String(productId);
+        if (itemType === 'service') return String(item.serviceId || item.service?.id || '') === String(productId);
+        return String(item.productId || item.product?.id || '') === String(productId);
       });
 
       if (isProductInCart) {
-        await removeFromCart(productId, itemType);
+        if (itemType === 'product') {
+          // Find all cart items for this product and remove them
+          const productItems = cart?.items?.filter(item => 
+            String(item.productId || item.product?.id || '') === String(productId)
+          );
+
+          if (productItems && productItems.length > 0) {
+            for (const item of productItems) {
+              await removeFromCart(productId, 'product', { variantId: item.variantId });
+            }
+          } else {
+            await removeFromCart(productId, 'product');
+          }
+        } else {
+          await removeFromCart(productId, itemType);
+        }
         toast({ title: "Removed from cart", description: "Item removed from your cart" });
       } else {
         await addToCart(productId, 1, { type: itemType });
@@ -533,10 +548,10 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
   }, []);
 
   // Instant Loading Implementation
-  const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-fast/batch';
+  const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true&ignoreCache=true' : '/ultra-fast/batch?ignoreCache=true';
   const { data: homeBatchData, loading: hookLoading, error: hookError, refresh: refreshHomeData } = usePersistentFetch(
-    // FORCE CACHE BUST FROM V3 -> V4
-    `home_data_v15_critical_refresh_${isMarketingMode ? 'marketing' : 'personal'}`,
+    // FORCE CACHE BUST FROM V15 -> V16
+    `home_data_v18_critical_refresh_${isMarketingMode ? 'marketing' : 'personal'}`,
     batchUrl,
     {
       staleTime: 5 * 60 * 1000, // 5 minutes stale time
@@ -804,6 +819,11 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
 
     const { name, displayedProducts, hasMore, loading, loadingMore, products, totalCount } = section;
 
+    // Hide the section completely if it's empty (like FastFoodSection)
+    if (!loading && !loadingMore && displayedProducts.length === 0) {
+        return null;
+    }
+
     return (
       <div key={`category-section-${sectionId}`} id={`category-${sectionId}`} className="sm:mb-3 mb-2">
         <div className="flex items-center justify-between mb-4">
@@ -922,7 +942,7 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
         onAddToCart={handleAddToCart}
       />
 
-      <div data-testid="homepage-content" className="w-full px-0 md:px-4 pt-4 md:pt-8 pb-2 flex-grow">
+      <div data-testid="homepage-content" className="w-full px-0 md:px-4 pt-4 md:pt-8 pb-2">
         {/* Quick Navigation Buttons */}
         <div className="mb-6 flex items-center justify-center">
           <div className="flex flex-row gap-2 w-full max-w-xl">
@@ -950,6 +970,7 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
       </div>
 
       {/* Services Section */}
+      {(!loading && !loadingServices && services.length === 0 && !selectedServiceSubcategory) ? null : (
       <div className="w-full px-0 md:px-4 sm:py-4 py-2">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -1081,12 +1102,16 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
           </div>
         )}
       </div>
+      )}
 
       {/* Fast Food Section */}
       <FastFoodSection 
         initialData={fastFoodData} 
         initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
       />
+
+      {/* Spacer to push footer to bottom */}
+      <div className="flex-grow"></div>
 
       {/* Footer */}
       <Footer />

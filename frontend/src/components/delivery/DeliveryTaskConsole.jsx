@@ -37,8 +37,60 @@ const DeliveryTaskConsole = ({
     checkbox = null,
     children = null
 }) => {
-    const activeTask = task || (order.deliveryTasks && order.deliveryTasks[0]);
-    const deliveryType = order.deliveryType || (activeTask && activeTask.deliveryType) || 'warehouse_to_customer';
+    const activeTask = task || (() => {
+        if (!order.deliveryTasks || order.deliveryTasks.length === 0) return null;
+        // Defensively sort by createdAt descending to ensure we pick the latest leg
+        const sorted = [...order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return sorted[0];
+    })();
+
+    // Task-level deliveryType is the source of truth for the CURRENT LEG.
+    // However existing tasks may have a stale/wrong deliveryType (e.g. seller_to_warehouse
+    // when the order is actually moving warehouse→customer). So we cross-check with the
+    // order's adminRoutingStrategy + status to catch mismatches.
+    const derivedDeliveryType = (() => {
+        const oStatus = order?.status;
+        const routing = order?.adminRoutingStrategy;
+        const method = order?.deliveryMethod;
+
+        // Hub-stage statuses: item is at/moving to warehouse. Next leg starts from warehouse.
+        const hubStageStatuses = ['en_route_to_warehouse', 'at_warehouse', 'received_at_warehouse', 'awaiting_delivery_assignment', 'processing', 'in_transit'];
+        if (hubStageStatuses.includes(oStatus) && routing === 'warehouse') {
+            return method === 'pick_station' ? 'warehouse_to_pickup_station' : 'warehouse_to_customer';
+        }
+        if (hubStageStatuses.includes(oStatus) && routing === 'pick_station') {
+            return 'warehouse_to_pickup_station';
+        }
+
+        // Seller-dispatch stage
+        if (['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(oStatus)) {
+            if (routing === 'warehouse') return 'seller_to_warehouse';
+            if (routing === 'pick_station') return 'seller_to_pickup_station';
+            if (routing === 'direct_delivery') return 'seller_to_customer';
+        }
+        if (oStatus === 'en_route_to_warehouse') {
+            // The seller/driver is moving to the warehouse — leg 1
+            return 'seller_to_warehouse';
+        }
+
+        if (['en_route_to_pick_station', 'at_pick_station', 'ready_for_pickup'].includes(oStatus)) {
+            return method === 'home_delivery' ? 'pickup_station_to_customer' : 'warehouse_to_pickup_station';
+        }
+        if (['out_for_delivery', 'delivered'].includes(oStatus)) {
+            return 'seller_to_customer';
+        }
+        return null; // genuinely unknown
+    })();
+
+    // Use the task deliveryType unless it looks stale (e.g. still says seller_to_warehouse
+    // but we can tell from order status the item is already past the seller stage).
+    const taskType = activeTask?.deliveryType;
+    const staleSellerTask = taskType === 'seller_to_warehouse' &&
+        ['at_warehouse', 'received_at_warehouse', 'awaiting_delivery_assignment', 'processing', 'in_transit'].includes(order?.status);
+
+    const deliveryType = staleSellerTask
+        ? (derivedDeliveryType || taskType)
+        : (taskType || derivedDeliveryType || order.deliveryType || 'seller_to_warehouse');
     const status = activeTask ? activeTask.status : order.status;
     const [fetchedOrderItems, setFetchedOrderItems] = React.useState([]);
     const [isFetchingOrderItems, setIsFetchingOrderItems] = React.useState(false);
@@ -112,6 +164,22 @@ const DeliveryTaskConsole = ({
     }, [isExpanded, order?.id, activeTask?.id, orderItems.length]); // isFetchingOrderItems intentionally excluded — guarded by ref above
 
     // 1. Unified Status Logic
+    const getLegLabel = () => {
+        const type = deliveryType;
+
+        // Explicit type always wins
+        if (type === 'seller_to_warehouse') return 'Leg 1: Seller → Warehouse';
+        if (type === 'seller_to_pickup_station') return 'Leg 1: Seller → Pick Station';
+        if (type === 'seller_to_customer') return 'Direct: Seller → Customer';
+        if (type === 'warehouse_to_customer') return 'Leg 2: Warehouse → Customer';
+        if (type === 'warehouse_to_pickup_station') return 'Leg 2: Warehouse → Pick Station';
+        if (type === 'pickup_station_to_customer') return 'Leg 3: Pick Station → Customer';
+
+        return type.replace(/_/g, ' ').toUpperCase();
+    };
+
+    const legLabel = getLegLabel();
+
     const getStatusInfo = (s) => {
         switch (s) {
             case 'requested':
@@ -141,31 +209,68 @@ const DeliveryTaskConsole = ({
     const pickupDisplay = (() => {
         if (deliveryType.startsWith('warehouse')) return order.Warehouse?.name || 'Warehouse Hub';
         if (deliveryType.startsWith('pickup_station')) return order.PickupStation?.name || 'Pickup Station';
-        return order.seller?.name || 'Seller';
+        return order.seller?.businessName || order.seller?.name || 'Seller';
     })();
 
     const pickupAddress = (() => {
         const taskLoc = activeTask?.pickupLocation;
-        if (taskLoc && !['Seller Address', 'Warehouse', 'Station'].includes(taskLoc)) return taskLoc;
+        if (taskLoc && !['Seller Address', 'Warehouse', 'Station', 'Seller'].includes(taskLoc)) return taskLoc;
 
-        if (deliveryType.startsWith('warehouse')) return order.Warehouse?.address || order.Warehouse?.landmark || 'Warehouse Address';
-        if (deliveryType.startsWith('pickup_station')) return order.PickupStation?.location || order.PickupStation?.address || 'Pickup Station Address';
-        return order.seller?.businessAddress || order.seller?.address || 'Seller Address';
+        if (deliveryType.startsWith('warehouse')) {
+            const wh = order.Warehouse;
+            if (!wh) return 'Warehouse Address';
+            return [wh.address, wh.landmark ? `(Near ${wh.landmark})` : null].filter(Boolean).join(', ');
+        }
+        if (deliveryType.startsWith('pickup_station')) {
+            const ps = order.PickupStation;
+            if (!ps) return 'Pickup Station Address';
+            return [ps.location || ps.address].filter(Boolean).join(', ');
+        }
+        
+        // Comprehensive Seller Address
+        const s = order.seller;
+        if (!s) return 'Seller Address';
+        return [
+            s.businessAddress || s.address,
+            s.businessLandmark ? `(Near ${s.businessLandmark})` : null,
+            s.businessTown,
+            s.businessCounty
+        ].filter(Boolean).join(', ') || 'Seller Address';
     })();
 
     const destinationDisplay = (() => {
-        if (deliveryType.endsWith('warehouse')) return order.Warehouse?.name || 'Target Warehouse';
-        if (deliveryType.endsWith('pickup_station')) return order.PickupStation?.name || 'Target Station';
+        if (deliveryType.endsWith('warehouse')) return order.DestinationWarehouse?.name || order.Warehouse?.name || 'Target Warehouse';
+        if (deliveryType.endsWith('pickup_station')) return order.DestinationPickStation?.name || order.PickupStation?.name || 'Target Station';
         return order.user?.name || 'Customer';
     })();
 
     const destinationAddress = (() => {
         const taskLoc = activeTask?.deliveryLocation;
-        if (taskLoc && !['Determining automatically...', 'Multiple Destinations'].includes(taskLoc)) return taskLoc;
+        if (taskLoc && !['Determining automatically...', 'Multiple Destinations', 'Customer Address'].includes(taskLoc)) return taskLoc;
 
-        if (deliveryType.endsWith('warehouse')) return order.Warehouse?.address || 'Warehouse Hub';
-        if (deliveryType.endsWith('pickup_station')) return order.PickupStation?.location || order.PickupStation?.address || 'Pickup Point';
+        if (deliveryType.endsWith('warehouse')) {
+            const wh = order.DestinationWarehouse || order.Warehouse;
+            if (!wh) return 'Warehouse Hub';
+            return [wh.address, wh.landmark ? `(Near ${wh.landmark})` : null].filter(Boolean).join(', ');
+        }
+        if (deliveryType.endsWith('pickup_station')) {
+            const ps = order.DestinationPickStation || order.PickupStation;
+            if (!ps) return 'Pickup Point';
+            return [ps.location || ps.address].filter(Boolean).join(', ');
+        }
         return order.deliveryAddress || 'Customer Address';
+    })();
+
+    const pickupPhone = (() => {
+        if (deliveryType.startsWith('warehouse')) return order.Warehouse?.contactPhone;
+        if (deliveryType.startsWith('pickup_station')) return order.PickupStation?.contactPhone;
+        return order.seller?.businessPhone || order.seller?.phone;
+    })();
+
+    const destinationPhone = (() => {
+        if (deliveryType.endsWith('warehouse')) return order.DestinationWarehouse?.contactPhone || order.Warehouse?.contactPhone;
+        if (deliveryType.endsWith('pickup_station')) return order.DestinationPickStation?.contactPhone || order.PickupStation?.contactPhone;
+        return order.user?.phone;
     })();
 
     const isTransitional = !deliveryType.endsWith('customer');
@@ -186,14 +291,14 @@ const DeliveryTaskConsole = ({
 
         const p = item.Product || item.product || item.ProductProfile;
         const f = item.FastFood || item.fastFood || item.FastFoodProfile;
-        const s = item.Service || item.service;
+        const s = item.Service || item.service || item.ServiceProfile;
         const fromItem = item.image || item.imageUrl || item.thumbnail || item.coverImage;
 
         if (fromItem) return fromItem;
 
         if (f) {
-            const ffGallery = parseMediaList(f.galleryImages);
-            return f.mainImage || f.coverImage || ffGallery[0] || null;
+            const ffGallery = parseMediaList(f.galleryImages || f.images);
+            return f.coverImage || f.mainImage || ffGallery[0] || null;
         }
 
         if (p) {
@@ -208,7 +313,11 @@ const DeliveryTaskConsole = ({
             );
         }
 
-        if (s) return s.coverImage || s.mainImage;
+        if (s) {
+            const serviceGallery = parseMediaList(s.galleryImages || s.images);
+            return s.coverImage || s.mainImage || serviceGallery[0] || null;
+        }
+        
         return null;
     };
 
@@ -263,7 +372,7 @@ const DeliveryTaskConsole = ({
                         </div>
                         <p className="text-[10px] sm:text-xs text-gray-400 font-medium">
                             <span className="bg-gray-100 px-1.5 py-0.5 rounded mr-1.5 uppercase tracking-tighter text-[8px] sm:text-[9px] font-bold">
-                                {deliveryType.replace(/_/g, ' ')}
+                                {legLabel}
                             </span>
                             • {orderItems.length || 0} items
                         </p>
@@ -299,8 +408,13 @@ const DeliveryTaskConsole = ({
                                         </div>
                                         <div className="min-w-0 flex-1">
                                             <p className="text-[9px] font-bold text-orange-400 uppercase tracking-wider mb-0.5">Pickup From</p>
-                                            <p className="text-xs sm:text-sm font-black text-gray-800 truncate">{pickupDisplay}</p>
-                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 line-clamp-1">{pickupAddress}</p>
+                                            <p className="text-xs sm:text-sm font-black text-gray-800">{pickupDisplay}</p>
+                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{pickupAddress}</p>
+                                            {pickupPhone && (
+                                                <p className="text-[10px] sm:text-xs text-blue-600 font-bold mt-1.5 flex items-center gap-1.5">
+                                                    📞 {pickupPhone}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -324,8 +438,13 @@ const DeliveryTaskConsole = ({
                                             <p className={`text-[9px] font-bold uppercase tracking-wider mb-0.5 ${isTransitional ? 'text-blue-400' : 'text-green-500'}`}>
                                                 Deliver To {isTransitional ? '(Final Mile)' : '(Customer)'}
                                             </p>
-                                            <p className="text-xs sm:text-sm font-black text-gray-800 truncate">{destinationDisplay}</p>
-                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 line-clamp-1 italic">{destinationAddress}</p>
+                                            <p className="text-xs sm:text-sm font-black text-gray-800">{destinationDisplay}</p>
+                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 italic">{destinationAddress}</p>
+                                            {destinationPhone && (
+                                                <p className="text-[10px] sm:text-xs text-blue-600 font-bold mt-1.5 flex items-center gap-1.5">
+                                                    📞 {destinationPhone}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

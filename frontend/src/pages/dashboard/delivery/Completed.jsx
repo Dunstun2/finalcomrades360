@@ -33,7 +33,12 @@ const DeliveryAgentCompleted = () => {
           completedTime: new Date(order.updatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           deliveryTime: calculateDeliveryTime(order),
           rating: order.deliveryRating || 5, // Use deliveryRating from Order model
-          payment: parseFloat(order.deliveryTasks?.[0]?.agentEarnings || order.deliveryFee || 0), // Use persisted agentEarnings
+          payment: parseFloat((() => {
+            const t = order.deliveryTasks && order.deliveryTasks.length > 0 
+              ? [...order.deliveryTasks].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0] 
+              : null;
+            return t?.agentEarnings || order.deliveryFee || 0;
+          })()), // Use persisted agentEarnings
           totalValue: order.total,
         }));
 

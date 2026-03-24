@@ -1,8 +1,10 @@
 const { sequelize, Payment, Order, User, Wallet, Commission, DeliveryTask, Transaction, Op } = require('../models');
 const mpesaService = require('../scripts/services/mpesaService');
+const airtelMoneyService = require('../scripts/services/airtelMoneyService');
 const paymentVerificationService = require('../scripts/services/paymentVerificationService');
 const { logPaymentActivity } = require('../middleware/paymentSecurity');
 const { calculateCommission: createCommissionRecords } = require('./commissionController');
+const { creditAgentByOrder } = require('../services/earningsService');
 const { normalizeKenyanPhone } = require('../middleware/validators');
 
 // Create payment record for an order
@@ -149,39 +151,41 @@ const initiateMpesaPayment = async (req, res) => {
         include: [{ model: User, as: 'user' }]
       });
 
-      if (ordersToPay.length === 0) {
+      if (ordersToPay.length > 0) {
+        // Check permissions: Owner of any order OR Assigned Delivery Agent of any order
+        let isAuthorized = ordersToPay.some(o => o.userId === userId || o.deliveryAgentId === userId);
+
+        if (!isAuthorized) {
+          // Fallback: Check if user is the assigned delivery agent via DeliveryTask for any order in group
+          const deliveryTask = await DeliveryTask.findOne({
+            where: {
+              orderId: { [Op.in]: ordersToPay.map(o => o.id) },
+              deliveryAgentId: userId,
+              status: { [Op.ne]: 'cancelled' }
+            }
+          });
+          if (deliveryTask) isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
+          return res.status(403).json({
+            success: false,
+            message: 'You are not authorized to make payments for this checkout group'
+          });
+        }
+
+        // Check if any order already paid
+        if (ordersToPay.some(o => o.paymentConfirmed)) {
+          return res.status(400).json({ success: false, message: 'One or more orders in this group are already paid' });
+        }
+
+        paymentAmount = ordersToPay.reduce((sum, o) => sum + (o.total || 0), 0);
+        order = ordersToPay[0]; // Use first order for metadata/tracking
+      } else if (!paymentAmount) {
+        // If no orders and no amount provided, then it's a 404
         return res.status(404).json({ success: false, message: 'Checkout group not found or no orders in group' });
       }
-
-      // Check permissions: Owner of any order OR Assigned Delivery Agent of any order
-      let isAuthorized = ordersToPay.some(o => o.userId === userId || o.deliveryAgentId === userId);
-
-      if (!isAuthorized) {
-        // Fallback: Check if user is the assigned delivery agent via DeliveryTask for any order in group
-        const deliveryTask = await DeliveryTask.findOne({
-          where: {
-            orderId: { [Op.in]: ordersToPay.map(o => o.id) },
-            deliveryAgentId: userId,
-            status: { [Op.ne]: 'cancelled' }
-          }
-        });
-        if (deliveryTask) isAuthorized = true;
-      }
-
-      if (!isAuthorized) {
-        return res.status(403).json({
-          success: false,
-          message: 'You are not authorized to make payments for this checkout group'
-        });
-      }
-
-      // Check if any order already paid
-      if (ordersToPay.some(o => o.paymentConfirmed)) {
-        return res.status(400).json({ success: false, message: 'One or more orders in this group are already paid' });
-      }
-
-      paymentAmount = ordersToPay.reduce((sum, o) => sum + (o.total || 0), 0);
-      order = ordersToPay[0]; // Use first order for metadata/tracking
+      // If no orders but paymentAmount exists, we proceed with cart-based payment (handled below)
     }
     // If orderId is provided, validate the order
     else if (orderId) {
@@ -405,6 +409,141 @@ const initiateMpesaPayment = async (req, res) => {
   }
 };
 
+// Initiate Airtel Money STK Push payment
+const initiateAirtelMoneyPayment = async (req, res) => {
+  const { orderId, phoneNumber, amount } = req.body;
+  const userId = req.user.id;
+
+  try {
+    console.log(`💳 Initiating Airtel Money payment by user ${userId}`);
+
+    if (!phoneNumber) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+
+    const normalizedPhone = normalizeKenyanPhone(phoneNumber);
+    if (!normalizedPhone) {
+      return res.status(400).json({ success: false, message: 'Invalid phone number format' });
+    }
+
+    let paymentAmount = amount;
+    let order = null;
+
+    if (orderId) {
+      order = await Order.findByPk(orderId);
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+      paymentAmount = order.total;
+    }
+
+    // Create payment record
+    const payment = await Payment.create({
+      orderId: orderId || null,
+      userId,
+      paymentMethod: 'airtel_money',
+      paymentType: 'prepay',
+      amount: paymentAmount,
+      currency: 'KES',
+      status: 'pending',
+      mpesaPhoneNumber: normalizedPhone, // Reusing field for consistency
+      initiatedAt: new Date(),
+    });
+
+    // Initiate Airtel STK Push
+    const result = await airtelMoneyService.initiateSTKPush(
+      normalizedPhone,
+      paymentAmount,
+      order?.orderNumber || `CART-${Date.now()}`
+    );
+
+    if (!result.success) {
+      await payment.update({ status: 'failed', failureReason: result.error });
+      return res.status(400).json({ success: false, message: 'Failed to initiate Airtel payment', error: result.error });
+    }
+
+    await payment.update({ 
+      status: 'processing',
+      externalTransactionId: result.transactionId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Airtel Money payment initiated successfully',
+      payment: {
+        id: payment.id,
+        status: 'processing',
+        transactionId: result.transactionId
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error initiating Airtel payment:', error);
+    res.status(500).json({ success: false, message: 'Failed to initiate Airtel payment', error: error.message });
+  }
+};
+
+// Handle Airtel Money callback
+const handleAirtelCallback = async (req, res) => {
+  try {
+    const callbackData = req.body;
+    console.log('📞 Airtel Callback received:', JSON.stringify(callbackData, null, 2));
+
+    const { transaction, status } = callbackData.data || {};
+    const transactionId = transaction?.id;
+
+    if (!transactionId) {
+      return res.status(400).json({ success: false, message: 'Missing transaction ID' });
+    }
+
+    const payment = await Payment.findOne({
+      where: { externalTransactionId: transactionId },
+      include: [{ model: Order, as: 'order' }]
+    });
+
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    if (status?.success) {
+      await payment.update({
+        status: 'completed',
+        paymentDate: new Date(),
+        completedAt: new Date()
+      });
+
+      if (payment.order) {
+        await payment.order.update({
+          paymentConfirmed: true,
+          status: 'paid'
+        });
+      }
+
+      // Socket update
+      try {
+        const { getIO } = require('../realtime/socket');
+        const io = getIO();
+        if (io) {
+          io.to(`user:${payment.userId}`).emit('paymentStatusUpdate', {
+            paymentId: payment.id,
+            status: 'completed',
+            orderId: payment.orderId
+          });
+        }
+      } catch (e) {}
+
+    } else {
+      await payment.update({
+        status: 'failed',
+        failureReason: status?.message || 'Airtel payment failed'
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('❌ Error handling Airtel callback:', error);
+    res.status(500).json({ success: false });
+  }
+};
+
 // Handle M-Pesa callback with enhanced error handling and recovery
 const handleMpesaCallback = async (req, res) => {
   let callbackData = null;
@@ -529,8 +668,11 @@ const handleMpesaCallback = async (req, res) => {
           // Create commission records
           try {
             await createCommissionRecords(payment.order.id, payment.order.referralCode, t);
+            
+            // NEW: Credit delivery agent immediately if assigned
+            await creditAgentByOrder(payment.order.id, t);
           } catch (commissionError) {
-            console.warn('⚠️ Failed to create commission records:', commissionError);
+            console.warn('⚠️ Failed to create commission or credit agent:', commissionError);
           }
         }
 
@@ -715,11 +857,11 @@ const checkPaymentStatus = async (req, res) => {
   }
 };
 
-// Verify payment (admin function)
+// Verify payment (admin/agent function)
 const verifyPayment = async (req, res) => {
   const { paymentId } = req.params;
-  const { verificationData } = req.body;
-  const adminUserId = req.user.id;
+  const { verificationData, manual } = req.body;
+  const verifierUserId = req.user.id;
 
   try {
     const payment = await Payment.findByPk(paymentId, {
@@ -730,15 +872,40 @@ const verifyPayment = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Payment not found' });
     }
 
+    // Authorization check: User must be Admin OR the assigned Delivery Agent for the order
+    const isAdmin = ['admin', 'super_admin', 'superadmin'].includes(req.user.role);
+    let isAuthorized = isAdmin || payment.order?.deliveryAgentId === verifierUserId;
+
+    if (!isAuthorized && payment.order) {
+      // Check if user is the assigned delivery agent via DeliveryTask
+      const deliveryTask = await DeliveryTask.findOne({
+        where: {
+          orderId: payment.order.id,
+          deliveryAgentId: verifierUserId,
+          status: { [Op.ne]: 'cancelled' }
+        }
+      });
+      if (deliveryTask) isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to verify this payment' });
+    }
+
     let verificationResult;
 
-    if (payment.paymentMethod === 'mpesa') {
+    // Handle explicit manual verification (e.g., from agent dashboard after seeing screenshot)
+    if (manual) {
+      verificationResult = await paymentVerificationService.verifyManualPayment(paymentId, verifierUserId, verificationData || {});
+    } 
+    // Automated or specific method verification
+    else if (payment.paymentMethod === 'mpesa') {
       verificationResult = await paymentVerificationService.verifyMpesaPayment(paymentId);
     } else if (payment.paymentMethod === 'bank_transfer') {
       if (!verificationData) {
         return res.status(400).json({ success: false, message: 'Verification data required for bank transfers' });
       }
-      verificationResult = await paymentVerificationService.verifyBankTransfer(paymentId, adminUserId, verificationData);
+      verificationResult = await paymentVerificationService.verifyBankTransfer(paymentId, verifierUserId, verificationData);
     } else {
       return res.status(400).json({ success: false, message: 'Payment method not supported for verification' });
     }
@@ -1150,9 +1317,15 @@ const initiateWalletPayment = async (req, res) => {
 
     await t.commit();
 
-    // Trigger commission if applicable
-    if (order.referralCode) {
-      try { await createCommissionRecords(order.id, order.referralCode); } catch (_) { }
+    // Trigger commission and agent credit if applicable
+    try {
+      if (order.referralCode) {
+        await createCommissionRecords(order.id, order.referralCode, t);
+      }
+      // NEW: Credit delivery agent immediately
+      await creditAgentByOrder(order.id, t);
+    } catch (e) {
+      console.warn('⚠️ Failed to create commission or credit agent in wallet payment:', e);
     }
 
     res.json({
@@ -1175,6 +1348,8 @@ const initiateWalletPayment = async (req, res) => {
 module.exports = {
   createPayment,
   initiateMpesaPayment,
+  initiateAirtelMoneyPayment,
+  handleAirtelCallback,
   createBankTransferPayment,
   createLipaMdogoMdogoPayment,
   handleMpesaCallback,

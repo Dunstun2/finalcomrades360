@@ -168,10 +168,29 @@ export default function OrderTracking() {
             <div className="bg-white rounded-lg shadow-sm p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Current Status</h2>
-                <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(tracking.status)} bg-opacity-10`}>
-                  <StatusIcon className="mr-2 h-4 w-4" />
-                  {tracking.status}
-                </div>
+                {(() => {
+                  const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                    if (!rawStatus) return 'Processing';
+                    const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                    if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                    if (['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
+                    if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+                    if (s === 'order_placed') return 'Order Placed';
+                    if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                    if (['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'shipped'].includes(s)) return 'Shipped';
+                    return 'Processing';
+                  };
+                  const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
+                  const displayColor = getStatusColor(displayStatus);
+                  const DisplayIcon = getStatusIcon(displayStatus);
+
+                  return (
+                    <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${displayColor} bg-opacity-10`}>
+                      <DisplayIcon className="mr-2 h-4 w-4" />
+                      {displayStatus}
+                    </div>
+                  );
+                })()}
               </div>
 
               {tracking.trackingNumber && (

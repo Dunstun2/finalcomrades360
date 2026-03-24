@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { FaStore, FaMapMarkerAlt, FaPhone, FaSave } from 'react-icons/fa';
+import { useLocation } from 'react-router-dom';
+import { FaStore, FaMapMarkerAlt, FaPhone, FaSave, FaExclamationTriangle } from 'react-icons/fa';
 import api from '../../services/api';
+import { isSellerProfileComplete } from '../../utils/sellerUtils';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function SellerBusinessLocation() {
+    const location = useLocation();
+    const { updateUser } = useAuth();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [profileComplete, setProfileComplete] = useState(true);
+    const [showWarning, setShowWarning] = useState(location.state?.incompleteProfile || false);
     const [formData, setFormData] = useState({
+        businessName: '',
         businessAddress: '',
         businessCounty: '',
         businessTown: '',
@@ -25,7 +33,8 @@ export default function SellerBusinessLocation() {
             const response = await api.get('/users/profile');
             const user = response.data.user || response.data;
 
-            setFormData({
+            const data = {
+                businessName: user.businessName || '',
                 businessAddress: user.businessAddress || '',
                 businessCounty: user.businessCounty || '',
                 businessTown: user.businessTown || '',
@@ -33,7 +42,9 @@ export default function SellerBusinessLocation() {
                 businessPhone: user.businessPhone || '',
                 businessLat: user.businessLat || null,
                 businessLng: user.businessLng || null
-            });
+            };
+            setFormData(data);
+            setProfileComplete(isSellerProfileComplete(data));
         } catch (error) {
             console.error('Error fetching profile:', error);
         } finally {
@@ -86,15 +97,33 @@ export default function SellerBusinessLocation() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!formData.businessAddress || !formData.businessAddress.trim()) {
-            alert('Please provide your business address');
-            return;
+        // Validate all fields
+        const requiredFields = [
+            { key: 'businessName', label: 'Business Name' },
+            { key: 'businessAddress', label: 'Physical Address' },
+            { key: 'businessCounty', label: 'County' },
+            { key: 'businessTown', label: 'Town' },
+            { key: 'businessLandmark', label: 'Landmark' },
+            { key: 'businessPhone', label: 'Business Phone' },
+            { key: 'businessLat', label: 'Latitude' },
+            { key: 'businessLng', label: 'Longitude' }
+        ];
+
+        for (const field of requiredFields) {
+            const val = formData[field.key];
+            if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
+                alert(`Please provide: ${field.label}. All fields are mandatory for sellers.`);
+                return;
+            }
         }
 
         try {
             setSaving(true);
             await api.put('/users/profile', formData);
-            alert('✅ Business location saved successfully!');
+            if (updateUser) await updateUser();
+            setProfileComplete(true);
+            setShowWarning(false);
+            alert('✅ Business location saved successfully! Your seller profile is now active.');
         } catch (error) {
             console.error('Error saving location:', error);
             alert('Failed to save business location: ' + (error.response?.data?.message || error.message));
@@ -130,8 +159,35 @@ export default function SellerBusinessLocation() {
                     </p>
                 </div>
 
+                {(showWarning || !profileComplete) && (
+                    <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded text-amber-800 flex gap-3 items-start animate-pulse">
+                        <FaExclamationTriangle className="text-amber-500 mt-1 flex-shrink-0" size={20} />
+                        <div>
+                            <p className="text-sm font-bold">Action Required: Complete Your Profile</p>
+                            <p className="text-xs mt-1">
+                                You must provide all business location details below before you can access seller dashboard features, 
+                                add products, or manage orders. This information is critical for our delivery network.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
                     <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 font-bold uppercase tracking-tight mb-2">
+                                0. Business / Store Name *
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={formData.businessName}
+                                onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-medium"
+                                placeholder="e.g. Comrades Electronics, Jumia Store, etc."
+                            />
+                        </div>
+
                         <div className="flex justify-between items-center mb-2">
                             <label className="block text-sm font-medium text-gray-700 font-bold uppercase tracking-tight">
                                 1. Physical Address *
@@ -155,7 +211,7 @@ export default function SellerBusinessLocation() {
                         <div className="pt-4 mt-4 border-t border-gray-100">
                             <div className="flex justify-between items-center mb-4">
                                 <label className="block text-sm font-medium text-gray-700 font-bold uppercase tracking-tight">
-                                    2. Map Coordinates (Lat/Lng)
+                                    2. Map Coordinates (Lat/Lng) *
                                 </label>
                                 <button
                                     type="button"
@@ -215,13 +271,13 @@ export default function SellerBusinessLocation() {
 
                         <div className="pt-4 mt-4 border-t border-gray-100">
                             <label className="block text-sm font-medium text-gray-700 font-bold uppercase tracking-tight mb-4">
-                                3. Regional Details
+                                3. Regional Details *
                             </label>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        County/Region
+                                        County/Region *
                                     </label>
                                     <input
                                         type="text"
@@ -234,7 +290,7 @@ export default function SellerBusinessLocation() {
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Town/Area
+                                        Town/Area *
                                     </label>
                                     <input
                                         type="text"
@@ -248,7 +304,7 @@ export default function SellerBusinessLocation() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Landmark/Notable Location Nearby
+                                    Landmark/Notable Location Nearby *
                                 </label>
                                 <input
                                     type="text"
@@ -261,7 +317,7 @@ export default function SellerBusinessLocation() {
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Business Phone Number
+                                    Business Phone Number *
                                 </label>
                                 <div className="relative">
                                     <FaPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />

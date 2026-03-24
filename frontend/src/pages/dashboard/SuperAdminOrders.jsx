@@ -224,15 +224,7 @@ export default function SuperAdminOrders() {
                                                     Confirm
                                                 </button>
                                             )}
-                                            {['en_route_to_warehouse', 'seller_confirmed', 'super_admin_confirmed'].includes(o.status) && o.deliveryType !== 'seller_to_customer' && (
-                                                <button
-                                                    onClick={() => handleWarehouseReceived(o.id)}
-                                                    className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition-colors"
-                                                    title="Mark as received at warehouse"
-                                                >
-                                                    Receipt
-                                                </button>
-                                            )}
+                                            {/* Manual Receipt button removed to enforce code-based entry */}
                                             {(o.status === 'seller_confirmed' || o.status === 'super_admin_confirmed') && o.shippingType === 'collected_from_seller' && (
                                                 <button
                                                     onClick={async () => {
@@ -265,15 +257,15 @@ export default function SuperAdminOrders() {
                                             >
                                                 Details
                                             </button>
-                                            {['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'returned', 'failed'].includes(o.status) && (
+                                            {['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'returned', 'failed', 'cancelled'].includes(o.status) && (
                                                 <button
                                                     onClick={() => {
                                                         setOrderToAssign(o);
                                                         setIsAssignModalOpen(true);
                                                     }}
-                                                    disabled={!o.sellerConfirmed}
-                                                    className={`px-3 py-1 text-white text-xs rounded transition-colors inline-flex items-center gap-1 ${!o.sellerConfirmed ? 'bg-gray-400 cursor-not-allowed opacity-70' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                                    title={!o.sellerConfirmed ? "Awaiting Seller Confirmation" : "Assign Driver"}
+                                                    disabled={!o.sellerConfirmed && !['cancelled', 'failed', 'at_warehouse', 'ready_for_pickup', 'returned'].includes(o.status)}
+                                                    className={`px-3 py-1 text-white text-xs rounded transition-colors inline-flex items-center gap-1 ${(!o.sellerConfirmed && !['cancelled', 'failed', 'at_warehouse', 'ready_for_pickup', 'returned'].includes(o.status)) ? 'bg-gray-400 cursor-not-allowed opacity-70' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                                    title={(!o.sellerConfirmed && !['cancelled', 'failed', 'at_warehouse', 'ready_for_pickup', 'returned'].includes(o.status)) ? "Awaiting Seller Confirmation" : "Assign Driver"}
                                                 >
                                                     <FaTruck className="h-3 w-3" /> Assign
                                                 </button>
@@ -316,8 +308,8 @@ export default function SuperAdminOrders() {
                                         className="text-blue-600"
                                     />
                                     <div>
-                                        <div className="font-medium text-gray-900">Mark as At Warehouse</div>
-                                        <div className="text-xs text-gray-500">Items are already in the central warehouse</div>
+                                        <div className="font-medium text-gray-900">Normal Shipment</div>
+                                        <div className="text-xs text-gray-500">Item will be picked up by agent or dropped off at hub</div>
                                     </div>
                                 </label>
                             </div>
@@ -467,6 +459,45 @@ export default function SuperAdminOrders() {
                                 <p className="text-sm"><strong>Seller Confirmed:</strong> {selectedOrder.sellerConfirmed ? 'YES' : 'NO'}</p>
                                 <p className="text-sm"><strong>Shipping Type:</strong> {selectedOrder.shippingType || 'Not Set'}</p>
                             </div>
+                        </div>
+
+                        {/* Status Lifecycle */}
+                        <div className="mb-8 border-t pt-6">
+                            <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                Status Lifecycle
+                            </h4>
+                            {(() => {
+                                const isFastFoodOnlyOrder = (order) => {
+                                    return (order.OrderItems || []).every(item => !!item.FastFoodId);
+                                };
+                                const fastFoodOnly = isFastFoodOnlyOrder(selectedOrder);
+                                const hideWarehouseStep = selectedOrder.adminRoutingStrategy === 'direct_delivery' || fastFoodOnly;
+                                const lifecycleSteps = [
+                                    { label: 'Placed', status: 'order_placed', done: true },
+                                    { label: 'Admin Confirmed', status: 'super_admin_confirmed', done: selectedOrder.superAdminConfirmed },
+                                    { label: 'Seller Confirmed', status: 'seller_confirmed', done: selectedOrder.sellerConfirmed },
+                                    { label: 'At Warehouse', status: 'at_warehouse', done: !!selectedOrder.warehouseArrivalDate || ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
+                                    { label: 'In Transit', status: 'in_transit', done: ['in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
+                                    { label: 'Delivered', status: 'delivered', done: ['delivered', 'completed'].includes(selectedOrder.status) },
+                                    { label: 'Complete', status: 'completed', done: selectedOrder.status === 'completed' }
+                                ];
+                                const steps = hideWarehouseStep
+                                    ? lifecycleSteps.filter((step) => step.status !== 'at_warehouse')
+                                    : lifecycleSteps;
+
+                                return (
+                                    <div className="flex flex-wrap gap-4 items-start justify-between relative before:absolute before:h-0.5 before:bg-gray-100 before:top-4 before:left-0 before:right-0 before:-z-10">
+                                        {steps.map((step, idx) => (
+                                            <div key={idx} className="flex flex-col items-center gap-1 bg-white px-2">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${step.done ? 'bg-green-600 text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>
+                                                    {step.done ? '✓' : idx + 1}
+                                                </div>
+                                                <span className={`text-[10px] font-bold uppercase tracking-tighter ${step.done ? 'text-green-700' : 'text-gray-400'}`}>{step.label}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         <h4 className="font-bold text-gray-900 mb-4 text-lg">Items List</h4>

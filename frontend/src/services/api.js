@@ -110,10 +110,10 @@ api.interceptors.response.use(
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         // Only redirect if not already on the login page
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
-      } else if (error.response.status === 403) {
+        const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
+        if (window.location.pathname !== loginPath) {
+          window.location.href = loginPath;
+        }      } else if (error.response.status === 403) {
         // Handle 403 Forbidden errors
         const errorMessage = error.response.data?.message || 'You do not have permission to perform this action';
         console.error('Forbidden:', errorMessage);
@@ -187,10 +187,10 @@ productsClient.interceptors.response.use(
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
-      }
+        const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
+        if (window.location.pathname !== loginPath) {
+          window.location.href = loginPath;
+        }      }
     }
     return Promise.reject(error);
   }
@@ -226,10 +226,10 @@ adminClient.interceptors.response.use(
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
-      } else if (error.response.status === 403) {
+        const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
+        if (window.location.pathname !== loginPath) {
+          window.location.href = loginPath;
+        }      } else if (error.response.status === 403) {
         const errorMessage = error.response.data?.message || 'You do not have permission to perform this action';
         console.error('Forbidden:', errorMessage);
       }

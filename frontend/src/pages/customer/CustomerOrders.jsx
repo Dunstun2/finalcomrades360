@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaEye, FaTimes, FaEdit, FaMotorcycle, FaStore } from 'react-icons/fa';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaEye, FaTimes, FaEdit, FaMotorcycle, FaStore, FaHistory, FaUndo } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { getSocket, joinUserRoom } from '../../services/socket';
@@ -100,6 +100,24 @@ export default function CustomerOrders() {
     const isPickStation = order.deliveryMethod === 'pick_station' ||
       (order.isGroup && order.orders?.some(o => o.deliveryMethod === 'pick_station'));
 
+    // Return statuses (Override others if active)
+    if (order.returnStatus && order.returnStatus !== 'none') {
+      const returnStatusMap = {
+        requested: { label: 'Return in Progress', icon: FaUndo, color: 'text-orange-600', bg: 'bg-orange-50', step: 5 },
+        approved: { label: 'Return Approved', icon: FaCheckCircle, color: 'text-indigo-600', bg: 'bg-indigo-50', step: 6 },
+        rejected: { label: 'Return Rejected', icon: FaTimes, color: 'text-red-600', bg: 'bg-red-50', step: 0 },
+        item_collected: { label: 'Item Picked Up', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-50', step: 7 },
+        item_received: { label: 'Received at WH', icon: FaStore, color: 'text-purple-600', bg: 'bg-purple-50', step: 8 },
+        partially_returned: { label: 'Partially Returned', icon: FaUndo, color: 'text-emerald-600', bg: 'bg-emerald-50', step: 9 },
+        returned: { label: 'Returned', icon: FaCheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100', step: 10 }
+      };
+      if (returnStatusMap[order.returnStatus]) return returnStatusMap[order.returnStatus];
+    }
+
+    if (actualStatus === 'return_in_progress') {
+      return { label: 'Return in Progress', icon: FaUndo, color: 'text-orange-600', bg: 'bg-orange-100', step: 5 };
+    }
+
     // Terminal / error statuses
     if (['delivered', 'completed', 'Delivered'].includes(actualStatus)) {
       return { label: 'Delivered', icon: FaCheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-100', step: 4 };
@@ -122,38 +140,25 @@ export default function CustomerOrders() {
       return { label: 'Order Placed', icon: FaClock, color: 'text-yellow-600', bg: 'bg-yellow-100', step: 1 };
     }
 
-    // ── Fast food ────────────────────────────────────────────────────────────
+    // Fast food
     if (isFastFood) {
       if (['seller_confirmed', 'super_admin_confirmed', 'Processing'].includes(actualStatus)) {
         return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
       }
-      if (['in_transit', 'out_for_delivery'].includes(actualStatus)) {
-        return { label: 'In Transit', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-100', step: 3 };
-      }
     }
 
-    // ── Pick station product orders ──────────────────────────────────────────
-    if (isPickStation) {
-      // Step 2: preparation at seller / heading to warehouse
-      if (['seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'Processing', 'Shipped'].includes(actualStatus)) {
-        return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
-      }
-      // Step 3: heading to / arrived at pick station
-      if (['in_transit', 'out_for_delivery'].includes(actualStatus)) {
-        return { label: 'In Transit', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-100', step: 3 };
-      }
-      // Step 3b: sitting at the pick station, ready to collect
-      if (actualStatus === 'ready_for_pickup') {
-        return { label: 'Ready for Pickup', icon: FaMapMarkerAlt, color: 'text-sky-600', bg: 'bg-sky-100', step: 3 };
-      }
+    // Pick station: customer collection
+    if (actualStatus === 'ready_for_pickup' && isPickStation) {
+      return { label: 'Ready for Pickup', icon: FaMapMarkerAlt, color: 'text-sky-600', bg: 'bg-sky-100', step: 3 };
     }
 
-    // ── Home-delivery product orders ─────────────────────────────────────────
-    if (['in_transit', 'out_for_delivery'].includes(actualStatus)) {
-      return { label: 'In Transit', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-100', step: 3 };
+    // Warehouse Logistics: Show as 'Shipped' to the customer when it hits the warehouse nodes
+    // Also include 'ready_for_pickup' if it's NOT a pick station order (meaning it's waiting for home delivery agent dispatch)
+    if (['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'Shipped'].includes(actualStatus)) {
+      return { label: 'Shipped', icon: FaTruck, color: 'text-purple-600', bg: 'bg-purple-100', step: 2 };
     }
 
-    // Everything else (warehouse steps etc.) = Processing
+    // Everything else (Processing)
     return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
   };
 
@@ -164,6 +169,7 @@ export default function CustomerOrders() {
     { key: 'processing', label: 'Processing', statuses: ['seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'in_transit', 'out_for_delivery', 'Processing', 'Shipped'] },
     { key: 'delivered', label: 'Delivered', statuses: ['delivered', 'completed', 'Delivered'] },
     { key: 'cancelled', label: 'Cancelled', statuses: ['cancelled', 'failed', 'returned'] },
+    { key: 'returning', label: 'Returning', statuses: ['return_in_progress'] },
   ];
 
 
@@ -459,7 +465,7 @@ export default function CustomerOrders() {
                               className="ml-2 px-2 py-1 text-[10px] sm:text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors uppercase tracking-wider"
                               onClick={e => {
                                 e.stopPropagation();
-                                navigate(`/orders/${order.id}/track`);
+                                navigate(`/customer/orders/${order.id}/track`);
                               }}
                             >
                               Track Order
@@ -498,7 +504,7 @@ export default function CustomerOrders() {
                           {(order.isGroup ? order.orders : [order])
                             .filter(subOrder => ['in_transit', 'out_for_delivery', 'ready_for_pickup'].includes(subOrder.status) || hasActiveFinalCustomerTask(subOrder))
                             .map((activeSubOrder, index) => {
-                              const isStationPickup = activeSubOrder.status === 'ready_for_pickup' && !hasActiveFinalCustomerTask(activeSubOrder);
+                              const isStationPickup = activeSubOrder.deliveryMethod === 'pick_station' && activeSubOrder.status === 'ready_for_pickup' && !hasActiveFinalCustomerTask(activeSubOrder);
                               return (
                                 <div key={activeSubOrder.id} className="w-full mt-2">
                                   <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-3">
@@ -548,13 +554,26 @@ export default function CustomerOrders() {
                                 </button>
                               </>
                             ) : (
-                              <div className="flex items-center gap-2 text-[9px] sm:text-[10px] text-blue-600 font-bold uppercase tracking-wider bg-blue-100/50 px-3 py-1.5 rounded-full">
-                                <span className="relative flex h-2 w-2">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
-                                </span>
-                                {(order.status === 'delivered' || order.status === 'cancelled') ? "History Only" : "In Progress"}
-                              </div>
+                              <>
+                                {(order.status === 'delivered' || order.status === 'completed') ? (
+                                  (!order.returnStatus || order.returnStatus === 'none' || order.returnStatus === 'rejected') && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); navigate(`/customer/orders/${order.id}/return`); }}
+                                      className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-orange-600 bg-orange-100 hover:bg-orange-200 rounded-lg transition-colors uppercase tracking-wider"
+                                    >
+                                      <FaUndo /> Initiate Return
+                                    </button>
+                                  )
+                                ) : (
+                                  <div className="flex items-center gap-2 text-[9px] sm:text-[10px] text-blue-600 font-bold uppercase tracking-wider bg-blue-100/50 px-3 py-1.5 rounded-full">
+                                    <span className="relative flex h-2 w-2">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                    </span>
+                                    {(order.status === 'delivered' || order.status === 'cancelled') ? "History Only" : "In Progress"}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                           <div className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-widest text-right">
@@ -700,6 +719,18 @@ export default function CustomerOrders() {
                                         <h5 className="text-[10px] sm:text-xs font-black text-gray-900 uppercase tracking-tight line-clamp-2">
                                           {item.itemLabel || item.name || item.Product?.name || item.product?.name || item.FastFood?.name || item.fastFood?.name || 'Order Item'}
                                         </h5>
+                                        {item.returnStatus && item.returnStatus !== 'none' && (
+                                          <div className="mt-1">
+                                            <span className={`text-[8px] sm:text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
+                                              item.returnStatus === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700 shadow-sm'
+                                            }`}>
+                                              {item.returnStatus === 'requested' ? 'Return Requested' : 
+                                               item.returnStatus === 'approved' ? 'Return Approved' :
+                                               item.returnStatus === 'completed' ? 'Returned' : 
+                                               `Return: ${item.returnStatus}`}
+                                            </span>
+                                          </div>
+                                        )}
                                         <p className="text-[8px] sm:text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Qty: {item.quantity}</p>
 
                                         {/* Seller Info */}

@@ -3,6 +3,10 @@ dist/
 build/
 
 # Database files
+*.sqlite
+*.sqlite3
+*.db
+*.db3
 backend/database.sqlite*
 backend/database_temp.sqlite*
 backend/db_check.sqlite*
@@ -10,8 +14,10 @@ backend/backups/
 
 # Logs and temp files
 *.log
-*.sqlite*
 logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Environment
 .env*
@@ -25,4 +31,44 @@ Thumbs.db
 *.swp
 *.swo
 *.sublime-workspace
+
+# Cache directories
+backend/cache/
+
+# Firebase
+.firebase/
+.firebaserc
+
+# Sequelize config
+.sequelizerc
+
+# Debug and check scripts (temporary)
+check_*.js
+list_*.js
+debug_*.js
+inspect_*.js
+verify_*.js
+dump_*.js
+find_*.js
+filter_*.js
+fix_*.js
+patch_*.js
+make_*.js
+backfill_*.js
+repair_*.js
+repro_*.js
+simulate_*.js
+sync_*.js
+test_*.js
+kill_port.ps1
+
+# Product dump files
+backend/product_dump.txt
+
+# WhatsApp Web.js
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/
+
+# Package lock (optional - uncomment if you prefer to track it)
+# package-lock.json
 

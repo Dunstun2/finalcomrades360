@@ -103,7 +103,7 @@ const getWishlist = async (req, res) => {
           model: models.Product,
           as: 'Product',
           required: false,
-          include: [{ model: models.User, as: 'seller', attributes: ['id', 'name'] }]
+          include: [{ model: models.User, as: 'seller', attributes: ['id', 'name', 'businessName'] }]
         },
         {
           model: models.Service,

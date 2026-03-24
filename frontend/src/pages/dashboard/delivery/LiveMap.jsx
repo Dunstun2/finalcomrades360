@@ -130,12 +130,14 @@ const DeliveryLiveMap = () => {
         fetchActiveOrder();
     };
 
+    const watchIdRef = useRef(null);
+
     useEffect(() => {
         fetchStatus();
         fetchActiveOrder();
 
         if ("geolocation" in navigator && !window._geoDenied) {
-            watchId = navigator.geolocation.watchPosition(
+            watchIdRef.current = navigator.geolocation.watchPosition(
                 (pos) => {
                     setCurrentLocation({
                         lat: pos.coords.latitude,
@@ -160,7 +162,7 @@ const DeliveryLiveMap = () => {
 
         const interval = setInterval(fetchActiveOrder, 30000);
         return () => {
-            if (watchId) navigator.geolocation.clearWatch(watchId);
+            if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
             clearInterval(interval);
         };
     }, []);

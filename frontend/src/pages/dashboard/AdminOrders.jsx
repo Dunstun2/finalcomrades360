@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute } from 'react-icons/fa';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute, FaUndo, FaUserMinus } from 'react-icons/fa';
 import api from '../../services/api';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import { formatPrice } from '../../utils/currency';
@@ -67,7 +67,8 @@ export default function AdminOrders() {
     'completed': { icon: FaCheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100', label: 'Completed' },
     'failed': { icon: FaTimes, color: 'text-red-600', bg: 'bg-red-100', label: 'Failed' },
     'cancelled': { icon: FaTimes, color: 'text-red-600', bg: 'bg-red-100', label: 'Cancelled' },
-    'returned': { icon: FaTimes, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Returned' }
+    'returned': { icon: FaTimes, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Returned' },
+    'return_in_progress': { icon: FaUndo, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Return in Progress' }
   };
 
   // Filter options
@@ -78,7 +79,8 @@ export default function AdminOrders() {
     { key: 'delivered', label: 'Delivered', count: backendStats?.delivered ?? '...' },
     { key: 'completed', label: 'Completed', count: backendStats?.completed ?? '...' },
     { key: 'cancelled', label: 'Cancelled Orders', count: backendStats?.cancelled ?? '...' },
-    { key: 'returned', label: 'Returned Orders', count: backendStats?.returned ?? '...' }
+    { key: 'returned', label: 'Returned Orders', count: backendStats?.returned ?? '...' },
+    { key: 'return_in_progress', label: 'Return in Progress', count: backendStats?.return_in_progress ?? '...' }
   ];
 
   // Logistics Categories
@@ -164,16 +166,22 @@ export default function AdminOrders() {
   };
 
   const getItemSellerEarning = (item) => {
+    if (item?.commissionAmount !== undefined && item?.commissionAmount !== null) {
+      return Number(item.total || 0) - Number(item.commissionAmount || 0);
+    }
     const quantity = Math.max(1, Number(item?.quantity || 1));
     return getItemSellerUnitBasePrice(item) * quantity;
   };
 
   const getOrderSellerPayout = (order) => {
+    if (order?.totalCommission !== undefined && order?.totalCommission !== null && order?.total) {
+      return Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.totalCommission || 0);
+    }
     const items = Array.isArray(order?.OrderItems) ? order.OrderItems : [];
     if (items.length === 0) return Number(order?.totalBasePrice || 0);
 
     const computed = items.reduce((sum, item) => sum + getItemSellerEarning(item), 0);
-    if (computed > 0) return computed;
+    if (computed >= 0) return computed;
 
     return Number(order?.totalBasePrice || 0);
   };
@@ -289,6 +297,17 @@ export default function AdminOrders() {
       }
     };
 
+    const handleOrderStatusUpdate = (data) => {
+      console.log('Received real-time order status update:', data);
+      setOrders(prevOrders => prevOrders.map(order =>
+        order.id === data.orderId ? { ...order, ...data } : order
+      ));
+
+      if (selectedOrderRef.current && selectedOrderRef.current.id === data.orderId) {
+        setSelectedOrder(prev => ({ ...prev, ...data }));
+      }
+    };
+
     const handleOrderMessage = (data) => {
       console.log('Received real-time order message:', data);
       if (selectedOrderRef.current && selectedOrderRef.current.id === data.orderId) {
@@ -297,6 +316,9 @@ export default function AdminOrders() {
     };
 
     socket.on('orderUpdate', handleOrderUpdate);
+    socket.on('orderStatusUpdate', handleOrderStatusUpdate);
+    socket.on('deliveryRequestUpdate', handleOrderStatusUpdate); // Can reuse same order update logic
+    socket.on('handover:confirmed', handleOrderStatusUpdate); // Can reuse same order update logic
     socket.on('orderMessage', handleOrderMessage);
 
     // Set up polling interval for real-time updates - silent background refresh
@@ -508,10 +530,6 @@ export default function AdminOrders() {
     }
   };
 
-  const handleBulkWarehouseReceived = async () => {
-    if (selectedOrders.length === 0) return;
-    setIsReceiptModalOpen(true);
-  };
 
   const handleBulkAssignDriverUI = () => {
     if (selectedOrders.length === 0) return;
@@ -608,6 +626,26 @@ export default function AdminOrders() {
       }
     } catch (error) {
       alert('Failed: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleUnassignDriver = async (orderId) => {
+    if (!window.confirm('Are you sure you want to unassign the delivery agent from this order? Any active tasks will be cancelled.')) return;
+    try {
+      setBulkLoading(true);
+      const res = await api.patch(`/orders/${orderId}/unassign`);
+      if (res.data.success) {
+        await loadOrders(false);
+        if (selectedOrder?.id === orderId) {
+          setSelectedOrder(prev => ({ ...prev, ...(res.data.order || {}) }));
+        }
+        alert('Agent unassigned successfully.');
+      }
+    } catch (error) {
+      console.error('Failed to unassign agent:', error);
+      alert(error.response?.data?.error || 'Failed to unassign delivery agent.');
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -1037,7 +1075,7 @@ export default function AdminOrders() {
                   </button>
                 )}
                 {/* ALL STAGES: Assignment is the only bulk action allowed now */}
-                {(workflowFilter === 'awaiting_collection' || workflowFilter === 'dispatch_ready') && isHomogeneous && (
+                {(workflowFilter === 'awaiting_collection' || workflowFilter === 'at_warehouse' || workflowFilter === 'dispatch_ready' || workflowFilter === 'cancelled') && isHomogeneous && (
                   <button
                     onClick={handleBulkAssignDriverUI}
                     disabled={bulkLoading || hasAssigned}
@@ -1233,48 +1271,61 @@ export default function AdminOrders() {
                               <FaEye className="h-4 w-4" />
                             </button>
 
-                            {['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'returned', 'failed'].includes(order.status) && (() => {
+                            {['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'returned', 'failed'].includes(order.status) && (() => {
                               const activeTask = getOrderDeliveryTask(order);
-                              const isLocked = activeTask && ['accepted', 'in_progress'].includes(activeTask.status);
+                              const isAtHub = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
+                              const isLocked = !isAtHub && activeTask && ['accepted', 'in_progress'].includes(activeTask.status) && !['failed', 'cancelled'].includes(order.status);
                               const isWarehouseRoute = !['direct_delivery', 'fastfood_direct_delivery', 'fastfood_pickup_point'].includes(order.adminRoutingStrategy) && order.orderCategory !== 'fastfood' && order.shippingType === 'shipped_from_seller';
-                              const isLockedForWarehouse = isWarehouseRoute && !['at_warehouse', 'ready_for_pickup'].includes(order.status);
-                              // Only allow assign if status is seller_confirmed or super_admin_confirmed
-                              const canAssign = order.status === 'seller_confirmed' || order.status === 'super_admin_confirmed';
+                              // If current task failed, we shouldn't lock the warehouse state; we need to re-assign
+                              const isLockedForWarehouse = isWarehouseRoute && !isAtHub && activeTask?.status !== 'failed';
+                              // Allow assign if status is confirmed OR if it's at the hub ready for the next leg
+                              const canAssign = order.status === 'seller_confirmed' || order.status === 'super_admin_confirmed' || isAtHub;
                               const isButtonDisabled = isLocked || isLockedForWarehouse || !canAssign;
 
                               return (
-                                <button
-                                  onClick={async () => {
-                                    if (isButtonDisabled) return;
-                                    const success = await acquireLock(order.id, 'assigning');
-                                    if (!success) return;
-                                    setOrderToAssign(order);
-                                    setIsBulkAssign(false);
-                                    setIsAssignModalOpen(true);
-                                  }}
-                                  disabled={isButtonDisabled}
-                                  className={`inline-flex items-center gap-1 px-3 py-1.5 ${isButtonDisabled
-                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                    : order.deliveryAgentId
-                                      ? 'bg-green-600 text-white hover:bg-green-700'
-                                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                                    } rounded-lg text-[10px] font-bold shadow-sm transition-all active:scale-95`}
-                                  title={
-                                    isLocked
-                                      ? "Cannot re-assign: Agent has already accepted/started"
-                                      : !canAssign
-                                        ? "Waiting for seller confirmation"
-                                        : isLockedForWarehouse
-                                          ? "Locked: Awaiting warehouse arrival for seller-shipped items"
-                                          : order.deliveryAgentId ? "Reassign Driver" : "Assign Driver"
-                                  }
-                                >
-                                  {isLocked ? (
-                                    <><FaLock className="h-3 w-3" /> Locked</>
-                                  ) : (
-                                    <><FaTruck className="h-3 w-3" /> {isButtonDisabled ? 'Locked' : order.deliveryAgentId ? 'Reassign' : 'Assign'}</>
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      if (isButtonDisabled) return;
+                                      const success = await acquireLock(order.id, 'assigning');
+                                      if (!success) return;
+                                      setOrderToAssign(order);
+                                      setIsBulkAssign(false);
+                                      setIsAssignModalOpen(true);
+                                    }}
+                                    disabled={isButtonDisabled}
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 ${isButtonDisabled
+                                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                      : order.deliveryAgentId
+                                        ? 'bg-green-600 text-white hover:bg-green-700'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                                      } rounded-lg text-[10px] font-bold shadow-sm transition-all active:scale-95`}
+                                    title={
+                                      isLocked
+                                        ? "Cannot re-assign: Agent has already accepted/started"
+                                        : !canAssign
+                                          ? "Waiting for seller confirmation"
+                                          : isLockedForWarehouse
+                                            ? "Locked: Awaiting warehouse arrival for seller-shipped items"
+                                            : order.deliveryAgentId ? "Reassign Driver" : "Assign Driver"
+                                    }
+                                  >
+                                    {isLocked ? (
+                                      <><FaLock className="h-3 w-3" /> Locked</>
+                                    ) : (
+                                      <><FaTruck className="h-3 w-3" /> {isButtonDisabled ? 'Locked' : (order.deliveryAgentId || activeTask?.deliveryAgentId) ? 'Reassign' : 'Assign'}</>
+                                    )}
+                                  </button>
+                                  {(order.deliveryAgentId || activeTask?.deliveryAgentId) && !isLocked && (
+                                    <button
+                                      onClick={() => handleUnassignDriver(order.id)}
+                                      className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                                      title="Unassign delivery agent"
+                                    >
+                                      <FaUserMinus className="h-4 w-4" />
+                                    </button>
                                   )}
-                                </button>
+                                </>
                               );
                             })()}
                           </div>
@@ -1365,15 +1416,6 @@ export default function AdminOrders() {
         }}
       />
 
-      <WarehouseReceiptModal
-        isOpen={isReceiptModalOpen}
-        onClose={() => setIsReceiptModalOpen(false)}
-        selectedOrderIds={selectedOrders}
-        onComplete={() => {
-          loadOrders();
-          setSelectedOrders([]);
-        }}
-      />
 
       {/* Order Details Modal */}
       {
@@ -1414,7 +1456,21 @@ export default function AdminOrders() {
                     <p><strong>Order Date:</strong> {formatDate(selectedOrder.createdAt)}</p>
                     <p><strong>Status:</strong> {getStatusInfo(selectedOrder.status).label}</p>
                     <p><strong>Payment:</strong> {selectedOrder.paymentConfirmed ? 'Paid' : 'Pending'}</p>
+                    <p><strong>Method:</strong> {selectedOrder.paymentMethod} {selectedOrder.paymentSubType ? `(${selectedOrder.paymentSubType})` : ''}</p>
                     <p><strong>Total:</strong> {formatPrice(selectedOrder.total)}</p>
+                    {selectedOrder.paymentProofUrl && (
+                      <div className="mt-2 text-xs">
+                        <strong>Payment Proof:</strong>
+                        <a 
+                          href={resolveImageUrl(selectedOrder.paymentProofUrl)} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="ml-2 inline-flex items-center gap-1 text-blue-600 hover:underline"
+                        >
+                          <FaEye /> View Screenshot
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1885,25 +1941,7 @@ export default function AdminOrders() {
 
                   {/* OMS Action Buttons */}
                   <div className="flex flex-wrap gap-2">
-                    {['en_route_to_warehouse', 'at_warehouse', 'seller_confirmed', 'super_admin_confirmed'].includes(selectedOrder.status) && selectedOrder.deliveryType !== 'seller_to_customer' && (() => {
-                      const isAtWarehouse = selectedOrder.status === 'at_warehouse';
-                      return (
-                        <button
-                          onClick={() => handleWarehouseReceived(selectedOrder.id)}
-                          disabled={!isAtWarehouse}
-                          className={`px-3 py-2 text-xs rounded font-medium ${isAtWarehouse
-                            ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            }`}
-                          title={isAtWarehouse
-                            ? 'Process receiving of items at hub/warehouse'
-                            : 'Locked: Waiting for delivery agent to bring items to warehouse'
-                          }
-                        >
-                          {isAtWarehouse ? (selectedOrder.status === 'at_warehouse' ? 'Process Warehouse Receipt (Again)' : 'Process Warehouse Receipt') : '🔒 Process Warehouse Receipt (Awaiting Transit)'}
-                        </button>
-                      );
-                    })()}
+                    {/* Manual Warehouse Receipt button removed to enforce code-based entry */}
                     {(selectedOrder.status === 'seller_confirmed' || selectedOrder.status === 'super_admin_confirmed') && (selectedOrder.shippingType === 'collected_from_seller' || selectedOrder.deliveryType === 'seller_to_warehouse') && (() => {
                       const pickupTask = getOrderDeliveryTask(selectedOrder);
                       const agentConfirmedCollection = pickupTask && ['in_progress', 'completed'].includes(pickupTask.status);
@@ -1940,17 +1978,20 @@ export default function AdminOrders() {
                         Assignment Locked: Waiting for item to arrive at warehouse (Seller is shipping to hub).
                       </div>
                     )}
-                    {((selectedOrder.status === 'at_warehouse' || selectedOrder.status === 'ready_for_pickup')
+                    {((selectedOrder.status === 'at_warehouse' || selectedOrder.status === 'received_at_warehouse' || selectedOrder.status === 'ready_for_pickup' || ['cancelled', 'failed'].includes(selectedOrder.status))
                       || (
                         ['seller_confirmed', 'super_admin_confirmed'].includes(selectedOrder.status)
                         && (
                           isFastFoodOnlyOrder(selectedOrder)
                           || selectedOrder.orderCategory === 'fastfood'
                           || ['direct_delivery', 'fastfood_direct_delivery', 'fastfood_pickup_point'].includes(selectedOrder.adminRoutingStrategy)
+                          || ['cancelled', 'failed'].includes(selectedOrder.status)
                         )
                       )) && (() => {
                       const activeTask = getOrderDeliveryTask(selectedOrder);
-                      const isLocked = activeTask && ['accepted', 'in_progress'].includes(activeTask.status);
+                      // An order at_warehouse or ready_for_pickup is always re-assignable — old task is done
+                      const isAtHub = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(selectedOrder.status);
+                      const isLocked = !isAtHub && activeTask && ['accepted', 'in_progress'].includes(activeTask.status) && !['failed', 'cancelled'].includes(selectedOrder.status);
 
                       return (
                         <div className="w-full">
@@ -1969,9 +2010,17 @@ export default function AdminOrders() {
                             {isLocked ? (
                               <><FaLock size={12} /> Re-assignment Locked (Agent Active)</>
                             ) : (
-                              <><FaUserPlus size={12} /> {activeTask ? 'Change assigned agent' : 'Assign delivery agent'}</>
+                              <><FaUserPlus size={12} /> {(selectedOrder.deliveryAgentId || activeTask?.deliveryAgentId) ? 'Change assigned agent' : 'Assign delivery agent'}</>
                             )}
                           </button>
+                          {(selectedOrder.deliveryAgentId || activeTask?.deliveryAgentId) && !isLocked && (
+                            <button
+                              onClick={() => handleUnassignDriver(selectedOrder.id)}
+                              className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold rounded bg-red-50 text-red-600 hover:bg-red-100 transition-all border border-red-200"
+                            >
+                              <FaUserMinus size={12} /> Unassign Delivery Agent
+                            </button>
+                          )}
                         </div>
                       );
                     })()}
@@ -2013,14 +2062,21 @@ export default function AdminOrders() {
               </div>
 
               {/* Related Orders from this Checkout */}
-              {selectedOrder.checkoutGroupId && (
+              {selectedOrder.checkoutGroupId && (() => {
+                const groupOrders = orders.filter(o => o.checkoutGroupId === selectedOrder.checkoutGroupId);
+                const relatedOrders = groupOrders.filter(o => o.id !== selectedOrder.id);
+                if (relatedOrders.length === 0) return null;
+                const uniqueSellersCount = new Set(groupOrders.map(o => o.seller?.id || o.sellerId)).size;
+                return (
                 <div className="mt-6 col-span-1 md:col-span-2">
                   <div className="flex items-center gap-2 mb-3">
                     <h4 className="font-bold text-gray-900 border-l-4 border-orange-500 pl-3">Checkout Group Orders</h4>
-                    <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">MULTI-SELLER SHIPMENT</span>
+                    {uniqueSellersCount > 1 && (
+                      <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">MULTI-SELLER SHIPMENT</span>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {orders.filter(o => o.checkoutGroupId === selectedOrder.checkoutGroupId && o.id !== selectedOrder.id).map(related => (
+                    {relatedOrders.map(related => (
                       <div
                         key={related.id}
                         onClick={() => setSelectedOrder(related)}
@@ -2047,7 +2103,8 @@ export default function AdminOrders() {
                     </div>
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Order Items Tabulated View */}
               {selectedOrder.OrderItems && selectedOrder.OrderItems.length > 0 && (
@@ -2095,8 +2152,18 @@ export default function AdminOrders() {
                                     />
                                   </div>
                                   <div className="space-y-0.5">
-                                    <div className="text-sm font-bold text-gray-900 leading-tight">
+                                    <div className="text-sm font-bold text-gray-900 leading-tight flex items-center gap-2">
                                       {item.itemLabel || item.name}
+                                      {item.returnStatus && item.returnStatus !== 'none' && (
+                                        <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter ${
+                                          item.returnStatus === 'requested' ? 'bg-orange-100 text-orange-700' :
+                                          item.returnStatus === 'approved' ? 'bg-indigo-100 text-indigo-700' :
+                                          item.returnStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                                          'bg-green-100 text-green-700'
+                                        }`}>
+                                          Return: {item.returnStatus}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="text-[11px] text-gray-500 font-medium">
                                       Qty: <span className="text-blue-600">{item.quantity}</span>

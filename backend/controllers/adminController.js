@@ -119,12 +119,12 @@ const getInventoryOverview = async (req, res) => {
     const [productRows, fastFoodRows] = await Promise.all([
       Product.findAll({
         attributes: ['id', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt'],
-        include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email'] }],
+        include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'businessName'] }],
         order: [['stock', 'ASC']]
       }),
       FastFood.findAll({
         attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus'],
-        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email'] }],
+        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'businessName'] }],
         order: [['createdAt', 'DESC']]
       })
     ]);
@@ -184,13 +184,13 @@ const getInventoryItems = async (req, res) => {
         : Product.findAll({
           where: productWhere,
           attributes: ['id', 'name', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt', 'approved', 'reviewStatus', 'isActive'],
-          include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role'], required: false }]
+          include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }]
         }),
       includeFastFood
         ? FastFood.findAll({
           where: fastFoodWhere,
           attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus'],
-          include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'phone', 'role'], required: false }]
+          include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }]
         })
         : []
     ]);
@@ -245,7 +245,7 @@ const getLowStockAlerts = async (req, res) => {
           { stock: 0 }
         ]
       },
-      include: [{ model: User, as: 'seller', attributes: ['name', 'email', 'phone'] }],
+      include: [{ model: User, as: 'seller', attributes: ['name', 'email', 'phone', 'businessName'] }],
       order: [['stock', 'ASC']]
     });
     res.json(alerts);
@@ -340,17 +340,54 @@ const getProductAnalytics = async (req, res) => {
 // Get top performing products
 const getTopPerformingProducts = async (req, res) => {
   try {
-    const { limit = 10, sortBy = 'orderCount' } = req.query;
+    const { limit = 10, startDate, endDate } = req.query;
 
-    const products = await Product.findAll({
-      where: { approved: true },
-      include: [{ model: User, as: 'seller', attributes: ['name', 'email'] }],
-      order: [[sortBy, 'DESC']],
-      limit: parseInt(limit)
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    // Aggregate sales from OrderItems within the date range
+    const topItems = await OrderItem.findAll({
+      attributes: [
+        'productId',
+        [fn('SUM', col('quantity')), 'totalQuantity'],
+        [fn('SUM', literal('price * quantity')), 'totalRevenue'],
+        [fn('COUNT', col('OrderItem.id')), 'orderCount']
+      ],
+      where: {
+        productId: { [Op.ne]: null },
+        createdAt: { [Op.between]: [start, end] }
+      },
+      include: [{
+        model: Product,
+        attributes: ['id', 'name', 'displayPrice', 'coverImage', 'approved'],
+        include: [{
+          model: User,
+          as: 'seller',
+          attributes: ['name', 'businessName']
+        }]
+      }],
+      group: ['productId'],
+      order: [[literal('totalQuantity'), 'DESC']],
+      limit: parseInt(limit),
+      raw: false
     });
 
-    res.json(products);
+    const products = topItems
+      .filter(item => item.Product)
+      .map(item => ({
+        id: item.Product.id,
+        name: item.Product.name,
+        displayPrice: item.Product.displayPrice,
+        coverImage: item.Product.coverImage,
+        seller: item.Product.seller,
+        totalQuantity: parseInt(item.dataValues.totalQuantity) || 0,
+        totalRevenue: parseFloat(item.dataValues.totalRevenue) || 0,
+        orderCount: parseInt(item.dataValues.orderCount) || 0
+      }));
+
+    res.json({ success: true, products, dateRange: { start, end } });
   } catch (e) {
+    console.error('Error getting top performing products:', e);
     res.status(500).json({ message: 'Error getting top performing products', error: e.message });
   }
 };
@@ -540,7 +577,7 @@ const getFlaggedProducts = async (req, res) => {
   try {
     const products = await Product.findAll({
       where: { flaggedForReview: true },
-      include: [{ model: User, as: 'seller', attributes: ['name', 'email'] }],
+      include: [{ model: User, as: 'seller', attributes: ['name', 'email', 'businessName'] }],
       order: [['updatedAt', 'DESC']]
     });
 
@@ -1351,7 +1388,7 @@ const getPendingProducts = async (req, res) => {
         {
           model: User,
           as: 'seller',
-          attributes: ['id', 'name', 'email', 'phone', 'role'],
+          attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'],
           required: false
         },
         {

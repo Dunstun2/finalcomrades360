@@ -194,7 +194,9 @@ export default function WarehouseReceiptModal({ isOpen, onClose, selectedOrderId
                         <div className="space-y-3">
                             <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Handover Code Confirmation</p>
                             {orders.map(order => {
-                                const task = (order.deliveryTasks || [])[0];
+                                const task = (order.deliveryTasks && order.deliveryTasks.length > 0) 
+                                  ? [...order.deliveryTasks].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0] 
+                                  : null;
                                 if (!task) return null;
                                 return (
                                     <div key={order.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50">

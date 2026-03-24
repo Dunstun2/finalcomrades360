@@ -109,12 +109,28 @@ const upsertDeliveryChargeForTask = async ({
     note: routeFunding.note
   };
 
+  const chargeData = {
+    ...payload,
+    deliveryTaskId: task.id // Explicitly set again to be sure
+  };
+
   if (existingCharge) {
-    await existingCharge.update(payload, { transaction });
+    await existingCharge.update(chargeData, { transaction });
     return existingCharge;
   }
 
-  return DeliveryCharge.create(payload, { transaction });
+  // Double check if it was created in a race condition during this transaction or another
+  const doubleCheck = await DeliveryCharge.findOne({
+    where: { deliveryTaskId: task.id },
+    transaction
+  });
+
+  if (doubleCheck) {
+    await doubleCheck.update(chargeData, { transaction });
+    return doubleCheck;
+  }
+
+  return DeliveryCharge.create(chargeData, { transaction });
 };
 
 const invoiceSellerChargeImmediately = async ({

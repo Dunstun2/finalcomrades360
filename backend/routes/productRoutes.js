@@ -1,6 +1,6 @@
 const express = require('express');
 const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, migrateDeletedProduct, getHomepageProducts } = require('../controllers/productController');
-const { auth, checkRole, optionalAuth } = require('../middleware/auth');
+const { auth, checkRole, optionalAuth, checkSellerProfile } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { uploadProductMedia } = require('../config/multer');
 const { compressUploadedImages } = require('../utils/imageCompression');
@@ -91,7 +91,7 @@ router.put('/:id/reject', auth, checkRole('super_admin', 'superadmin', 'admin'),
 // @route   POST /api/products
 // @desc    Create a new product
 // @access  Private (Super Admin, Admin or Seller)
-router.post('/', auth, checkRole(['super_admin', 'superadmin', 'admin', 'seller']), uploadProductMedia.fields(uploadFields), compressUploadedImages, createProduct);
+router.post('/', auth, checkRole(['super_admin', 'superadmin', 'admin', 'seller']), checkSellerProfile, uploadProductMedia.fields(uploadFields), compressUploadedImages, createProduct);
 
 
 
@@ -119,7 +119,7 @@ router.get('/:id', optionalAuth, getProductById);
 // @route   PUT /api/products/:id
 // @desc    Update a product
 // @access  Private (Product owner, Super Admin, or Admin)
-router.put('/:id', auth, uploadProductMedia.fields(uploadFields), compressUploadedImages, updateProduct);
+router.put('/:id', auth, checkSellerProfile, uploadProductMedia.fields(uploadFields), compressUploadedImages, updateProduct);
 
 // @route   DELETE /api/products/:id
 // @desc    Delete a product (only unapproved products by owner or admin)

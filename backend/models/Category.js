@@ -9,7 +9,8 @@ module.exports = (sequelize, DataTypes) => {
       };
       
       if (excludeId) {
-        where.id = { [sequelize.Op.ne]: excludeId };
+        const Op = sequelize.Op || (sequelize.Sequelize && sequelize.Sequelize.Op) || { ne: '$ne' };
+        where.id = { [Op.ne]: excludeId };
       }
       
       const existing = await this.findOne({ where });

@@ -1,4 +1,7 @@
-const { Notification } = require('../models');
+const { Notification, PlatformConfig, User } = require('../models');
+const { sendMessage } = require('./messageService');
+const { getDynamicMessage } = require('./templateUtils');
+
 
 /**
  * Create a notification for a user
@@ -30,21 +33,31 @@ async function createNotification(userId, title, message, type = 'info') {
 async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrderNumber, optionalDeliveryType) {
     const agentId = typeof agentOrId === 'object' ? agentOrId.id : agentOrId;
     const orderNumber = typeof orderOrId === 'object' ? orderOrId.orderNumber : (optionalOrderNumber || orderOrId);
-    const deliveryType = typeof orderOrId === 'object' ? orderOrId.deliveryType : optionalDeliveryType;
+    const deliveryType = optionalDeliveryType || (typeof orderOrId === 'object' ? orderOrId.deliveryType : null);
 
     const typeLabels = {
         'warehouse_to_customer': 'Warehouse → Customer',
         'customer_to_warehouse': 'Customer → Warehouse',
         'seller_to_customer': 'Seller → Customer',
-        'seller_to_warehouse': 'Seller → Warehouse'
+        'seller_to_warehouse': 'Seller → Warehouse',
+        'warehouse_to_pickup_station': 'Warehouse → Pickup Station',
+        'seller_to_pickup_station': 'Seller → Pickup Station',
+        'customer_to_pickup_station': 'Customer → Pickup Station',
+        'pickup_station_to_warehouse': 'Pickup Station → Warehouse'
     };
+
+    const message = await getDynamicMessage('agentTaskAssigned', 
+        `You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}`,
+        { orderNumber, deliveryType: typeLabels[deliveryType] || deliveryType }
+    );
 
     return await createNotification(
         agentId,
         'New Delivery Task Assigned',
-        `You have been assigned a new delivery task for order #${orderNumber}. Type: ${typeLabels[deliveryType] || deliveryType}`,
+        message,
         'info'
     );
+
 }
 
 /**
@@ -57,14 +70,20 @@ async function notifyAdminTaskRejection(orderId, orderNumber, agentName, reason)
         where: { role: ['admin', 'super_admin', 'superadmin'] }
     });
 
+    const message = await getDynamicMessage('adminTaskRejected',
+        `Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}`,
+        { agentName, orderNumber, reason }
+    );
+
     for (const admin of admins) {
         await createNotification(
             admin.id,
             'Delivery Task Rejected',
-            `Delivery agent ${agentName} rejected task for order #${orderNumber}. Reason: ${reason}`,
+            message,
             'warning'
         );
     }
+
 }
 
 /**
@@ -90,12 +109,18 @@ async function notifyCustomerDeliveryUpdate(customerId, orderNumber, status, mes
  * Notify delivery agent when task is reassigned to them
  */
 async function notifyDeliveryAgentReassignment(agentId, taskId, orderNumber) {
+    const message = await getDynamicMessage('agentTaskReassigned',
+        `A delivery task for order #{orderNumber} has been reassigned to you.`,
+        { orderNumber }
+    );
+
     return await createNotification(
         agentId,
         'Delivery Task Reassigned',
-        `A delivery task for order #${orderNumber} has been reassigned to you.`,
+        message,
         'info'
     );
+
 }
 
 /**
@@ -105,40 +130,111 @@ async function notifyCustomerOutForDelivery(order, agent) {
     const deliveryMethod = order.pickStation ? `Pick Up Station: ${order.pickStation}` : 'Door Delivery';
     const amountMsg = order.paymentConfirmed ? 'Order is fully paid.' : `Please prepare KES ${order.total} for payment.`;
 
-    const message = `Good news! Your order #${order.orderNumber} has been collected by ${agent.name} and is in transit.
-    
-Delivery Method: ${deliveryMethod}
-${amountMsg}
+    const message = await getDynamicMessage('orderInTransit',
+        `Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚\n\nDelivery Method: {deliveryMethod}\n{amountMsg}\n\nYou can track your delivery in the app.`,
+        { orderNumber: order.orderNumber, agentName: agent.name, deliveryMethod, amountMsg }
+    );
 
-You can track your delivery in the app.`;
 
-    return await createNotification(
+    // Internal app notification
+    await createNotification(
         order.userId,
         'Order In Transit 🚚',
         message,
         'info'
     );
+
+    // WhatsApp Notification
+    if (order.user?.phone || order.customerPhone) {
+        const phone = order.user?.phone || order.customerPhone;
+        await sendMessage(phone, message, 'whatsapp');
+    }
 }
 
 /**
  * Notify customer that their order is ready for pickup at a station
  */
 async function notifyCustomerReadyForPickupStation(order, station) {
-    const message = `Your order #${order.orderNumber} is ready for collection!
-    
-Pickup Station: ${station.name}
-Location: ${station.location}
-Contact: ${station.phone || 'N/A'}
-Opening Hours: ${station.openingHours || 'Standard Hours'}
+    const message = await getDynamicMessage('orderReadyPickup',
+        `Your order #{orderNumber} is ready for collection! 📦\n\nPickup Station: {stationName}\nLocation: {location}\nContact: {phone}`,
+        { orderNumber: order.orderNumber, stationName: station.name, location: station.location, phone: station.phone || 'N/A' }
+    );
 
-Please bring your order number for identification.`;
 
-    return await createNotification(
+    await createNotification(
         order.userId,
         'Order Ready for Collection 📦',
         message,
         'success'
     );
+
+    // WhatsApp Notification
+    if (order.user?.phone || order.customerPhone) {
+        const phone = order.user?.phone || order.customerPhone;
+        await sendMessage(phone, message, 'whatsapp');
+    }
+}
+
+/**
+ * Notify customer that their order has been placed
+ */
+async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames) {
+    console.log(`[DEBUG] notifyCustomerOrderPlaced for order #${order.orderNumber}. Customer phone: ${customer.phone}`);
+    
+    let deliveryInfoArr = [];
+    if (order.deliveryMethod === 'pick_station') {
+        deliveryInfoArr.push(`Method: Pickup Station`);
+        deliveryInfoArr.push(`Location: ${order.pickStation || 'N/A'}`);
+    } else {
+        deliveryInfoArr.push(`Method: Home Delivery`);
+        deliveryInfoArr.push(`Location: ${order.deliveryAddress || order.marketingDeliveryAddress || 'N/A'}`);
+    }
+    const deliveryInfo = deliveryInfoArr.join('\n');
+
+    const message = await getDynamicMessage('orderPlaced',
+        `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{items}\n\nTotal: KES {total}\nPayment: {paymentType}\n\nDelivery Information:\n{deliveryInfo}\n\nThank you for shopping with Comrades360!`,
+        { 
+            name: customer.name || 'Customer', 
+            orderNumber: order.orderNumber, 
+            items: itemNames || itemsCount,
+            total: order.total?.toLocaleString(),
+            paymentType: order.paymentType === 'cash_on_delivery' ? 'Cash on Delivery' : 'Paid',
+            deliveryInfo
+        }
+    );
+
+
+    // WhatsApp Notification
+    if (customer.phone) {
+        console.log(`[DEBUG] Calling sendMessage for WhatsApp to ${customer.phone}`);
+        await sendMessage(customer.phone, message, 'whatsapp');
+    } else {
+        console.warn(`[DEBUG] No phone number for customer ${customer.id}, skipping WhatsApp`);
+    }
+}
+
+/**
+ * Notify customer that the agent has arrived at their location
+ */
+async function notifyCustomerAgentArrived(order, agent) {
+    const message = await getDynamicMessage('agentArrived',
+        `Your delivery agent {agentName} has arrived at your location! 📍\n\nPlease meet them to collect your order #{orderNumber}.\nAgent Phone: {phone}`,
+        { agentName: agent.name, orderNumber: order.orderNumber, phone: agent.phone || 'N/A' }
+    );
+
+
+    await createNotification(
+        order.userId,
+        'Agent Arrived 📍',
+        message,
+        'success'
+    );
+
+    // WhatsApp Notification
+    const phone = order.user?.phone || order.customerPhone;
+    if (phone) {
+        await sendMessage(phone, message, 'whatsapp');
+    }
 }
 
 module.exports = {
@@ -148,5 +244,7 @@ module.exports = {
     notifyCustomerDeliveryUpdate,
     notifyDeliveryAgentReassignment,
     notifyCustomerOutForDelivery,
-    notifyCustomerReadyForPickupStation
+    notifyCustomerReadyForPickupStation,
+    notifyCustomerOrderPlaced,
+    notifyCustomerAgentArrived
 };

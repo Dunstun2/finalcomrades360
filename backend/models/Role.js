@@ -44,11 +44,7 @@ module.exports = (sequelize, DataTypes) => {
     });
 
     Role.associate = (models) => {
-        Role.hasMany(models.User, {
-            foreignKey: 'role',
-            sourceKey: 'id',
-            as: 'users'
-        });
+        // Obsolete: Role.hasMany(models.User, { foreignKey: 'role' }) removed
     };
 
     return Role;

@@ -13,18 +13,13 @@ export default function StationLogin() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h1 className="text-2xl font-black text-gray-900 mb-1">Station Login</h1>
-        <p className="text-sm text-gray-600 mb-5">
-          Sign in using the same details configured when creating your warehouse or pickup station.
+        <h1 className="text-3xl font-black text-blue-900 mb-2">Station Portal</h1>
+        <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+          Log in to your <strong>Warehouse</strong> or <strong>Pickup Station</strong> account. 
+          Use your station code or email as the identifier, and the contact phone number as your secret.
         </p>
 
-        <LoginForm initialMode="station" />
-
-        <div className="mt-5 text-center">
-          <Link to="/login" className="text-sm text-blue-600 hover:underline">
-            Back to regular user login
-          </Link>
-        </div>
+        <LoginForm initialMode="station" lockMode={true} />
       </div>
     </div>
   );

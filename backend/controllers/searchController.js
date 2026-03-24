@@ -30,7 +30,7 @@ exports.search = async (req, res) => {
                 },
                 include: [
                     { model: Category, as: 'category', attributes: ['name'] },
-                    { model: User, as: 'seller', attributes: ['name'] }
+                    { model: User, as: 'seller', attributes: ['name', 'businessName'] }
                 ],
                 limit: 20
             });
@@ -55,7 +55,7 @@ exports.search = async (req, res) => {
                 },
                 include: [
                     { model: Category, as: 'category', attributes: ['name'] },
-                    { model: User, as: 'provider', attributes: ['name'] },
+                    { model: User, as: 'provider', attributes: ['name', 'businessName'] },
                     { model: ServiceImage, as: 'images', attributes: ['imageUrl'], limit: 1 }
                 ],
                 limit: 20
@@ -91,7 +91,7 @@ exports.search = async (req, res) => {
                     ]
                 },
                 include: [
-                    { model: User, as: 'vendorDetail', attributes: ['name'] }
+                    { model: User, as: 'vendorDetail', attributes: ['name', 'businessName'] }
                 ],
                 limit: 20
             });

@@ -14,6 +14,7 @@ import {
   FaComments,
   FaLocationArrow
 } from 'react-icons/fa';
+import { useOutletContext } from 'react-router-dom';
 import api from '../../../services/api';
 import { resolveImageUrl } from '../../../utils/imageUtils';
 import { formatPrice } from '../../../utils/currency';
@@ -22,6 +23,11 @@ import PaymentVerificationModal from '../../../components/delivery/PaymentVerifi
 import DeliveryChat from '../../../components/delivery/DeliveryChat';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
 import HandoverCodeWidget from '../../../components/delivery/HandoverCodeWidget';
+
+const getLatestTask = (order) => {
+  if (!order.deliveryTasks || order.deliveryTasks.length === 0) return null;
+  return [...order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+};
 
 const DeliveryAgentOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -43,7 +49,12 @@ const DeliveryAgentOrders = () => {
   const [agentSharePercent, setAgentSharePercent] = useState(70);
   const [blockingReason, setBlockingReason] = useState(null);
   const [missingFields, setMissingFields] = useState([]);
-  const [visibleCount, setVisibleCount] = useState(10);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [activeTab, setActiveTab] = useState('in_progress'); // 'in_progress', 'completed', 'cancelled'
+  const activeTabRef = React.useRef('in_progress'); // Ref to avoid stale closures in polling
+  
+  // Real-time context from DeliveryAgentDashboard Shell
+  const { lastUpdate } = useOutletContext() || {};
 
   const isPollingRef = React.useRef(false);
   const failureCountRef = React.useRef(0);
@@ -52,12 +63,21 @@ const DeliveryAgentOrders = () => {
   useEffect(() => {
     loadMyDeliveries();
     loadFinanceConfig();
+  }, []); // Initial load
 
+  // React to socket updates — use activeTabRef to avoid stale closure
+  useEffect(() => {
+    if (lastUpdate && lastUpdate !== null) {
+      loadMyDeliveries(false, activeTabRef.current);
+    }
+  }, [lastUpdate]);
+
+  useEffect(() => {
     intervalRef.current = setInterval(async () => {
       if (isPollingRef.current) return;
       isPollingRef.current = true;
       try {
-        await loadMyDeliveries(false);
+        await loadMyDeliveries(false, activeTabRef.current); // Always poll for current tab
         failureCountRef.current = 0;
       } catch (_) {
         failureCountRef.current += 1;
@@ -84,10 +104,18 @@ const DeliveryAgentOrders = () => {
     }
   };
 
-  const loadMyDeliveries = async (showLoading = true) => {
+  const loadMyDeliveries = async (showLoading = true, tab = activeTab) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await api.get('/delivery/orders');
+      
+      let endpoint = '/delivery/orders';
+      if (tab === 'completed') {
+        endpoint = '/delivery/orders?history=true';
+      } else if (tab === 'cancelled') {
+        endpoint = '/delivery/orders?cancelled=true';
+      }
+
+      const res = await api.get(endpoint);
       setOrders(res.data.data || []);
       setBlockingReason(res.data.blockingReason || null);
       setMissingFields(res.data.missingFields || []);
@@ -98,6 +126,13 @@ const DeliveryAgentOrders = () => {
     } finally {
       if (showLoading) setLoading(false);
     }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    activeTabRef.current = tab; // Keep ref in sync
+    setVisibleCount(20); // Reset to default page size
+    loadMyDeliveries(true, tab);
   };
 
   const handleStatusUpdate = async (orderId, newStatus) => {
@@ -226,15 +261,16 @@ const DeliveryAgentOrders = () => {
     try {
       for (const orderId of selectedOrders) {
         const order = orders.find(o => o.id === orderId);
-        if (!order || !order.deliveryTasks?.[0]) continue;
-        const taskId = order.deliveryTasks[0].id;
+        const task = order ? getLatestTask(order) : null;
+        if (!task) continue;
+        const taskId = task.id;
 
         if (targetAction === 'arrived') {
-          if (order.deliveryTasks[0].status === 'accepted') {
+          if (task.status === 'accepted') {
             await api.post(`/delivery/tasks/${taskId}/mark-arrived`);
           }
         } else if (targetAction === 'collected') {
-          if (order.deliveryTasks[0].status === 'arrived_at_pickup') {
+          if (task.status === 'arrived_at_pickup') {
             await api.post(`/delivery/tasks/${taskId}/confirm-collection`, { notes: 'Bulk collection confirmed' });
           }
         }
@@ -260,9 +296,36 @@ const DeliveryAgentOrders = () => {
   return (
     <div className="space-y-6 max-w-5xl mx-auto p-4">
       <div className="bg-white rounded-lg shadow-sm border">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-900">Active Assignments</h2>
-          <p className="text-sm text-gray-500">Manage your active pickups and deliveries</p>
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">
+              {activeTab === 'in_progress' ? 'Active Assignments' : activeTab === 'completed' ? 'Delivery History' : 'Cancelled Assignments'}
+            </h2>
+            <p className="text-sm text-gray-500">
+              {activeTab === 'in_progress' ? 'Manage your active pickups and deliveries' : activeTab === 'completed' ? 'View your past successful deliveries' : 'History of failed or rejected assignments'}
+            </p>
+          </div>
+
+          <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto">
+            <button
+              onClick={() => handleTabChange('in_progress')}
+              className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'in_progress' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              In Progress
+            </button>
+            <button
+              onClick={() => handleTabChange('completed')}
+              className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'completed' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Completed
+            </button>
+            <button
+              onClick={() => handleTabChange('cancelled')}
+              className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'cancelled' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Cancelled
+            </button>
+          </div>
         </div>
 
         <div className="p-6">
@@ -348,7 +411,11 @@ const DeliveryAgentOrders = () => {
           ) : orders.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <FaTruck className="mx-auto h-12 w-12 text-gray-300 mb-3" />
-              <p>No active assignments found.</p>
+              <p>
+                {activeTab === 'in_progress' ? 'No active assignments found.' : 
+                 activeTab === 'completed' ? 'No completed deliveries found.' : 
+                 'No cancelled or failed assignments.'}
+              </p>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -372,14 +439,13 @@ const DeliveryAgentOrders = () => {
                   }
                 >
                   {(() => {
-                    const finalCustomerTask = order.deliveryTasks?.find((task) =>
-                      ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType)
-                    );
+                    const task = getLatestTask(order);
+                    if (!task) return null;
 
                     return (
                   <div className="flex gap-2 w-full justify-end flex-wrap">
                     {/* Chat Button */}
-                    {order.deliveryTasks?.[0] && ['accepted', 'out_for_delivery', 'arrived_at_pickup', 'in_progress'].includes(order.deliveryTasks[0].status) && (
+                    {['accepted', 'out_for_delivery', 'arrived_at_pickup', 'in_progress'].includes(task.status) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -393,16 +459,16 @@ const DeliveryAgentOrders = () => {
                     )}
 
                     {/* Step 1: Accept/Reject */}
-                    {order.deliveryTasks?.[0]?.status === 'assigned' ? (
+                    {task.status === 'assigned' ? (
                       <div className="flex gap-2">
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleAcceptTask(order.deliveryTasks[0].id); }}
+                          onClick={(e) => { e.stopPropagation(); handleAcceptTask(task.id); }}
                           className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm"
                         >
                           Accept Assignment
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleRejectTask(order.deliveryTasks[0].id); }}
+                          onClick={(e) => { e.stopPropagation(); handleRejectTask(task.id); }}
                           className="px-4 py-2 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 border border-red-200 shadow-sm"
                         >
                           Reject
@@ -411,113 +477,136 @@ const DeliveryAgentOrders = () => {
                     ) : (
                       <>
                         {/* Step 2: Arrived */}
-                        {order.deliveryTasks?.[0]?.status === 'accepted' && (
+                        {task.status === 'accepted' && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleMarkArrived(order.deliveryTasks[0].id); }}
+                            onClick={(e) => { e.stopPropagation(); handleMarkArrived(task.id); }}
                             className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2"
                           >
                             <FaMapMarkedAlt /> Arrived at Pickup
                           </button>
                         )}
 
-                        {/* Step 3: Collect — agent enters code given by seller */}
-                        {order.deliveryTasks?.[0] && ['accepted', 'arrived_at_pickup'].includes(order.deliveryTasks[0].status) && (
-                          <div className="w-full mt-2 space-y-2">
-                            <a
-                              href={`https://www.google.com/maps/dir/?api=1&destination=${order.seller?.businessLat},${order.seller?.businessLng}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm"
-                            >
-                              <FaLocationArrow /> Navigate to Pickup
-                            </a>
-                            {order.deliveryTasks[0].status === 'arrived_at_pickup' && (
-                              <HandoverCodeWidget
-                                mode="receiver"
-                                handoverType="seller_to_agent"
-                                orderId={order.id}
-                                taskId={order.deliveryTasks[0].id}
-                                onConfirmed={() => {
-                                  alert('Handover confirmed! Order is now in your collection.');
-                                  loadMyDeliveries();
-                                }}
-                              />
-                            )}
-                          </div>
-                        )}
+                        {/* Step 3: Collect — agent enters code given by seller or hub */}
+                        {['accepted', 'arrived_at_pickup'].includes(task.status) && (() => {
+                          let collectHandoverType = 'seller_to_agent';
+                          let pickupLat = order.seller?.businessLat || order.seller?.lat;
+                          let pickupLng = order.seller?.businessLng || order.seller?.lng;
+                          
+                          if (task.deliveryType && task.deliveryType.startsWith('warehouse')) {
+                            collectHandoverType = 'warehouse_to_agent';
+                            const wh = order.Warehouse || order.DestinationWarehouse; // Fallbacks
+                            pickupLat = wh?.lat || pickupLat;
+                            pickupLng = wh?.lng || pickupLng;
+                          } else if (task.deliveryType && task.deliveryType.startsWith('pickup_station')) {
+                            collectHandoverType = 'station_to_agent';
+                            const ps = order.PickupStation || order.DestinationPickStation;
+                            pickupLat = ps?.lat || pickupLat;
+                            pickupLng = ps?.lng || pickupLng;
+                          }
 
-                        {/* Step 4a: Hub drop-off — agent generates code for warehouse/station staff */}
-                        {(() => {
-                          const task = order.deliveryTasks?.[0];
-                          if (!task || task.status !== 'in_progress') return null;
-                          const hubRoutes = ['seller_to_warehouse', 'customer_to_warehouse', 'seller_to_pickup_station', 'warehouse_to_pickup_station'];
-                          if (!hubRoutes.includes(task.deliveryType)) return null;
-                          const isWarehouse = task.deliveryType.includes('warehouse');
-                          const handoverType = isWarehouse ? 'agent_to_warehouse' : 'agent_to_station';
                           return (
-                            <div className="w-full mt-2">
-                              <HandoverCodeWidget
-                                mode="giver"
-                                handoverType={handoverType}
-                                orderId={order.id}
-                                taskId={task.id}
-                                buttonLabel="Dispatch"
-                                onConfirmed={() => loadMyDeliveries()}
-                              />
-                            </div>
-                          );
-                        })()}
-
-                        {/* Step 4b: Delivered */}
-                        {((['out_for_delivery', 'in_transit'].includes(order.status)) || finalCustomerTask?.status === 'in_progress') && (
-                          <div className="flex flex-col gap-3 w-full">
-                            <div className="flex gap-2">
-                              <a
-                                href={`https://www.google.com/maps/dir/?api=1&destination=${order.deliveryLat},${order.deliveryLng}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm flex items-center gap-2"
-                              >
-                                <FaLocationArrow /> Navigate to Dropoff
-                              </a>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleStatusUpdate(order.id, 'failed'); }}
-                                className="px-4 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-lg hover:bg-red-100 border border-red-100 shadow-sm"
-                              >
-                                Failed
-                              </button>
-                            </div>
-                            <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2 px-1">Customer Delivery Confirmation</p>
-                              {order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed ? (
-                                <div className="flex flex-col gap-2">
-                                  <p className="text-xs text-amber-700 font-bold bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
-                                    💰 Payment required before delivery confirmation
-                                  </p>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }}
-                                    className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 active:scale-95 transition-all"
-                                  >
-                                    Confirm Payment First
-                                  </button>
-                                </div>
-                              ) : (
+                            <div className="w-full mt-2 space-y-2">
+                              {pickupLat && pickupLng && (
+                                <a
+                                  href={`https://www.google.com/maps/dir/?api=1&destination=${pickupLat},${pickupLng}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm"
+                                >
+                                  <FaLocationArrow /> Navigate to Pickup
+                                </a>
+                              )}
+                              {task.status === 'arrived_at_pickup' && (
                                 <HandoverCodeWidget
-                                  mode="giver"
-                                  handoverType="agent_to_customer"
+                                  mode="receiver"
+                                  handoverType={collectHandoverType}
                                   orderId={order.id}
-                                  taskId={finalCustomerTask?.id || order.deliveryTasks[0]?.id}
-                                  buttonLabel="Mark Delivered"
-                                  autoGenerate={autoGenerateCodeOrderId === order.id}
+                                  taskId={task.id}
                                   onConfirmed={() => {
-                                    setAutoGenerateCodeOrderId(null);
+                                    alert('Handover confirmed! Order is now in your collection.');
                                     loadMyDeliveries();
                                   }}
                                 />
                               )}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
+
+                        {/* Step 4: Drop-off — agent generates code for the final destination */}
+                        {(() => {
+                           if (task.status !== 'in_progress') return null;
+
+                           let dropoffHandoverType = 'agent_to_customer';
+                           let isCustomerDropoff = true;
+
+                           if (task.deliveryType && task.deliveryType.endsWith('_to_warehouse')) {
+                             dropoffHandoverType = 'agent_to_warehouse';
+                             isCustomerDropoff = false;
+                           } else if (task.deliveryType && (task.deliveryType.endsWith('_to_pickup_station') || task.deliveryType.endsWith('_to_station'))) {
+                             dropoffHandoverType = 'agent_to_station';
+                             isCustomerDropoff = false;
+                           } else if (task.deliveryType && task.deliveryType.endsWith('_to_customer')) {
+                             dropoffHandoverType = 'agent_to_customer';
+                             isCustomerDropoff = true;
+                           } else if (order.deliveryMethod === 'pick_station') {
+                             // Fallback
+                             dropoffHandoverType = 'agent_to_station';
+                             isCustomerDropoff = false;
+                           }
+
+                           return (
+                             <div className="flex flex-col gap-3 w-full mt-2">
+                               <div className="flex gap-2">
+                                 <a
+                                   href={`https://www.google.com/maps/dir/?api=1&destination=${order.deliveryLat || 0},${order.deliveryLng || 0}`}
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   className="px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm flex items-center gap-2"
+                                 >
+                                   <FaLocationArrow /> Navigate to Dropoff
+                                 </a>
+                                 <button
+                                   onClick={(e) => { e.stopPropagation(); handleStatusUpdate(order.id, 'failed'); }}
+                                   className="px-4 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-lg hover:bg-red-100 border border-red-100 shadow-sm"
+                                 >
+                                   Failed
+                                 </button>
+                               </div>
+
+                               <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                 <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2 px-1">
+                                    {isCustomerDropoff ? 'Customer Delivery Confirmation' : 'Hub Drop-off Confirmation'}
+                                 </p>
+                                 {isCustomerDropoff && order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed ? (
+                                   <div className="flex flex-col gap-2">
+                                     <p className="text-xs text-amber-700 font-bold bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
+                                       💰 Payment required before delivery
+                                     </p>
+                                     <button
+                                       onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }}
+                                       className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 active:scale-95 transition-all"
+                                     >
+                                       Confirm Payment First
+                                     </button>
+                                   </div>
+                                 ) : (
+                                   <HandoverCodeWidget
+                                     mode="giver"
+                                     handoverType={dropoffHandoverType}
+                                     orderId={order.id}
+                                     taskId={task.id}
+                                     buttonLabel={isCustomerDropoff ? "Mark Delivered" : "Dispatch"}
+                                     autoGenerate={autoGenerateCodeOrderId === order.id}
+                                     onConfirmed={() => {
+                                       setAutoGenerateCodeOrderId(null);
+                                       loadMyDeliveries();
+                                     }}
+                                   />
+                                 )}
+                               </div>
+                             </div>
+                           );
+                        })()}
                       </>
                     )}
                   </div>
@@ -528,9 +617,9 @@ const DeliveryAgentOrders = () => {
 
               {/* Load More */}
               {orders.length > visibleCount && (
-                <div className="text-center pt-4">
+                <div className="text-center pt-6">
                   <button
-                    onClick={() => setVisibleCount(c => c + 10)}
+                    onClick={() => setVisibleCount(c => c + 20)}
                     className="px-6 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-sm rounded-xl border border-blue-200 transition-all flex items-center gap-2 mx-auto"
                   >
                     Load More ({orders.length - visibleCount} remaining)

@@ -1,4 +1,4 @@
-const { Wallet, Transaction, PlatformConfig, Order, OrderItem } = require('../models');
+const { Wallet, Transaction, PlatformConfig, Order, OrderItem, DeliveryTask, User } = require('../models');
 
 const getDeliveryWallet = async (req, res) => {
     try {
@@ -10,9 +10,12 @@ const getDeliveryWallet = async (req, res) => {
             wallet = await Wallet.create({ userId, balance: 0, pendingBalance: 0, successBalance: 0 });
         }
 
-        // Get agent share configuration
+        // Get settings
         const config = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' } });
         const sharePercent = config ? parseFloat(config.value) : 70;
+
+        const autoPayoutConfig = await PlatformConfig.findOne({ where: { key: 'automatic_delivery_payout_enabled' } });
+        const autoPayoutEnabled = autoPayoutConfig ? autoPayoutConfig.value === 'true' : false;
 
         // Get transactions with order details and associated delivery tasks
         const transactions = await Transaction.findAll({
@@ -43,6 +46,7 @@ const getDeliveryWallet = async (req, res) => {
             balance: wallet.balance || 0,
             pendingBalance: wallet.pendingBalance || 0,
             successBalance: wallet.successBalance || 0,
+            autoPayoutEnabled,
             transactions: transactions.map(tx => {
                 const txData = {
                     id: tx.id,
@@ -111,7 +115,6 @@ const getDeliveryWallet = async (req, res) => {
             })
         });
 
-        // Helper for summary logic
         function isLogisticsRoute(type) {
             return ['seller_to_warehouse', 'warehouse_to_seller', 'seller_to_pickup_station', 'pickup_station_to_seller'].includes(type);
         }
@@ -121,6 +124,74 @@ const getDeliveryWallet = async (req, res) => {
     }
 };
 
+/**
+ * Request a withdrawal for delivery agent
+ * POST /api/delivery/wallet/withdraw
+ */
+const withdraw = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { amount, paymentMethod, paymentDetails } = req.body;
+
+        // DEBUG
+        const fs = require('fs');
+        const path = require('path');
+        const logMsg = `[deliveryWalletController] ${new Date().toISOString()} Withdraw Hit: User=${userId}, Amount=${amount}\n`;
+        fs.appendFileSync(path.join(__dirname, '../error.log'), logMsg);
+
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid withdrawal amount' });
+        }
+
+        const wallet = await Wallet.findOne({ where: { userId } });
+        if (!wallet || (wallet.balance || 0) < amount) {
+            return res.status(400).json({ error: 'Insufficient balance' });
+        }
+
+        // Check min payout threshold
+        try {
+            const financeSettings = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+            if (financeSettings) {
+                const dbConfig = typeof financeSettings.value === 'string' ? JSON.parse(financeSettings.value) : financeSettings.value;
+                const thresholds = dbConfig.minPayout || {};
+                const minAmount = thresholds['delivery_agent'] || 150; // Default 150 if not set
+
+                if (amount < minAmount) {
+                    return res.status(400).json({ error: `Minimum withdrawal amount for delivery agents is KES ${minAmount}` });
+                }
+            }
+        } catch (err) {
+            console.warn('[deliveryWallet] Could not check payout threshold:', err.message);
+        }
+
+        // Subtract from balance and create pending debit
+        await wallet.update({
+            balance: wallet.balance - amount
+        });
+
+        await Transaction.create({
+            userId,
+            amount,
+            type: 'debit',
+            status: 'pending',
+            description: `Withdrawal Request (${paymentMethod || 'M-Pesa'})`,
+            note: `Delivery Agent requested payout of KES ${amount} to ${paymentDetails || req.user.phone || 'registered number'}.`,
+            metadata: JSON.stringify({
+                method: paymentMethod || 'mpesa',
+                details: paymentDetails || req.user.phone,
+                agentName: req.user.name,
+                agentRole: req.user.role
+            })
+        });
+
+        res.json({ success: true, message: 'Withdrawal request submitted successfully' });
+    } catch (error) {
+        console.error('Error processing delivery withdrawal:', error);
+        res.status(500).json({ error: 'Failed to process withdrawal request' });
+    }
+};
+
 module.exports = {
-    getDeliveryWallet
+    getDeliveryWallet,
+    withdraw
 };

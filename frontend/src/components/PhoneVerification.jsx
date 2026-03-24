@@ -1,0 +1,196 @@
+import React, { useState } from 'react';
+import api from '../services/api';
+import { toast } from 'react-toastify';
+
+const PhoneVerification = ({ currentPhone, onVerified }) => {
+  const [phoneNumber, setPhoneNumber] = useState(currentPhone || '');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState(1); // 1: Input Phone, 2: Input OTP
+  const [method, setMethod] = useState('sms'); // 'sms' or 'whatsapp'
+  const [showDndHint, setShowDndHint] = useState(false);
+  
+  const handleSendOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!phoneNumber) return toast.error("Please enter a phone number");
+
+    setLoading(true);
+    try {
+      // Normalize number
+      let formattedPhone = phoneNumber.trim();
+      if (!formattedPhone.startsWith('+')) {
+         formattedPhone = `+254${formattedPhone.replace(/^0/, '')}`;
+      }
+
+      console.log(`Attempting to send OTP via ${method} to:`, formattedPhone);
+      
+      const response = await api.post('/users/me/phone-otp/request', { 
+        newPhone: formattedPhone,
+        method: method
+      });
+
+      if (response.data) {
+        setStep(2);
+        toast.info(response.data.message || `Verification code sent via ${method === 'whatsapp' ? 'WhatsApp' : 'SMS'}!`);
+        // Show DND hint after a delay if they stay on this screen
+        setTimeout(() => setShowDndHint(true), 15000);
+      }
+    } catch (error) {
+      console.error("Error sending OTP:", error);
+      const msg = error.response?.data?.message || "Failed to send verification code.";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!verificationCode) return toast.error("Please enter the verification code");
+
+    setLoading(true);
+    try {
+      const response = await api.post('/users/me/phone-otp/confirm', { 
+        otp: verificationCode 
+      });
+
+      if (response.data) {
+        toast.success("Phone verified successfully!");
+        if (onVerified) onVerified(phoneNumber);
+      }
+    } catch (error) {
+      console.error("Error verifying OTP:", error);
+      const msg = error.response?.data?.message || "Invalid or expired verification code";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetFlow = () => {
+      setStep(1);
+      setVerificationCode('');
+      setShowDndHint(false);
+  };
+
+  const handleKeyDown = (e, callback) => {
+    if (e.key === 'Enter') {
+      callback();
+    }
+  };
+
+  return (
+    <div className="max-w-md mx-auto p-6 bg-white rounded-xl shadow-md border border-gray-100 mt-4">
+      <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span className="p-2 bg-blue-50 rounded-lg text-blue-600">📱</span>
+        Phone Verification
+      </h2>
+      
+      {step === 1 ? (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Phone Number</label>
+            <input
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              onKeyDown={(e) => handleKeyDown(e, handleSendOtp)}
+              placeholder="+254712345678"
+              className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+            />
+          </div>
+
+          <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+            <button
+               type="button"
+               onClick={() => setMethod('sms')}
+               className={`flex-1 py-2 px-3 rounded-md text-[10px] font-bold uppercase transition-all ${
+                 method === 'sms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:bg-gray-200'
+               }`}
+            >
+               SMS
+            </button>
+            <button
+               type="button"
+               onClick={() => setMethod('whatsapp')}
+               className={`flex-1 py-2 px-3 rounded-md text-[10px] font-bold uppercase transition-all ${
+                 method === 'whatsapp' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:bg-gray-200'
+               }`}
+            >
+               WhatsApp
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSendOtp}
+            disabled={loading}
+            className={`w-full py-3 px-4 rounded-xl text-white font-bold uppercase tracking-widest text-[11px] transition-all ${
+              loading ? 'bg-blue-300 cursor-not-allowed' : (method === 'whatsapp' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700')
+            } shadow-lg shadow-gray-100`}
+          >
+            {loading ? 'Sending...' : `Send Code via ${method === 'whatsapp' ? 'WhatsApp' : 'SMS'}`}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+          <div className="text-center mb-2">
+             <p className="text-[11px] text-gray-500 italic">
+                Sent to <strong>{phoneNumber}</strong> via <strong>{method.toUpperCase()}</strong>
+             </p>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1 text-center">Enter 6-Digit Code</label>
+            <input
+              type="text"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value)}
+              onKeyDown={(e) => handleKeyDown(e, handleVerifyOtp)}
+              placeholder="123456"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all outline-none text-center text-2xl font-black tracking-[0.5em]"
+              maxLength="6"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleVerifyOtp}
+            disabled={loading}
+            className={`w-full py-3 px-4 rounded-xl text-white font-bold uppercase tracking-widest text-[11px] transition-all ${
+              loading ? 'bg-green-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-100'
+            }`}
+          >
+            {loading ? 'Verifying...' : 'Verify & Continue'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={resetFlow}
+            className="w-full text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-colors"
+          >
+            Resend or Change Method
+          </button>
+
+          {showDndHint && (
+            <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100 animate-in fade-in zoom-in-95">
+              <p className="text-[10px] text-amber-800 leading-tight">
+                <strong>Still haven't received it?</strong> 
+                {method === 'sms' ? (
+                  <>
+                    <br/> Dial <strong>*456*9*5#</strong> (Safaricom) or <strong>*100#</strong> (Airtel) to unblock messages.
+                    <br/> Or try sending via <strong>WhatsApp</strong> instead.
+                  </>
+                ) : (
+                  <>
+                    <br/> Ensure you have an active internet connection and that <strong>{phoneNumber}</strong> is active on WhatsApp.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PhoneVerification;

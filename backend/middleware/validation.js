@@ -2,9 +2,14 @@ const Joi = require('joi');
 
 // User validation schemas
 const registerSchema = Joi.object({
-  name: Joi.string().min(2).max(50).required().messages({
+  name: Joi.string().trim().min(3).max(50).custom((value, helpers) => {
+    if (value.split(/\s+/).length < 2) {
+      return helpers.message('Please provide at least two names (First and Last Name)');
+    }
+    return value;
+  }).required().messages({
     'string.empty': 'Name is required',
-    'string.min': 'Name must be at least 2 characters',
+    'string.min': 'Name must be at least 3 characters',
     'string.max': 'Name cannot exceed 50 characters'
   }),
   email: Joi.string().email().required().messages({
@@ -18,6 +23,17 @@ const registerSchema = Joi.object({
   password: Joi.string().min(6).required().messages({
     'string.min': 'Password must be at least 6 characters',
     'string.empty': 'Password is required'
+  }),
+  otp: Joi.string().length(6).required().messages({
+    'string.length': 'OTP must be exactly 6 digits',
+    'string.empty': 'OTP is required'
+  })
+});
+
+const sendOtpSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Please provide a valid email address',
+    'string.empty': 'Email is required'
   })
 });
 
@@ -152,6 +168,7 @@ module.exports = {
   schemas: {
     register: registerSchema,
     login: loginSchema,
+    sendOtp: sendOtpSchema,
     createProduct: createProductSchema,
     createOrder: createOrderSchema
   }

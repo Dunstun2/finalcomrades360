@@ -125,8 +125,8 @@ const getStationDashboard = async (req, res) => {
     const orders = await Order.findAll({
       where,
       include: [
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'phone'] },
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
+        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'phone', 'businessName'] },
         { model: Warehouse, as: 'Warehouse', attributes: ['name', 'address', 'landmark'] },
         { model: PickupStation, as: 'PickupStation', attributes: ['name', 'location'] },
         {
@@ -153,7 +153,7 @@ const getStationDashboard = async (req, res) => {
             {
               model: User,
               as: 'seller',
-              attributes: ['id', 'name', 'businessAddress', 'phone']
+              attributes: ['id', 'name', 'businessAddress', 'phone', 'businessName']
             }
           ]
         }
@@ -215,7 +215,7 @@ const markOrderReceivedAtWarehouse = async (req, res) => {
       return res.status(403).json({ success: false, message: 'This order does not belong to your warehouse.' });
     }
 
-    const allowedStatuses = ['en_route_to_warehouse', 'super_admin_confirmed', 'seller_confirmed'];
+    const allowedStatuses = ['en_route_to_warehouse', 'super_admin_confirmed', 'seller_confirmed', 'in_transit'];
     if (order.status === 'at_warehouse') {
       return res.json({
         success: true,
@@ -232,8 +232,26 @@ const markOrderReceivedAtWarehouse = async (req, res) => {
     await order.update({
       status,
       warehouseId: order.destinationWarehouseId || order.warehouseId,
-      warehouseArrivalDate: new Date()
+      warehouseArrivalDate: new Date(),
+      deliveryType: null, // Clear the previous routing leg
+      deliveryAgentId: null // Clear previous agent
     });
+
+    // Also close out any active delivery tasks for this leg
+    const { DeliveryTask, Op } = require('../models');
+    await DeliveryTask.update(
+      { 
+        status: 'completed', 
+        completedAt: new Date(),
+        agentNotes: 'Auto-completed via Station Manager manual receive.'
+      },
+      { 
+        where: { 
+          orderId: order.id, 
+          status: { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] } 
+        } 
+      }
+    );
 
     await appendStationActivity(order, {
       status,
@@ -245,7 +263,7 @@ const markOrderReceivedAtWarehouse = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Order marked as received at warehouse.',
+      message: 'Order marked as received at warehouse. The delivery agent\'s task was automatically marked complete.',
       order
     });
   } catch (error) {
@@ -288,8 +306,26 @@ const markOrderReadyAtPickupStation = async (req, res) => {
     const status = 'ready_for_pickup';
     await order.update({
       status,
-      pickupStationId: order.destinationPickStationId || order.pickupStationId
+      pickupStationId: order.destinationPickStationId || order.pickupStationId,
+      deliveryType: null, // Clear the previous routing leg
+      deliveryAgentId: null // Clear previous agent
     });
+
+    // Also close out any active delivery tasks for this leg
+    const { DeliveryTask, Op } = require('../models');
+    await DeliveryTask.update(
+      { 
+        status: 'completed', 
+        completedAt: new Date(),
+        agentNotes: 'Auto-completed via Station Manager manual receive.'
+      },
+      { 
+        where: { 
+          orderId: order.id, 
+          status: { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] } 
+        } 
+      }
+    );
 
     await appendStationActivity(order, {
       status,
@@ -301,7 +337,7 @@ const markOrderReadyAtPickupStation = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Order marked as ready for pickup.',
+      message: 'Order marked as ready for pickup. The delivery agent\'s task was automatically marked complete.',
       order
     });
   } catch (error) {

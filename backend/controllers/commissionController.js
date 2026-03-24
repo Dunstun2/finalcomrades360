@@ -82,8 +82,22 @@ const calculateCommission = async (orderId, primaryReferralCode = null, secondar
     console.log(`  - Secondary: ${secondaryMarketer ? secondaryMarketer.id : 'None'} (Code: ${secondaryReferralCode})`);
 
     // Determine commission split
-    let primarySplit = 0;
-    let secondarySplit = 0;
+    let primarySplit = 0.6; // Default fallback
+    let secondarySplit = 0.4; // Default fallback
+
+    try {
+      const { PlatformConfig } = require('../models');
+      const configRecord = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+      if (configRecord) {
+        const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+        if (dbConfig.referralSplit) {
+          primarySplit = dbConfig.referralSplit.primary || 0.6;
+          secondarySplit = dbConfig.referralSplit.secondary || 0.4;
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️  Could not load finance settings from DB, using fallback splits:', err.message);
+    }
 
     if (primaryMarketer && secondaryMarketer) {
       // Both codes exist
@@ -93,12 +107,11 @@ const calculateCommission = async (orderId, primaryReferralCode = null, secondar
         secondarySplit = 0;
         console.log('ℹ️  Same marketer for both codes, awarding 100% to primary');
       } else {
-        // Different marketers - 60/40 split
-        primarySplit = 0.6;
-        secondarySplit = 0.4;
-        console.log('💰 Dual referral: Primary 60%, Secondary 40%');
+        // Different marketers - dynamic split
+        console.log(`💰 Dual referral: Primary ${primarySplit * 100}%, Secondary ${secondarySplit * 100}%`);
       }
     } else if (primaryMarketer) {
+
       // Only primary code
       primarySplit = 1.0;
       console.log('💰 Primary referral only: 100%');

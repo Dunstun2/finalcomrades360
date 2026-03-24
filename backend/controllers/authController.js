@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const { User, Referral, Order, LoginHistory, Warehouse, PickupStation } = require('../models');
+const { User, Referral, Order, LoginHistory, Warehouse, PickupStation, Otp } = require('../models');
 const { generateUniqueReferralCode } = require('../utils/referralUtils');
 const { Op } = require('sequelize');
 const geoip = require('geoip-lite');
@@ -60,6 +60,22 @@ const register = async (req, res) => {
       name, email, phone, publicId, referralCode: userReferralCode, referredBy: finalReferralCode, address: { county, town, estate, houseNumber }
     });
 
+    const { otp } = req.body;
+    if (!otp) {
+      return res.status(400).json({ message: 'OTP is required to complete registration.' });
+    }
+
+    // Validate the OTP
+    const validOtp = await Otp.findOne({ where: { email, otp } });
+    if (!validOtp) {
+      return res.status(400).json({ message: 'Invalid OTP. Please check the code and try again.' });
+    }
+    if (new Date() > validOtp.expiresAt) {
+      await validOtp.destroy();
+      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+    }
+
+    // OTP is valid. Create the User!
     const newUser = await User.create({
       name,
       email,
@@ -68,12 +84,16 @@ const register = async (req, res) => {
       publicId,
       referralCode: userReferralCode,
       referredByReferralCode: finalReferralCode || null,
-      roles: ['customer'],
+      roles: [],
       county,
       town,
       estate,
-      houseNumber
+      houseNumber,
+      emailVerified: true // Automatically verified
     });
+
+    // Delete the used OTP
+    await validOtp.destroy();
 
     // If user was referred by someone
     if (finalReferralCode) {
@@ -87,18 +107,21 @@ const register = async (req, res) => {
       }
     }
 
+    // Auto-login after registration
+    const token = jwt.sign(
+      { id: newUser.id, role: newUser.role, email: newUser.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
+
+    const cleanUser = newUser.toJSON();
+    delete cleanUser.password;
+
     res.status(201).json({
-      message: 'User registered successfully.',
-      user: (() => {
-        const cleanUser = newUser.toJSON();
-        delete cleanUser.password;
-        delete cleanUser.resetToken;
-        delete cleanUser.resetTokenExpiry;
-        delete cleanUser.emailVerificationToken;
-        delete cleanUser.emailChangeToken;
-        delete cleanUser.phoneOtp;
-        return cleanUser;
-      })()
+      success: true,
+      message: 'Account created and verified successfully.',
+      token,
+      user: cleanUser
     });
   } catch (error) {
     console.error('[authController] Registration error:', error);
@@ -167,6 +190,17 @@ const login = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email/phone or password.'
+      });
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      console.log('[authController] Email not verified, returning 403 with needsVerification flag');
+      return res.status(403).json({
+        success: false,
+        needsVerification: true,
+        email: user.email,
+        message: 'Please verify your email before logging in. Check your inbox for the OTP code.'
       });
     }
 
@@ -329,6 +363,7 @@ const stationLogin = async (req, res) => {
 
       const token = jwt.sign(
         {
+          id: `station-warehouse-${warehouse.id}`,
           userType: 'station_manager',
           stationType: 'warehouse',
           stationId: warehouse.id
@@ -383,6 +418,7 @@ const stationLogin = async (req, res) => {
 
     const token = jwt.sign(
       {
+        id: `station-pickup_station-${pickupStation.id}`,
         userType: 'station_manager',
         stationType: 'pickup_station',
         stationId: pickupStation.id
@@ -501,11 +537,51 @@ const parseUA = (userAgent) => {
   return { browser, os, device };
 };
 
+// Send Registration OTP before account creation
+const sendRegistrationOtp = async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email is required.' });
+  }
+  
+  try {
+    // Check if a fully verified user already exists with this email
+    const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: 'User with this email already exists.' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + (Number(process.env.OTP_EXPIRY_MINUTES) || 10) * 60 * 1000);
+
+    // Clear any existing OTPs for this email to prevent spam and ensure the latest is used
+    await Otp.destroy({ where: { email } });
+
+    // Save to the Otp table
+    await Otp.create({ email, otp, expiresAt });
+
+    // Send the email (Non-blocking)
+    sendEmail(
+      email,
+      'Your Comrades360 Registration Verification Code',
+      `Welcome to Comrades360!\n\nYour registration verification code is:\n\n  ${otp}\n\nThis code expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.\n\nIf you did not request this, please ignore this email.\n\n— Comrades360 Team`
+    ).catch(err => console.error('[authController] Background sendEmail error:', err));
+
+    return res.json({ success: true, message: 'Verification code has been sent to your email.' });
+  } catch (error) {
+    console.error('[authController] sendRegistrationOtp error:', error);
+    return res.status(500).json({ success: false, message: 'Server error while sending OTP.' });
+  }
+};
+
 module.exports = {
   register,
   login,
   stationLogin,
   me,
-  verifyPassword
+  verifyPassword,
+  sendRegistrationOtp,
 };
 

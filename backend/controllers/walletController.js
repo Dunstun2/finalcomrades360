@@ -80,8 +80,29 @@ const withdraw = async (req, res) => {
   const { amount } = req.body;
   if (!amount || amount <= 0) return res.status(400).json({ error: "Invalid amount" });
 
+  const u = await User.findByPk(req.user.id);
+  const role = u.role || 'customer';
+
+  // Role-based min payout check
+  try {
+    const { PlatformConfig } = require('../models');
+    const configRecord = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+    if (configRecord) {
+      const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+      const thresholds = dbConfig.minPayout || {};
+      const minAmount = thresholds[role] || 0;
+      
+      if (amount < minAmount) {
+        return res.status(400).json({ error: `Minimum withdrawal amount for ${role} is KES ${minAmount}` });
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️  Could not check payout threshold:', err.message);
+  }
+
   const wallet = await Wallet.findOne({ where: { userId: req.user.id } });
   if (!wallet || wallet.balance < amount) return res.status(400).json({ error: "Insufficient balance" });
+
 
   await wallet.decrement({ balance: amount });
   await Transaction.create({

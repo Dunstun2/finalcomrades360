@@ -274,7 +274,8 @@ export default function EnhancedCategories() {
         setNewSubcategory({ name: '', emoji: '📝' });
         loadCategories();
       } catch (e) {
-        setError(e.response?.data?.error || 'Failed to update');
+        console.error('❌ Update failed with details:', e.response?.data);
+        setError(e.response?.data?.details || e.response?.data?.error || 'Failed to update');
       }
     };
 
@@ -429,7 +430,7 @@ export default function EnhancedCategories() {
     });
 
     try {
-      const response = await api.post(`/categories/admin/subcategories`, {
+      const response = await api.post(`/categories/admin/categories/${categoryId}/subcategories`, {
         name: newSubcategory.name.trim(),
         emoji: newSubcategory.emoji,
         categoryId: categoryId
@@ -488,13 +489,9 @@ export default function EnhancedCategories() {
                 className="w-full text-left hover:bg-gray-100 p-2 rounded-md transition-colors"
               >
                 <div style={{ paddingLeft: depth * 20 }} className="flex items-center gap-2">
-                  {hasChildren ? (
-                    <span className="text-gray-500 hover:text-gray-700 p-1 inline-flex items-center justify-center">
-                      {isExpanded ? <FaChevronDown className="text-xs" /> : <FaChevronRight className="text-xs" />}
-                    </span>
-                  ) : (
-                    <span className="w-4" />
-                  )}
+                  <span className="text-gray-500 hover:text-gray-700 p-1 inline-flex items-center justify-center w-6">
+                    {isExpanded ? <FaChevronDown className="text-xs" /> : <FaChevronRight className="text-xs" />}
+                  </span>
                   <span className="text-lg mr-2">{cat.emoji || '📦'}</span>
                   <span className="font-medium">{cat.name}</span>
                 </div>
@@ -570,7 +567,7 @@ export default function EnhancedCategories() {
           ))}
 
           {/* Add Subcategory Row */}
-          {hasChildren && isExpanded && (
+          {isExpanded && (
             <tr>
               <td colSpan={5} className="p-3">
                 <div className="ml-8">

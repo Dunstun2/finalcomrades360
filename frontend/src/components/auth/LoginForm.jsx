@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { formatKenyanPhoneInput } from '../../utils/validation'
 import SystemFeedbackModal from '../ui/SystemFeedbackModal'
 
-export default function LoginForm({ onSuccess, isModal = false, initialMode = 'user' }) {
+export default function LoginForm({ onSuccess, isModal = false, initialMode = 'user', lockMode = false }) {
     const { login } = useAuth()
     const navigate = useNavigate();
     const location = useLocation();
@@ -84,6 +84,17 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
         } catch (err) {
             let errorMessage = 'Login failed. Please try again.'
 
+            if (err.response?.data?.needsVerification) {
+                // Account exists but email is not verified — send them to the OTP verification screen
+                navigate('/register', { 
+                    state: { 
+                        emailToVerify: err.response.data.email, 
+                        message: err.response.data.message 
+                    } 
+                });
+                return;
+            }
+
             if (err.response) {
                 errorMessage = err.response.data?.message ||
                     err.response.data?.error ||
@@ -104,7 +115,7 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
 
     return (
         <div>
-            {!isModal && (
+            {!isModal && !lockMode && (
                 <>
                     <h2 className="text-2xl font-bold mb-4">Login to Comrades360</h2>
                     <p className="text-gray-600 mb-6">Welcome back! Sign in to your student account.</p>
@@ -115,17 +126,6 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
             {successMessage && <div className="bg-green-100 text-green-700 p-3 rounded mb-4">{successMessage}</div>}
 
             <form onSubmit={handleSubmit}>
-                <div className="mb-4">
-                    <label className="block mb-1 font-medium">Login Type</label>
-                    <select
-                        value={loginMode}
-                        onChange={(e) => setLoginMode(e.target.value)}
-                        className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                        <option value="user">User Account</option>
-                        <option value="station">Station Account (Warehouse/Pick Station)</option>
-                    </select>
-                </div>
                 <div className="mb-4">
                     <label className="block mb-1 font-medium">{loginMode === 'station' ? 'Station Name, Code, Email or Phone' : 'Email or Phone Number'}</label>
                     <input

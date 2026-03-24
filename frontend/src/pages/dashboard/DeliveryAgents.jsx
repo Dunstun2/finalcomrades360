@@ -1,22 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import api from '../../services/api';
 import AdminPasswordDialog from '../../components/AdminPasswordDialog';
+import { 
+  Users, 
+  Car, 
+  MapPin, 
+  Star, 
+  CheckCircle, 
+  Clock, 
+  History, 
+  BarChart2, 
+  Info, 
+  X, 
+  ChevronRight, 
+  Phone, 
+  Mail, 
+  CreditCard, 
+  Calendar,
+  AlertCircle,
+  Shield,
+  Truck,
+  Bike,
+  Navigation
+} from 'lucide-react';
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  PointElement, 
+  LineElement, 
+  Title, 
+  Tooltip, 
+  Legend, 
+  Filler 
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 export default function DeliveryAgents() {
   const [agents, setAgents] = useState([]);
-  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState(null);
-  const [assignmentsModalOpen, setAssignmentsModalOpen] = useState(false);
-  const [assignmentsModalAgent, setAssignmentsModalAgent] = useState(null);
-  const [assignmentsModalType, setAssignmentsModalType] = useState('available');
-  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
-  const [pendingAssignment, setPendingAssignment] = useState(null);
+  
+  // Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [agentDetail, setAgentDetail] = useState(null);
+  const [agentHistory, setAgentHistory] = useState([]);
+  const [activeTab, setActiveTab] = useState('profile'); // profile, history, stats
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
 
-  // New filter states
+  // Filter states
   const [filters, setFilters] = useState({
     vehicleType: '',
     location: '',
@@ -24,9 +71,7 @@ export default function DeliveryAgents() {
     minRating: ''
   });
 
-  const resetAlerts = () => { setError(''); setSuccess(''); };
-
-  const loadData = async () => {
+  const loadAgents = async () => {
     try {
       setLoading(true);
       const queryParams = new URLSearchParams();
@@ -35,93 +80,119 @@ export default function DeliveryAgents() {
       if (filters.isActive !== '') queryParams.append('isActive', filters.isActive);
       if (filters.minRating) queryParams.append('minRating', filters.minRating);
 
-      const [agentsRes, ordersRes] = await Promise.all([
-        api.get(`/admin/delivery/agents?${queryParams.toString()}`),
-        api.get('/orders')
-      ]);
-      setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : []);
-      const ordersData = Array.isArray(ordersRes.data.orders) ? ordersRes.data.orders : (Array.isArray(ordersRes.data) ? ordersRes.data : []);
-      setOrders(ordersData);
+      const res = await api.get(`/admin/delivery/agents?${queryParams.toString()}`);
+      setAgents(Array.isArray(res.data) ? res.data : []);
       setError('');
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to load data');
+      setError(e.response?.data?.error || 'Failed to load agents');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadAgents();
   }, []);
 
-  const applyFilters = () => {
-    loadData();
+  const openAgent = (agentId) => {
+    setSelectedAgentId(agentId);
+    setDrawerOpen(true);
+    setActiveTab('profile');
+    loadAgentDetail(agentId);
   };
 
-  const clearFilters = () => {
-    setFilters({ vehicleType: '', location: '', isActive: '', minRating: '' });
-    setTimeout(loadData, 100);
-  };
-
-  const openAgentDetails = (agent) => {
-    setSelectedAgent(agent);
-    setAgentDetailsOpen(true);
-  };
-
-  const openAssignmentsModal = (agent, type) => {
-    setAssignmentsModalAgent(agent);
-    setAssignmentsModalType(type);
-    setAssignmentsModalOpen(true);
-  };
-
-  const confirmAssign = (orderId, deliveryAgentId) => {
-    setPendingAssignment({ orderId, deliveryAgentId });
-    setIsPasswordDialogOpen(true);
-  };
-
-  const assignDelivery = async (reason, password) => {
-    if (!pendingAssignment) return;
-    const { orderId, deliveryAgentId } = pendingAssignment;
-    resetAlerts();
+  const loadAgentDetail = async (id) => {
     try {
-      await api.patch(`/orders/${orderId}/assign`, {
-        deliveryAgentId,
-        password
-      });
-      setSuccess('Delivery assignment updated');
-
-      // Add tracking update for assignment
-      const trackingData = {
-        status: 'Processing',
-        message: 'Delivery agent assigned',
-        location: null
-      };
-      await api.post(`/orders/${orderId}/tracking`, trackingData);
-
-      loadData();
+      const res = await api.get(`/admin/delivery/agents/${id}/detail`);
+      setAgentDetail(res.data);
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to assign delivery agent');
+      setError('Failed to load agent details');
     }
   };
 
-  // Helper functions
-  const matchesLocation = (orderLoc, agentLoc) => {
-    if (!orderLoc || !agentLoc) return false;
-    const a = String(orderLoc).toLowerCase();
-    const b = String(agentLoc).toLowerCase();
-    return a.includes(b) || b.includes(a);
+  const loadAgentHistory = async (id, page = 1) => {
+    try {
+      setHistoryLoading(true);
+      const res = await api.get(`/admin/delivery/agents/${id}/history?page=${page}&pageSize=10`);
+      setAgentHistory(res.data.tasks || []);
+      setHistoryTotal(res.data.meta?.total || 0);
+      setHistoryPage(page);
+    } catch (e) {
+      console.error('History Error:', e);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
+
+  useEffect(() => {
+    if (drawerOpen && selectedAgentId && activeTab === 'history') {
+      loadAgentHistory(selectedAgentId, 1);
+    }
+  }, [drawerOpen, selectedAgentId, activeTab]);
+
+  const toggleStatus = async (agentId, currentStatus) => {
+    try {
+      const newStatus = !currentStatus;
+      await api.patch(`/admin/delivery/agents/${agentId}/toggle-status`, { isActive: newStatus });
+      setSuccess(`Agent ${newStatus ? 'activated' : 'deactivated'} successfully`);
+      
+      // Refresh local state
+      if (agentDetail && agentDetail.agent.id === agentId) {
+        setAgentDetail({
+          ...agentDetail,
+          agent: {
+            ...agentDetail.agent,
+            deliveryProfile: { ...agentDetail.agent.deliveryProfile, isActive: newStatus }
+          }
+        });
+      }
+      loadAgents();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError('Failed to update status');
+    }
+  };
+
+  const stats = useMemo(() => {
+    const total = agents.length;
+    const active = agents.filter(a => a.deliveryProfile?.isActive).length;
+    const tasks = agents.reduce((sum, a) => sum + (a.activeTasks || 0), 0);
+    const completed = agents.reduce((sum, a) => sum + (a.deliveryProfile?.completedDeliveries || 0), 0);
+    
+    return { total, active, tasks, completed };
+  }, [agents]);
+
+  const chartData = useMemo(() => {
+    if (!agentDetail?.stats) return null;
+    // Mocking a simple chart if backend doesn't provide time-series admin data yet
+    // Actually getAgentStats (agent side) has this, but we'll show a simple distribution for now
+    return {
+      labels: ['Completed', 'Failed', 'In Progress'],
+      datasets: [{
+        label: 'Task Volume',
+        data: [agentDetail.stats.completedTasks, agentDetail.stats.failedTasks, agentDetail.agent.activeTasks || 0],
+        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+        borderColor: 'rgb(59, 130, 246)',
+        borderWidth: 1,
+        fill: true,
+        tension: 0.4
+      }]
+    };
+  }, [agentDetail]);
 
   const isAgentAvailableNow = (agent) => {
     const prof = agent?.deliveryProfile || {};
     if (!prof.isActive) return false;
     let av = null;
     try { av = prof.availability ? (typeof prof.availability === 'string' ? JSON.parse(prof.availability) : prof.availability) : null } catch (_) { }
+    if (!av) return true; // Default to available if no schedule set
+
     const now = new Date();
     const days = Array.isArray(av?.days) ? av.days : [];
     const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
     const cur = dayMap[now.getDay()];
     if (days.length && !days.includes(cur)) return false;
+    
     if (av?.from && av?.to) {
       const [fh, fm] = av.from.split(':').map(n => parseInt(n, 10));
       const [th, tm] = av.to.split(':').map(n => parseInt(n, 10));
@@ -133,258 +204,559 @@ export default function DeliveryAgents() {
     return true;
   };
 
-  if (loading && agents.length === 0) {
-    return <div className="p-6 text-center">Loading...</div>;
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Delivery Agents</h1>
-        <button className="btn" onClick={loadData}>Refresh</button>
+    <div className="p-6 space-y-6 bg-gray-50 min-h-screen relative overflow-hidden">
+      {/* Header & Stats Cards */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+            <Users className="w-8 h-8 text-blue-600" />
+            Delivery Force
+          </h1>
+          <p className="text-gray-500 mt-1">Monitor and manage your logistics network</p>
+        </div>
+        <button 
+          onClick={loadAgents}
+          disabled={loading}
+          className="px-4 py-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 flex items-center gap-2 text-sm font-medium transition-all"
+        >
+          <Clock className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          {loading ? 'Refreshing...' : 'Refresh Data'}
+        </button>
       </div>
 
-      {/* Filters */}
-      <div className="card p-4">
-        <h3 className="font-semibold mb-3">Filters</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className="text-sm text-gray-600">Vehicle Type</label>
-            <select
-              className="w-full border rounded p-2"
-              value={filters.vehicleType}
-              onChange={(e) => setFilters({ ...filters, vehicleType: e.target.value })}
-            >
-              <option value="">All Vehicles</option>
-              <option value="bike">Bike</option>
-              <option value="motorcycle">Motorcycle</option>
-              <option value="car">Car</option>
-              <option value="van">Van</option>
-              <option value="truck">Truck</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm text-gray-600">Location</label>
-            <input
-              type="text"
-              className="w-full border rounded p-2"
-              placeholder="Search location..."
-              value={filters.location}
-              onChange={(e) => setFilters({ ...filters, location: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-gray-600">Status</label>
-            <select
-              className="w-full border rounded p-2"
-              value={filters.isActive}
-              onChange={(e) => setFilters({ ...filters, isActive: e.target.value })}
-            >
-              <option value="">All Status</option>
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm text-gray-600">Min Rating</label>
-            <select
-              className="w-full border rounded p-2"
-              value={filters.minRating}
-              onChange={(e) => setFilters({ ...filters, minRating: e.target.value })}
-            >
-              <option value="">Any Rating</option>
-              <option value="4">4+ Stars</option>
-              <option value="3">3+ Stars</option>
-              <option value="2">2+ Stars</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex gap-2 mt-3">
-          <button className="btn" onClick={applyFilters}>Apply Filters</button>
-          <button className="btn-outline" onClick={clearFilters}>Clear</button>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={<Users />} label="Total Agents" value={stats.total} color="blue" />
+        <StatCard icon={<Navigation />} label="Active Now" value={stats.active} color="green" />
+        <StatCard icon={<Clock />} label="Current Tasks" value={stats.tasks} color="amber" />
+        <StatCard icon={<CheckCircle />} label="Lifetime Deliveries" value={stats.completed} color="purple" />
       </div>
 
-      {/* Alerts */}
-      {error && <div className="p-3 rounded bg-red-100 text-red-700">{error}</div>}
-      {success && <div className="p-3 rounded bg-green-100 text-green-700">{success}</div>}
+      {/* Main Content Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Filters */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 sticky top-6">
+            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-500" />
+              Advanced Filters
+            </h3>
+            
+            <div className="space-y-4">
+              <FilterGroup label="Vehicle Type">
+                <select 
+                  className="w-full bg-gray-50 border-none rounded-lg p-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-blue-500 transition-all"
+                  value={filters.vehicleType}
+                  onChange={(e) => setFilters({...filters, vehicleType: e.target.value})}
+                >
+                  <option value="">All Vehicles</option>
+                  <option value="bike">Bicycle</option>
+                  <option value="motorcycle">Motorcycle</option>
+                  <option value="car">Car</option>
+                  <option value="van">Van</option>
+                  <option value="truck">Truck</option>
+                </select>
+              </FilterGroup>
 
-      {agents.length === 0 ? (
-        <div className="card p-6 text-center text-gray-600">No delivery agents found.</div>
-      ) : (
-        <div className="card">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left border-b">
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Vehicle</th>
-                  <th className="p-3">Location</th>
-                  <th className="p-3">Rating</th>
-                  <th className="p-3">Deliveries</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Active Tasks</th>
-                  <th className="p-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agents.map(agent => {
-                  const prof = agent.deliveryProfile || {};
-                  const isAvailable = isAgentAvailableNow(agent);
+              <FilterGroup label="Location">
+                <input 
+                  type="text"
+                  placeholder="e.g. Nairobi"
+                  className="w-full bg-gray-50 border-none rounded-lg p-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-blue-500 transition-all"
+                  value={filters.location}
+                  onChange={(e) => setFilters({...filters, location: e.target.value})}
+                />
+              </FilterGroup>
 
-                  return (
-                    <tr key={agent.id} className="border-b hover:bg-gray-50">
-                      <td className="p-3">
-                        <button
-                          className="text-blue-600 hover:underline font-medium"
-                          onClick={() => openAgentDetails(agent)}
-                        >
-                          {agent.name}
-                        </button>
-                      </td>
-                      <td className="p-3">
-                        {prof.vehicleType ? (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                            {prof.vehicleType}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="p-3">{prof.location || '-'}</td>
-                      <td className="p-3">
-                        {prof.rating > 0 ? (
-                          <span className="flex items-center">
-                            ⭐ {prof.rating.toFixed(1)}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="p-3">{prof.completedDeliveries || 0}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 rounded text-xs ${prof.isActive && isAvailable
-                          ? 'bg-green-100 text-green-800'
-                          : prof.isActive
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-red-100 text-red-800'
-                          }`}>
-                          {prof.isActive && isAvailable ? 'Online (Available)' :
-                            prof.isActive ? 'Online (Outside Shift)' : 'Offline (Inactive)'}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="font-semibold">{agent.activeTasks || 0}</span>
-                      </td>
-                      <td className="p-3">
-                        <button
-                          className="btn-outline btn-xs"
-                          onClick={() => openAgentDetails(agent)}
-                        >
-                          Details
-                        </button>
+              <FilterGroup label="Status">
+                <select 
+                  className="w-full bg-gray-50 border-none rounded-lg p-2.5 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-blue-500 transition-all"
+                  value={filters.isActive}
+                  onChange={(e) => setFilters({...filters, isActive: e.target.value})}
+                >
+                  <option value="">All Agents</option>
+                  <option value="true">Active Only</option>
+                  <option value="false">Inactive Only</option>
+                </select>
+              </FilterGroup>
+
+              <div className="pt-2 flex gap-2">
+                <button 
+                  onClick={loadAgents}
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-all shadow-md active:scale-95"
+                >
+                  Apply
+                </button>
+                <button 
+                  onClick={() => { setFilters({vehicleType: '', location: '', isActive: '', minRating: ''}); setTimeout(loadAgents, 10); }}
+                  className="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-all"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Table Area */}
+        <div className="lg:col-span-3">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {error && (
+              <div className="p-4 bg-red-50 border-b border-red-100 flex items-center gap-3 text-red-600 text-sm">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                {error}
+              </div>
+            )}
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                  <tr>
+                    <th className="px-6 py-4">Agent Name</th>
+                    <th className="px-6 py-4 text-center">Vehicle</th>
+                    <th className="px-6 py-4">Location</th>
+                    <th className="px-6 py-4 text-center">Deliveries</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {agents.map((agent) => {
+                    const prof = agent.deliveryProfile || {};
+                    const isAvailable = isAgentAvailableNow(agent);
+                    
+                    return (
+                      <tr 
+                        key={agent.id} 
+                        className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
+                        onClick={() => openAgent(agent.id)}
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold border-2 border-white shadow-sm overflow-hidden uppercase">
+                              {agent.profileImage ? (
+                                <img src={agent.profileImage} alt="" className="w-full h-full object-cover" />
+                              ) : agent.name?.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-800 group-hover:text-blue-600 transition-colors">{agent.name}</div>
+                              <div className="text-xs text-gray-500 font-medium">{agent.phone || 'No phone'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col items-center gap-1">
+                            <AgentVehicleIcon type={prof.vehicleType} color={prof.isActive ? 'blue' : 'gray'} />
+                            <span className="text-[10px] font-bold uppercase tracking-tighter text-gray-400">
+                              {prof.vehiclePlate || 'N/A'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                            {prof.location || 'Unknown'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="inline-flex flex-col items-center">
+                            <span className="text-lg font-bold text-gray-800 leading-none">{prof.completedDeliveries || 0}</span>
+                            <span className="text-xs text-gray-400 font-medium mt-1">Total</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <StatusBadge isActive={prof.isActive} isAvailable={isAvailable} />
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all text-gray-400 hover:text-blue-600">
+                            <ChevronRight className="w-5 h-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {agents.length === 0 && !loading && (
+                    <tr>
+                      <td colSpan="6" className="px-6 py-20 text-center">
+                        <div className="flex flex-col items-center">
+                          <Users className="w-12 h-12 text-gray-200 mb-2" />
+                          <p className="text-gray-400 font-medium">No delivery agents found matching criteria</p>
+                        </div>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Agent Details Modal */}
-      {agentDetailsOpen && selectedAgent && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40" style={{ zIndex: 9999 }}>
-          <div className="bg-white rounded shadow-lg w-[95%] max-w-lg">
-            <div className="p-4 border-b flex items-center justify-between">
-              <div className="font-semibold text-lg">{selectedAgent.name}</div>
-              <button className="btn" onClick={() => setAgentDetailsOpen(false)}>Close</button>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-gray-500">Email</div>
-                <div>{selectedAgent.email || '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Phone</div>
-                <div>{selectedAgent.phone || '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Location</div>
-                <div>{selectedAgent.deliveryProfile?.location || '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Vehicle</div>
-                <div>{selectedAgent.deliveryProfile?.vehicleType || '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Vehicle Plate</div>
-                <div>{selectedAgent.deliveryProfile?.vehiclePlate || '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Max Capacity</div>
-                <div>{selectedAgent.deliveryProfile?.maxLoadCapacity ? `${selectedAgent.deliveryProfile.maxLoadCapacity} kg` : '-'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Rating</div>
-                <div>⭐ {selectedAgent.deliveryProfile?.rating?.toFixed(1) || '0.0'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Completed Deliveries</div>
-                <div>{selectedAgent.deliveryProfile?.completedDeliveries || 0}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Total Earnings</div>
-                <div>KES {selectedAgent.deliveryProfile?.totalEarnings?.toFixed(2) || '0.00'}</div>
-              </div>
-              <div>
-                <div className="text-gray-500">Status</div>
-                <div>{selectedAgent.deliveryProfile?.isActive ? 'Active' : 'Inactive'}</div>
-              </div>
-              <div className="col-span-2">
-                <div className="text-gray-500">License Number</div>
-                <div>{selectedAgent.deliveryProfile?.licenseNumber || '-'}</div>
-              </div>
-              <div className="col-span-2">
-                <div className="text-gray-500">Emergency Contact</div>
-                <div>{selectedAgent.deliveryProfile?.emergencyContact || '-'}</div>
-              </div>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{agents.length}</div>
-          <div className="text-gray-600">Total Agents</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
-            {agents.filter(a => a.deliveryProfile?.isActive && isAgentAvailableNow(a)).length}
+      {/* Side Slider Drawer */}
+      <div 
+        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 transition-opacity duration-300 ${drawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={() => setDrawerOpen(false)}
+      >
+        <div 
+          className={`absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl transition-transform duration-300 ease-out border-l border-gray-100 flex flex-col ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Drawer Header */}
+          <div className="relative h-48 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 flex items-end">
+            <button 
+              onClick={() => setDrawerOpen(false)}
+              className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full text-white transition-all backdrop-blur-sm"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-4 text-white">
+              <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 p-1">
+                <div className="w-full h-full bg-white rounded-xl flex items-center justify-center text-blue-700 text-3xl font-extrabold shadow-inner overflow-hidden uppercase">
+                  {agentDetail?.agent?.profileImage ? (
+                    <img src={agentDetail.agent.profileImage} alt="" className="w-full h-full object-cover" />
+                  ) : agentDetail?.agent?.name?.charAt(0) || '?'}
+                </div>
+              </div>
+              <div className="pb-1">
+                <h2 className="text-2xl font-bold leading-tight">{agentDetail?.agent?.name || 'Loading Agent...'}</h2>
+                <div className="flex items-center gap-3 mt-1 opacity-90 text-sm font-medium">
+                  <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> ID #{agentDetail?.agent?.id || '--'}</span>
+                  <span className="w-1 h-1 bg-white/50 rounded-full"></span>
+                  <span>Joined {agentDetail?.agent?.createdAt ? new Date(agentDetail.agent.createdAt).toLocaleDateString() : 'N/A'}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="text-gray-600">Available Now</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-yellow-600">
-            {agents.reduce((sum, a) => sum + (a.activeTasks || 0), 0)}
-          </div>
-          <div className="text-gray-600">Active Tasks</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-purple-600">
-            {agents.reduce((sum, a) => sum + (a.deliveryProfile?.completedDeliveries || 0), 0)}
-          </div>
-          <div className="text-gray-600">Total Deliveries</div>
-        </div>
 
-        <AdminPasswordDialog
-          isOpen={isPasswordDialogOpen}
-          onClose={() => setIsPasswordDialogOpen(false)}
-          onConfirm={assignDelivery}
-          title="Confirm Assignment"
-          actionDescription="Assigning delivery agent to this order. Authentication required."
-        />
+          {/* Status Bar */}
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${agentDetail?.agent?.deliveryProfile?.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
+              <span className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                {agentDetail?.agent?.deliveryProfile?.isActive ? 'Profile Active' : 'Profile Suspended'}
+              </span>
+            </div>
+            <button 
+              onClick={() => toggleStatus(agentDetail.agent.id, agentDetail.agent.deliveryProfile.isActive)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm ${
+                agentDetail?.agent?.deliveryProfile?.isActive 
+                  ? 'bg-red-50 text-red-600 hover:bg-red-100 ring-1 ring-red-100' 
+                  : 'bg-green-50 text-green-600 hover:bg-green-100 ring-1 ring-green-100'
+              }`}
+            >
+              {agentDetail?.agent?.deliveryProfile?.isActive ? 'Suspend Agent' : 'Activate Agent'}
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="px-6 pt-4 flex gap-6 text-sm font-bold text-gray-400 border-b border-gray-100">
+            <TabHeader id="profile" icon={<Info />} label="Profile Info" active={activeTab} onClick={setActiveTab} />
+            <TabHeader id="history" icon={<History />} label="Deliveries" active={activeTab} onClick={setActiveTab} />
+            <TabHeader id="stats" icon={<BarChart2 />} label="Analytics" active={activeTab} onClick={setActiveTab} />
+          </div>
+
+          {/* Drawer Body (Scrollable) */}
+          <div className="flex-1 overflow-y-auto p-6 bg-white custom-scrollbar">
+            {activeTab === 'profile' && (
+              <div className="space-y-8 pb-10">
+                <Section label="Contact Details">
+                  <InfoItem icon={<Mail className="text-blue-500" />} label="Email Address" value={agentDetail?.agent?.email} />
+                  <InfoItem icon={<Phone className="text-green-500" />} label="Mobile Number" value={agentDetail?.agent?.phone} />
+                  <InfoItem icon={<Navigation className="text-indigo-500" />} label="Location / Zone" value={agentDetail?.agent?.deliveryProfile?.location} />
+                </Section>
+
+                <Section label="Asset / Vehicle Info">
+                  <div className="grid grid-cols-2 gap-4">
+                    <InfoItem label="Type" value={agentDetail?.agent?.deliveryProfile?.vehicleType} upper />
+                    <InfoItem label="Plate Number" value={agentDetail?.agent?.deliveryProfile?.vehiclePlate} upper />
+                    <InfoItem label="Model" value={agentDetail?.agent?.deliveryProfile?.vehicleModel} />
+                    <InfoItem label="Capacity" value={agentDetail?.agent?.deliveryProfile?.maxLoadCapacity ? `${agentDetail.agent.deliveryProfile.maxLoadCapacity} kg` : null} />
+                  </div>
+                  <InfoItem icon={<Shield className="text-amber-500" />} label="License Number" value={agentDetail?.agent?.deliveryProfile?.licenseNumber} />
+                  <InfoItem icon={<Clock className="text-red-500" />} label="Insurance Expiry" value={agentDetail?.agent?.deliveryProfile?.insuranceExpiry ? new Date(agentDetail.agent.deliveryProfile.insuranceExpiry).toLocaleDateString() : 'N/A'} />
+                </Section>
+
+                <Section label="Payment & Settlement">
+                  <div className="bg-gray-50 p-4 rounded-xl ring-1 ring-gray-100">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-bold text-gray-400 uppercase">Provider</span>
+                      <span className="text-sm font-bold text-blue-600 uppercase">{agentDetail?.agent?.deliveryProfile?.mobileMoneyProvider || agentDetail?.agent?.deliveryProfile?.paymentMethod || 'M-PESA'}</span>
+                    </div>
+                    <InfoItem icon={<CreditCard className="text-purple-500" />} label="Account / Number" value={agentDetail?.agent?.deliveryProfile?.mobileMoneyNumber || agentDetail?.agent?.deliveryProfile?.accountNumber} />
+                    <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-2 gap-4">
+                      <div className="text-center">
+                        <div className="text-[10px] uppercase font-bold text-gray-400">Total Profit</div>
+                        <div className="text-lg font-extrabold text-blue-600">KES {agentDetail?.stats?.totalEarnings?.toLocaleString() || '0'}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[10px] uppercase font-bold text-gray-400">Wallet Balance</div>
+                        <div className="text-lg font-extrabold text-green-600">KES {agentDetail?.stats?.walletBalance?.toLocaleString() || '0'}</div>
+                      </div>
+                    </div>
+                  </div>
+                </Section>
+
+                <Section label="Operations">
+                   <div className="flex flex-wrap gap-2">
+                     <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold ring-1 ring-blue-100">
+                       Max Distance: {agentDetail?.agent?.deliveryProfile?.maxDeliveryDistance || '10'} km
+                     </span>
+                     <span className="px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold ring-1 ring-green-100">
+                       Rating: ⭐ {agentDetail?.agent?.deliveryProfile?.rating?.toFixed(1) || '5.0'}
+                     </span>
+                   </div>
+                   <div className="mt-2 text-xs text-gray-400 italic">Preferred Zones: {agentDetail?.agent?.deliveryProfile?.preferredZones || 'Anywhere'}</div>
+                </Section>
+              </div>
+            )}
+
+            {activeTab === 'history' && (
+              <div className="space-y-4 pb-10">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Recent Delivery Tasks</h4>
+                  <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-500">{historyTotal} Total</span>
+                </div>
+                
+                {historyLoading ? (
+                  <div className="py-10 text-center text-gray-400 animate-pulse">Fetching history...</div>
+                ) : agentHistory.length > 0 ? (
+                  agentHistory.map((task) => (
+                    <div key={task.id} className="p-4 rounded-xl border border-gray-100 hover:border-blue-200 hover:shadow-sm transition-all bg-white relative group">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-bold text-gray-800 flex items-center gap-2">
+                            Order #{task.order?.orderNumber || '---'}
+                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                              {task.deliveryType?.split('_').join(' ')}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(task.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-extrabold text-green-600 text-sm">KES {task.agentEarnings?.toLocaleString()}</div>
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            task.status === 'completed' ? 'bg-green-500 text-white' : 
+                            task.status === 'failed' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
+                          }`}>
+                            {task.status}
+                          </span>
+                        </div>
+                      </div>
+                      {task.rejectionReason && (
+                        <div className="mt-2 text-[10px] text-red-500 font-medium p-2 bg-red-50 rounded italic border-l-2 border-red-500">
+                          Rejection: "{task.rejectionReason}"
+                        </div>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-20 text-center">
+                    <History className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                    <p className="text-gray-400 font-medium">No history found for this agent</p>
+                  </div>
+                )}
+
+                {historyTotal > agentHistory.length && (
+                   <div className="flex gap-2 pt-4 justify-center">
+                      <button 
+                        disabled={historyPage <= 1}
+                        onClick={() => loadAgentHistory(selectedAgentId, historyPage - 1)}
+                        className="p-2 border rounded hover:bg-gray-50 disabled:opacity-30"
+                      >
+                         Prev
+                      </button>
+                      <button 
+                         disabled={historyPage * 10 >= historyTotal}
+                         onClick={() => loadAgentHistory(selectedAgentId, historyPage + 1)}
+                         className="p-2 border rounded hover:bg-gray-50 disabled:opacity-30"
+                      >
+                         Next
+                      </button>
+                   </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'stats' && (
+              <div className="space-y-8 pb-10">
+                <div className="grid grid-cols-2 gap-4">
+                  <StatMini label="Completion Rate" value={`${agentDetail?.stats?.completionRate}%`} sub="Across all time" trend="+2%" />
+                  <StatMini label="Avg Rating" value={`⭐ ${agentDetail?.agent?.deliveryProfile?.rating?.toFixed(1) || '5.0'}`} sub="Based on feedback" />
+                  <StatMini label="Completed" value={agentDetail?.stats?.completedTasks} sub="Tasks successful" color="green" />
+                  <StatMini label="Aborted/Rejected" value={agentDetail?.stats?.failedTasks} sub="Tasks not finished" color="red" />
+                </div>
+
+                <div className="bg-gray-50 p-6 rounded-2xl ring-1 ring-gray-100">
+                  <h4 className="text-sm font-bold text-gray-800 mb-6 flex items-center justify-between">
+                    Performance Breakdown
+                    <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-1 rounded">Live Distribution</span>
+                  </h4>
+                  <div className="h-48 relative">
+                    {chartData ? <Line data={chartData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { display: false }, x: { grid: { display: false } } } }} /> : <div className="animate-pulse bg-gray-200 h-full rounded"></div>}
+                  </div>
+                  <div className="mt-6 flex justify-between text-center pt-6 border-t border-gray-200">
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Success %</div>
+                      <div className="text-xl font-black text-gray-800">{agentDetail?.stats?.completionRate}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Avg Earnings</div>
+                      <div className="text-xl font-black text-gray-800">KES {(agentDetail?.stats?.totalEarnings / (agentDetail?.stats?.completedTasks || 1)).toFixed(0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Total Volume</div>
+                      <div className="text-xl font-black text-gray-800">{agentDetail?.stats?.totalTasks}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <AdminPasswordDialog 
+        isOpen={false} // Managed by higher level if needed, but here we can keep it for manual overrides
+        onClose={() => {}}
+        onConfirm={() => {}}
+        title="Admin Authorization"
+      />
+    </div>
+  );
+}
+
+// Sub-components
+function StatCard({ icon, label, value, color }) {
+  const colors = {
+    blue: 'bg-blue-600 text-blue-100 shadow-blue-200',
+    green: 'bg-emerald-600 text-emerald-100 shadow-emerald-200',
+    amber: 'bg-amber-600 text-amber-100 shadow-amber-200',
+    purple: 'bg-indigo-600 text-indigo-100 shadow-indigo-200'
+  };
+  
+  return (
+    <div className={`p-5 rounded-2xl shadow-lg ${colors[color]} relative overflow-hidden group`}>
+      <div className="absolute -right-2 -top-2 opacity-10 scale-150 rotate-12 group-hover:scale-125 transition-transform duration-500">
+        {React.cloneElement(icon, { size: 100 })}
+      </div>
+      <div className="relative z-10 flex flex-col items-start h-full justify-between">
+        <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm mb-3">
+          {React.cloneElement(icon, { size: 20 })}
+        </div>
+        <div>
+          <div className="text-3xl font-black mb-1">{value?.toLocaleString() || '0'}</div>
+          <div className="text-xs font-bold uppercase tracking-wider opacity-80">{label}</div>
+        </div>
       </div>
     </div>
   );
 }
 
+function StatMini({ label, value, sub, color = 'blue', trend }) {
+  const colors = {
+    blue: 'text-blue-600 border-blue-50 bg-blue-50/20',
+    green: 'text-emerald-600 border-emerald-50 bg-emerald-50/20',
+    red: 'text-red-600 border-red-50 bg-red-50/20'
+  };
+  
+  return (
+    <div className={`p-4 rounded-2xl border ${colors[color]} flex flex-col justify-between`}>
+      <div className="flex justify-between items-start">
+        <span className="text-[10px] font-bold uppercase text-gray-400 tracking-wide">{label}</span>
+        {trend && <span className="text-[10px] font-black">{trend}</span>}
+      </div>
+      <div className="mt-1">
+        <div className="text-xl font-extrabold text-gray-800">{value}</div>
+        <div className="text-[10px] text-gray-400 font-medium">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+function FilterGroup({ label, children }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function StatusBadge({ isActive, isAvailable }) {
+  if (!isActive) return (
+    <span className="px-2.5 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-bold border border-red-100 uppercase tracking-wide">
+      Suspended
+    </span>
+  );
+  if (isAvailable) return (
+    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold border border-emerald-100 uppercase tracking-wide">
+      Available
+    </span>
+  );
+  return (
+    <span className="px-2.5 py-1 bg-amber-50 text-amber-600 rounded-full text-[10px] font-bold border border-amber-100 uppercase tracking-wide">
+      Active (Off Shift)
+    </span>
+  );
+}
+
+function AgentVehicleIcon({ type, color }) {
+  const icons = {
+    bike: <Bike />,
+    motorcycle: <Navigation />,
+    car: <Car />,
+    van: <Truck />,
+    truck: <Truck />
+  };
+  
+  const colors = {
+    blue: 'bg-blue-50 text-blue-600 ring-blue-100',
+    gray: 'bg-gray-100 text-gray-400 ring-gray-100'
+  };
+
+  return (
+    <div className={`p-1.5 rounded-lg ring-1 ${colors[color || 'blue']}`}>
+      {React.cloneElement(icons[type] || <Truck />, { size: 16 })}
+    </div>
+  );
+}
+
+function TabHeader({ id, icon, label, active, onClick }) {
+  const isActive = active === id;
+  return (
+    <button 
+      onClick={() => onClick(id)}
+      className={`pb-3 flex items-center gap-2 transition-all relative ${isActive ? 'text-blue-600' : 'hover:text-gray-600'}`}
+    >
+      {React.cloneElement(icon, { size: 14, className: isActive ? 'text-blue-500' : 'text-gray-300' })}
+      {label}
+      {isActive && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-full"></div>}
+    </button>
+  );
+}
+
+function Section({ label, children }) {
+  return (
+    <div className="space-y-3">
+      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 pb-2">{label}</h4>
+      <div className="space-y-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function InfoItem({ icon, label, value, upper = false }) {
+  return (
+    <div className="flex items-start gap-3">
+      {icon && <div className="mt-0.5">{React.cloneElement(icon, { size: 14 })}</div>}
+      <div className="flex-1">
+        <div className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{label}</div>
+        <div className={`text-sm font-semibold text-gray-800 ${upper ? 'uppercase' : ''}`}>{value || '--'}</div>
+      </div>
+    </div>
+  );
+}

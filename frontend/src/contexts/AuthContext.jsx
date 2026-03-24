@@ -134,6 +134,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // setSession — used by OTP verification flow to log in without calling /auth/login again
+  const setSession = useCallback((token, userData) => {
+    localStorage.setItem('token', token);
+    const sessionUser = {
+      ...userData,
+      role: userData.role || 'customer',
+      roles: userData.roles || []
+    };
+    setUser(sessionUser);
+    localStorage.setItem('user', JSON.stringify(sessionUser));
+    joinUserRoom(sessionUser.id);
+  }, []);
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -209,8 +222,9 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     updateUser,
-    retryAuth
-  }), [user, loading, error, verificationRequired, verificationMessage, login, logout, updateUser, retryAuth]);
+    retryAuth,
+    setSession,
+  }), [user, loading, error, verificationRequired, verificationMessage, login, logout, updateUser, retryAuth, setSession]);
 
   return (
     <AuthContext.Provider value={value}>

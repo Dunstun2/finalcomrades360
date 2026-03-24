@@ -72,12 +72,17 @@ class PaymentService {
   }
 
   // Initiate Airtel Money payment
-  async initiateAirtelMoneyPayment(orderId, phoneNumber) {
+  async initiateAirtelMoneyPayment(orderId, phoneNumber, amount = null, checkoutGroupId = null) {
     try {
-      const response = await api.post('/payments/airtel-money/initiate', {
-        orderId,
-        phoneNumber
-      });
+      const payload = {
+        phoneNumber: phoneNumber.replace(/\D/g, '')
+      };
+
+      if (orderId) payload.orderId = orderId;
+      if (checkoutGroupId) payload.checkoutGroupId = checkoutGroupId;
+      if (amount) payload.amount = amount;
+
+      const response = await api.post('/payments/airtel/initiate', payload);
       return response.data;
     } catch (error) {
       console.error('Error initiating Airtel Money payment:', error);

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     FaMoneyBillWave, FaWallet, FaCheckCircle, FaClock, FaArrowRight,
     FaTruck, FaMotorcycle, FaWarehouse, FaMapMarkerAlt, FaChevronDown,
-    FaChevronUp, FaSearch, FaClipboardCheck, FaExclamationCircle
+    FaChevronUp, FaSearch, FaClipboardCheck, FaExclamationCircle, FaTimes
 } from 'react-icons/fa';
 
 import { formatPrice } from '../../../utils/currency';
@@ -60,6 +60,18 @@ const DeliveryWallet = () => {
     const [agentSharePercent, setAgentSharePercent] = useState(70);
     const [searchTerm, setSearchTerm] = useState('');
     const [visibleWalletCount, setVisibleWalletCount] = useState(10);
+    const [toast, setToast] = useState(null);
+    const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState('mpesa');
+    const [paymentDetails, setPaymentDetails] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+    };
+
 
 
     useEffect(() => {
@@ -92,6 +104,45 @@ const DeliveryWallet = () => {
             next.has(id) ? next.delete(id) : next.add(id);
             return next;
         });
+    };
+
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        setSearchTerm('');
+        setVisibleWalletCount(10);
+    };
+
+    const handleWithdraw = async (e) => {
+        e.preventDefault();
+        const amount = parseFloat(withdrawAmount);
+
+        if (isNaN(amount) || amount <= 0) {
+            showToast('Please enter a valid amount.', 'error');
+            return;
+        }
+
+        if (amount > walletData.balance) {
+            showToast('Insufficient balance.', 'error');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const res = await api.post('/delivery/wallet/withdraw', { 
+                amount,
+                paymentMethod,
+                paymentDetails
+            });
+            showToast(res.data.message || 'Withdrawal request submitted successfully!');
+            setShowWithdrawModal(false);
+            setWithdrawAmount('');
+            fetchAll(false); // Refresh data
+        } catch (err) {
+            console.error('Withdrawal failed:', err);
+            showToast(err.response?.data?.error || 'Failed to submit withdrawal request.', 'error');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     // Filter transactions based on active tab and search
@@ -133,11 +184,23 @@ const DeliveryWallet = () => {
                             </div>
                         </div>
                         <div className="text-3xl font-bold mb-4">{formatPrice(walletData.balance)}</div>
-                        <button className="bg-white text-blue-700 w-full py-2 rounded-xl font-bold text-sm hover:bg-blue-50 transition-colors flex items-center justify-center group">
+                        <button 
+                            onClick={() => setShowWithdrawModal(true)}
+                            className="bg-white text-blue-700 w-full py-2 rounded-xl font-bold text-sm hover:bg-blue-50 transition-colors flex items-center justify-center group"
+                        >
                             Withdraw <FaArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" />
                         </button>
                     </div>
                 </div>
+
+                {/* Toast Overlay */}
+                {toast && (
+                    <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-2xl shadow-2xl text-white text-sm font-bold flex items-center gap-3 animate-slideUp ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'info' ? 'bg-blue-600' : 'bg-green-600'}`}>
+                        {toast.type === 'error' ? <FaExclamationCircle /> : toast.type === 'info' ? <FaWallet /> : <FaCheckCircle />}
+                        {toast.message}
+                        <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100">&times;</button>
+                    </div>
+                )}
 
                 {/* Success / Cleared */}
                 <div className="bg-white border border-green-100 rounded-2xl p-6 shadow-sm bg-green-50/20">
@@ -148,7 +211,11 @@ const DeliveryWallet = () => {
                         </div>
                         <div className="bg-green-100 p-3 rounded-xl text-green-600"><FaCheckCircle className="w-6 h-6" /></div>
                     </div>
-                    <p className="text-[10px] text-green-600 leading-relaxed font-medium">Task completed. Awaiting admin payout to your available balance.</p>
+                    <p className="text-[10px] text-green-600 leading-relaxed font-medium">
+                        {walletData.autoPayoutEnabled 
+                           ? 'Automated Payouts are Active. Cleared funds move to "Paid" automatically.' 
+                           : 'Task completed. Awaiting admin payout to your available balance.'}
+                    </p>
                 </div>
 
                 {/* Pending */}
@@ -214,7 +281,7 @@ const DeliveryWallet = () => {
                         const taskObj = tx.order?.deliveryTasks?.find(t =>
                             tx.description.includes(t.deliveryType) ||
                             Math.abs(t.agentEarnings - tx.amount) < 0.01
-                        ) || tx.order?.deliveryTasks?.[0];
+                        ) || (tx.order?.deliveryTasks && [...tx.order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]);
 
                         return (
                             <div key={tx.id} className="p-1">
@@ -277,6 +344,104 @@ const DeliveryWallet = () => {
                     )}
                 </div>
             </div>
+
+            {/* Withdrawal Modal */}
+            {showWithdrawModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-fadeIn">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full relative overflow-hidden flex flex-col">
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 text-white relative">
+                            <button
+                                onClick={() => setShowWithdrawModal(false)}
+                                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                            >
+                                <FaTimes />
+                            </button>
+                            <FaWallet className="text-4xl mb-4 opacity-50" />
+                            <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-0">Request Payout</h3>
+                            <p className="text-blue-100 font-bold text-sm mt-1">Transfer funds to your account</p>
+                        </div>
+
+                        <div className="p-8">
+                            <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 mb-8 flex items-center justify-between">
+                                <span className="text-blue-800 font-black uppercase text-[10px]">Available</span>
+                                <span className="text-blue-900 font-black text-xl font-mono">{formatPrice(walletData.balance)}</span>
+                            </div>
+
+                            <form onSubmit={handleWithdraw}>
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Amount to Withdraw (KES)</label>
+                                        <div className="relative">
+                                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                                <span className="text-gray-400 font-black">KES</span>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                value={withdrawAmount}
+                                                onChange={(e) => setWithdrawAmount(e.target.value)}
+                                                placeholder="0.00"
+                                                required
+                                                min="1"
+                                                max={walletData.balance}
+                                                className="w-full pl-14 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-xl font-black focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 font-inter">Payment Method</label>
+                                            <select
+                                                value={paymentMethod}
+                                                onChange={(e) => setPaymentMethod(e.target.value)}
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all"
+                                            >
+                                                <option value="mpesa">M-Pesa</option>
+                                                <option value="bank">Bank Transfer</option>
+                                                <option value="cash">Cash Pickup</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                                                {paymentMethod === 'mpesa' ? 'M-Pesa Number' : 'Details'}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={paymentDetails}
+                                                onChange={(e) => setPaymentDetails(e.target.value)}
+                                                placeholder={paymentMethod === 'mpesa' ? 'e.g. 2547XXXXXXXX' : 'Enter account info'}
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all font-mono"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex items-start gap-4">
+                                        <FaExclamationCircle className="text-blue-500 mt-1 flex-shrink-0" />
+                                        <p className="text-[11px] text-blue-800 font-bold leading-relaxed">
+                                            {walletData.autoPayoutEnabled 
+                                                ? 'Manual withdrawals are available even when automated payouts are ON for faster settlement.'
+                                                : 'Payouts are processed within 24-48 hours after request approval.'}
+                                        </p>
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={submitting || !withdrawAmount || parseFloat(withdrawAmount) <= 0}
+                                        className="w-full py-5 bg-gray-900 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-gray-200 hover:bg-black hover:-translate-y-1 transition-all active:scale-95 disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2"
+                                    >
+                                        {submitting ? (
+                                            <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        ) : (
+                                            <>Confirm Withdrawal <FaArrowRight /></>
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

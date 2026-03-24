@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client';
 
 // WebSocket server URL - using the same host as the API but with WebSocket protocol
-const WS_URL = 'ws://localhost:5000';
+const WS_URL = 'ws://localhost:5002';
 
 let socket;
 let reconnectAttempts = 0;

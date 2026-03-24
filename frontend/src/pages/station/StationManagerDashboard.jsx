@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { FaBox, FaSync, FaSignOutAlt, FaExclamationCircle } from 'react-icons/fa';
 import DeliveryTaskConsole from '../../components/delivery/DeliveryTaskConsole';
 import HandoverCodeWidget from '../../components/delivery/HandoverCodeWidget';
+import { getOrderDeliveryTask } from '../../components/delivery/DeliveryTaskComponents';
 import { Link } from 'react-router-dom';
 
 const StationManagerDashboard = () => {
@@ -145,23 +146,45 @@ const StationManagerDashboard = () => {
                 >
                   <div className="flex flex-col gap-4 w-full mt-2 pt-4 border-t border-gray-50">
                     {stationType === 'warehouse' ? (
-                      // Warehouse Hub: Receive from Agent
-                      ['en_route_to_warehouse', 'super_admin_confirmed', 'seller_confirmed'].includes(order.status) ? (
-                        <HandoverCodeWidget
-                          orderId={order.id}
-                          handoverType="agent_to_warehouse"
-                          mode="receiver"
-                          onConfirmed={loadDashboard}
-                        />
-                      ) : (
-                        <span className="px-4 py-2 text-[10px] font-black rounded-xl bg-gray-100 text-gray-500 uppercase tracking-widest self-end">
-                          {order.status === 'at_warehouse' ? '✓ Received at Warehouse' : 'Processed'}
-                        </span>
-                      )
+                      // Warehouse Hub: Receive from Agent OR Give to Agent/Customer
+                      <div className="flex flex-col gap-3">
+                        {['en_route_to_warehouse', 'super_admin_confirmed', 'seller_confirmed', 'in_transit'].includes(order.status) && 
+                         (order.status !== 'in_transit' || ['agent_to_warehouse', 'seller_to_warehouse'].includes(order.deliveryType)) ? (() => {
+                          const activeTask = getOrderDeliveryTask(order);
+                          return (
+                          <div className="space-y-2">
+                             <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Receive from Agent / Seller</p>
+                             <HandoverCodeWidget
+                               orderId={order.id}
+                               taskId={activeTask?.id}
+                               handoverType="agent_to_warehouse"
+                               mode="receiver"
+                               onConfirmed={loadDashboard}
+                             />
+                          </div>
+                          );
+                         })() : null
+                        }
+                        {['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status) && (() => {
+                          const activeTask = getOrderDeliveryTask(order);
+                          return (
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Release to Delivery Agent</p>
+                            <HandoverCodeWidget
+                              orderId={order.id}
+                              taskId={activeTask?.id}
+                              handoverType="warehouse_to_agent"
+                              mode="giver"
+                              onConfirmed={loadDashboard}
+                            />
+                          </div>
+                          );
+                        })()}
+                      </div>
                     ) : (
                       // Pickup Station: Receive from Agent OR Give to Customer
                       <div className="flex flex-col gap-3">
-                        {['at_warehouse', 'en_route_to_warehouse', 'super_admin_confirmed', 'seller_confirmed'].includes(order.status) ? (
+                        {['in_transit', 'en_route_to_pick_station', 'at_pick_station', 'super_admin_confirmed', 'seller_confirmed'].includes(order.status) ? (
                           <div className="space-y-2">
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Receive from Delivery Agent</p>
                             <HandoverCodeWidget

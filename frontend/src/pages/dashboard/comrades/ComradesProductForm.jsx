@@ -244,7 +244,7 @@ const ComradesProductForm = ({
         deliveryFee: '',
         deliveryCoverageZones: '',
         marketingEnabled: false,
-        marketingCommissionType: 'price_difference',
+        marketingCommissionType: 'flat',
         marketingCommission: '',
         marketingStartDate: '',
         marketingEndDate: '',
@@ -332,7 +332,7 @@ const ComradesProductForm = ({
       deliveryFee: '',
       deliveryCoverageZones: '',
       marketingEnabled: false,
-      marketingCommissionType: 'price_difference',
+      marketingCommissionType: 'flat',
       marketingCommission: '',
       marketingStartDate: '',
       marketingEndDate: '',
@@ -2348,10 +2348,32 @@ const ComradesProductForm = ({
                   <div className="flex items-center justify-between">
                     <Label>Product Variants</Label>
                     <Button type="button" variant="outline" size="sm" onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        variants: [...(prev.variants || []), { name: '', options: [''], optionDetails: {} }]
-                      }));
+                      setFormData(prev => {
+                        const newVariant = { name: '', options: [''], optionDetails: {} };
+                        
+                        // Auto-populate first variant from main pricing if it's the first one
+                        if (!prev.variants || prev.variants.length === 0) {
+                          const base = prev.basePrice || '';
+                          const display = prev.displayPrice || base;
+                          const perc = prev.discountPercentage || 0;
+                          const discPrice = prev.discountPrice || (perc > 0 ? (parseFloat(display) * (1 - parseFloat(perc) / 100)).toFixed(2) : display);
+                          
+                          newVariant.optionDetails = {
+                            '': { // Default empty option
+                              basePrice: base,
+                              displayPrice: display,
+                              discountPercentage: perc,
+                              discountPrice: discPrice,
+                              stock: prev.stock || ''
+                            }
+                          };
+                        }
+                        
+                        return {
+                          ...prev,
+                          variants: [...(prev.variants || []), newVariant]
+                        };
+                      });
                     }} disabled={isFieldDisabled('variants')}>
                       Add Variant
                     </Button>
@@ -3229,7 +3251,7 @@ const ComradesProductForm = ({
                       <div>
                         <Label htmlFor="marketingCommissionType">Marketing Commission Type</Label>
                         <Select
-                          value={formData.marketingCommissionType || 'percentage'}
+                          value={formData.marketingCommissionType || 'flat'}
                           onValueChange={(value) => handleFieldChange('marketingCommissionType', value)}
                           disabled={isFieldDisabled('marketingCommission')}
                         >

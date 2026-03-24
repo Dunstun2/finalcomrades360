@@ -12,6 +12,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ReferrerBanner from './components/ReferrerBanner';
 import api from './services/api';
 import RealtimeSync from './components/RealtimeSync';
+import DashboardGuard from './components/DashboardGuard';
 // import VerificationRequired from './components/VerificationRequired'; // Removed as per user request
 import Home from './pages/Home';
 
@@ -34,6 +35,7 @@ import PageLayout from './components/layout/PageLayout';
 const Navbar = lazy(() => import('./components/Navbar'));
 const MarketingNavbar = lazy(() => import('./components/MarketingNavbar'));
 const Login = lazy(() => import('./pages/Login'));
+const DashboardLogin = lazy(() => import('./pages/DashboardLogin'));
 const Register = lazy(() => import('./pages/Register'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const AuthModal = lazy(() => import('./components/auth/AuthModal'));
@@ -133,6 +135,7 @@ const Checkout = lazy(() => import('./pages/Checkout'));
 const Wishlist = lazy(() => import('./pages/Wishlist'));
 
 // New dashboard pages (converted to lazy loading)
+const ReturnRequestPage = lazy(() => import('./pages/customer/ReturnRequestPage'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const UserApplications = lazy(() => import('./pages/dashboard/UserApplications'));
 const UserManagementOverview = lazy(() => import('./pages/dashboard/UserManagementOverview'));
@@ -149,6 +152,7 @@ const SystemSettings = lazy(() => import('./pages/dashboard/SystemSettings'));
 const SecuritySettings = lazy(() => import('./pages/dashboard/SecuritySettings'));
 const AdvancedReports = lazy(() => import('./pages/dashboard/AdvancedReports'));
 const AdminOrders = lazy(() => import('./pages/dashboard/AdminOrders'));
+const AdminReturnsList = lazy(() => import('./pages/dashboard/AdminReturnsList'));
 const SuperAdminOrders = lazy(() => import('./pages/dashboard/SuperAdminOrders'));
 const OrderAnalytics = lazy(() => import('./pages/dashboard/OrderAnalytics'));
 const AdminOverview = lazy(() => import('./pages/dashboard/AdminOverview'));
@@ -287,8 +291,8 @@ const AppContent = () => {
     return <PageLoading />;
   }
 
-  // Station accounts are restricted to station-only flows.
-  if (isStationUser && !location.pathname.startsWith('/station')) {
+  // Station accounts are restricted to station-only flows, but must be allowed to log in and verify dashboard access.
+  if (isStationUser && !location.pathname.startsWith('/station') && !['/dashboard-login', '/login'].includes(location.pathname)) {
     return <Navigate to="/station" replace />;
   }
 
@@ -367,13 +371,15 @@ const AppContent = () => {
                 <Route path="/cart" element={<Cart />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/dashboard-login" element={<DashboardLogin />} />
 
                 {/* Protected Dashboard Route */}
                 <Route path="/dashboard/*" element={
-                  (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'superadmin' ||
-                    user?.role === 'logistics_manager' || user?.role === 'delivery_agent' || user?.role === 'finance_manager' ||
-                    user?.roles?.some(r => ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent', 'finance_manager'].includes(r))
-                  ) ? <Dashboard /> : <Navigate to="/" />
+                  <ProtectedRoute requiredRole={['admin', 'super_admin', 'superadmin', 'logistics_manager', 'delivery_agent', 'finance_manager']}>
+                    <DashboardGuard>
+                      <Dashboard />
+                    </DashboardGuard>
+                  </ProtectedRoute>
                 }>
                   <Route index element={<AdminOverview />} />
                   <Route path="analytics" element={<AdvancedReports />} />
@@ -415,6 +421,7 @@ const AppContent = () => {
                   <Route path="services-approval" element={<AdminServicesApproval />} />
 
                   <Route path="orders" element={<AdminOrders />} />
+                  <Route path="orders/returns" element={<AdminReturnsList />} />
                   <Route path="orders/my-sales" element={<SuperAdminOrders />} />
                   <Route path="orders/assignments" element={<DeliveryAssignment />} />
                   <Route path="orders/requests" element={<DeliveryRequests />} />
@@ -454,7 +461,9 @@ const AppContent = () => {
                 {/* Marketing Dashboard */}
                 <Route path="/marketing/*" element={
                   <ProtectedRoute requiredRole={['marketer', 'admin', 'superadmin', 'super_admin']}>
-                    <MarketingDashboard />
+                    <DashboardGuard>
+                      <MarketingDashboard />
+                    </DashboardGuard>
                   </ProtectedRoute>
                 }>
                   <Route index element={<MarketingOverview />} />
@@ -469,7 +478,9 @@ const AppContent = () => {
                 {/* Seller Dashboard */}
                 <Route path="/seller/*" element={
                   <ProtectedRoute requiredRole={['seller', 'admin', 'superadmin', 'super_admin']}>
-                    <Seller />
+                    <DashboardGuard>
+                      <Seller />
+                    </DashboardGuard>
                   </ProtectedRoute>
                 }>
                   <Route index element={<SellerOverview />} />
@@ -499,7 +510,9 @@ const AppContent = () => {
                 {/* Operations Dashboard */}
                 <Route path="/ops/*" element={
                   <ProtectedRoute requiredRole={['ops_manager', 'admin', 'superadmin', 'super_admin']}>
-                    <OpsManager />
+                    <DashboardGuard>
+                      <OpsManager />
+                    </DashboardGuard>
                   </ProtectedRoute>
                 } />
 
@@ -513,7 +526,9 @@ const AppContent = () => {
                 {/* Finance Manager Dashboard */}
                 <Route path="/finance/*" element={
                   <ProtectedRoute requiredRole={['finance_manager', 'admin', 'superadmin', 'super_admin']}>
-                    <FinanceManager />
+                    <DashboardGuard>
+                      <FinanceManager />
+                    </DashboardGuard>
                   </ProtectedRoute>
                 } />
 
@@ -531,6 +546,7 @@ const AppContent = () => {
                   <Route path="orders/:orderId/track" element={<OrderTracking />} />
                   <Route path="orders/:orderId/cancel" element={<CancelOrder />} />
                   <Route path="orders/:orderId/update-address" element={<UpdateOrderAddress />} />
+                  <Route path="orders/:orderId/return" element={<ReturnRequestPage />} />
                   <Route path="wishlist" element={<Wishlist />} />
                   <Route path="wallet" element={<div>Wallet</div>} />
                   <Route path="address" element={<CustomerAddresses />} />
@@ -551,7 +567,9 @@ const AppContent = () => {
                 {/* Delivery Agent Dashboard */}
                 <Route path="/delivery/*" element={
                   <ProtectedRoute requiredRole={['delivery_agent', 'admin', 'superadmin', 'super_admin']}>
-                    <DeliveryAgentDashboard />
+                    <DashboardGuard>
+                      <DeliveryAgentDashboard />
+                    </DashboardGuard>
                   </ProtectedRoute>
                 }>
                   <Route index element={<Navigate to="available" replace />} />
@@ -575,12 +593,14 @@ const AppContent = () => {
                   path="/dashboard/service-provider/*"
                   element={
                     <ProtectedRoute requiredRole={['service_provider', 'admin', 'superadmin', 'super_admin']}>
-                      <div className="min-h-screen bg-gray-50">
-                        {!hideNavbar && <Navbar />}
-                        <main className="pt-16">
-                          <ServiceProviderDashboard />
-                        </main>
-                      </div>
+                      <DashboardGuard>
+                        <div className="min-h-screen bg-gray-50">
+                          {!hideNavbar && <Navbar />}
+                          <main className="pt-16">
+                            <ServiceProviderDashboard />
+                          </main>
+                        </div>
+                      </DashboardGuard>
                     </ProtectedRoute>
                   }
                 >

@@ -35,6 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false
     },
+    dashboardPassword: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Secondary password for role-based dashboard access'
+    },
     publicId: {
       type: DataTypes.STRING,
       unique: true
@@ -42,15 +47,13 @@ module.exports = (sequelize, DataTypes) => {
     role: {
       type: DataTypes.STRING,
       defaultValue: 'customer',
-      references: {
-        model: 'Roles',
-        key: 'id'
-      }
+      // No FK reference — 'customer' is the implied default state for all users,
+      // not a formal role that needs to exist in the Roles table.
     },
     roles: {
       type: DataTypes.JSON,
-      defaultValue: ['customer'],
-      comment: 'Array of all approved roles for this user'
+      defaultValue: [],
+      comment: 'Array of all approved elevated roles for this user (customer is implied and not listed)'
     },
     referralCode: {
       type: DataTypes.STRING,
@@ -146,6 +149,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     // Seller business location fields (for pickup/delivery)
+    businessName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Seller business/store name'
+    },
     businessAddress: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -287,6 +295,32 @@ module.exports = (sequelize, DataTypes) => {
     return !!(user.emailVerified && user.phoneVerified && user.nationalIdStatus === 'approved');
   };
 
+  /**
+   * Returns true if a seller has provided all required business location fields.
+   * Required fields: businessAddress, businessCounty, businessTown, businessLandmark, businessPhone, businessLat, businessLng
+   */
+  User.isSellerProfileComplete = function (user) {
+    if (!user) return false;
+    
+    const requiredFields = [
+      'businessName',
+      'businessAddress',
+      'businessCounty',
+      'businessTown',
+      'businessLandmark',
+      'businessPhone',
+      'businessLat',
+      'businessLng'
+    ];
+
+    return requiredFields.every(field => {
+      const val = user[field];
+      if (val === undefined || val === null) return false;
+      if (typeof val === 'string') return val.trim().length > 0;
+      return true; // Numbers like Lat/Lng are already checked for null/undefined
+    });
+  };
+
   // Instance method to recalculate and save isVerified status
   User.prototype.recalculateIsVerified = async function () {
     const shouldBeVerified = User.isVerifiedCriteriaMet(this);
@@ -329,13 +363,6 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.UserRole, {
       foreignKey: 'userId',
       as: 'userRoles'
-    });
-
-    // A user belongs to a role
-    User.belongsTo(models.Role, {
-      foreignKey: 'role',
-      targetKey: 'id',
-      as: 'roleDetails'
     });
 
     // A user has many login history records

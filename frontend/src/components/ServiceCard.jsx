@@ -92,9 +92,9 @@ export default function ServiceCard({
   };
 
   // Price calculation
-  const originalPrice = Number(service.displayPrice || 0);
+  const originalPrice = Number(service.displayPrice || service.basePrice || service.price || 0);
   const finalPrice = Number(service.discountPrice || originalPrice);
-  const hasDiscount = Number(service.discountPercentage) > 0;
+  const hasDiscount = Number(service.discountPercentage || 0) > 0 && finalPrice < originalPrice;
 
 
   // Get availability status from real logic
@@ -184,10 +184,10 @@ export default function ServiceCard({
       </div>
 
       {/* Service Details */}
-      <div className={`${contentClassName} px-3 py-0 flex flex-col`}>
+      <div className={`${contentClassName} px-0 py-0 flex flex-col`}>
         <div>
           <h3
-            className="font-display font-bold text-gray-900 text-base sm:text-lg leading-tight mb-1.5 tracking-tight group-hover:text-blue-600 transition-colors truncate whitespace-nowrap"
+            className="px-2 sm:px-3 font-display font-bold text-gray-900 text-base sm:text-lg leading-tight mb-1.5 tracking-tight group-hover:text-blue-600 transition-colors truncate whitespace-nowrap"
             title={service.title}
           >
             {service.title}
@@ -195,7 +195,7 @@ export default function ServiceCard({
         </div>
 
         <div className="mt-0 mb-0 relative">
-          <div className="flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
+          <div className="px-2 sm:px-3 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
             <p className="font-sans text-base font-black text-gray-900">
               KES {Number(finalPrice).toLocaleString()}
             </p>
@@ -213,7 +213,7 @@ export default function ServiceCard({
         {/* Removed spacer below price */}
 
         {/* Action Bar */}
-        <div className="flex items-center justify-between pt-1 border-t border-gray-100 gap-1">
+        <div className="flex items-center border-t border-gray-100 gap-1">
           {typeof renderActions === 'function' ? (
             renderActions({
               service,
@@ -224,10 +224,8 @@ export default function ServiceCard({
             })
           ) : (
             <>
-
-
               <button
-                className={`flex-1 px-1.5 py-1 sm:px-3 sm:py-3 rounded text-[11px] sm:text-base font-bold transition-colors whitespace-nowrap truncate bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200`}
+                className={`flex-1 min-w-0 px-1 py-1.5 sm:py-2 rounded text-[10px] sm:text-xs font-bold transition-colors truncate bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200`}
                 title="Booking coming soon"
               >
                 {!isOpen ? 'Closed' : 'Book Now'}
@@ -235,7 +233,7 @@ export default function ServiceCard({
 
               <button
                 onClick={handleView}
-                className="flex-1 px-1.5 py-1 sm:px-3 sm:py-3 text-[11px] sm:text-base font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
+                className="flex-1 min-w-0 px-1 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors truncate"
               >
                 View
               </button>

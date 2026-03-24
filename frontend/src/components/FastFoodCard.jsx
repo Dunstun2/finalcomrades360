@@ -86,6 +86,9 @@ export default function FastFoodCard({
       return;
     }
 
+    const variants = ensureArray(item.sizeVariants);
+    const firstVariant = variants.length > 0 ? (variants.find(v => Number(v.stock ?? 1) > 0) || variants[0]) : null;
+
     // Check if item is already in the cart
     const alreadyInCart = cart?.items?.some(
       (cartItem) =>
@@ -95,7 +98,17 @@ export default function FastFoodCard({
 
     if (!alreadyInCart) {
       try {
-        await addToCart(item.id, 1, { type: 'fastfood', fastFood: item });
+        if (firstVariant) {
+          const vId = firstVariant.id || firstVariant.name || firstVariant.size || '';
+          await addToCart(item.id, 1, {
+            type: 'fastfood',
+            fastFood: item,
+            variantId: vId,
+            selectedVariant: firstVariant
+          });
+        } else {
+          await addToCart(item.id, 1, { type: 'fastfood', fastFood: item });
+        }
         toast({
           title: 'Added to Cart',
           description: `${item.name} has been added to your fastfood cart`,
@@ -107,7 +120,6 @@ export default function FastFoodCard({
           description: 'Failed to add to cart. Please try again.',
           variant: 'destructive'
         });
-        // Still open view page for user
       }
     }
     handleView(e);
@@ -143,11 +155,37 @@ export default function FastFoodCard({
   const isSpicy = dietaryTags.includes('Spicy');
   const isVeg = dietaryTags.includes('Vegetarian') || dietaryTags.includes('Vegan');
 
+  const variants = ensureArray(item.sizeVariants);
+  const firstVariant = variants.length > 0 ? (variants.find(v => Number(v.stock ?? 1) > 0) || variants[0]) : null;
+
   const finalPrice = showBasePrice
     ? Number(item.basePrice || 0)
-    : Number(item.discountPrice || item.displayPrice || 0);
-  const originalPrice = Number(item.displayPrice || 0);
-  const hasDiscount = !showBasePrice && Number(item.discountPercentage) > 0 && finalPrice < originalPrice;
+    : Number(
+      firstVariant?.discountPrice || 
+      firstVariant?.displayPrice || 
+      firstVariant?.basePrice || 
+      firstVariant?.price || 
+      item.discountPrice || 
+      item.displayPrice || 
+      item.basePrice || 
+      item.price || 
+      0
+    );
+
+  const originalPrice = Number(
+    firstVariant?.displayPrice || 
+    firstVariant?.basePrice || 
+    firstVariant?.price || 
+    item.displayPrice || 
+    item.basePrice || 
+    item.price || 
+    0
+  );
+
+  const hasDiscount = !showBasePrice && (
+    (firstVariant && Number(firstVariant.discountPercentage) > 0) || 
+    (!firstVariant && Number(item.discountPercentage) > 0)
+  ) && finalPrice < originalPrice;
 
   const isFixedWidth = className?.includes('w-[') || className?.includes('min-w-[');
   const cardBase = isFixedWidth ? className : `w-full ${className || ''}`;
@@ -241,19 +279,19 @@ export default function FastFoodCard({
       </div>
 
       <div
-        className={`${contentClassName} px-2 py-0 sm:px-3 flex flex-col ${isBannerCard ? 'flex-grow-1 min-h-0' : ''}`}
+        className={`${contentClassName} px-0 py-0 sm:px-0 flex flex-col ${isBannerCard ? 'flex-grow-1 min-h-0' : ''}`}
         style={isBannerCard ? { flexBasis: '33.333%' } : {}}
       >
         {!hideTitle && (
           <h3
-            className="font-display font-bold text-gray-900 mb-1 leading-tight tracking-tight group-hover:text-blue-600 transition-colors text-base sm:text-lg truncate whitespace-nowrap"
+            className="px-2 sm:px-3 font-display font-bold text-gray-900 mb-1 leading-tight tracking-tight group-hover:text-blue-600 transition-colors text-base sm:text-lg truncate whitespace-nowrap"
             title={item.name}
           >
             {item.name}
           </h3>
         )}
 
-        <div className="mb-0.5 flex flex-wrap gap-x-2 gap-y-0 items-baseline">
+        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-2 gap-y-0 items-baseline">
           <span className={`font-sans text-lg font-black ${isOpen ? 'text-gray-900' : 'text-gray-500'}`}>
             {formatPrice(finalPrice)}
           </span>
@@ -270,10 +308,10 @@ export default function FastFoodCard({
           {renderActions ? (
             renderActions({ handleAddToCart, handleView, isOpen })
           ) : (
-            <div className="flex items-center justify-between pt-1 border-t border-gray-100 gap-1">
+            <div className="flex items-center border-t border-gray-100 gap-1">
               <button
                 onClick={handleBuyNow}
-                className={`flex-1 px-1.5 py-1 sm:px-3 sm:py-3 rounded text-[11px] sm:text-sm font-bold transition-colors whitespace-nowrap flex items-center justify-center gap-1
+                className={`flex-1 min-w-0 px-1 py-1.5 sm:py-2 rounded text-[10px] sm:text-xs font-bold transition-colors truncate flex items-center justify-center gap-1
                   ${
                    isOpen ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                  }`}
@@ -284,7 +322,7 @@ export default function FastFoodCard({
 
               <button
                 onClick={handleView}
-                className="flex-1 px-1.5 py-1 sm:px-3 sm:py-3 text-[11px] sm:text-sm font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
+                className="flex-1 min-w-0 px-1 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors truncate"
                 title="View Details"
               >
                 View

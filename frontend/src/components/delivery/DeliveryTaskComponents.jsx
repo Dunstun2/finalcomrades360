@@ -303,11 +303,10 @@ export const DeliveryTaskDetails = ({ task, order }) => {
  */
 export const getOrderDeliveryTask = (order) => {
     if (!order) return null;
-    if (Array.isArray(order.deliveryTasks) && order.deliveryTasks.length > 0) {
-        return order.deliveryTasks[0];
-    }
-    if (Array.isArray(order.DeliveryTasks) && order.DeliveryTasks.length > 0) {
-        return order.DeliveryTasks[0];
+    const tasks = order.deliveryTasks || order.DeliveryTasks;
+    if (Array.isArray(tasks) && tasks.length > 0) {
+        // Sort by ID descending to get the LATEST task first
+        return [...tasks].sort((a, b) => (b.id || 0) - (a.id || 0))[0];
     }
     return null;
 };

@@ -1,6 +1,8 @@
 const { HandoverCode, Order, DeliveryTask, User, Notification, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { getIO } = require('../realtime/socket');
+const { confirmHandoverProcessor } = require('../services/handoverService');
+const { creditAgentForTask } = require('../services/earningsService');
 
 // ─── Handover type → readable label ───────────────────────────────────────────
 const HANDOVER_LABELS = {
@@ -16,12 +18,12 @@ const HANDOVER_LABELS = {
 // ─── Which order status transitions fire on confirmation ───────────────────────
 const HANDOVER_TRANSITIONS = {
     seller_to_agent:    { taskStatus: 'in_progress', orderStatus: 'in_transit' },
-    agent_to_warehouse: { taskStatus: 'in_progress', orderStatus: 'at_warehouse' },
+    agent_to_warehouse: { taskStatus: 'completed',   orderStatus: 'at_warehouse' },
     warehouse_to_agent: { taskStatus: 'in_progress', orderStatus: 'in_transit' },
-    agent_to_station:   { taskStatus: 'in_progress', orderStatus: 'ready_for_pickup' },
+    agent_to_station:   { taskStatus: 'completed',   orderStatus: 'at_pick_station' },
     agent_to_customer:  { taskStatus: 'completed',   orderStatus: 'delivered' },
     station_to_customer: { taskStatus: 'completed',   orderStatus: 'delivered' },
-    seller_to_warehouse: { taskStatus: 'in_progress', orderStatus: 'at_warehouse' },
+    seller_to_warehouse: { taskStatus: 'completed',   orderStatus: 'at_warehouse' },
 };
 
 // ─── Generate a 5-digit code ───────────────────────────────────────────────────
@@ -42,7 +44,7 @@ const generateHandoverCode = async (req, res) => {
         const order = await Order.findByPk(orderId);
         if (!order) return res.status(404).json({ error: 'Order not found.' });
 
-        // Check if already confirmed
+        // Check if already confirmed for this specific order/type
         const alreadyConfirmed = await HandoverCode.findOne({
             where: { orderId, handoverType, status: 'confirmed' }
         });
@@ -50,7 +52,7 @@ const generateHandoverCode = async (req, res) => {
             return res.status(400).json({ error: 'This handover has already been confirmed and completed.' });
         }
 
-        // Expire any previous pending codes for this order+type
+        // Expire any previous pending codes for this order+type (standard flow)
         await HandoverCode.update(
             { status: 'expired' },
             { where: { orderId, handoverType, status: 'pending' } }
@@ -59,6 +61,13 @@ const generateHandoverCode = async (req, res) => {
         const code = generateCode();
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+        // Auto-confirmation logic for customer-facing handovers (3 minute fallback)
+        let autoConfirmAt = null;
+        if (['agent_to_customer', 'station_to_customer'].includes(handoverType)) {
+            autoConfirmAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+            console.log(`[Handover] Setting autoConfirmAt for ${handoverType} to ${autoConfirmAt}`);
+        }
+
         const handoverCode = await HandoverCode.create({
             code,
             orderId,
@@ -66,10 +75,40 @@ const generateHandoverCode = async (req, res) => {
             handoverType,
             initiatorId,
             status: 'pending',
-            expiresAt
+            expiresAt,
+            autoConfirmAt
         });
 
         console.log(`[Handover] Code ${code} generated for order #${order.orderNumber} — type: ${handoverType} — by user ${initiatorId}`);
+
+        // Notify potential confirmers in real-time
+        try {
+            const io = getIO();
+            if (io) {
+                const payload = {
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    handoverType,
+                    label: HANDOVER_LABELS[handoverType],
+                    expiresAt,
+                    status: 'pending'
+                };
+                // If it's seller_to_agent, the agent is the receiver
+                if (handoverType === 'seller_to_agent' && order.deliveryAgentId) {
+                    io.to(`user:${order.deliveryAgentId}`).emit('handover:generated', payload);
+                }
+                // If it's agent_to_warehouse, the warehouse is the receiver (notified via admin/logistics channel)
+                if (['agent_to_warehouse', 'seller_to_warehouse'].includes(handoverType)) {
+                    io.to('admin').emit('handover:generated', payload);
+                }
+                // If it's station_to_customer or agent_to_customer, the customer is the receiver
+                if (['station_to_customer', 'agent_to_customer'].includes(handoverType) && order.userId) {
+                    io.to(`user:${order.userId}`).emit('handover:generated', payload);
+                }
+            }
+        } catch (socketErr) {
+            console.warn('[Handover] Socket notification failed for generation:', socketErr.message);
+        }
 
         return res.json({
             success: true,
@@ -78,6 +117,7 @@ const generateHandoverCode = async (req, res) => {
             handoverType,
             label: HANDOVER_LABELS[handoverType],
             expiresAt,
+            autoConfirmAt: handoverCode.autoConfirmAt,
             orderNumber: order.orderNumber
         });
     } catch (e) {
@@ -106,23 +146,52 @@ const confirmHandoverCode = async (req, res) => {
             lock: true
         });
 
-        // Fallback for grouped-order UX: if orderId mismatches but code is valid for this customer,
-        // resolve by code + type scoped to the confirmer's own order.
+        // Fallback for handoverType mismatch on same order
         if (!handoverCode) {
-            handoverCode = await HandoverCode.findOne({
-                where: { code, handoverType, status: 'pending' },
-                include: [
-                    {
-                        model: Order,
-                        as: 'order',
-                        where: { userId: confirmerId },
-                        required: true
-                    },
-                    { model: DeliveryTask, as: 'task' }
-                ],
+            const potentialCodes = await HandoverCode.findAll({
+                where: { code, orderId, status: 'pending' },
+                include: [{ model: Order, as: 'order' }, { model: DeliveryTask, as: 'task' }],
                 transaction: t,
                 lock: true
             });
+
+            if (potentialCodes.length === 1) {
+                const pc = potentialCodes[0];
+                const isTypeMismatch = 
+                    (handoverType === 'agent_to_warehouse' && pc.handoverType === 'agent_to_station') ||
+                    (handoverType === 'agent_to_station' && pc.handoverType === 'agent_to_warehouse') ||
+                    (handoverType === 'agent_to_warehouse' && pc.handoverType === 'seller_to_warehouse') ||
+                    (handoverType === 'seller_to_warehouse' && pc.handoverType === 'agent_to_warehouse') ||
+                    (handoverType === 'seller_to_agent' && pc.handoverType === 'seller_to_warehouse') ||
+                    (['agent_to_warehouse', 'agent_to_station', 'seller_to_warehouse'].includes(handoverType) && pc.handoverType === 'seller_to_agent');
+                
+                if (isTypeMismatch) {
+                    handoverCode = pc;
+                }
+            }
+        }
+
+        // Final Fallback for customer-facing codes (resolved by code + type scoped to the confirmer's own order)
+        if (!handoverCode) {
+            // Note: confirmerId might be a string for station managers, but Order.userId is always an INTEGER.
+            // This fallback is primarily for customers (who have INTEGER IDs).
+            const numericConfirmerId = parseInt(confirmerId, 10);
+            if (!isNaN(numericConfirmerId)) {
+                handoverCode = await HandoverCode.findOne({
+                    where: { code, handoverType, status: 'pending' },
+                    include: [
+                        {
+                            model: Order,
+                            as: 'order',
+                            where: { userId: numericConfirmerId },
+                            required: true
+                        },
+                        { model: DeliveryTask, as: 'task' }
+                    ],
+                    transaction: t,
+                    lock: true
+                });
+            }
         }
 
         if (!handoverCode) {
@@ -143,109 +212,65 @@ const confirmHandoverCode = async (req, res) => {
             return res.status(403).json({ error: 'You cannot confirm your own handover code.' });
         }
 
-        // Mark code as confirmed
-        await handoverCode.update({
-            status: 'confirmed',
-            confirmerId,
-            confirmedAt: new Date(),
-            notes: notes || null
-        }, { transaction: t });
+        // Refactored logic: Use handoverService for atomicity and reusability
+        const handoverId = handoverCode.id;
+        await t.commit(); // Close current transaction as processor handles its own or takes one
 
-        const order = handoverCode.order;
-        const transition = HANDOVER_TRANSITIONS[handoverType];
-
-        if (handoverType === 'agent_to_customer' && order && !order.paymentConfirmed) {
-            await t.rollback();
-            return res.status(400).json({ error: 'Cannot confirm customer delivery before payment is confirmed.' });
-        }
-
-        // Apply order and task status transitions
-        if (order && transition) {
-            const orderUpdates = { status: transition.orderStatus };
-
-            // For delivery, set the actual timestamps
-            if (handoverType === 'agent_to_customer') {
-                orderUpdates.actualDelivery = new Date();
-            }
-            if (handoverType === 'seller_to_agent') {
-                orderUpdates.pickedUpAt = new Date();
-                orderUpdates.sellerHandoverConfirmed = true;
-                orderUpdates.sellerHandoverConfirmedAt = new Date();
-            }
-
-            await order.update(orderUpdates, { transaction: t });
-
-            // Update delivery task if linked
-            if (handoverCode.task) {
-                const taskUpdates = { status: transition.taskStatus };
-                if (handoverType === 'seller_to_agent') {
-                    taskUpdates.collectedAt = new Date();
-                    taskUpdates.startedAt = handoverCode.task.startedAt || new Date();
-                }
-                if (handoverType === 'agent_to_customer') {
-                    taskUpdates.completedAt = new Date();
-                }
-                await handoverCode.task.update(taskUpdates, { transaction: t });
-            }
-        }
-
-        await t.commit();
-
-        console.log(`[Handover] Code ${code} confirmed for order #${order?.orderNumber} — type: ${handoverType} — by user ${confirmerId}`);
-
-        // Real-time notification to both parties
         try {
-            const io = getIO();
-            if (io && order) {
-                const payload = {
-                    orderId: order.id,
-                    orderNumber: order.orderNumber,
-                    handoverType,
-                    label: HANDOVER_LABELS[handoverType],
-                    newOrderStatus: transition?.orderStatus,
-                    confirmedAt: new Date()
-                };
-                // Notify initiator (giver)
-                io.to(`user:${handoverCode.initiatorId}`).emit('handover:confirmed', payload);
-                // Notify confirmer (receiver)
-                io.to(`user:${confirmerId}`).emit('handover:confirmed', payload);
-                // Notify admin
-                io.to('admin').emit('handover:confirmed', { ...payload, confirmerId });
-                // Notify customer
-                if (order.userId && order.userId !== confirmerId) {
-                    io.to(`user:${order.userId}`).emit('orderStatusUpdate', {
-                        orderId: order.id,
-                        status: transition?.orderStatus,
-                        orderNumber: order.orderNumber
-                    });
+            const result = await confirmHandoverProcessor(handoverId, confirmerId, notes);
+
+            if (result.success) {
+                // Real-time notification logic (Retained from controller)
+                try {
+                    const io = getIO();
+                    const order = await Order.findByPk(orderId);
+                    if (io && order) {
+                        const payload = {
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            handoverType,
+                            label: HANDOVER_LABELS[handoverType],
+                            newOrderStatus: order.status,
+                            confirmedAt: new Date()
+                        };
+                        io.to(`user:${handoverCode.initiatorId}`).emit('handover:confirmed', payload);
+                        io.to(`user:${confirmerId}`).emit('handover:confirmed', payload);
+                        io.to('admin').emit('handover:confirmed', { ...payload, confirmerId });
+                        
+                        // Push status update to all relevant parties
+                        const statusUpdate = {
+                            orderId: order.id,
+                            status: order.status,
+                            orderNumber: order.orderNumber,
+                            warehouseArrivalDate: order.warehouseArrivalDate,
+                            deliveryAgentId: order.deliveryAgentId
+                        };
+                        io.to(`user:${order.userId}`).emit('orderStatusUpdate', statusUpdate);
+                        io.to('admin').emit('orderStatusUpdate', statusUpdate);
+                    }
+                } catch (socketErr) {
+                    console.warn('[Handover] Socket notification failed in confirmHandoverCode:', socketErr.message);
                 }
+
+                return res.json({ 
+                    success: true, 
+                    message: result.message,
+                    handoverType 
+                });
+            } else {
+                return res.status(400).json({ success: false, message: result.message });
             }
-        } catch (socketErr) {
-            console.warn('[Handover] Socket notification failed:', socketErr.message);
+        } catch (procErr) {
+            console.error('[Handover] Processor failed:', procErr);
+            throw procErr;
         }
-
-        // Persist notification for initiator
-        try {
-            await Notification.create({
-                userId: handoverCode.initiatorId,
-                title: '✅ Handover Confirmed',
-                message: `${HANDOVER_LABELS[handoverType]} for Order #${order?.orderNumber} has been confirmed.`,
-                type: 'success'
-            });
-        } catch (notifErr) {
-            console.warn('[Handover] Notification creation failed:', notifErr.message);
-        }
-
-        return res.json({
-            success: true,
-            message: `✅ Handover confirmed: ${HANDOVER_LABELS[handoverType]}`,
-            handoverType,
-            newOrderStatus: transition?.orderStatus,
-            orderNumber: order?.orderNumber
-        });
-
     } catch (e) {
-        await t.rollback();
+        // Only rollback if the transaction hasn't been committed yet
+        if (t && !t.finished) {
+            try {
+                await t.rollback();
+            } catch (rollbackErr) { }
+        }
         console.error('[Handover] Error confirming code:', e);
         return res.status(500).json({ error: 'Failed to confirm handover code.' });
     }
