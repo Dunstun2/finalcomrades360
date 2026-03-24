@@ -6,8 +6,7 @@
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
     "start": "node backend/server.js",
-    "build": "cd frontend && npm run build",
-    "kill-port": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1"
+    "build": "cd frontend && npm run build"
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.9.11",
