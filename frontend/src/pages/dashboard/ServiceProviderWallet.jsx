@@ -9,7 +9,6 @@ import {
     FaSearch,
     FaFileInvoiceDollar,
     FaExchangeAlt,
-    FaExchangeAlt,
     FaExclamationTriangle,
     FaImage,
     FaPaperclip

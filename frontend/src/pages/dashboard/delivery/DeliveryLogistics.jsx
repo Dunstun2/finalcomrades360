@@ -51,7 +51,6 @@ const getStatusInfo = (status) => {
         case 'processing':
             return { label: 'Processing', color: 'yellow', bg: 'bg-yellow-100', icon: <FaClipboardCheck className="text-yellow-600" /> };
         case 'in_transit':
-        case 'in_transit':
             return { label: 'In Transit', color: 'blue', bg: 'bg-blue-100', icon: <FaTruck className="text-blue-600" /> };
         case 'en_route_to_warehouse':
             return { label: 'To Warehouse', color: 'indigo', bg: 'bg-indigo-100', icon: <FaTruck className="text-indigo-600" /> };
