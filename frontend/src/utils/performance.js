@@ -26,16 +26,9 @@ export function trackPageLoadTime() {
       ? timing.responseEnd - timing.fetchStart
       : 0;
 
-    // Only log if we have valid timing data
+    // Only track if we have valid timing data
     if (pageLoadTime > 0) {
-      console.log('Page Load Time:', pageLoadTime, 'ms');
       window.__lastPageLoadLogged = window.location.pathname;
-    }
-    if (domReadyTime > 0) {
-      console.log('DOM Ready Time:', domReadyTime, 'ms');
-    }
-    if (networkLatency > 0) {
-      console.log('Network Latency:', networkLatency, 'ms');
     }
 
     // Report to analytics only if we have valid data

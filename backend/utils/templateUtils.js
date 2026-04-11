@@ -14,9 +14,11 @@ async function getDynamicMessage(key, defaultTemplate, data = {}) {
         }
 
         // Replace placeholders
-        let result = template;
+        let result = String(template || "");
         for (const [k, v] of Object.entries(data)) {
-            result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+            // Ensure v is a string and handle null/undefined/objects
+            const replacement = (v === null || v === undefined) ? "" : String(v);
+            result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), replacement);
         }
         return result;
     } catch (err) {
@@ -25,4 +27,17 @@ async function getDynamicMessage(key, defaultTemplate, data = {}) {
     }
 }
 
-module.exports = { getDynamicMessage };
+async function getEnabledChannels(templateKey) {
+    try {
+        const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
+        if (configRecord) {
+            const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+            return dbConfig.channels?.[templateKey] || { whatsapp: true, sms: true, email: true, in_app: true }; // Default to all on
+        }
+    } catch (err) {
+        console.warn(`⚠️ [TemplateUtils] Failed to load channels for ${templateKey}:`, err.message);
+    }
+    return { whatsapp: true, sms: true, email: true, in_app: true }; // Fallback
+}
+
+module.exports = { getDynamicMessage, getEnabledChannels };

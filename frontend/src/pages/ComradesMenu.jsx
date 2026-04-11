@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import Footer from '../components/Footer';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
-import LiveMenuHero from '../components/LiveMenuHero';
-import LiveMenuGrid from '../components/LiveMenuGrid';
-import { FaArrowLeft } from 'react-icons/fa';
+import api from '../services/api';
 
 const ComradesMenu = () => {
     const [items, setItems] = useState([]);
@@ -26,7 +21,7 @@ const ComradesMenu = () => {
     const fetchItems = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await axios.get('http://localhost:5000/api/fastfood?limit=100');
+            const response = await api.get('/fastfood?limit=100');
             if (response.data.success) {
                 setItems(response.data.data);
             }

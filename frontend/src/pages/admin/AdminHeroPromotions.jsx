@@ -206,8 +206,14 @@ export default function AdminHeroPromotions() {
           <button className="px-3 py-1 bg-gray-200 rounded flex-shrink-0" onClick={() => window.history.back()}>← Back</button>
           <h2 className="text-base sm:text-lg font-semibold truncate">Hero Banner Promotions</h2>
         </div>
-        {(me?.role === 'super_admin' || me?.role === 'admin') && (
-          <Link to="/dashboard/marketing/hero-promotions/create" className="px-3 py-1 bg-emerald-700 text-white rounded text-sm flex-shrink-0">+ Create</Link>
+        {/* Check for all admin role variations for consistent access */}
+        {(['super_admin', 'superadmin', 'admin'].includes(me?.role) || me?.roles?.some(r => ['super_admin', 'superadmin', 'admin'].includes(r))) && (
+          <Link 
+            to="/dashboard/marketing/hero-promotions/create" 
+            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-800 text-white rounded-xl text-sm font-black shadow-lg shadow-emerald-100 hover:shadow-emerald-200 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+          >
+            <span className="text-lg leading-none">+</span> Create Promotion
+          </Link>
         )}
       </div>
       {loading ? (

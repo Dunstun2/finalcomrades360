@@ -376,7 +376,7 @@ export default function Cart() {
                           )}
                           <img
                             src={imagePath ? resolveImageUrl(imagePath) : FALLBACK_IMAGE}
-                            alt={typeof product?.name === 'object' ? JSON.stringify(product?.name) : product?.name || typeof product?.title === 'object' ? JSON.stringify(product?.title) : product?.title || typeof item.name === 'object' ? JSON.stringify(item.name) : item.name || 'Unknown Item'}
+                            alt={item.itemName || product?.name || 'Item'}
                             className={`w-full h-full object-cover cursor-pointer hover:opacity-80 transition-all ${!isAvailable ? 'opacity-50 grayscale' : ''}`}
                             onClick={() => navigate(link, { state: { from: location.pathname } })}
                             onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
@@ -406,44 +406,49 @@ export default function Cart() {
                       {/* Right Block: Details, Desktop Quantity, and Price */}
                       <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
                         {/* Details */}
-                        <div className="flex-1 min-w-0">
-                          <h3
-                            className="font-black text-gray-900 text-sm sm:text-base mb-1 cursor-pointer hover:text-blue-600 transition-colors truncate"
-                            onClick={() => navigate(link, { state: { from: location.pathname } })}
-                          >
-                            {typeof product?.name === 'object' ? JSON.stringify(product?.name) : product?.name || typeof product?.title === 'object' ? JSON.stringify(product?.title) : product?.title || typeof item.name === 'object' ? JSON.stringify(item.name) : item.name || 'Unknown Item'}
-                          </h3>
-                          {(variantName || comboName) && (variantName !== '0-0' || comboName) && (
-                            <div className="text-[10px] text-blue-600 font-bold mb-1 uppercase tracking-tight">
-                              {variantName && variantName !== '0-0' && `Size: ${variantName} `}
-                              {comboName && `Combo: ${comboName}`}
-                            </div>
-                          )}
-                          {!isAvailable && (
-                            <span className="inline-block bg-red-100 text-red-800 text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-red-200 mb-1">
-                              Out of Stock
-                            </span>
-                          )}
-                          <p className="text-xs text-gray-500 mb-2 truncate">
-                            Seller: <span className="text-gray-900 font-bold">{
-                              (isFastFood ? product?.kitchenVendor : null) ||
-                              product?.seller?.businessName ||
-                              product?.seller?.name ||
-                              product?.provider?.businessName ||
-                              product?.provider?.name ||
-                              product?.vendorDetail?.businessName ||
-                              product?.vendorDetail?.name ||
-                              product?.Seller?.businessName ||
-                              product?.Seller?.name ||
-                              product?.vendor?.businessName ||
-                              product?.vendor?.name ||
-                              (isFastFood ? 'Comrades Kitchen' : 'Unknown Seller')
-                            }</span>
-                          </p>
-                          <div className="flex items-center space-x-4">
+                         <div className="flex-1 min-w-0">
+                          <div className="flex flex-col gap-0.5">
+                            <h3
+                              className="font-black text-gray-900 text-sm sm:text-base leading-tight cursor-pointer hover:text-blue-600 transition-colors truncate"
+                              onClick={() => navigate(link, { state: { from: location.pathname } })}
+                            >
+                              {item.itemName || product?.name || product?.title || item.name || 'Unknown Item'}
+                            </h3>
+
+                            {/* Variant/Combo Labels - Primary Identification */}
+                            {(variantName || comboName || item.variantName || item.comboName) && (
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {(variantName || item.variantName) && item.variantName !== '0-0' && variantName !== '0-0' && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100">
+                                    {item.variantName || variantName}
+                                  </span>
+                                )}
+                                {(comboName || item.comboName) && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-bold bg-purple-50 text-purple-700 border border-purple-100">
+                                    {item.comboName || comboName}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            <p className="text-[10px] sm:text-xs text-gray-500 mt-1 truncate">
+                              Seller: <span className="text-gray-900 font-semibold">{
+                                item.sellerBusinessName ||
+                                (isFastFood ? product?.kitchenVendor : null) ||
+                                (isService ? product?.seller?.name : null) ||
+                                (product?.seller?.name || product?.kitchenVendor || item.sellerName || 'Direct Seller')
+                              }</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-4 mt-1">
                             {!isFastFood && product?.stock <= 5 && (
                               <span className="text-[10px] font-black uppercase bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">
                                 {product.stock} Left
+                              </span>
+                            )}
+                            {!isAvailable && (
+                              <span className="inline-block bg-red-100 text-red-800 text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-red-200">
+                                Out of Stock
                               </span>
                             )}
                           </div>

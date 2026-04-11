@@ -306,7 +306,7 @@ const getMyCustomers = async (req, res) => {
       .filter(c => c.id !== null)
       .map(c => c.id);
 
-    const PENDING_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit'];
+    const PENDING_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'at_warehouse', 'ready_for_pickup', 'in_transit'];
 
     let orderStats = {};
     if (customerIds.length > 0) {
@@ -330,7 +330,7 @@ const getMyCustomers = async (req, res) => {
       const referralOrders = await Order.findAll({
         where: {
           userId: { [Op.in]: customerIds },
-          referralCode: marketerReferralCode,
+          primaryReferralCode: marketerReferralCode,
           marketerId: { [Op.ne]: marketerId } // Avoid double counting orders already found by marketerId
         },
         attributes: ['userId', 'status']

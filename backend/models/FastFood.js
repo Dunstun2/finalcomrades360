@@ -197,6 +197,26 @@ module.exports = (sequelize) => {
             type: DataTypes.JSON,
             defaultValue: []
         },
+        // NEW FIELD: Nutritional facts
+        nutritionalInfo: {
+            type: DataTypes.JSON,
+            defaultValue: {
+                calories: '',
+                protein: '',
+                carbs: '',
+                fat: ''
+            }
+        },
+        // NEW FIELD: Spice level (mild, medium, hot, extra hot)
+        spiceLevel: {
+            type: DataTypes.STRING,
+            defaultValue: 'none'
+        },
+        // NEW FIELD: Daily production limit
+        dailyLimit: {
+            type: DataTypes.INTEGER,
+            defaultValue: 0
+        },
         // NEW FIELD: Estimated servings
         estimatedServings: {
             type: DataTypes.STRING,

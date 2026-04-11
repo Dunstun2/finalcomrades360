@@ -256,9 +256,21 @@ All buttons are fully responsive and work perfectly across:
 - [ ] Cart and checkout buttons
 
 ### 📋 Todo
-- [ ] Mobile app buttons
-- [ ] Email template buttons
-- [ ] Print styles for buttons
+- [x] Mobile app buttons
+- [x] Email template buttons
+- [x] Print styles for buttons
+
+### Mobile App Buttons
+- Designed for touch-friendly interfaces.
+- Includes primary, secondary, and floating action buttons.
+
+### Email Template Buttons
+- Styled for email clients with inline CSS.
+- Includes call-to-action buttons for promotions and confirmations.
+
+### Print Styles for Buttons
+- Optimized for print layouts.
+- Includes hidden buttons for non-essential actions.
 
 ## 🎯 Performance
 

@@ -292,7 +292,7 @@ export default function UserManagementOverview() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -328,7 +328,7 @@ export default function UserManagementOverview() {
         {/* Main Statistics */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Overview</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {mainStats.map((stat, index) => (
               <StatCard
                 key={index}
@@ -347,7 +347,7 @@ export default function UserManagementOverview() {
         {/* User Categories */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">User Categories</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {userCategories.map((category, index) => (
               <NavigationCard
                 key={index}
@@ -365,7 +365,7 @@ export default function UserManagementOverview() {
         {/* Quick Actions */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {quickActions.map((action, index) => (
               <NavigationCard
                 key={index}

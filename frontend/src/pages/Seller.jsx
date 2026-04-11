@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { FaBars, FaTimes } from 'react-icons/fa'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { FaBars, FaTimes, FaChevronDown } from 'react-icons/fa'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Seller() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [marketingOpen, setMarketingOpen] = useState(false)
   
   const logout = () => { localStorage.removeItem('token'); window.location.href = '/login' }
 
@@ -15,18 +17,26 @@ export default function Seller() {
     { to: "/seller/products/add", label: "Add Product", icon: "➕" },
     { to: "/seller/fast-food/new", label: "ADD MEALS", icon: "🔥", color: "orange" },
     { to: "/seller/products", label: "Products", icon: "📦" },
+    { to: "/seller/inventory", label: "Inventory", icon: "📋" },
     { to: "/seller/fast-food", label: "My Meals", icon: "🍲", color: "orange" },
     { to: "/seller/orders", label: "Orders", icon: "🛒" },
     { to: "/seller/business-location", label: "Location", icon: "📍" },
     { to: "/seller/wallet", label: "Wallet", icon: "💰" },
     { to: "/seller/reports", label: "Reports", icon: "📊" },
-    { to: "/marketing", label: "Marketing", icon: "📢" },
-    { to: "/seller/promotions", label: "Promos", icon: "⭐" },
     { to: "/seller/recycle-bin", label: "Recycle Bin", icon: "🗑️" },
     { to: "/seller/help", label: "Help", icon: "❓" },
   ];
 
+  // Marketing & Promotions dropdown items
+  const marketingItems = [
+    { to: "/seller/promotions", label: "Hero Promotions", icon: "⭐" },
+    { to: "/seller/fastfood-promotions", label: "FastFood Promotions", icon: "🍔", color: "orange" },
+    { to: "/marketing", label: "Marketing Hub", icon: "📢" },
+  ];
+
   const isAdmin = user?.role === 'admin' || user?.roles?.includes('admin') || user?.role === 'superadmin' || user?.roles?.includes('superadmin');
+
+  const isMarketingActive = marketingItems.some(item => location.pathname === item.to || location.pathname.startsWith(item.to + '/'));
 
   return (
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
@@ -69,6 +79,45 @@ export default function Seller() {
                 </NavLink>
               </li>
             ))}
+
+            {/* Marketing & Promotions — collapsible dropdown */}
+            <li>
+              <button
+                onClick={() => setMarketingOpen(prev => !prev)}
+                className={`w-full flex items-center gap-2 px-4 py-2 lg:py-2.5 rounded-xl transition-all duration-200 text-[9px] lg:text-[15px] font-bold uppercase tracking-tight ${isMarketingActive
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-100'
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-purple-600'
+                }`}
+              >
+                <span className="text-sm lg:text-base opacity-90">📣</span>
+                <span className="flex-1 text-left">Marketing</span>
+                <FaChevronDown
+                  size={10}
+                  className={`transition-transform duration-200 ${marketingOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {/* Sub-items */}
+              {marketingOpen && (
+                <ul className="ml-5 mt-1 border-l-2 border-purple-100 pl-2 space-y-1">
+                  {marketingItems.map(item => (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        onClick={() => setIsSidebarOpen(false)}
+                        className={({ isActive }) => `flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[9px] lg:text-xs font-semibold uppercase tracking-tight ${isActive
+                          ? 'bg-purple-50 text-purple-800 font-bold'
+                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                        }`}
+                      >
+                        <span className="opacity-80">{item.icon}</span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
           </ul>
         </nav>
 
@@ -81,11 +130,28 @@ export default function Seller() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-0 z-30 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-3 -ml-3 hover:bg-gray-100 rounded-full text-blue-600 transition-colors"
+            >
+              <FaBars size={24} />
+            </button>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/seller')}>
+              <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse"></div>
+              <h2 className="text-sm font-black text-gray-800 tracking-tight uppercase">Seller Panel</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+          </div>
+        </header>
 
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar">
-          <div className="max-w-7xl mx-auto w-full p-2 lg:p-8 min-h-full pb-20 lg:pb-0">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 min-h-full p-1 sm:p-4 lg:p-6">
+          <div className="w-full p-0 lg:p-4 min-h-full pb-20 lg:pb-0">
+            <div className="bg-white lg:rounded-2xl lg:shadow-sm lg:border lg:border-gray-100 min-h-full p-0 lg:p-4">
               <Outlet />
             </div>
           </div>

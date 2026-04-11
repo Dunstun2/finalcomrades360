@@ -33,6 +33,8 @@ const ProductInquiry = require('./ProductInquiry')(sequelize, Sequelize.DataType
 const ProductView = require('./ProductView')(sequelize, Sequelize.DataTypes);
 const FastFood = require('./FastFood')(sequelize, Sequelize.DataTypes);
 const PlatformConfig = require('./PlatformConfig')(sequelize, Sequelize.DataTypes);
+const PlatformWallet = require('./PlatformWallet')(sequelize, Sequelize.DataTypes);
+const PlatformTransaction = require('./PlatformTransaction')(sequelize, Sequelize.DataTypes);
 const LoginHistory = require('./LoginHistory')(sequelize, Sequelize.DataTypes);
 const Role = require('./Role')(sequelize, Sequelize.DataTypes);
 const DeliveryMessage = require('./DeliveryMessage')(sequelize, Sequelize.DataTypes);
@@ -88,6 +90,8 @@ const models = {
   ServiceImage,
   FastFood,
   PlatformConfig,
+  PlatformWallet,
+  PlatformTransaction,
   LoginHistory,
   Role,
   JobOpening,
@@ -152,6 +156,8 @@ module.exports = {
   ServiceImage,
   FastFood,
   PlatformConfig,
+  PlatformWallet,
+  PlatformTransaction,
   LoginHistory,
   Role,
   JobOpening,

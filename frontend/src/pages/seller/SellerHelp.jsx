@@ -11,10 +11,10 @@ export default function SellerHelp(){
   }
 
   return (
-    <div className="p-4 space-y-6">
-      <h2 className="text-xl font-semibold">Help & Support</h2>
+    <div className="p-0 sm:p-6 space-y-6 w-full">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">Help & Support</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
         <div className="card p-4">
           <div className="font-medium mb-2">FAQs</div>
           <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">

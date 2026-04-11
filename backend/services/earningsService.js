@@ -68,7 +68,8 @@ const creditAgentForTask = async (taskId, transaction = null) => {
                 order.orderNumber,
                 `Delivery Earning for Order #${order.orderNumber} (Payment Confirmed)`,
                 order.id,
-                t
+                t,
+                'delivery_agent'
             );
         }
 

@@ -132,17 +132,17 @@ const SellerProductView = () => {
     return () => { alive = false; };
   }, [id]);
 
-  if (loading) return <div className="p-6">Loading product details...</div>;
-  if (error) return <div className="p-6 text-red-600">{error}</div>;
-  if (!product) return <div className="p-6">Product not found</div>;
+  if (loading) return <div className="p-0 sm:p-6">Loading product details...</div>;
+  if (error) return <div className="p-0 sm:p-6 text-red-600">{error}</div>;
+  if (!product) return <div className="p-0 sm:p-6">Product not found</div>;
 
   const images = product.images || [];
   const mainImage = images.length > 0 ? resolveImageUrl(images[0]) : '/placeholder.jpg';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-0 sm:p-6 w-full">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Product Details</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">Product Details</h1>
         <Link
           to="/dashboard/seller/products"
           className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"

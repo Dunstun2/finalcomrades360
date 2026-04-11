@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { HeroPromotion, Product, User, Notification, PlatformConfig } = require('../models/index');
+const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood } = require('../models/index');
 const cacheService = require('../scripts/services/cacheService');
 
 // Pricing config
@@ -206,7 +206,7 @@ const deleteHeroPromotion = async (req, res) => {
 
 const listHeroApplications = async (req, res) => {
   try {
-    const { status, sellerId } = req.query
+    const { status, sellerId, promoType } = req.query
     // Auto-expire any past-due promotions to keep history accurate
     try {
       const now = new Date()
@@ -218,24 +218,36 @@ const listHeroApplications = async (req, res) => {
     const where = {}
     if (status) where.status = status
     if (sellerId) where.sellerId = Number(sellerId)
+    if (promoType) where.promoType = promoType
     const items = await HeroPromotion.findAll({ where, order: [['createdAt', 'DESC']] })
 
     // Enrich with seller and product lookups for the frontend
     const sellerIds = [...new Set(items.map(i => i.sellerId))]
     const productIdsSet = new Set()
-    items.forEach(i => (i.productIds || []).forEach(pid => productIdsSet.add(pid)))
+    const fastFoodIdsSet = new Set()
+    
+    items.forEach(i => {
+      if (i.promoType === 'fastfood') {
+         (i.fastFoodIds || []).forEach(pid => fastFoodIdsSet.add(pid))
+      } else {
+         (i.productIds || []).forEach(pid => productIdsSet.add(pid))
+      }
+    })
 
-    const [users, products] = await Promise.all([
+    const [users, products, fastfoods] = await Promise.all([
       User.findAll({
         where: { id: { [Op.in]: sellerIds } },
         attributes: ['id', 'name', 'email', 'phone']
       }),
       Product.findAll({
         where: { id: { [Op.in]: [...productIdsSet] } }
+      }),
+      FastFood.findAll({
+        where: { id: { [Op.in]: [...fastFoodIdsSet] } }
       })
     ])
 
-    res.json({ items, users, products })
+    res.json({ items, users, products, fastfoods })
   } catch (e) { res.status(500).json({ error: e.message }) }
 }
 

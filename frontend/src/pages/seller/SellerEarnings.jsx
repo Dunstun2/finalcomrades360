@@ -35,9 +35,9 @@ export default function SellerEarnings(){
   }, [])
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-semibold mb-1">Earnings</h1>
-      <div className="text-xs text-gray-500 mb-4">Calculated from base prices of your products.</div>
+    <div className="p-0 sm:p-6 w-full">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight mb-1">Earnings</h1>
+      <div className="text-sm text-gray-500 mb-6">Calculated from base prices of your products.</div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="card"><div className="text-sm text-gray-500">Today (Base)</div><div className="text-xl font-bold">KES {formatKES(kpis.today)}</div></div>

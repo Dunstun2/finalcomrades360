@@ -138,6 +138,22 @@ const adminOrLogistics = (req, res, next) => {
   next();
 };
 
+const adminOrLogisticsOrSeller = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Authentication required' });
+
+  const normalize = (r) => String(r || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const userRole = normalize(req.user.role || '');
+  const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(normalize) : [userRole];
+
+  const isAuthorized = userRole === 'admin' || userRole === 'superadmin' || userRole === 'logisticsmanager' || userRole === 'seller' ||
+    userRoles.includes('admin') || userRoles.includes('superadmin') || userRoles.includes('logisticsmanager') || userRoles.includes('seller');
+
+  if (!isAuthorized) {
+    return res.status(403).json({ message: 'Admin, Logistics Manager or Seller access required' });
+  }
+  next();
+};
+
 const adminOrFinance = (req, res, next) => {
   if (!req.user) return res.status(401).json({ message: 'Authentication required' });
 
@@ -333,6 +349,7 @@ module.exports = {
   requireAdmin,
   marketerOnly,
   adminOrLogistics,
+  adminOrLogisticsOrSeller,
   adminOrFinance,
   adminOrSeller,
   checkSellerProfile

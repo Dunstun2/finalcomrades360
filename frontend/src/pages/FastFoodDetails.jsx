@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -13,7 +13,11 @@ import {
   ShoppingBag,
   Star,
   Truck,
-  Utensils
+  Utensils,
+  Flame,
+  Users,
+  Activity,
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { usePersistentFetch } from '../hooks/usePersistentFetch';
@@ -120,6 +124,8 @@ const FastFoodDetails = () => {
   const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState(null);
   const [inquiryModalOpen, setInquiryModalOpen] = useState(false);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+  const mainCtaRef = useRef(null);
   const [visibleReviewsCount, setVisibleReviewsCount] = useState(3);
   const [activePickupPoints, setActivePickupPoints] = useState([]);
   const [loadingPickupPoints, setLoadingPickupPoints] = useState(false);
@@ -133,6 +139,8 @@ const FastFoodDetails = () => {
     const params = new URLSearchParams(location.search);
     return params.get('debugBuy') === '1';
   }, [location.search]);
+
+  const autoAddProcessed = useRef(false);
 
   const pushDebugEvent = useCallback((label, data = {}) => {
     if (!buyDebugEnabled) return;
@@ -304,9 +312,13 @@ const FastFoodDetails = () => {
     return comboOptions.find((combo) => combo?.isAvailable !== false) || comboOptions[0];
   }, [comboOptions]);
 
+
+
   const deliveryZones = useMemo(() => toStringArray(item?.deliveryCoverageZones), [item?.deliveryCoverageZones]);
   const allergens = useMemo(() => toStringArray(item?.allergens), [item?.allergens]);
   const dietaryTags = useMemo(() => toStringArray(item?.dietaryTags), [item?.dietaryTags]);
+  const nutritionalInfo = useMemo(() => recursiveParse(item?.nutritionalInfo), [item?.nutritionalInfo]);
+  const customizations = useMemo(() => ensureArray(item?.customizations), [item?.customizations]);
 
   const ingredients = useMemo(() => {
     const parsed = recursiveParse(item?.ingredients);
@@ -333,6 +345,33 @@ const FastFoodDetails = () => {
     const parsed = parseJsonSafe(item?.availabilityDays, item?.availabilityDays);
     return Array.isArray(parsed) ? parsed : [];
   }, [item?.availabilityDays]);
+
+  const nextOpening = useMemo(() => {
+    if (isOpen || !schedule.length || item?.availabilityMode === 'CLOSED') return null;
+    
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const now = new Date();
+    const todayIndex = now.getDay();
+    const currentTimeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+    // Check if it opens later today
+    const todayName = days[todayIndex];
+    const todaySched = schedule.find(s => (s.day === todayName || s.day === 'All Days') && s.available);
+    if (todaySched && todaySched.from > currentTimeStr) {
+      return { day: 'today', time: todaySched.from };
+    }
+
+    // Look for next available day
+    for (let i = 1; i <= 7; i++) {
+      const nextIndex = (todayIndex + i) % 7;
+      const nextDayName = days[nextIndex];
+      const nextSched = schedule.find(s => (s.day === nextDayName || s.day === 'All Days') && s.available);
+      if (nextSched) {
+        return { day: i === 1 ? 'tomorrow' : nextDayName, time: nextSched.from };
+      }
+    }
+    return null;
+  }, [isOpen, schedule, item?.availabilityMode, item?.availableFrom]);
 
   const canOrder = isOpen;
   const minOrderQty = Math.max(1, toNumber(item?.minOrderQty, 1));
@@ -366,27 +405,49 @@ const FastFoodDetails = () => {
   const normalizeOptionId = (value) => (value === null || value === undefined ? '' : String(value));
 
   const getSizeVariantId = (variant) => {
-    if (!variant || typeof variant !== 'object') return '';
-    return normalizeOptionId(variant.id || variant.sku || variant.name || variant.size);
+    if (!variant) return '';
+    if (typeof variant === 'string') return normalizeOptionId(variant);
+    
+    // Robust ID lookup: Check all common keys used by vendors
+    const id = variant.id || variant.name || variant.size || variant.variant || variant.label || variant.sku || variant.title;
+    return normalizeOptionId(id);
   };
 
   const getComboOptionId = (combo) => {
-    if (!combo || typeof combo !== 'object') return '';
-    return normalizeOptionId(combo.id || combo.sku || combo.name);
+    if (!combo) return '';
+    if (typeof combo === 'string') return normalizeOptionId(combo);
+    
+    const id = combo.id || combo.name || combo.variant || combo.label || combo.sku || combo.title;
+    return normalizeOptionId(id);
   };
 
   const isFastFoodOptionInCart = (variantId = null, comboId = null) => {
     const vId = normalizeOptionId(variantId);
     const cId = normalizeOptionId(comboId);
 
-    return (Array.isArray(cart?.items) ? cart.items : []).some((cartItem) => {
-      if (String(cartItem?.itemType || '') !== 'fastfood') return false;
-      if (String(cartItem?.fastFoodId || '') !== String(item?.id || '')) return false;
+    const cartItems = Array.isArray(cart?.items) ? cart.items : [];
+    
+    return cartItems.some((cartItem) => {
+      // Must be fastfood
+      const isFF = String(cartItem?.itemType || '') === 'fastfood' || !!cartItem?.fastFoodId;
+      if (!isFF) return false;
 
+      // Must be THIS fastfood item
+      const itemMatch = String(cartItem?.fastFoodId || cartItem?.productId || '') === String(item?.id || '');
+      if (!itemMatch) return false;
+
+      // Check specific options using STRICT equality
       const cartVariantId = normalizeOptionId(cartItem?.variantId);
       const cartComboId = normalizeOptionId(cartItem?.comboId);
 
-      return cartVariantId === vId && cartComboId === cId;
+      // If we are checking for a variant, it must match EXACTLY.
+      // If vId is empty, it only matches a cart item that also has an empty variant.
+      if (vId !== cartVariantId) return false;
+      
+      // If we are checking for a combo, it must match EXACTLY.
+      if (cId !== cartComboId) return false;
+      
+      return true;
     });
   };
 
@@ -696,18 +757,23 @@ const FastFoodDetails = () => {
 
     const payload = {
       type: 'fastfood',
-      product: item,
       batchId: null
     };
 
+    // Clean the product object to avoid sending all variants/combos
+    const productClone = { ...item };
+    delete productClone.sizeVariants;
+    delete productClone.comboOptions;
+    payload.product = productClone;
+
     if (variant) {
       payload.selectedVariant = variant;
-      payload.variantId = variant.id || variant.name || variant.size;
+      payload.variantId = getSizeVariantId(variant);
     }
 
     if (combo) {
       payload.selectedCombo = combo;
-      payload.comboId = combo.id || combo.name;
+      payload.comboId = getComboOptionId(combo);
     }
 
     try {
@@ -737,19 +803,67 @@ const FastFoodDetails = () => {
 
       if (goToCart) navigateToFastFoodCart();
     } catch (error) {
-      console.error('Add to cart error:', error);
-      pushDebugEvent('submit-add-error', {
-        source,
-        itemId: item.id,
-        message: error?.response?.data?.message || error?.message || 'Unknown error'
-      });
+      console.error('[FastFoodDetails] submitAddToCart error:', error);
       toast({
         title: 'Error',
         description: 'Failed to add item to cart. Please try again.',
         variant: 'destructive'
       });
+    } finally {
+      setPrimaryButtonBusy(false);
     }
   };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Show sticky bar only if the main CTA is NOT visible on mobile
+        setShowStickyBar(!entry.isIntersecting);
+      },
+      { threshold: 0 }
+    );
+
+    if (mainCtaRef.current) {
+      observer.observe(mainCtaRef.current);
+    }
+
+    return () => {
+      if (mainCtaRef.current) observer.unobserve(mainCtaRef.current);
+    };
+  }, []);
+
+  // Handle auto-add from navigation state
+  useEffect(() => {
+    if (location.state?.autoAdd && item && !loading && !autoAddProcessed.current) {
+      const triggerAutoAdd = async () => {
+        if (!isOpen) return;
+
+        // Skip if already in cart to avoid duplicates or flashes
+        if (isPrimarySelectionInCart) {
+          autoAddProcessed.current = true;
+          return;
+        }
+
+        try {
+          autoAddProcessed.current = true;
+          setPrimaryButtonBusy(true);
+          
+          await submitAddToCart(
+            primaryButtonSelection.variant,
+            primaryButtonSelection.combo,
+            false,
+            'auto-add-redirect'
+          );
+        } catch (err) {
+          console.error('[FastFoodDetails] Auto-add failed:', err);
+        } finally {
+          setPrimaryButtonBusy(false);
+        }
+      };
+
+      triggerAutoAdd();
+    }
+  }, [location.state, item, loading, isOpen, isPrimarySelectionInCart, primaryButtonSelection, submitAddToCart]);
 
   if (loading) {
     return (
@@ -762,11 +876,11 @@ const FastFoodDetails = () => {
   if (!item) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-orange-50 pt-20">
-      <div className="md:container md:mx-auto px-0 md:px-4 py-4 lg:py-8">
+    <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-orange-50 pt-4">
+      <div className="md:container md:mx-auto px-0 md:px-4 py-2 lg:py-8">
         <button
           onClick={handleBack}
-          className="flex items-center text-gray-700 hover:text-orange-700 mb-4 md:mb-6 transition-colors ml-4 md:ml-0"
+          className="flex items-center text-gray-700 hover:text-orange-700 mb-2 md:mb-6 transition-colors ml-4 md:ml-0"
         >
           <ArrowLeft className="h-5 w-5 mr-2" />
           {(() => {
@@ -849,8 +963,15 @@ const FastFoodDetails = () => {
                   alt={item.name}
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                 />
-                <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${isOpen ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                  {isOpen ? 'Kitchen Open' : 'Kitchen Closed'}
+                <div className={`absolute top-4 left-4 flex flex-col gap-1 z-10`}>
+                  <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${isOpen ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                    {isOpen ? 'Kitchen Open' : 'Kitchen Closed'}
+                  </div>
+                  {!isOpen && nextOpening && (
+                    <div className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/90 backdrop-blur-sm text-gray-900 shadow-sm border border-red-100 italic">
+                      Opens {nextOpening.day} at {nextOpening.time}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -882,46 +1003,48 @@ const FastFoodDetails = () => {
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (primaryButtonBusy) return;
+                  <div ref={mainCtaRef}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (primaryButtonBusy) return;
 
-                      setPrimaryButtonBusy(true);
-                      try {
-                        if (isPrimarySelectionInCart) {
-                          await removeFromCart(item.id, 'fastfood', {
-                            variantId: primaryButtonSelection.variantId || undefined,
-                            comboId: primaryButtonSelection.comboId || undefined,
-                            batchId: null
+                        setPrimaryButtonBusy(true);
+                        try {
+                          if (isPrimarySelectionInCart) {
+                            await removeFromCart(item.id, 'fastfood', {
+                              variantId: primaryButtonSelection.variantId || undefined,
+                              comboId: primaryButtonSelection.comboId || undefined,
+                              batchId: null
+                            });
+                            return;
+                          }
+
+                          pushDebugEvent('primary-click', {
+                            itemId: item.id,
+                            itemName: item.name,
+                            isPrimarySelectionInCart,
+                            variantId: primaryButtonSelection.variantId || '',
+                            comboId: primaryButtonSelection.comboId || ''
                           });
-                          return;
+
+                          await submitAddToCart(
+                            primaryButtonSelection.variant,
+                            primaryButtonSelection.combo,
+                            false,
+                            'primary-button'
+                          );
+                        } finally {
+                          setPrimaryButtonBusy(false);
                         }
-
-                        pushDebugEvent('primary-click', {
-                          itemId: item.id,
-                          itemName: item.name,
-                          isPrimarySelectionInCart,
-                          variantId: primaryButtonSelection.variantId || '',
-                          comboId: primaryButtonSelection.comboId || ''
-                        });
-
-                        await submitAddToCart(
-                          primaryButtonSelection.variant,
-                          primaryButtonSelection.combo,
-                          false,
-                          'primary-button'
-                        );
-                      } finally {
-                        setPrimaryButtonBusy(false);
-                      }
-                    }}
-                    disabled={!isOpen || primaryButtonBusy}
-                    className={`h-10 min-w-[118px] px-5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center shrink-0 ${isPrimarySelectionInCart ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200' : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-200 shadow-sm'}`}
-                  >
-                    <ShoppingBag className="h-4 w-4 mr-1.5" />
-                    {primaryButtonLabel}
-                  </button>
+                      }}
+                      disabled={!isOpen || primaryButtonBusy}
+                      className={`h-11 md:h-10 min-w-[118px] px-6 md:px-5 rounded-xl text-sm font-black md:font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center shrink-0 ${isPrimarySelectionInCart ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200' : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-200 shadow-sm'}`}
+                    >
+                      <ShoppingBag className="h-4 w-4 mr-1.5" />
+                      {primaryButtonLabel}
+                    </button>
+                  </div>
                 </div>
 
                 <p className="text-xs text-gray-500">
@@ -933,7 +1056,14 @@ const FastFoodDetails = () => {
             <div className="space-y-4 px-0 md:px-0">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div className="w-full min-w-0">
-                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900">{item.name}</h1>
+                  <h1 className="text-2xl sm:text-3xl font-black text-gray-900 flex items-center gap-3">
+                    {item.name}
+                    {toNumber(item.orderCount) > 5 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-700 border border-orange-200 uppercase tracking-tighter">
+                         🔥 {item.orderCount}+ Orders
+                      </span>
+                    )}
+                  </h1>
                   {item.shortDescription && <p className="w-full text-orange-700 font-semibold mt-1">{item.shortDescription}</p>}
                 </div>
                 <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -959,30 +1089,35 @@ const FastFoodDetails = () => {
 
               <p className="text-gray-700 leading-relaxed">{item.description || 'No description available.'}</p>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">
                   <p className="text-[10px] uppercase font-bold text-gray-500">Prep Time</p>
                   <p className="font-bold text-sm text-gray-900">{toNumber(item.preparationTimeMinutes, 20)} mins</p>
                 </div>
-                <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50">
+                {item.estimatedServings && (
+                  <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">
+                    <p className="text-[10px] uppercase font-bold text-gray-500">Servings</p>
+                    <p className="font-bold text-sm text-gray-900 flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-blue-500" /> {item.estimatedServings}</p>
+                  </div>
+                )}
+                {item.spiceLevel && item.spiceLevel !== 'none' && (
+                  <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">
+                    <p className="text-[10px] uppercase font-bold text-gray-500">Spice Level</p>
+                    <p className={`font-bold text-sm flex items-center gap-1.5 capitalize ${
+                        item.spiceLevel === 'hot' || item.spiceLevel === 'extra hot' ? 'text-red-600' :
+                        item.spiceLevel === 'medium' ? 'text-orange-600' : 'text-emerald-600'
+                      }`}>
+                      <Flame className="h-3.5 w-3.5" /> {item.spiceLevel}
+                    </p>
+                  </div>
+                )}
+                <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">
                   <p className="text-[10px] uppercase font-bold text-gray-500">Vendor</p>
                   <p className="font-bold text-sm text-gray-900 truncate">{item.kitchenVendor || item.vendorDetail?.name || item.seller?.name || 'Comrades Kitchen'}</p>
                 </div>
               </div>
 
-              <div className={`rounded-xl border p-4 ${canOrder ? 'border-emerald-100 bg-emerald-50' : 'border-red-100 bg-red-50'}`}>
-                <p className="font-bold text-sm flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Kitchen Status: {availabilityStatus?.reason || (canOrder ? 'Accepting orders' : 'Unavailable')}
-                </p>
-              </div>
 
-              <div className="rounded-xl border border-orange-100 p-3 sm:p-4 bg-orange-50">
-                <p className="text-xs sm:text-sm font-bold mb-1">Batch Selection Happens At Checkout</p>
-                <p className="text-[11px] sm:text-xs text-orange-800">
-                  Add your fastfood items first, then choose one active batch for the entire order on the checkout page.
-                </p>
-              </div>
 
 
 
@@ -1114,6 +1249,42 @@ const FastFoodDetails = () => {
                   </div>
                 )}
               </div>
+
+              {((nutritionalInfo && Object.values(nutritionalInfo).some(v => v)) || (customizations && customizations.length > 0)) && (
+                <div className="space-y-4">
+                  {nutritionalInfo && Object.values(nutritionalInfo).some(v => v) && (
+                    <div className="rounded-2xl border border-gray-100 p-4 sm:p-5">
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+                        <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" /> Nutritional Facts
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {['calories', 'protein', 'carbs', 'fat'].map(fact => nutritionalInfo[fact] && (
+                          <div key={fact} className="p-2.5 rounded-xl bg-gray-50 border border-gray-100 text-center">
+                            <p className="text-[9px] uppercase font-black text-gray-500 tracking-tighter">{fact}</p>
+                            <p className="text-sm font-black text-gray-900">{nutritionalInfo[fact]}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {customizations && customizations.length > 0 && (
+                    <div className="rounded-2xl border border-gray-100 p-4 sm:p-5">
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2 mb-3">
+                        <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" /> Customization Notes
+                      </h3>
+                      <ul className="space-y-2">
+                        {customizations.map((note, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm text-gray-600 italic">
+                            <div className="mt-1.5 h-1 w-1 rounded-full bg-orange-400 shrink-0" />
+                            {note}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-3 sm:space-y-4">
                 <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2"><Shield className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" /> Safety and Delivery</h3>
@@ -1275,6 +1446,48 @@ const FastFoodDetails = () => {
       </div>
 
       <Footer />
+
+      {/* Mobile Sticky Action Bar */}
+      <div className={`fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-orange-100 p-4 pb-6 shadow-[0_-8px_30px_rgb(0,0,0,0.12)] z-[60] md:hidden transition-all duration-300 transform ${showStickyBar ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className="flex items-center justify-between gap-4 max-w-lg mx-auto">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-black text-gray-500 leading-none mb-1">Total Price</span>
+            <span className="text-xl font-black text-orange-700">
+              KES {(pricing.finalPrice || 0).toLocaleString()}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (primaryButtonBusy) return;
+              setPrimaryButtonBusy(true);
+              try {
+                if (isPrimarySelectionInCart) {
+                  await removeFromCart(item.id, 'fastfood', {
+                    variantId: primaryButtonSelection.variantId || undefined,
+                    comboId: primaryButtonSelection.comboId || undefined,
+                    batchId: null
+                  });
+                  return;
+                }
+                await submitAddToCart(
+                  primaryButtonSelection.variant,
+                  primaryButtonSelection.combo,
+                  false,
+                  'sticky-mobile-bar'
+                );
+              } finally {
+                setPrimaryButtonBusy(false);
+              }
+            }}
+            disabled={!isOpen || primaryButtonBusy}
+            className={`flex-1 h-12 rounded-xl text-sm font-black flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 ${isPrimarySelectionInCart ? 'bg-red-50 text-red-600 border-2 border-red-200' : 'bg-orange-600 text-white shadow-orange-100'}`}
+          >
+            <ShoppingBag className="h-5 w-5" />
+            {primaryButtonLabel}
+          </button>
+        </div>
+      </div>
 
       <AdminInquiryModal
         item={item}

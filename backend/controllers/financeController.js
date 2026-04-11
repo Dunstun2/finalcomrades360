@@ -65,6 +65,7 @@ const getSystemIncome = async (req, res) => {
 
         const totalDeliveryFees = completedTasks.reduce((sum, t) => sum + (t.deliveryFee || 0), 0);
         const totalAgentEarnings = completedTasks.reduce((sum, t) => sum + (t.agentEarnings || 0), 0);
+        const platformDeliveryEarnings = totalDeliveryFees - totalAgentEarnings;
 
         // 2. Calculate Item Sales Revenue (Markup)
         // We look at OrderItems from 'delivered' orders
@@ -99,6 +100,17 @@ const getSystemIncome = async (req, res) => {
 
         const itemSalesProfit = Math.max(0, totalItemSales - totalItemCost);
 
+        // 3. Calculate Withdrawal Fee Revenue (from processed payouts)
+        const payoutTransactions = await Transaction.findAll({
+            where: {
+                type: 'debit',
+                status: 'completed'
+            },
+            attributes: ['fee']
+        });
+
+        const totalWithdrawalFees = payoutTransactions.reduce((sum, tx) => sum + (tx.fee || 0), 0);
+
         res.json({
             // Delivery Revenue Config
             totalDeliveryFees,
@@ -108,7 +120,13 @@ const getSystemIncome = async (req, res) => {
             // Item Sales Config
             totalItemSales,
             totalItemCost,
-            itemSalesProfit
+            itemSalesProfit,
+
+            // Withdrawal Revenue
+            totalWithdrawalFees,
+
+            // Total Platform Revenue
+            totalPlatformRevenue: platformDeliveryEarnings + itemSalesProfit + totalWithdrawalFees
         });
     } catch (error) {
         console.error('Error calculating system income:', error);
@@ -155,7 +173,7 @@ const getPendingPayouts = async (req, res) => {
 const processPayout = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const { transactionIds } = req.body; // Array of IDs
+        const { transactionIds, referenceNumber, proofUrl } = req.body; // Array of IDs + Proof
 
         if (!transactionIds || !Array.isArray(transactionIds)) {
             return res.status(400).json({ error: 'transactionIds array is required' });
@@ -182,6 +200,13 @@ const processPayout = async (req, res) => {
             if (tx && tx.status === 'success') {
                 await moveToPaid(tx.userId, tx.amount, id, t);
 
+                // Attach proof to the transaction metadata
+                const meta = tx.metadata ? (typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata) : {};
+                meta.payoutProofUrl = proofUrl || meta.payoutProofUrl;
+                meta.payoutReference = referenceNumber || meta.payoutReference;
+                meta.processedAt = new Date();
+                await tx.update({ metadata: JSON.stringify(meta) }, { transaction: t });
+
                 // NOTIFICATION: Notify user about successful payout
                 try {
                     const user = await User.findByPk(tx.userId, { transaction: t });
@@ -190,7 +215,7 @@ const processPayout = async (req, res) => {
                         const { sendMessage } = require('../utils/messageService');
                         const msg = await getDynamicMessage('withdrawalStatus', 
                             'Your withdrawal of KES {amount} has been processed successfully! 💰', 
-                            { amount: tx.amount }
+                            { name: user.name || 'User', amount: tx.amount }
                         );
                         sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send payout notification:', e.message));
                     }
@@ -214,6 +239,24 @@ const processPayout = async (req, res) => {
 
                         totalSystemRevenue += revenue;
                         tasksClaimed++;
+
+                        // Credit Platform Wallet for delivery share
+                        const { PlatformWallet, PlatformTransaction } = require('../models');
+                        const wallet = await PlatformWallet.findByPk(1, { transaction: t, lock: true });
+                        if (wallet) {
+                            wallet.balance = parseFloat(wallet.balance) + revenue;
+                            wallet.totalEarned = parseFloat(wallet.totalEarned) + revenue;
+                            await wallet.save({ transaction: t });
+
+                            await PlatformTransaction.create({
+                                walletId: wallet.id,
+                                amount: revenue,
+                                type: 'credit',
+                                sourceType: 'delivery_share',
+                                referenceId: task.id.toString(),
+                                description: `Delivery margin for Order ${tx.order?.orderNumber || 'Unknown'}`
+                            }, { transaction: t });
+                        }
                     } else {
                         await task.update({
                             systemRevenueClaimed: true,
@@ -223,7 +266,36 @@ const processPayout = async (req, res) => {
                 }
             } else if (tx && tx.type === 'debit' && tx.status === 'pending') {
                 // This is a manual withdrawal request from balance
-                await tx.update({ status: 'completed' }, { transaction: t });
+
+                const meta = tx.metadata ? (typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata) : {};
+                meta.payoutProofUrl = proofUrl || meta.payoutProofUrl;
+                meta.payoutReference = referenceNumber || meta.payoutReference;
+                meta.processedAt = new Date();
+
+                await tx.update({ 
+                    status: 'completed',
+                    metadata: JSON.stringify(meta)
+                }, { transaction: t });
+
+                // Credit Platform Wallet for the withdrawal fee
+                if (tx.fee > 0) {
+                    const { PlatformWallet, PlatformTransaction } = require('../models');
+                    const wallet = await PlatformWallet.findByPk(1, { transaction: t, lock: true });
+                    if (wallet) {
+                        wallet.balance = parseFloat(wallet.balance) + parseFloat(tx.fee);
+                        wallet.totalEarned = parseFloat(wallet.totalEarned) + parseFloat(tx.fee);
+                        await wallet.save({ transaction: t });
+
+                        await PlatformTransaction.create({
+                            walletId: wallet.id,
+                            amount: parseFloat(tx.fee),
+                            type: 'credit',
+                            sourceType: 'withdrawal_fee',
+                            referenceId: tx.id.toString(),
+                            description: `Fee for withdrawal TX-${tx.id}`
+                        }, { transaction: t });
+                    }
+                }
 
                 // Send System Notification
                 try {
@@ -240,14 +312,35 @@ const processPayout = async (req, res) => {
                 // NOTIFICATION: Notify user about successful withdrawal
                 try {
                     const user = await User.findByPk(tx.userId, { transaction: t });
-                    if (user && user.phone) {
-                        const { getDynamicMessage } = require('../utils/templateUtils');
+                    if (user) {
+                        const { getDynamicMessage, getEnabledChannels } = require('../utils/templateUtils');
                         const { sendMessage } = require('../utils/messageService');
-                        const msg = await getDynamicMessage('withdrawalStatus', 
-                            'Your withdrawal request for KES {amount} has been approved and processed! 💰', 
-                            { amount: tx.amount }
-                        );
-                        sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send withdrawal notification:', e.message));
+                        
+                        const channels = await getEnabledChannels('withdrawalStatus');
+                        const amount = formatPrice(tx.amount);
+
+                        if (channels.whatsapp && user.phone) {
+                            const msg = await getDynamicMessage('withdrawalStatus', 
+                                'Your withdrawal of {amount} has been processed successfully! 💰', 
+                                { amount }
+                            );
+                            sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send withdrawal WhatsApp:', e.message));
+                        }
+                        if (channels.sms && user.phone) {
+                            const msg = await getDynamicMessage('withdrawalStatus', 
+                                'Your withdrawal of {amount} has been processed successfully!',
+                                { amount }
+                            );
+                            sendMessage(user.phone, msg, 'sms').catch(e => console.error('Failed to send withdrawal SMS:', e.message));
+                        }
+                        if (channels.email && user.email) {
+                            const subject = await getDynamicMessage('withdrawalSuccessEmailSubject', 'Withdrawal Processed', { amount });
+                            const body = await getDynamicMessage('withdrawalSuccessEmailBody', 
+                                'Hi {name}, your withdrawal of {amount} has been processed successfully. It should reflect in your account shortly.',
+                                { name: user.name, amount }
+                            );
+                            sendMessage(user.email, { subject, body }, 'email').catch(e => console.error('Failed to send withdrawal email:', e.message));
+                        }
                     }
                 } catch (notifyErr) {
                     console.error('Error notifying user about withdrawal approval:', notifyErr.message);

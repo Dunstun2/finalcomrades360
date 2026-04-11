@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../../utils/imageUtils';
-import { FaBox, FaExclamationTriangle, FaCheckCircle, FaTimesCircle, FaArrowLeft as FaBack, FaEdit, FaSave, FaTimes, FaFilter, FaSearch, FaSync, FaEnvelope, FaPaperPlane } from 'react-icons/fa';
+import { FaBox, FaExclamationTriangle, FaCheckCircle, FaTimesCircle, FaArrowLeft as FaBack, FaEdit, FaSave, FaTimes, FaFilter, FaSearch, FaSync, FaEnvelope, FaPaperPlane, FaUtensils } from 'react-icons/fa';
 import { adminApi, productApi } from '../../../services/api';
-import debounce from 'lodash/debounce';
+import debounce from 'lodash/debounce'; // kept for any future debounce usage
+import { Edit, Eye, EyeOff, Trash2, Clock, Ban, Utensils, CheckSquare, Loader2, Check, CheckCircle } from 'lucide-react';
+import { fastFoodService } from '../../../services/fastFoodService';
+import AdminPasswordDialog from '../../../components/AdminPasswordDialog';
+import ConfirmationDialog from '../../../components/ConfirmationDialog';
+
 import { useAuth } from '../../../contexts/AuthContext';
 
 
@@ -86,6 +92,13 @@ const filterInventoryItems = (items, filters) => {
   const searchTerm = String(filters.search || '').trim().toLowerCase();
 
   return items.filter((item) => {
+    // Strict item type isolation
+    if (filters.itemType !== 'all') {
+      if (item.itemType !== filters.itemType) {
+        return false;
+      }
+    }
+
     if (searchTerm) {
       const sellerName = item.seller?.name || '';
       const matchesSearch = [item.name, sellerName, item.id].some((value) => String(value || '').toLowerCase().includes(searchTerm));
@@ -119,6 +132,7 @@ const filterInventoryItems = (items, filters) => {
 };
 
 const InventoryManagement = ({ onBack }) => {
+  const navigate = useNavigate();
   const [inventoryData, setInventoryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -128,32 +142,308 @@ const InventoryManagement = ({ onBack }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [filters, setFilters] = useState({
+    itemType: 'product', // all, product, fastfood
     search: '',
     stockStatus: 'all', // all, inStock, lowStock, outOfStock
     sortBy: 'name', // name, stock, dateAdded
     sortOrder: 'asc' // asc, desc
   });
+
+  const [passwordDialog, setPasswordDialog] = useState({
+    isOpen: false,
+    actionDescription: '',
+    requiresReason: false,
+    reasonLabel: 'Reason',
+    onConfirm: null
+  });
+
+  const [confirmationDialog, setConfirmationDialog] = useState({
+    isOpen: false,
+    success: true,
+    title: '',
+    message: ''
+  });
+
   const [products, setProducts] = useState([]);
   const [allInventoryItems, setAllInventoryItems] = useState([]);
   const [usingLegacyInventoryFallback, setUsingLegacyInventoryFallback] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
 
+  const requirePassword = (actionDescription, requiresReason = false, reasonLabel = 'Reason') => {
+    return new Promise((resolve, reject) => {
+      setPasswordDialog({
+        isOpen: true,
+        actionDescription,
+        requiresReason,
+        reasonLabel,
+        onConfirm: resolve,
+        onCancel: reject
+      });
+    });
+  };
+
+  const handleFFOptimisticUpdate = async (item, updates, successMsg, errorMsg) => {
+    const itemName = item.name;
+    let actionDesc = '';
+    let requiresReason = false;
+    let reasonLabel = 'Reason';
+
+    if (updates.isActive === false) {
+      actionDesc = `Suspend/Hide "${itemName}"`;
+      requiresReason = true;
+      reasonLabel = 'Reason for suspension';
+    } else if (updates.isActive === true) {
+      actionDesc = `Activate/Show "${itemName}"`;
+    } else if (updates.availabilityMode) {
+      actionDesc = `Set "${itemName}" to ${updates.availabilityMode} mode`;
+    } else {
+      actionDesc = `Update "${itemName}"`;
+    }
+
+    let reason = '';
+    try {
+      reason = await requirePassword(actionDesc, requiresReason, reasonLabel);
+    } catch {
+      return; // User cancelled
+    }
+
+    const previousProducts = products;
+    const previousAllItems = allInventoryItems;
+
+    // Update local state optimistically
+    const updateFn = prev => prev.map(f => f.id === item.id ? { ...f, ...updates } : f);
+    setProducts(updateFn);
+    setAllInventoryItems(updateFn);
+
+    try {
+      const payload = reason ? { ...updates, reason } : updates;
+      await fastFoodService.updateFastFood(item.id, payload);
+      setConfirmationDialog({
+        isOpen: true,
+        success: true,
+        title: 'Success',
+        message: successMsg || `"${itemName}" updated successfully.`
+      });
+    } catch (err) {
+      setProducts(previousProducts); // Rollback
+      setAllInventoryItems(previousAllItems);
+      setConfirmationDialog({
+        isOpen: true,
+        success: false,
+        title: 'Action Failed',
+        message: errorMsg || err.message || `Failed to update "${itemName}".`
+      });
+    }
+  };
+
+  const handleFFDelete = async (item) => {
+    let reason = '';
+    try {
+      reason = await requirePassword(`Delete "${item.name}" permanently`, true, 'Reason for deletion');
+    } catch {
+      return;
+    }
+
+    const previousProducts = products;
+    const previousAllItems = allInventoryItems;
+
+    const filterFn = prev => prev.filter(f => f.id !== item.id);
+    setProducts(filterFn);
+    setAllInventoryItems(filterFn);
+
+    try {
+      await fastFoodService.deleteFastFood(item.id, reason);
+      setConfirmationDialog({
+        isOpen: true,
+        success: true,
+        title: 'Deleted',
+        message: `"${item.name}" has been deleted.`
+      });
+    } catch (err) {
+      setProducts(previousProducts);
+      setAllInventoryItems(previousAllItems);
+      setConfirmationDialog({
+        isOpen: true,
+        success: false,
+        title: 'Delete Failed',
+        message: err.message || 'Failed to delete item.'
+      });
+    }
+  };
+
+  // Bulk Actions
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAvailabilityMode, setBulkAvailabilityMode] = useState('AUTO');
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Handle individual selection
+  const handleSelect = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  // Handle select all for current filtered list
+  const handleSelectAll = (items) => {
+    const fastFoodItems = items.filter(item => !item.stockTracked);
+    if (selectedIds.length === fastFoodItems.length && fastFoodItems.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(fastFoodItems.map(item => item.id));
+    }
+  };
+
+  // Bulk operation logic
+  const handleBulkAction = async (action) => {
+    if (selectedIds.length === 0) return;
+
+    const itemsToProcess = products.filter(item => selectedIds.includes(item.id));
+    const count = selectedIds.length;
+    const itemWord = count === 1 ? 'item' : 'items';
+
+    const actionDescriptions = {
+      delete: `Delete ${count} ${itemWord}`,
+      hide: `Hide ${count} ${itemWord} from menu`,
+      show: `Show ${count} ${itemWord} on menu`,
+      suspend: `Suspend ${count} ${itemWord}`,
+      unsuspend: `Unsuspend ${count} ${itemWord}`
+    };
+
+    const requiresReason = action === 'delete' || action === 'suspend';
+    const reasonLabel = action === 'delete' ? 'Reason for deletion' : 'Reason for suspension';
+
+    let reason = '';
+    try {
+      reason = await requirePassword(
+        actionDescriptions[action] || `Perform "${action}" on ${count} ${itemWord}`,
+        requiresReason,
+        reasonLabel
+      );
+    } catch {
+      return; // User cancelled
+    }
+
+    if (action === 'delete') {
+      setBulkLoading(true);
+      try {
+        await Promise.all(itemsToProcess.map(item => fastFoodService.deleteFastFood(item.id, reason)));
+        setConfirmationDialog({
+          isOpen: true,
+          success: true,
+          title: 'Bulk Delete Successful',
+          message: `Successfully deleted ${selectedIds.length} item(s).`
+        });
+        setSelectedIds([]);
+        loadInitialData(); // Refresh list to remove deleted items completely from state
+      } catch (err) {
+        setConfirmationDialog({
+          isOpen: true,
+          success: false,
+          title: 'Bulk Delete Failed',
+          message: err.message || 'Failed to delete some items. Please try again.'
+        });
+      } finally {
+        setBulkLoading(false);
+      }
+      return;
+    }
+
+    // Optimistic Update for other actions
+    setBulkLoading(true);
+    const previousProducts = products;
+    const previousAllItems = allInventoryItems;
+
+    let updates = {};
+    if (action === 'hide') updates = { isActive: false };
+    else if (action === 'show') updates = { isActive: true };
+    else if (action === 'suspend') updates = { status: 'suspended' }; // Uses status for backend, though in UI we might rely on isActive
+    else if (action === 'unsuspend') updates = { status: 'active' };
+
+    const updateFn = prev => prev.map(f =>
+      selectedIds.includes(f.id) ? { ...f, ...updates } : f
+    );
+    setProducts(updateFn);
+    setAllInventoryItems(updateFn);
+
+    try {
+      const promises = selectedIds.map(id => {
+        const payload = (action === 'suspend' && reason) ? { ...updates, reason } : updates;
+        return fastFoodService.updateFastFood(id, payload);
+      });
+      await Promise.all(promises);
+
+      setConfirmationDialog({
+        isOpen: true,
+        success: true,
+        title: `Bulk ${action.charAt(0).toUpperCase() + action.slice(1)} Successful`,
+        message: `Successfully acted on ${selectedIds.length} item(s).`
+      });
+      setSelectedIds([]);
+    } catch (err) {
+      setProducts(previousProducts);
+      setAllInventoryItems(previousAllItems);
+      setConfirmationDialog({
+        isOpen: true,
+        success: false,
+        title: `Bulk Action Failed`,
+        message: err.message || `Failed to ${action} some items.`
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkAvailabilityMode = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      await requirePassword(`Change availability mode to ${bulkAvailabilityMode} for ${selectedIds.length} items`);
+    } catch {
+      return;
+    }
+
+    setBulkLoading(true);
+    const previousProducts = products;
+    const previousAllItems = allInventoryItems;
+
+    const updateFn = prev => prev.map(f =>
+      selectedIds.includes(f.id) ? { ...f, availabilityMode: bulkAvailabilityMode } : f
+    );
+    setProducts(updateFn);
+    setAllInventoryItems(updateFn);
+
+    try {
+      await Promise.all(selectedIds.map(id => fastFoodService.updateFastFood(id, { availabilityMode: bulkAvailabilityMode })));
+      setConfirmationDialog({
+        isOpen: true,
+        success: true,
+        title: 'Mode Updated',
+        message: `Successfully set ${selectedIds.length} items to ${bulkAvailabilityMode}.`
+      });
+      setSelectedIds([]);
+    } catch (err) {
+      setProducts(previousProducts);
+      setAllInventoryItems(previousAllItems);
+      setConfirmationDialog({
+        isOpen: true,
+        success: false,
+        title: 'Bulk Update Failed',
+        message: err.message || 'Failed to apply availability mode.'
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   // Contact Seller State
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [selectedSellerForContact, setSelectedSellerForContact] = useState(null);
   const [contactMessage, setContactMessage] = useState('');
-  const hasLoadedInitialDataRef = useRef(false);
 
-  // Debounce search input
-  const debouncedLoadProducts = useCallback(
-    debounce(() => {
-      setCurrentPage(1);
-      setProducts([]);
-      loadProducts(1);
-    }, 500),
-    [filters]
-  );
+  const hasLoadedInitialDataRef = useRef(false);
+  const initialLoadCompleteRef = useRef(false);
+  const prevFiltersRef = useRef(null);
+  const filterDebounceRef = useRef(null);
 
   useEffect(() => {
     // Guard duplicate initial fetches in React.StrictMode dev mounts.
@@ -163,9 +453,26 @@ const InventoryManagement = ({ onBack }) => {
   }, []);
 
   useEffect(() => {
-    debouncedLoadProducts();
-    return () => debouncedLoadProducts.cancel();
-  }, [filters, debouncedLoadProducts]);
+    // Skip until initial load is done
+    if (!initialLoadCompleteRef.current) return;
+
+    // Also skip if filters haven't actually changed (prevents re-run after initial load)
+    const prev = prevFiltersRef.current;
+    const filtersKey = JSON.stringify(filters);
+    if (prev === filtersKey) return;
+    prevFiltersRef.current = filtersKey;
+
+    // Debounce - immediate for itemType changes, delayed for search
+    const delay = prev !== null && filters.search !== JSON.parse(prev || '{}').search ? 400 : 0;
+    clearTimeout(filterDebounceRef.current);
+    filterDebounceRef.current = setTimeout(() => {
+      setCurrentPage(1);
+      setProducts([]);
+      loadProducts(1);
+    }, delay);
+
+    return () => clearTimeout(filterDebounceRef.current);
+  }, [filters]);
 
   const applyClientInventoryPage = useCallback((items, nextFilters, page) => {
     const filtered = sortInventoryItems(filterInventoryItems(items, nextFilters), nextFilters.sortBy, nextFilters.sortOrder);
@@ -204,6 +511,7 @@ const InventoryManagement = ({ onBack }) => {
           adminApi.getInventoryItems({
             page: 1,
             limit: ITEMS_PER_PAGE,
+            itemType: filters.itemType,
             search: filters.search,
             stockStatus: filters.stockStatus === 'all' ? undefined : filters.stockStatus,
             sortBy: filters.sortBy,
@@ -238,20 +546,30 @@ const InventoryManagement = ({ onBack }) => {
           overview: computeOverviewFromItems(legacyItems),
           alerts: alertsRes.data
         });
-        applyClientInventoryPage(legacyItems, filters, 1);
+        // Filter legacy items by active itemType to prevent mixing
+        const filteredLegacy = filters.itemType === 'all'
+          ? legacyItems
+          : legacyItems.filter(item => item.itemType === filters.itemType);
+        applyClientInventoryPage(filteredLegacy, filters, 1);
       }
     } catch (err) {
       setError('Failed to load inventory data');
       console.error('Inventory load error:', err);
     } finally {
       setLoading(false);
+      // Mark initial load complete so filter-change effect can now run
+      initialLoadCompleteRef.current = true;
     }
   };
 
   const loadProducts = async (page) => {
     try {
       if (usingLegacyInventoryFallback) {
-        applyClientInventoryPage(allInventoryItems, filters, page);
+        // Filter by itemType to strictly isolate the two tables even in legacy mode
+        const scopedItems = filters.itemType === 'all'
+          ? allInventoryItems
+          : allInventoryItems.filter(item => item.itemType === filters.itemType);
+        applyClientInventoryPage(scopedItems, filters, page);
         return;
       }
 
@@ -264,6 +582,7 @@ const InventoryManagement = ({ onBack }) => {
       const params = {
         page,
         limit: ITEMS_PER_PAGE,
+        itemType: filters.itemType,
         search: filters.search,
         stockStatus: filters.stockStatus === 'all' ? undefined : filters.stockStatus,
         sortBy: filters.sortBy,
@@ -287,7 +606,11 @@ const InventoryManagement = ({ onBack }) => {
             overview: computeOverviewFromItems(legacyItems),
             alerts: prev?.alerts || []
           }));
-          applyClientInventoryPage(legacyItems, filters, page);
+          // Filter by itemType to prevent mixing in fallback
+          const scopedLegacy = filters.itemType === 'all'
+            ? legacyItems
+            : legacyItems.filter(item => item.itemType === filters.itemType);
+          applyClientInventoryPage(scopedLegacy, filters, page);
           return;
         } catch (fallbackError) {
           setError('Failed to load products');
@@ -319,6 +642,7 @@ const InventoryManagement = ({ onBack }) => {
 
   const resetFilters = () => {
     setFilters({
+      itemType: filters.itemType, // Keep the current tab
       search: '',
       stockStatus: 'all',
       sortBy: 'name',
@@ -492,88 +816,151 @@ const InventoryManagement = ({ onBack }) => {
   const { overview, alerts } = inventoryData;
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 h-full overflow-y-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-gray-100">
-            <FaBack className="text-lg text-gray-500" />
-          </button>
-          <div>
-            <h2 className="text-xl md:text-2xl font-semibold">Inventory Management</h2>
-            <p className="text-sm text-gray-500">Track and update product stock levels</p>
+    <div className="w-full h-full p-0 sm:p-6 overflow-y-auto">
+      <div className={`hidden md:block p-3 md:p-4 rounded-xl mb-4 md:mb-8 transition-colors duration-500 border-l-4 ${filters.itemType === 'fastfood' ? 'bg-orange-50 border-orange-500' : 'bg-blue-50 border-blue-500'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-white/50 transition-colors">
+              <FaBack className={`text-lg ${filters.itemType === 'fastfood' ? 'text-orange-600' : 'text-blue-600'}`} />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                {filters.itemType === 'fastfood' ? (
+                  <FaUtensils className="text-2xl text-orange-600" />
+                ) : (
+                  <FaBox className="text-2xl text-blue-600" />
+                )}
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900">
+                  {filters.itemType === 'fastfood' ? 'Fast Food Inventory' : 'Product Inventory'}
+                </h2>
+                <span className={`ml-2 px-2 py-0.5 text-xs font-bold uppercase rounded-full ${filters.itemType === 'fastfood' ? 'bg-orange-200 text-orange-800' : 'bg-blue-200 text-blue-800'}`}>
+                  {filters.itemType}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 font-medium">
+                {filters.itemType === 'fastfood'
+                  ? 'Manage your food menu, availability, and active items'
+                  : 'Track stock levels, set thresholds, and manage regular products'}
+              </p>
+            </div>
           </div>
+          <button onClick={loadInitialData} className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-sm font-semibold hover:bg-gray-50 transition-colors">
+            <FaSync className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
         </div>
-        <button onClick={loadInitialData} className="btn-outline">Refresh</button>
       </div>
 
       {/* Stock Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-        <div
-          onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'inStock' ? 'all' : 'inStock' }))}
-          className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'inStock' ? 'bg-green-100 border-green-500 scale-105 shadow-md' : 'bg-green-50 border-transparent hover:border-green-200 hover:shadow-sm'}`}
-        >
-          <div className="flex items-center">
-            <FaCheckCircle className="text-green-600 text-2xl mr-3" />
-            <div>
-              <div className="text-2xl font-bold text-green-600">{overview.inStock}</div>
-              <div className="text-sm text-gray-600">Tracked In Stock</div>
+      <div className="hidden md:grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+        {filters.itemType !== 'fastfood' ? (
+          <>
+            <div
+              onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'inStock' ? 'all' : 'inStock' }))}
+              className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'inStock' ? 'bg-green-100 border-green-500 scale-105 shadow-md' : 'bg-green-50 border-transparent hover:border-green-200 hover:shadow-sm'}`}
+            >
+              <div className="flex items-center">
+                <FaCheckCircle className="text-green-600 text-2xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-green-600">{overview.inStock}</div>
+                  <div className="text-sm text-gray-600 text-xs font-bold uppercase">Standard In Stock</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div
-          onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'lowStock' ? 'all' : 'lowStock' }))}
-          className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'lowStock' ? 'bg-yellow-100 border-yellow-500 scale-105 shadow-md' : 'bg-yellow-50 border-transparent hover:border-yellow-200 hover:shadow-sm'}`}
-        >
-          <div className="flex items-center">
-            <FaExclamationTriangle className="text-yellow-600 text-2xl mr-3" />
-            <div>
-              <div className="text-2xl font-bold text-yellow-600">{overview.lowStock}</div>
-              <div className="text-sm text-gray-600">Tracked Low Stock</div>
+            <div
+              onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'lowStock' ? 'all' : 'lowStock' }))}
+              className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'lowStock' ? 'bg-yellow-100 border-yellow-500 scale-105 shadow-md' : 'bg-yellow-50 border-transparent hover:border-yellow-200 hover:shadow-sm'}`}
+            >
+              <div className="flex items-center">
+                <FaExclamationTriangle className="text-yellow-600 text-2xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-yellow-600">{overview.lowStock}</div>
+                  <div className="text-sm text-gray-600 text-xs font-bold uppercase">Standard Low Stock</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div
-          onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'outOfStock' ? 'all' : 'outOfStock' }))}
-          className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'outOfStock' ? 'bg-red-100 border-red-500 scale-105 shadow-md' : 'bg-red-50 border-transparent hover:border-red-200 hover:shadow-sm'}`}
-        >
-          <div className="flex items-center">
-            <FaTimesCircle className="text-red-600 text-2xl mr-3" />
-            <div>
-              <div className="text-2xl font-bold text-red-600">{overview.outOfStock}</div>
-              <div className="text-sm text-gray-600">Tracked Out of Stock</div>
+            <div
+              onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'outOfStock' ? 'all' : 'outOfStock' }))}
+              className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'outOfStock' ? 'bg-red-100 border-red-500 scale-105 shadow-md' : 'bg-red-50 border-transparent hover:border-red-200 hover:shadow-sm'}`}
+            >
+              <div className="flex items-center">
+                <FaTimesCircle className="text-red-600 text-2xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-red-600">{overview.outOfStock}</div>
+                  <div className="text-sm text-gray-600 text-xs font-bold uppercase">Standard Out Stock</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div
-          onClick={() => setFilters(prev => ({ ...prev, stockStatus: prev.stockStatus === 'untracked' ? 'all' : 'untracked' }))}
-          className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'untracked' ? 'bg-slate-100 border-slate-500 scale-105 shadow-md' : 'bg-slate-50 border-transparent hover:border-slate-200 hover:shadow-sm'}`}
-        >
-          <div className="flex items-center">
-            <FaBox className="text-slate-600 text-2xl mr-3" />
-            <div>
-              <div className="text-2xl font-bold text-slate-700">{overview.stockUntracked || 0}</div>
-              <div className="text-sm text-gray-600">Stock Untracked</div>
+            <div
+              onClick={() => setFilters(prev => ({ ...prev, stockStatus: 'all' }))}
+              className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'all' && filters.itemType === 'product' ? 'bg-blue-100 border-blue-500 scale-105 shadow-md' : 'bg-blue-50 border-transparent hover:border-blue-200 hover:shadow-sm'}`}
+            >
+              <div className="flex items-center">
+                <FaBox className="text-blue-600 text-2xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-blue-600">{overview.totalTracked}</div>
+                  <div className="text-sm text-gray-600 text-xs font-bold uppercase">Total Tracked Products</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-
-        <div
-          onClick={() => setFilters(prev => ({ ...prev, stockStatus: 'all' }))}
-          className={`rounded-lg p-4 cursor-pointer transition-all duration-200 border-2 ${filters.stockStatus === 'all' ? 'bg-blue-100 border-blue-500 scale-105 shadow-md' : 'bg-blue-50 border-transparent hover:border-blue-200 hover:shadow-sm'}`}
-        >
-          <div className="flex items-center">
-            <FaBox className="text-blue-600 text-2xl mr-3" />
-            <div>
-              <div className="text-2xl font-bold text-blue-600">{overview.totalProducts}</div>
-              <div className="text-sm text-gray-600">Total Inventory Items</div>
+          </>
+        ) : (
+          <>
+            {/* Fast Food Specific Cards */}
+            <div className={`col-span-1 md:col-span-2 rounded-lg p-4 bg-orange-50 border-2 border-orange-500 shadow-md`}>
+              <div className="flex items-center">
+                <FaUtensils className="text-orange-600 text-2xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-orange-600">{overview.fastFoodItems}</div>
+                  <div className="text-sm text-gray-600 text-xs font-bold uppercase">Active Menu Items</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+            <div className={`col-span-1 md:col-span-3 rounded-lg p-4 bg-gray-50 border-2 border-transparent border-dashed`}>
+              <div className="flex items-center">
+                <FaExclamationTriangle className="text-gray-400 text-2xl mr-3" />
+                <div>
+                  <div className="text-lg font-semibold text-gray-600 underline decoration-orange-300">Fast Food Isolation Mode</div>
+                  <div className="text-sm text-gray-500">Numerical stock tracking is disabled for menu items. Monitor availability instead.</div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-
+      <div className={`p-1 bg-gray-200/50 rounded-2xl mb-8 w-fit flex gap-1 border border-gray-200 shadow-inner`}>
+        <button
+          onClick={() => {
+            setFilters(prev => ({ ...prev, itemType: 'product' }));
+            setCurrentPage(1);
+            setProducts([]);
+          }}
+          className={`px-8 py-3 text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-3 ${filters.itemType === 'product'
+            ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-105'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-white/80'
+            }`}
+        >
+          <FaBox className={filters.itemType === 'product' ? 'text-white' : 'text-gray-400'} />
+          STAFF PRODUCTS
+        </button>
+        <button
+          onClick={() => {
+            setFilters(prev => ({ ...prev, itemType: 'fastfood' }));
+            setCurrentPage(1);
+            setProducts([]);
+          }}
+          className={`px-8 py-3 text-sm font-bold rounded-xl transition-all duration-300 flex items-center gap-3 ${filters.itemType === 'fastfood'
+            ? 'bg-orange-600 text-white shadow-lg shadow-orange-200 scale-105'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-white/80'
+            }`}
+        >
+          <FaUtensils className={filters.itemType === 'fastfood' ? 'text-white' : 'text-gray-400'} />
+          FAST FOOD MENU
+        </button>
+      </div>
       {/* Product List with Filters */}
       <div className="mb-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
@@ -587,7 +974,7 @@ const InventoryManagement = ({ onBack }) => {
                 name="search"
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                placeholder="Search products..."
+                placeholder={`Search ${filters.itemType === 'all' ? 'inventory' : filters.itemType === 'fastfood' ? 'fast food' : 'products'}...`}
                 className="pl-10 pr-4 py-2 border rounded-md w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -621,7 +1008,7 @@ const InventoryManagement = ({ onBack }) => {
                   onChange={handleFilterChange}
                   className="w-full border rounded-md p-2"
                 >
-                  <option value="all">All Products</option>
+                  <option value="all">All {filters.itemType === 'fastfood' ? 'Fast Food' : 'Products'}</option>
                   <option value="inStock">In Stock</option>
                   <option value="lowStock">Low Stock</option>
                   <option value="outOfStock">Out of Stock</option>
@@ -657,165 +1044,406 @@ const InventoryManagement = ({ onBack }) => {
           </div>
         )}
 
-        {/* Products Table */}
-        <div className="overflow-x-auto bg-white rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Seller</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Threshold</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {loading && products.length === 0 ? (
+        {/* Section Heading Badge */}
+        <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-t-lg text-xs font-bold uppercase tracking-widest ${filters.itemType === 'fastfood' ? 'bg-orange-600 text-white' : 'bg-blue-600 text-white'}`}>
+          {filters.itemType === 'fastfood' ? <FaUtensils /> : <FaBox />}
+          {filters.itemType === 'fastfood' ? 'Fast Food Catalog' : 'Standard Product Catalog'}
+        </div>
+
+        {/* Bulk Actions Bar (Parity with FastFoodManagement) */}
+        {selectedIds.length > 0 && filters.itemType === 'fastfood' && (
+          <div className="bg-orange-600 text-white rounded-lg shadow-lg p-4 mb-4 flex flex-wrap items-center justify-between sticky top-0 z-10 animate-in slide-in-from-top duration-300">
+            <div className="flex items-center mb-2 sm:mb-0">
+              <div className="bg-white/20 p-2 rounded-lg mr-4">
+                <CheckSquare size={20} />
+              </div>
+              <div className="text-sm">
+                <span className="font-bold">{selectedIds.length}</span> items selected
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider opacity-60 mr-2">Bulk Actions:</span>
+              <button
+                onClick={() => handleBulkAction('show')}
+                disabled={bulkLoading}
+                className="flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+              >
+                <Eye size={14} className="mr-1.5" /> Show
+              </button>
+              <button
+                onClick={() => handleBulkAction('hide')}
+                disabled={bulkLoading}
+                className="flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+              >
+                <EyeOff size={14} className="mr-1.5" /> Hide
+              </button>
+              <div className="w-[1px] h-4 bg-white/20 mx-1" />
+              <button
+                onClick={() => handleBulkAction('unsuspend')}
+                disabled={bulkLoading}
+                className="flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+              >
+                <Check size={14} className="mr-1.5" /> Unsuspend
+              </button>
+              <button
+                onClick={() => handleBulkAction('suspend')}
+                disabled={bulkLoading}
+                className="flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+              >
+                <Ban size={14} className="mr-1.5" /> Suspend
+              </button>
+              <div className="w-[1px] h-4 bg-white/20 mx-1" />
+              <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg">
+                <select
+                  value={bulkAvailabilityMode}
+                  onChange={(e) => setBulkAvailabilityMode(e.target.value)}
+                  disabled={bulkLoading}
+                  className="bg-transparent border-none text-[10px] font-bold text-white outline-none cursor-pointer"
+                >
+                  <option value="AUTO" className="text-gray-900">AUTO</option>
+                  <option value="OPEN" className="text-gray-900">OPEN</option>
+                  <option value="CLOSED" className="text-gray-900">CLOSED</option>
+                </select>
+                <button
+                  onClick={handleBulkAvailabilityMode}
+                  disabled={bulkLoading}
+                  className="hover:text-orange-200 transition-colors"
+                >
+                  <CheckCircle size={14} />
+                </button>
+              </div>
+              <div className="w-[1px] h-4 bg-white/20 mx-1" />
+              <button
+                onClick={() => handleBulkAction('delete')}
+                disabled={bulkLoading}
+                className="flex items-center px-3 py-1.5 bg-red-500 hover:bg-red-400 rounded-lg text-[10px] font-bold transition-all border border-red-400/50 disabled:opacity-50"
+              >
+                <Trash2 size={14} className="mr-1.5" /> Delete
+              </button>
+              <button
+                onClick={() => setSelectedIds([])}
+                disabled={bulkLoading}
+                className="ml-2 p-1.5 hover:bg-white/10 rounded-full transition-all"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Products List - Desktop Table / Mobile Grid */}
+        <div className={`bg-white rounded-b-lg rounded-r-lg border-2 shadow-sm transition-colors duration-500 ${filters.itemType === 'fastfood' ? 'border-orange-500' : 'border-blue-500'}`}>
+          {/* Unified Table View for all screens */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan="6" className="px-6 py-4 text-center">
-                    <div className="flex justify-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                    </div>
-                  </td>
+                  {filters.itemType === 'fastfood' && (
+                    <th className="px-6 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 cursor-pointer"
+                        checked={selectedIds.length === products.filter(p => !p.stockTracked).length && products.filter(p => !p.stockTracked).length > 0}
+                        onChange={() => handleSelectAll(products)}
+                      />
+                    </th>
+                  )}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {filters.itemType === 'fastfood' ? 'Item' : 'Product'}
+                  </th>
+                  {currentUser?.role !== 'seller' && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Seller</th>
+                  )}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {filters.itemType === 'fastfood' ? 'Availability' : 'Stock'}
+                  </th>
+                  {filters.itemType !== 'fastfood' && currentUser?.role !== 'seller' && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Threshold</th>
+                  )}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              ) : products.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
-                    No products found. Try adjusting your filters.
-                  </td>
-                </tr>
-              ) : (
-                products.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          {getInventoryItemImage(product) !== FALLBACK_IMAGE ? (
-                            <img
-                              className="h-10 w-10 rounded-md object-cover"
-                              src={resolveImageUrl(getInventoryItemImage(product))}
-                              alt={product.name}
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(() => {
+                  const colCount = 4 +
+                    (filters.itemType === 'fastfood' ? 1 : 0) +
+                    (currentUser?.role !== 'seller' ? 2 : 0); // Seller column hide = -1, Threshold hide = -1, total = -2 if seller
+
+                  if (loading && products.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={colCount} className="px-6 py-4 text-center">
+                          <div className="flex justify-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  if (products.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={colCount} className="px-6 py-4 text-center text-gray-500">
+                          No products found. Try adjusting your filters.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return products
+                    .filter(product => {
+                      if (filters.itemType === 'product') return product.stockTracked === true;
+                      if (filters.itemType === 'fastfood') return product.stockTracked === false;
+                      return true;
+                    })
+                    .map((product) => (
+                      <tr key={product.id} className={`hover:bg-gray-50 ${selectedIds.includes(product.id) ? 'bg-orange-50' : ''}`}>
+                        {!product.stockTracked && (
+                          <td className="px-6 py-4">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 cursor-pointer"
+                              checked={selectedIds.includes(product.id)}
+                              onChange={() => handleSelect(product.id)}
                             />
-                          ) : (
-                            <div className="h-10 w-10 rounded-md bg-gray-200 flex items-center justify-center">
-                              <FaBox className="text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                          <div className="text-xs text-gray-500 uppercase tracking-wide">{product.itemType === 'fastfood' ? 'Fast Food' : 'Product'}</div>
-                          <div className="text-sm text-gray-500">ID: {product.id || 'N/A'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {product.seller ? (
-                        <div>
-                          <div className="text-sm text-gray-500">ID: {product.seller.id}</div>
-                          <div className="text-sm font-medium text-gray-900">{product.seller.name || 'N/A'}</div>
-                          <div className="text-sm text-gray-500">{product.seller.email || 'N/A'}</div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">Unknown</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {product.stockTracked && editingProduct?.id === product.id ? (
-                        <input
-                          type="number"
-                          value={editForm.stock}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
-                          className="w-20 px-2 py-1 border rounded"
-                          min="0"
-                        />
-                      ) : !product.stockTracked ? (
-                        <span className="text-gray-500">-</span>
-                      ) : (
-                        <span className={`font-medium ${product.stock === 0 ? 'text-red-600' : product.stock <= (product.lowStockThreshold || 5) ? 'text-yellow-600' : 'text-green-600'}`}>
-                          {product.stock}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {product.stockTracked && editingProduct?.id === product.id ? (
-                        <input
-                          type="number"
-                          value={editForm.lowStockThreshold}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, lowStockThreshold: parseInt(e.target.value) || 0 }))}
-                          className="w-20 px-2 py-1 border rounded"
-                          min="0"
-                        />
-                      ) : !product.stockTracked ? (
-                        <span className="text-gray-500">-</span>
-                      ) : (
-                        <span className="text-gray-600">{product.lowStockThreshold || 5}</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(product.stock, product.lowStockThreshold || 5)}`}>
-                        {renderStockStatus(product.stock, product.lowStockThreshold || 5)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center space-x-2">
-                        {product.stockTracked && editingProduct?.id === product.id ? (
-                          <>
-                            <button
-                              onClick={handleSaveStock}
-                              className="text-green-600 hover:text-green-800"
-                              title="Save"
-                            >
-                              <FaSave />
-                            </button>
-                            <button
-                              onClick={handleCancelEdit}
-                              className="text-gray-600 hover:text-gray-800"
-                              title="Cancel"
-                            >
-                              <FaTimes />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {product.stockTracked && (
-                              <button
-                                onClick={() => handleEditStock(product)}
-                                className="text-blue-600 hover:text-blue-800"
-                                title="Edit Stock"
-                              >
-                                <FaEdit />
-                              </button>
-                            )}
-                            {product.seller && product.itemType === 'product' && (
-                              <button
-                                onClick={() => {
-                                  setSelectedSellerForContact({
-                                    id: product.seller.id,
-                                    name: product.seller.name,
-                                    email: product.seller.email,
-                                    productId: product.id,
-                                    productName: product.name
-                                  });
-                                  setContactMessage(`Regarding your product: ${product.name}`);
-                                  setIsContactModalOpen(true);
-                                }}
-                                className="text-yellow-600 hover:text-yellow-800"
-                                title="Contact Seller"
-                              >
-                                <FaEnvelope />
-                              </button>
-                            )}
-                          </>
+                          </td>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                        {product.stockTracked && filters.itemType === 'fastfood' && (
+                          <td className="px-6 py-4"></td> // Spacer for non-fastfood if mixed
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              {getInventoryItemImage(product) !== FALLBACK_IMAGE ? (
+                                <img
+                                  className="h-10 w-10 rounded-md object-cover"
+                                  src={resolveImageUrl(getInventoryItemImage(product))}
+                                  alt={product.name}
+                                />
+                              ) : (
+                                <div className="h-10 w-10 rounded-md bg-gray-200 flex items-center justify-center">
+                                  <FaBox className="text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">{product.name}</div>
+                              {filters.itemType === 'all' && (
+                                <div className="text-xs text-gray-500 uppercase tracking-wide">{product.itemType === 'fastfood' ? 'Fast Food' : 'Product'}</div>
+                              )}
+                              <div className="text-sm text-gray-500 text-xs italic">ID: {product.id || 'N/A'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        {currentUser?.role !== 'seller' && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {product.seller ? (
+                              <div>
+                                <div className="text-sm text-gray-500">ID: {product.seller.id}</div>
+                                <div className="text-sm font-medium text-gray-900">{product.seller.name || 'N/A'}</div>
+                                <div className="text-sm text-gray-500">{product.seller.email || 'N/A'}</div>
+                              </div>
+                            ) : (
+                              <span className="text-gray-500">Unknown</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {product.stockTracked && editingProduct?.id === product.id ? (
+                            <input
+                              type="number"
+                              value={editForm.stock}
+                              onChange={(e) => setEditForm(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+                              className="w-20 px-2 py-1 border rounded"
+                              min="0"
+                            />
+                          ) : !product.stockTracked ? (
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${product.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                              {product.isAvailable ? 'Available' : 'Unavailable'}
+                            </span>
+                          ) : (
+                            <span className={`font-medium ${product.stock === 0 ? 'text-red-600' : product.stock <= (product.lowStockThreshold || 5) ? 'text-yellow-600' : 'text-green-600'}`}>
+                              {product.stock}
+                            </span>
+                          )}
+                        </td>
+                        {filters.itemType !== 'fastfood' && currentUser?.role !== 'seller' && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {product.stockTracked && editingProduct?.id === product.id ? (
+                              <input
+                                type="number"
+                                value={editForm.lowStockThreshold}
+                                onChange={(e) => setEditForm(prev => ({ ...prev, lowStockThreshold: parseInt(e.target.value) || 0 }))}
+                                className="w-20 px-2 py-1 border rounded"
+                                min="0"
+                              />
+                            ) : !product.stockTracked ? (
+                              <span className="text-gray-500">-</span>
+                            ) : (
+                              <span className="text-gray-600">{product.lowStockThreshold || 5}</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-6 py-4">
+                          {product.stockTracked ? (
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(product.stock, product.lowStockThreshold || 5)}`}>
+                              {renderStockStatus(product.stock, product.lowStockThreshold || 5)}
+                            </span>
+                          ) : (() => {
+                            const isPending = product.reviewStatus === 'pending';
+                            const isSuspended = !product.isActive && product.reviewStatus !== 'pending';
+                            const isHidden = product.isActive === false;
+                            const availability = fastFoodService.getAvailabilityStatus(product);
+                            const isOpen = availability.state === 'OPEN';
+
+                            return (
+                              <div className="flex flex-col items-start space-y-2">
+                                {/* Platform Status */}
+                                <span className={`px-2 py-0.5 text-[10px] font-black rounded-full border shadow-sm ${isPending ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' :
+                                  isSuspended ? 'bg-red-600 text-white border-red-700' :
+                                    'bg-green-100 text-green-700 border-green-200'
+                                  }`}>
+                                  {product.reviewStatus?.toUpperCase() || 'ACTIVE'}
+                                </span>
+
+                                {/* Real-time "OPEN/CLOSED" Badge */}
+                                <div className="flex flex-col items-start">
+                                  <span className={`px-3 py-1 text-[10px] font-black rounded-lg shadow-sm flex items-center gap-1.5 transition-all ${isOpen
+                                    ? 'bg-green-500 text-white animate-pulse ring-2 ring-green-500/20'
+                                    : 'bg-gray-200 text-gray-500'
+                                    }`} title={availability.reason}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${isOpen ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-gray-400'}`} />
+                                    {availability.state || 'CLOSED'}
+                                  </span>
+                                  {!isOpen && availability.reason && (
+                                    <span className="text-[9px] text-gray-500 mt-1 max-w-[120px] leading-tight break-words whitespace-normal">
+                                      {availability.reason}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {isHidden && (
+                                  <span className="px-2 py-0.5 text-[9px] font-black bg-gray-700 text-white rounded-full flex items-center w-fit">
+                                    <EyeOff size={10} className="mr-1" /> HIDDEN
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex items-center space-x-2">
+                            {product.stockTracked && editingProduct?.id === product.id ? (
+                              <>
+                                <button
+                                  onClick={handleSaveStock}
+                                  className="text-green-600 hover:text-green-800"
+                                  title="Save"
+                                >
+                                  <FaSave />
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className="text-gray-600 hover:text-gray-800"
+                                  title="Cancel"
+                                >
+                                  <FaTimes />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                {product.stockTracked && (
+                                  <button
+                                    onClick={() => handleEditStock(product)}
+                                    className="text-blue-600 hover:text-blue-800"
+                                    title="Edit Stock"
+                                  >
+                                    <FaEdit />
+                                  </button>
+                                )}
+                                {currentUser?.role !== 'seller' && product.seller && product.itemType === 'product' && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedSellerForContact({
+                                        id: product.seller.id,
+                                        name: product.seller.name,
+                                        email: product.seller.email,
+                                        productId: product.id,
+                                        productName: product.name
+                                      });
+                                      setContactMessage(`Regarding your product: ${product.name}`);
+                                      setIsContactModalOpen(true);
+                                    }}
+                                    className="text-yellow-600 hover:text-yellow-800"
+                                    title="Contact Seller"
+                                  >
+                                    <FaEnvelope />
+                                  </button>
+                                )}
+                                {!product.stockTracked && (
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => {
+                                        if (currentUser?.role === 'seller') navigate(`/seller/fast-food/edit/${product.id}`);
+                                        else navigate(`/dashboard/fastfood?search=${encodeURIComponent(product.name)}&action=edit`);
+                                      }}
+                                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                      title="View/Edit"
+                                    >
+                                      <Edit size={16} />
+                                    </button>
+                                    <div className="relative inline-block" title="Select Availability Mode">
+                                      <select
+                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                        value={product.availabilityMode || 'AUTO'}
+                                        onChange={(e) => handleFFOptimisticUpdate(product, { availabilityMode: e.target.value })}
+                                      >
+                                        <option value="AUTO">📅 Auto Schedule</option>
+                                        <option value="OPEN">🍽️ Force Open</option>
+                                        <option value="CLOSED">🚫 Force Closed</option>
+                                      </select>
+                                      <button
+                                        className={`p-1.5 rounded-lg transition-all shadow-sm border pointer-events-none focus:outline-none focus:ring-0 ${product.availabilityMode === 'OPEN' ? 'text-green-600 bg-green-50 border-green-200' :
+                                          product.availabilityMode === 'CLOSED' ? 'text-red-500 bg-red-50 border-red-200' :
+                                            'text-blue-500 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                                          }`}
+                                      >
+                                        {product.availabilityMode === 'OPEN' ? <Utensils size={16} className="text-green-600" /> :
+                                          product.availabilityMode === 'CLOSED' ? <Ban size={16} className="text-red-500" /> :
+                                            <Clock size={16} className="text-blue-500" />}
+                                      </button>
+                                    </div>
+                                    {currentUser?.role !== 'seller' && (
+                                      <button
+                                        onClick={() => handleFFOptimisticUpdate(product, { isActive: !product.isActive })}
+                                        className={`p-1.5 rounded-lg transition-all ${product.isActive ? 'text-gray-500 hover:text-amber-600 hover:bg-amber-50' : 'text-amber-600 hover:bg-amber-600 hover:text-white'}`}
+                                        title="Manage Visibility"
+                                      >
+                                        {product.isActive ? <EyeOff size={16} /> : <Eye size={16} />}
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleFFDelete(product)}
+                                      className="p-1.5 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-all"
+                                      title="Delete Item"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                })()}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Load More Button */}
@@ -874,33 +1502,63 @@ const InventoryManagement = ({ onBack }) => {
         </div>
       )}
 
-      {/* Automated Alerts Configuration */}
-      <div className="bg-gray-50 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Automated Stock Alerts</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <h4 className="font-medium text-gray-900 mb-2">Email Notifications</h4>
-            <p className="text-sm text-gray-600 mb-3">
-              Automatically send email alerts to sellers when products go below stock threshold.
-            </p>
-            <div className="flex items-center space-x-3">
-              <input type="checkbox" id="email-alerts" className="rounded" defaultChecked />
-              <label htmlFor="email-alerts" className="text-sm">Enable email alerts</label>
+      {/* Automated Alerts Configuration - Admin Only */}
+      {currentUser?.role !== 'seller' && (
+        <div className="bg-gray-50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Automated Stock Alerts</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="font-medium text-gray-900 mb-2">Email Notifications</h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Automatically send email alerts to sellers when products go below stock threshold.
+              </p>
+              <div className="flex items-center space-x-3">
+                <input type="checkbox" id="email-alerts" className="rounded" defaultChecked />
+                <label htmlFor="email-alerts" className="text-sm">Enable email alerts</label>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <h4 className="font-medium text-gray-900 mb-2">Dashboard Alerts</h4>
-            <p className="text-sm text-gray-600 mb-3">
-              Show low stock warnings in the admin dashboard.
-            </p>
-            <div className="flex items-center space-x-3">
-              <input type="checkbox" id="dashboard-alerts" className="rounded" defaultChecked />
-              <label htmlFor="dashboard-alerts" className="text-sm">Show dashboard alerts</label>
+            <div>
+              <h4 className="font-medium text-gray-900 mb-2">Dashboard Alerts</h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Show low stock warnings in the admin dashboard.
+              </p>
+              <div className="flex items-center space-x-3">
+                <input type="checkbox" id="dashboard-alerts" className="rounded" defaultChecked />
+                <label htmlFor="dashboard-alerts" className="text-sm">Show dashboard alerts</label>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Admin Password Dialog */}
+      <AdminPasswordDialog
+        isOpen={passwordDialog.isOpen}
+        onClose={() => {
+          setPasswordDialog(prev => ({ ...prev, isOpen: false }));
+          if (passwordDialog.onCancel) passwordDialog.onCancel();
+        }}
+        onConfirm={async (password, reason) => {
+          setPasswordDialog(prev => ({ ...prev, isOpen: false }));
+          if (passwordDialog.onConfirm) {
+            // FastFoodManagement dialog passes (reason) because the generic dialog expects (password, reason) mostly but we can pass both if needed. Wait! AdminPasswordDialog actually passes (password, reason). The requirePassword resolve will receive them.
+            await passwordDialog.onConfirm(reason || password); // Usually FastFoodManagement only passes reason from the dialog because it's a specific wrapper but AdminPasswordDialog provides both.
+          }
+        }}
+        actionDescription={passwordDialog.actionDescription}
+        requiresReason={passwordDialog.requiresReason}
+        reasonLabel={passwordDialog.reasonLabel}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmationDialog.isOpen}
+        onClose={() => setConfirmationDialog(prev => ({ ...prev, isOpen: false }))}
+        success={confirmationDialog.success}
+        title={confirmationDialog.title}
+        message={confirmationDialog.message}
+      />
     </div >
   );
 };

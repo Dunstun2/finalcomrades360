@@ -5,7 +5,7 @@ import {
   FaCog, FaUserPlus, FaCrown, FaMousePointer, FaChartLine,
   FaCheckCircle, FaExclamationTriangle, FaTimes, FaHistory, FaArrowRight, FaQrcode,
   FaUser, FaBox, FaClock, FaMapMarkerAlt, FaUsers, FaPhone, FaEnvelope, FaGlobe, FaLock, FaShareAlt,
-  FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars
+  FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars, FaCheck, FaShieldAlt
 } from 'react-icons/fa';
 import { FaTiktok } from 'react-icons/fa6';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,7 +18,9 @@ import ServiceCard from '../../components/ServiceCard';
 import FastFoodCard from '../../components/FastFoodCard';
 import ShareProducts from './ShareProducts';
 import { resolveImageUrl } from '../../utils/imageUtils';
+import { copyToClipboard } from '../../utils/clipboard';
 import { QRCodeCanvas } from 'qrcode.react';
+
 import html2canvas from 'html2canvas';
 
 const MarketerWallet = lazy(() => import('./MarketerWallet'));
@@ -36,7 +38,6 @@ const MarketerDashboard = () => {
     // If we are in marketing mode, default to the 'new-order' tab to maintain flow
     return localStorage.getItem('marketing_mode') === 'true' ? 'new-order' : 'overview';
   });
-
   // Sync tab with URL parameter changes
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -46,8 +47,18 @@ const MarketerDashboard = () => {
     }
   }, [window.location.search]);
 
+  
+  // Listen for global toggle-marketing-sidebar event
+  useEffect(() => {
+    const handleToggle = () => setIsSidebarOpen(true);
+    window.addEventListener('toggle-marketing-sidebar', handleToggle);
+    return () => window.removeEventListener('toggle-marketing-sidebar', handleToggle);
+  }, []);
+
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [marketerData, setMarketerData] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [products, setProducts] = useState([]);
@@ -76,6 +87,32 @@ const MarketerDashboard = () => {
   const handleShareItem = (item) => {
     setSharingItem(item);
     setShowShareModal(true);
+  };
+
+  const [copiedLink, setCopiedLink] = useState(false);
+  const handleCopyLink = async (link) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      toast({ title: 'Link Copied', description: 'Referral link is now in your clipboard.' });
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+      // Fallback
+      const textArea = document.createElement("textarea");
+      textArea.value = link;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopiedLink(true);
+        toast({ title: 'Link Copied', description: 'Referral link is now in your clipboard.' });
+        setTimeout(() => setCopiedLink(false), 2000);
+      } catch (e) {
+        toast({ title: 'Copy Failed', description: 'Please copy the link manually.', variant: 'destructive' });
+      }
+      document.body.removeChild(textArea);
+    }
   };
 
   const getDeepLink = (item) => {
@@ -110,12 +147,15 @@ const MarketerDashboard = () => {
       const shareText = `Check out ${sharingItem.name || sharingItem.title} on Comrades360!`;
 
       if (navigator.share && navigator.canShare({ files: [file] })) {
+        // Send the image and text together in one unit
         await navigator.share({
           files: [file],
           title: 'Comrades360 Promotion',
-          text: `Check out ${sharingItem.name || sharingItem.title} on Comrades360! Shop here: ${shareUrl}`
+          text: `Check out ${sharingItem.name || sharingItem.title} on Comrades360!\n\nShop here: ${shareUrl}`
         });
-        toast({ title: 'Shared Successfully', description: 'Promo image and link shared!' });
+        // Keep auto-copy as a handy fallback for the user
+        await navigator.clipboard.writeText(`Check out ${sharingItem.name || sharingItem.title} on Comrades360!\n\nShop here: ${shareUrl}`);
+        toast({ title: 'Shared Successfully', description: 'Promo image and link shared together!' });
       } else {
         // Fallback: Download and copy link separately
         const dataUrl = canvas.toDataURL('image/png', 1.0);
@@ -202,19 +242,45 @@ const MarketerDashboard = () => {
 
   // Add User State
   const [addUserForm, setAddUserForm] = useState({
-    name: '',
     email: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-    county: '',
-    town: '',
-    estate: '',
-    houseNumber: ''
+    phone: ''
   });
-  const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [submittingUser, setSubmittingUser] = useState(false);
   const [addUserSuccess, setAddUserSuccess] = useState(null);
+
+  const handleAddUserChange = (e) => {
+    const { name, value } = e.target;
+    setAddUserForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleAddUserSubmit = async (e) => {
+    e.preventDefault();
+    if (!addUserForm.email && !addUserForm.phone) {
+      toast({ title: 'Missing Info', description: 'Please provide either an email or phone number.', variant: 'destructive' });
+      return;
+    }
+
+    setSubmittingUser(true);
+    try {
+      const response = await api.post('/auth/register', {
+        ...addUserForm,
+        isMarketerRegistration: true,
+        referralCode: user?.referralCode // Ensure attribution
+      });
+
+      if (response.data.success) {
+        setAddUserSuccess(response.data.user);
+        setAddUserForm({ email: '', phone: '' });
+        toast({ title: 'Success', description: `Customer ${response.data.user?.name || ''} registered successfully! Credentials sent via SMS/Email.` });
+        fetchMyCustomers(); // Refresh the list
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to register customer.';
+      toast({ title: 'Registration Failed', description: msg, variant: 'destructive' });
+    } finally {
+      setSubmittingUser(false);
+    }
+  };
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
 
@@ -223,69 +289,16 @@ const MarketerDashboard = () => {
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [customersError, setCustomersError] = useState(null);
 
-  const handleAddUserChange = (e) => {
-    const { name, value } = e.target;
-    setAddUserForm(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleAddUserSubmit = async (e) => {
-    e.preventDefault();
-    if (!addUserForm.name.trim()) { alert('Please enter customer name'); return; }
-    if (!addUserForm.email.trim()) { alert('Please enter customer email'); return; }
-    if (!addUserForm.phone.trim()) { alert('Please enter customer phone number'); return; }
-    if (!addUserForm.password.trim()) { alert('Please enter password'); return; }
-    if (addUserForm.password !== addUserForm.confirmPassword) {
-      alert('Passwords do not match');
-      return;
-    }
-
+  const fetchMyCustomers = async () => {
     try {
-      setSubmittingUser(true);
-      setAddUserSuccess(null);
-
-      const response = await api.post('/auth/register', {
-        name: addUserForm.name,
-        email: addUserForm.email,
-        phone: addUserForm.phone,
-        password: addUserForm.password,
-        role: 'customer',
-        county: addUserForm.county,
-        town: addUserForm.town,
-        estate: addUserForm.estate,
-        houseNumber: addUserForm.houseNumber,
-        referredByReferralCode: user?.referralCode // Auto-link to this marketer
-      });
-
-      if (response.data.success || response.status === 201) {
-        setAddUserSuccess({
-          name: addUserForm.name,
-          phone: addUserForm.phone
-        });
-        setAddUserForm({
-          name: '',
-          email: '',
-          phone: '',
-          password: '',
-          confirmPassword: '',
-          county: '',
-          town: '',
-          estate: '',
-          houseNumber: ''
-        });
-        // Refresh customer list
-        const customersRes = await api.get('/marketing/my-customers');
-        setMyCustomers(customersRes.data?.customers || []);
-      } else {
-        alert(response.data.message || 'Failed to create user');
-      }
-    } catch (error) {
-      console.error('Error creating user:', error);
-      alert(error.response?.data?.message || 'Error creating user. Phone or email might already be registered.');
+      setLoadingCustomers(true);
+      const res = await api.get('/marketing/my-customers');
+      setMyCustomers(res.data?.customers || []);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
+      setCustomersError('Failed to load customers');
     } finally {
-      setSubmittingUser(false);
+      setLoadingCustomers(false);
     }
   };
 
@@ -396,7 +409,7 @@ const MarketerDashboard = () => {
   };
 
   // Fetch real data from API
-  const fetchData = async (pageNum = 1, showLoading = true) => {
+  const fetchData = async (pageNum = 1, showLoading = true, shouldFetchCatalog = true) => {
     if (pageNum === 1) {
       if (showLoading) setLoading(true);
     } else {
@@ -405,25 +418,25 @@ const MarketerDashboard = () => {
     setError(null);
 
     try {
-      // Fetch from all three APIs concurrently with optimized parameters
-      const searchParam = searchQuery ? `&search=${encodeURIComponent(searchQuery)}` : '';
-      const [productsResponse, servicesResponse, fastFoodResponse] = await Promise.all([
-        api.get(`/products?limit=20&marketing=true&lite=true&page=${pageNum}${searchParam}`).catch(err => {
-          console.error('❌ Products API error:', err);
-          return { data: { products: [] } };
-        }),
-        api.get(`/services?limit=20&page=${pageNum}${searchParam}`).catch(err => {
-          console.error('❌ Services API error:', err);
-          return { data: { services: [] } };
-        }),
-        api.get(`/fastfood?limit=20&marketing=true&page=${pageNum}${searchParam}`).catch(err => {
-          console.error('❌ Fast Food API error:', err);
-          return { data: { fastFoods: [] } };
-        })
-      ]);
+      if (shouldFetchCatalog) {
+        // Fetch from all three APIs concurrently with optimized parameters
+        const searchParam = searchQuery ? `&search=${encodeURIComponent(searchQuery)}` : '';
+        const [productsResponse, servicesResponse, fastFoodResponse] = await Promise.all([
+          api.get(`/products?limit=20&marketing=true&lite=true&page=${pageNum}${searchParam}`).catch(err => {
+            console.error('❌ Products API error:', err);
+            return { data: { products: [] } };
+          }),
+          api.get(`/services?limit=20&page=${pageNum}${searchParam}`).catch(err => {
+            console.error('❌ Services API error:', err);
+            return { data: { services: [] } };
+          }),
+          api.get(`/fastfood?limit=20&marketing=true&page=${pageNum}${searchParam}`).catch(err => {
+            console.error('❌ Fast Food API error:', err);
+            return { data: { fastFoods: [] } };
+          })
+        ]);
 
-      // ... (rest of the normalization logic) ...
-      // Helper to extract array from various response structures
+        // Helper to extract array from various response structures
       const extractData = (data, key) => {
         if (!data) return [];
         if (Array.isArray(data)) return data;
@@ -478,14 +491,15 @@ const MarketerDashboard = () => {
         return item._isApproved && item._isVisible && !item._isSuspended && item._marketingCommissionAmount > 0;
       });
 
-      if (pageNum === 1) {
-        setProducts(finalMarketingEnabledItems);
-      } else {
-        setProducts(prev => {
-          const existingIds = new Set(prev.map(i => `${i.type}-${i.id}`));
-          const uniqueNew = finalMarketingEnabledItems.filter(i => !existingIds.has(`${i.type}-${i.id}`));
-          return [...prev, ...uniqueNew];
-        });
+        if (pageNum === 1) {
+          setProducts(finalMarketingEnabledItems);
+        } else {
+          setProducts(prev => {
+            const existingIds = new Set(prev.map(i => `${i.type}-${i.id}`));
+            const uniqueNew = finalMarketingEnabledItems.filter(i => !existingIds.has(`${i.type}-${i.id}`));
+            return [...prev, ...uniqueNew];
+          });
+        }
       }
 
       // 2. Fetch Marketer Stats (Clicks, Conversions, Rankings)
@@ -530,21 +544,23 @@ const MarketerDashboard = () => {
         setError(error.message || 'Failed to load marketing data');
       }
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
       setIsLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    fetchData(1);
+    // Initial fetch including catalog
+    fetchData(1, false, true); 
     fetchSocialMediaAccounts();
 
     const interval = setInterval(() => {
-      fetchData(1, false);
+      // Only refresh stats/wallet on interval to save database strain
+      fetchData(1, false, false);
       if (activeTab === 'orders') {
         // Handled by other effect but good to keep synced
       }
-    }, 10000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, []);
@@ -552,12 +568,12 @@ const MarketerDashboard = () => {
   // Debounced Search Effect
   useEffect(() => {
     if (searchQuery === '') {
-      fetchData(1, false);
+      fetchData(1, false, true);
       return;
     }
 
     const timer = setTimeout(() => {
-      fetchData(1, false);
+      fetchData(1, false, true);
     }, 500);
 
     return () => clearTimeout(timer);
@@ -754,7 +770,8 @@ const MarketerDashboard = () => {
       <h2 className="text-2xl font-bold text-gray-800">Marketing Overview</h2>
 
       {marketerData && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+
           <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
             <div className="flex items-center">
               <FaMoneyBillWave className="w-8 h-8 text-green-600 mr-3" />
@@ -801,27 +818,42 @@ const MarketerDashboard = () => {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex-1">
             <h3 className="text-xl font-bold mb-2">My Referral Link</h3>
-            <p className="text-blue-100 mb-4 md:mb-0">
+            <p className="text-blue-100 mb-4 md:mb-0 hidden md:block">
               Share this link to the store. Every purchase made through it earns you a commission!
             </p>
+
           </div>
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-2 font-mono text-sm truncate flex-1 md:max-w-xs">
-              {window.location.host}/?ref={user?.referralCode}
+          <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-4 py-3 font-mono text-xs sm:text-sm break-all flex-1 w-full md:max-w-xs text-center md:text-left">
+              {window.location.origin}/?ref={user?.referralCode}
             </div>
+
             <button
-              onClick={() => {
-                const shareUrl = `${window.location.origin}/?ref=${user?.referralCode}`;
-                navigator.clipboard.writeText(shareUrl);
-                toast({
-                  title: 'Link Copied',
-                  description: 'General referral link copied to clipboard!',
-                });
+              onClick={async () => {
+                const shareUrl = `${window.location.origin}/?ref=${user?.referralCode || 'PROMO'}`;
+                const success = await copyToClipboard(shareUrl);
+                if (success) {
+                  setCopiedLink(true);
+                  toast({
+                    title: 'Link Copied',
+                    description: 'General referral link copied to clipboard!',
+                  });
+                  setTimeout(() => setCopiedLink(false), 2000);
+                } else {
+                  toast({
+                    title: 'Copy Failed',
+                    description: 'Please copy the link manually.',
+                    variant: 'destructive',
+                  });
+                }
               }}
-              className="bg-white text-blue-600 px-6 py-2 rounded-lg font-bold hover:bg-blue-50 transition-colors flex items-center gap-2 flex-shrink-0"
+              className="bg-white text-blue-600 px-8 py-3 rounded-xl font-bold hover:bg-blue-50 transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2 w-full md:w-auto flex-shrink-0"
             >
-              <FaCopy /> Copy
+              <FaCopy /> {copiedLink ? 'Copied!' : 'Copy Link'}
             </button>
+
+
+
           </div>
         </div>
       </div>
@@ -853,11 +885,16 @@ const MarketerDashboard = () => {
       sharingContent={{}}
       toggleShareLinks={() => { }}
       handleShare={() => { }}
-      copyToClipboard={(text) => {
-        navigator.clipboard.writeText(text);
-        toast({ title: 'Copied', description: 'Link copied to clipboard!' });
+      copyToClipboard={async (text) => {
+        const success = await copyToClipboard(text);
+        if (success) {
+          toast({ title: 'Copied', description: 'Link copied to clipboard!' });
+        } else {
+          toast({ title: 'Copy Failed', description: 'Please copy the link manually.', variant: 'destructive' });
+        }
       }}
       analytics={marketerData}
+
       userReferralCode={user?.referralCode}
     />
   );
@@ -948,37 +985,43 @@ const MarketerDashboard = () => {
     return (
       <div className="space-y-6">
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-1">
+        {/* Category Tabs — forced onto one line on mobile */}
+        <div className="flex flex-nowrap items-center gap-2 border-b border-gray-200 pb-1 overflow-x-auto scrollbar-hide">
+
+
           <button
             onClick={() => setBrowseSubTab('product')}
-            className={`px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'product'
+            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'product'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
           >
             Products
           </button>
+
           <button
             onClick={() => setBrowseSubTab('service')}
-            className={`px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'service'
+            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'service'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
           >
             Services
           </button>
+
           <button
             onClick={() => setBrowseSubTab('fastfood')}
-            className={`px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'fastfood'
+            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'fastfood'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
           >
-            Fast Food
+            Fastfood
           </button>
+
         </div>
 
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow border border-gray-100 p-1 sm:p-2 mt-2">
           <div className="mb-4">
             <input
               type="text"
@@ -996,7 +1039,7 @@ const MarketerDashboard = () => {
               <p className="text-gray-600">No marketing-enabled items of this type are currently available.</p>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1.5 mt-2">
               {filteredItems.map((item) => {
                 const commissionInfo = (
                   <div className="mt-2 flex items-center justify-between px-2.5 py-1.5 bg-green-50/50 rounded-lg border border-green-100/50 group/comm transition-all hover:bg-green-50">
@@ -1012,26 +1055,23 @@ const MarketerDashboard = () => {
                 );
 
                 const renderCustomActions = ({ handleView }) => (
-                  <div className="flex flex-col w-full gap-2 pt-1 border-t border-gray-100">
-                    {commissionInfo}
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleShareItem(item);
-                        }}
-                      >
-                        <FaShareAlt size={12} /> Share
-                      </button>
+                  <div className="flex items-center border-t border-gray-100 gap-1 mt-auto">
+                    <button
+                      className="flex-1 px-1 py-1.5 bg-blue-600 text-white text-[10px] sm:text-xs font-bold rounded transition-colors flex items-center justify-center gap-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleShareItem(item);
+                      }}
+                    >
+                      <FaShareAlt size={10} /> Share
+                    </button>
 
-                      <button
-                        onClick={handleView}
-                        className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-                      >
-                        View
-                      </button>
-                    </div>
+                    <button
+                      onClick={handleView}
+                      className="flex-1 px-1 py-1.5 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
+                    >
+                      View
+                    </button>
                   </div>
                 );
 
@@ -1041,8 +1081,7 @@ const MarketerDashboard = () => {
                       key={`product-${item.id}`}
                       product={item}
                       renderActions={renderCustomActions}
-                      statusBadge={commissionInfo}
-                      contentClassName="h-auto min-h-[160px]"
+                      contentClassName="h-auto"
                     />
                   );
                 }
@@ -1053,8 +1092,7 @@ const MarketerDashboard = () => {
                       key={`service-${item.id}`}
                       service={item}
                       renderActions={renderCustomActions}
-                      statusBadge={commissionInfo}
-                      contentClassName="h-auto min-h-[160px]"
+                      contentClassName="h-auto"
                     />
                   );
                 }
@@ -1065,8 +1103,7 @@ const MarketerDashboard = () => {
                       key={`fastfood-${item.id}`}
                       item={item}
                       renderActions={renderCustomActions}
-                      statusBadge={commissionInfo}
-                      contentClassName="h-auto min-h-[160px]"
+                      contentClassName="h-auto"
                     />
                   );
                 }
@@ -1558,7 +1595,9 @@ const MarketerDashboard = () => {
                     <FaCheckCircle className="text-green-500 flex-shrink-0" />
                     <div>
                       <p className="text-sm font-semibold text-green-800">Customer Added Successfully!</p>
-                      <p className="text-xs text-green-600">{addUserSuccess.name} ({addUserSuccess.phone}) has been registered.</p>
+                      <p className="text-xs text-green-600">
+                        {addUserSuccess.name || addUserSuccess.email || addUserSuccess.phone} has been registered.
+                      </p>
                     </div>
                     <button type="button" onClick={() => setAddUserSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">
                       <FaTimes />
@@ -1566,26 +1605,12 @@ const MarketerDashboard = () => {
                   </div>
                 )}
 
-                {/* Name */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Full Name *</label>
-                  <div className="relative">
-                    <FaUser className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <input
-                      type="text"
-                      name="name"
-                      value={addUserForm.name}
-                      onChange={handleAddUserChange}
-                      placeholder="Customer full name"
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                  </div>
-                </div>
-
                 {/* Email */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email *</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex justify-between">
+                    <span>Email Address</span>
+                    {!addUserForm.phone && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter self-center">Required if no phone</span>}
+                  </label>
                   <div className="relative">
                     <FaEnvelope className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input
@@ -1594,16 +1619,24 @@ const MarketerDashboard = () => {
                       value={addUserForm.email}
                       onChange={handleAddUserChange}
                       placeholder="customer@example.com"
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/50 focus:bg-white transition-all"
                       autoComplete="off"
                     />
                   </div>
                 </div>
 
+                <div className="flex items-center gap-4 py-2">
+                  <div className="h-px bg-gray-100 flex-1"></div>
+                  <span className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">OR</span>
+                  <div className="h-px bg-gray-100 flex-1"></div>
+                </div>
+
                 {/* Phone */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number *</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex justify-between">
+                    <span>Phone Number</span>
+                    {!addUserForm.email && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter self-center">Required if no email</span>}
+                  </label>
                   <div className="relative">
                     <FaPhone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input
@@ -1612,100 +1645,16 @@ const MarketerDashboard = () => {
                       value={addUserForm.phone}
                       onChange={handleAddUserChange}
                       placeholder="+254 7XX XXX XXX"
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/50 focus:bg-white transition-all"
                     />
                   </div>
                 </div>
 
-                {/* Passwords */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password *</label>
-                    <div className="relative">
-                      <FaLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <input
-                        type="password"
-                        name="password"
-                        value={addUserForm.password}
-                        onChange={handleAddUserChange}
-                        placeholder="••••••••"
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        required
-                        autoComplete="new-password"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Confirm Password *</label>
-                    <div className="relative">
-                      <FaLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                      <input
-                        type="password"
-                        name="confirmPassword"
-                        value={addUserForm.confirmPassword}
-                        onChange={handleAddUserChange}
-                        placeholder="••••••••"
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        required
-                        autoComplete="new-password"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Address Fields */}
-                <div className="pt-2">
-                  <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    <FaMapMarkerAlt className="text-gray-400" />
-                    Customer Address
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50 flex gap-3 mt-4">
+                  <FaShieldAlt className="text-blue-400 w-5 h-5 flex-shrink-0" />
+                  <p className="text-[11px] text-blue-800 leading-relaxed italic font-medium">
+                    The backend will automatically generate a temporary password and account name based on the identifier provided. A notification will be sent to the customer immediately. They will be required to change their password upon first login.
                   </p>
-                  <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">County</label>
-                      <input
-                        type="text"
-                        name="county"
-                        value={addUserForm.county}
-                        onChange={handleAddUserChange}
-                        placeholder="e.g. Nairobi"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Town</label>
-                      <input
-                        type="text"
-                        name="town"
-                        value={addUserForm.town}
-                        onChange={handleAddUserChange}
-                        placeholder="e.g. CBD"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Estate / Area</label>
-                      <input
-                        type="text"
-                        name="estate"
-                        value={addUserForm.estate}
-                        onChange={handleAddUserChange}
-                        placeholder="e.g. Hurlingham"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">House / Apt No.</label>
-                      <input
-                        type="text"
-                        name="houseNumber"
-                        value={addUserForm.houseNumber}
-                        onChange={handleAddUserChange}
-                        placeholder="e.g. B4"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
                 </div>
 
                 {/* Referral Code Banner */}
@@ -1931,12 +1880,14 @@ const MarketerDashboard = () => {
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
       {/* Backdrop for mobile */}
       <div 
-        className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/50 z-[105] lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
 
+
       {/* Sidebar - Desktop / Drawer - Mobile */}
-      <div className={`fixed lg:static inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col shadow-xl lg:shadow-sm z-50 transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed lg:static inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col shadow-xl lg:shadow-sm z-[110] transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-extrabold text-indigo-900 tracking-tight">Marketer Panel</h2>
@@ -1976,7 +1927,22 @@ const MarketerDashboard = () => {
                 </button>
               </li>
             ))}
+            
+            {/* Mobile-only Exit Button */}
+            <li className="mt-4 pt-4 border-t border-gray-100 lg:hidden">
+              <button
+                onClick={() => {
+                  localStorage.removeItem('marketing_mode');
+                  window.location.href = '/';
+                }}
+                className="w-full flex items-center gap-2 px-4 py-3 rounded-xl transition-all duration-200 text-[10px] font-black uppercase tracking-widest text-red-600 hover:bg-red-50"
+              >
+                <span className="text-sm">🏠</span>
+                <span>Exit Marketing</span>
+              </button>
+            </li>
           </ul>
+
         </nav>
 
         <div className="p-4 border-t border-gray-200 bg-gray-50 lg:block hidden text-center">
@@ -1988,12 +1954,30 @@ const MarketerDashboard = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-0 z-30 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-3 -ml-3 hover:bg-gray-100 rounded-full text-indigo-600 transition-colors"
+            >
+              <FaBars size={24} />
+            </button>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/marketing')}>
+              <div className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse"></div>
+              <h2 className="text-sm font-black text-gray-800 tracking-tight uppercase">Marketer Panel</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+          </div>
+        </header>
+
 
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar">
-          <div className="max-w-7xl mx-auto w-full p-2 lg:p-8 min-h-full pb-20 lg:pb-0">
-            {/* Page Header with Navigation Buttons */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+          <div className="max-w-7xl mx-auto w-full p-1 sm:p-4 min-h-full pb-[64px] lg:pb-0">
+            {/* Page Header — desktop only */}
+            <div className="hidden lg:flex flex-row items-center justify-between gap-4 mb-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">Affiliate Console</h1>
                 <p className="text-sm text-gray-500">Manage your marketing campaigns and commissions.</p>
@@ -2018,12 +2002,15 @@ const MarketerDashboard = () => {
               </div>
             </div>
 
+
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 min-h-full p-4 lg:p-6">
               {renderTabContent()}
             </div>
           </div>
         </main>
       </div>
+
+
 
       {/* Modals remain same but use backdrop blur */}
       {showShareModal && sharingItem && (
@@ -2059,8 +2046,8 @@ const MarketerDashboard = () => {
                       </div>
                       <div className="col-span-3 flex flex-col items-stretch pl-4 border-l border-gray-200">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 px-1">Referral Code</p>
-                        <div className="py-4 bg-blue-600 text-white rounded-2xl font-black text-xl tracking-[0.1em] shadow-lg shadow-blue-100 flex items-center justify-center uppercase overflow-hidden">
-                          <span className="truncate px-2 leading-none">{user?.referralCode || 'PROMO'}</span>
+                        <div className="py-3 px-4 bg-blue-600 text-white rounded-2xl font-black text-2xl tracking-[0.05em] shadow-lg shadow-blue-200/50 flex items-center justify-center uppercase">
+                          <span className="leading-tight">{user?.referralCode || 'PROMO'}</span>
                         </div>
                       </div>
                     </div>
@@ -2076,7 +2063,14 @@ const MarketerDashboard = () => {
                 <button onClick={sharePosterAndLink} disabled={isGeneratingPoster} className="w-full flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-200 hover:shadow-2xl transition-all disabled:opacity-50"> <FaShareAlt /> Share Image + Link </button>
                 <div className="grid grid-cols-2 gap-3">
                   <button onClick={downloadPoster} disabled={isGeneratingPoster} className="flex items-center justify-center gap-2 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200"> <FaDownload /> Download </button>
-                  <button onClick={() => { const link = getDeepLink(sharingItem); navigator.clipboard.writeText(link); toast({ title: 'Link Copied' }); }} className="flex items-center justify-center gap-2 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200"> <FaCopy /> Copy Link </button>
+                  <button 
+                    onClick={() => handleCopyLink(getDeepLink(sharingItem))} 
+                    className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all border ${
+                      copiedLink ? 'bg-green-600 text-white border-green-600' : 'bg-gray-100 text-gray-700 border-gray-100 hover:bg-gray-200'
+                    }`}
+                  > 
+                    {copiedLink ? <><FaCheck /> Copied!</> : <><FaCopy /> Copy Link</>} 
+                  </button>
                 </div>
               </div>
             </div>

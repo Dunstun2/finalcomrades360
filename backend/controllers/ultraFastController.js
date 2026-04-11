@@ -411,31 +411,72 @@ const getHomepageBatchData = async (req, res) => {
               endAt: { [Op.gte]: now }
             },
             order: [['startAt', 'ASC']],
-            limit: 5
+            limit: 8 // increased limit slightly to allow for some filtering
           });
 
           const result = [];
           for (const p of items) {
-            const ids = p.productIds || [];
-            const prods = await Product.findAll({
-              where: { id: { [Op.in]: ids } },
-              attributes: ['id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage']
-            });
-            result.push({
-              ...p.toJSON(),
-              products: prods.map((product) => {
-                const plain = product.get ? product.get({ plain: true }) : product;
-                // Add price mapping for consistency
+            const promoData = p.toJSON();
+            let populatedItems = [];
+
+            if (p.promoType === 'fastfood') {
+              const ids = p.fastFoodIds || [];
+              const ffItems = await FastFood.findAll({
+                where: { id: { [Op.in]: ids }, isActive: true, approved: true },
+                attributes: [
+                  'id', 'name', 'mainImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
+                  'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
+                ]
+              });
+              
+              populatedItems = ffItems.map(item => {
+                const plain = item.get({ plain: true });
+                plain.coverImage = plain.mainImage;
                 plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
                 plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
-                return {
-                  ...plain,
-                  coverImage: getListSafeImage(plain.coverImage)
-                };
-              })
-            });
+                return plain;
+              });
+            } else {
+              // Default to product
+              const ids = p.productIds || [];
+              const prods = await Product.findAll({
+                where: { id: { [Op.in]: ids }, approved: true, isActive: true },
+                attributes: [
+                  'id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
+                  'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
+                ]
+              });
+
+              populatedItems = prods.map(product => {
+                const plain = product.get({ plain: true });
+                plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+                plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
+                plain.coverImage = getListSafeImage(plain.coverImage);
+                return plain;
+              });
+            }
+
+            // In marketing mode, filter items to only include those with commission > 1
+            if (isMarketing) {
+              populatedItems = populatedItems.filter(item => {
+                const commission = parseFloat(item.marketingCommission || 0);
+                return item.marketingEnabled && commission > 1;
+              });
+            }
+
+            // Keep the promotion if it has items OR if it's a priority system/default banner with custom image
+            const isFallback = p.isSystem || p.isDefault || !!p.customImageUrl;
+            
+            if (populatedItems.length > 0 || isFallback) {
+              result.push({
+                ...promoData,
+                products: populatedItems // maintaining key name 'products' for frontend compatibility
+              });
+            }
           }
-          return result;
+          
+          // Limit to final 5 after filtering
+          return result.slice(0, 5);
         } catch (err) {
           console.error('[HomepageBatch] HeroPromotions query failed:', err.message);
           return [];
@@ -466,10 +507,6 @@ const getHomepageBatchData = async (req, res) => {
           coverImage: firstImage,
           galleryImages: plain.galleryImages,
           images: plain.images || images,
-          deliveryFee: firstImage, // Wait, this look like it was a bug in the previous version?
-          // Actually checking original code:
-          // deliveryFee: plain.deliveryFee || 0,
-          // I will fix it.
           deliveryFee: plain.deliveryFee || 0,
           marketingCommission: plain.marketingCommission,
           marketingCommissionType: plain.marketingCommissionType,

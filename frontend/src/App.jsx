@@ -10,11 +10,13 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ProtectedRoute from './components/ProtectedRoute';
 import ReferrerBanner from './components/ReferrerBanner';
+import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import api from './services/api';
 import RealtimeSync from './components/RealtimeSync';
 import DashboardGuard from './components/DashboardGuard';
 // import VerificationRequired from './components/VerificationRequired'; // Removed as per user request
 import Home from './pages/Home';
+const MaintenancePage = React.lazy(() => import('./pages/MaintenancePage'));
 
 // Define a loading component
 const PageLoading = () => (
@@ -34,7 +36,10 @@ const components = import.meta.glob('./components/**/*.jsx');
 import PageLayout from './components/layout/PageLayout';
 const Navbar = lazy(() => import('./components/Navbar'));
 const MarketingNavbar = lazy(() => import('./components/MarketingNavbar'));
+import MarketingBottomNav from './components/MarketingBottomNav';
 const Login = lazy(() => import('./pages/Login'));
+
+
 const DashboardLogin = lazy(() => import('./pages/DashboardLogin'));
 const Register = lazy(() => import('./pages/Register'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -83,12 +88,14 @@ const SellerWallet = lazy(pages['./pages/seller/SellerWallet.jsx']);
 const SellerReports = lazy(pages['./pages/seller/SellerReports.jsx']);
 const SellerHelp = lazy(pages['./pages/seller/SellerHelp.jsx']);
 const SellerHeroPromotions = lazy(pages['./pages/seller/SellerHeroPromotions.jsx']);
+const SellerFastFoodPromotions = lazy(pages['./pages/seller/SellerFastFoodPromotions.jsx']);
 const SellerProductView = lazy(pages['./pages/seller/SellerProductView.jsx']);
 const SellerFastFoodView = lazy(pages['./pages/seller/SellerFastFoodView.jsx']);
 const RecycleBin = lazy(pages['./pages/seller/RecycleBin.jsx']);
 // Lazy load admin related components
 const AdminMarketing = lazy(pages['./pages/admin/AdminMarketing.jsx']);
 const AdminHeroPromotions = lazy(pages['./pages/admin/AdminHeroPromotions.jsx']);
+const AdminFastFoodPromotions = lazy(pages['./pages/admin/AdminFastFoodPromotions.jsx']);
 const AdminCreateHeroPromotion = lazy(pages['./pages/admin/AdminCreateHeroPromotion.jsx']);
 const RoleApplicationsManager = lazy(pages['./pages/UserManagementComponents/RoleApplicationsManager.jsx']);
 const PendingApplications = lazy(pages['./pages/UserManagementComponents/PendingApplications.jsx']);
@@ -125,6 +132,7 @@ const CustomerOrders = lazy(() => import('./pages/customer/CustomerOrders'));
 const CancelOrder = lazy(() => import('./pages/CancelOrder'));
 const UpdateOrderAddress = lazy(() => import('./pages/UpdateOrderAddress'));
 const OrderTracking = lazy(() => import('./pages/OrderTracking'));
+const PublicTracking = lazy(() => import('./pages/PublicTracking'));
 const CustomerWishlist = lazy(() => import('./pages/customer/CustomerWishlist'));
 const CustomerAddresses = lazy(() => import('./pages/customer/CustomerAddresses'));
 const CustomerNotifications = lazy(() => import('./pages/customer/CustomerNotifications'));
@@ -146,6 +154,7 @@ const DeliveryAssignment = lazy(() => import('./pages/dashboard/DeliveryAssignme
 const DeliveryAgents = lazy(() => import('./pages/dashboard/DeliveryAgents'));
 const CommissionManagement = lazy(() => import('./pages/dashboard/CommissionManagement'));
 const ReferralAnalytics = lazy(() => import('./pages/dashboard/ReferralAnalytics'));
+const InventoryManagement = lazy(() => import('./pages/dashboard/components/InventoryManagement'));
 // removed HeroPromotionManager import
 const EnhancedCategories = lazy(() => import('./pages/dashboard/EnhancedCategories'));
 const SystemSettings = lazy(() => import('./pages/dashboard/SystemSettings'));
@@ -182,6 +191,7 @@ const PendingPayouts = lazy(() => import('./pages/dashboard/PendingPayouts'));
 const AdminLiveMap = lazy(() => import('./pages/dashboard/AdminLiveMap'));
 const DeliveryAuditing = lazy(() => import('./pages/dashboard/delivery/DeliveryAuditing'));
 const BatchSystem = lazy(() => import('./pages/dashboard/BatchSystem'));
+const CustomerReturnsList = lazy(() => import('./pages/customer/CustomerReturnsList'));
 const FastFoodPickupPoints = lazy(() => import('./pages/dashboard/FastFoodPickupPoints'));
 
 // Delivery Agent Sub-components
@@ -225,16 +235,48 @@ const AppContent = () => {
   const [isMarketingMode, setIsMarketingMode] = useState(localStorage.getItem('marketing_mode') === 'true');
   const [referrerName, setReferrerName] = useState(localStorage.getItem('referrerName') || '');
 
+  // On app load, fire one quick API call; if we get 503+maintenance redirect immediately
+  useEffect(() => {
+    // Never redirect away from admin, maintenance, or login paths
+    const adminRoles = ['admin', 'super_admin', 'superadmin'];
+    const adminPaths = ['/dashboard', '/dashboard-login', '/maintenance', '/login'];
+    const isAdminPath = adminPaths.some(p => window.location.pathname.startsWith(p));
+    if (isAdminPath) return;
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (adminRoles.includes(u?.role) || u?.roles?.some(r => adminRoles.includes(r))) return;
+      }
+    } catch (_) {}
+
+    api.get('/platform/status').then(res => {
+      if (res.data.success) {
+        localStorage.setItem('maintenance_settings', JSON.stringify({
+          dashboards: res.data.dashboards || {},
+          sections: res.data.sections || {}
+        }));
+      }
+    }).catch(err => {
+      if (err.response?.status === 503 && err.response?.data?.maintenance) {
+        const msg = err.response.data?.message;
+        if (msg) sessionStorage.setItem('maintenance_message', msg);
+        window.location.href = '/maintenance';
+      }
+    });
+  }, []);
+
   // Handle referral links and marketing mode from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const refCode = params.get('ref');
     const marketingParam = params.get('marketing');
 
-    if (marketingParam === 'true') {
+    if (marketingParam === 'true' || location.pathname.startsWith('/marketing')) {
       localStorage.setItem('marketing_mode', 'true');
       setIsMarketingMode(true);
     } else if (refCode && marketingParam !== 'true') {
+
       // If we have a referral code but NO marketing tag, ensure we are NOT in marketing mode
       localStorage.removeItem('marketing_mode');
       setIsMarketingMode(false);
@@ -308,14 +350,16 @@ const AppContent = () => {
                        location.pathname.startsWith('/fastfood/') || 
                        location.pathname.startsWith('/service/');
 
-  // Dynamic padding to clear fixed Navbar/Search
-  let topPadding = "pt-[110px]"; // Default for home/search (Navbar + Search bar)
+  let topPadding = "pt-[128px]"; // Default for home/search (Navbar + Search bar)
   if (isDetailRoute) {
-    topPadding = "pt-0"; // Navbar hidden
+    topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
   } else if (isDashboardRoute) {
     topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
   }
-  const paddingClass = hideNavbar ? "" : `${topPadding} lg:pt-16`;
+  let paddingClass = hideNavbar ? "" : `${topPadding} lg:pt-16`;
+  if (isMarketingMode) {
+    paddingClass += " pb-14 lg:pb-0";
+  }
 
   return (
     <PageLayout fluid={isDashboardRoute}>
@@ -323,6 +367,13 @@ const AppContent = () => {
       <Routes>
         {/* Verification Required Interceptor */}
 
+
+        {/* Maintenance Mode Route – no auth required */}
+        <Route path="/maintenance" element={<MaintenancePage />} />
+
+        {/* Public order tracking – no login required */}
+        <Route path="/track" element={<PublicTracking />} />
+        <Route path="/track/:trackingNumber" element={<PublicTracking />} />
 
         {/* Commissions Standalone Route */}
         <Route path="/commissions" element={
@@ -446,6 +497,7 @@ const AppContent = () => {
                   <Route path="finance/payouts" element={<PendingPayouts />} />
                   <Route path="marketing/hero-promotions" element={<AdminHeroPromotions />} />
                   <Route path="marketing/hero-promotions/create" element={<AdminCreateHeroPromotion />} />
+                  <Route path="marketing/fastfood-promotions" element={<AdminFastFoodPromotions />} />
                   <Route path="settings/platform" element={<SystemSettings />} />
                   <Route path="settings/security" element={<SecuritySettings />} />
                   <Route path="products/deletion-requests" element={<ProductDeletionRequests />} />
@@ -495,8 +547,9 @@ const AppContent = () => {
                   <Route path="reports" element={<SellerReports />} />
                   <Route path="recycle-bin" element={<RecycleBin />} />
                   <Route path="promotions" element={<SellerHeroPromotions />} />
-                  <Route path="promotions" element={<SellerHeroPromotions />} />
+                  <Route path="fastfood-promotions" element={<SellerFastFoodPromotions />} />
                   <Route path="business-location" element={<SellerBusinessLocation />} />
+                  <Route path="inventory" element={<InventoryManagement onBack={() => window.history.back()} />} />
                   <Route path="help" element={<SellerHelp />} />
 
                   {/* Fast Food Management Routes for Sellers */}
@@ -547,6 +600,7 @@ const AppContent = () => {
                   <Route path="orders/:orderId/cancel" element={<CancelOrder />} />
                   <Route path="orders/:orderId/update-address" element={<UpdateOrderAddress />} />
                   <Route path="orders/:orderId/return" element={<ReturnRequestPage />} />
+                  <Route path="returns" element={<CustomerReturnsList />} />
                   <Route path="wishlist" element={<Wishlist />} />
                   <Route path="wallet" element={<div>Wallet</div>} />
                   <Route path="address" element={<CustomerAddresses />} />
@@ -617,7 +671,16 @@ const AppContent = () => {
           </div>
         } />
       </Routes>
+      
+      {/* Force Password Change Modal */}
+      {user?.mustChangePassword && (
+        <ForcePasswordChangeModal isOpen={true} user={user} />
+      )}
+
+      {/* Global Marketing Mode Bottom Nav (Mobile Only inside component) */}
+      {isMarketingMode && <MarketingBottomNav />}
     </PageLayout>
+
   );
 };
 

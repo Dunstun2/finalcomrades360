@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import { resolveImageUrl, FALLBACK_IMAGE } from '../utils/imageUtils';
+import { resolveImageUrl, FALLBACK_IMAGE, getProductMainImage } from '../utils/imageUtils';
 import { ensureArray, normalizeIngredient } from '../utils/parsingUtils';
 import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaArrowLeft, FaRoute, FaUser } from 'react-icons/fa';
 import DeliveryTrackingMap from '../components/DeliveryTrackingMap';
@@ -23,7 +23,7 @@ export default function OrderTracking() {
 
     // Auto-refresh tracking for active orders (every 20s)
     let interval = null;
-    if (tracking && ['processing', 'shipped', 'in_transit', 'out_for_delivery', 'ready_for_pickup'].includes(tracking.status?.toLowerCase().replace(' ', '_'))) {
+    if (tracking && ['processing', 'shipped', 'in_transit', 'in_transit', 'ready_for_pickup'].includes(tracking.status?.toLowerCase().replace(' ', '_'))) {
       interval = setInterval(loadOrderTracking, 20000);
     }
 
@@ -148,7 +148,7 @@ export default function OrderTracking() {
         </div>
 
         {/* Live Map Integration */}
-        {['processing', 'shipped', 'in_transit', 'out_for_delivery', 'delivered'].includes(tracking.status?.toLowerCase().replace(' ', '_')) && (
+        {['processing', 'shipped', 'in_transit', 'in_transit', 'delivered'].includes(tracking.status?.toLowerCase().replace(' ', '_')) && (
           <div className="mb-8">
             <DeliveryTrackingMap
               status={tracking.status?.toLowerCase().replace(' ', '_')}
@@ -172,12 +172,25 @@ export default function OrderTracking() {
                   const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
                     if (!rawStatus) return 'Processing';
                     const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                    
                     if (['delivered', 'completed'].includes(s)) return 'Delivered';
-                    if (['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
                     if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+
+                    const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                    const isTerminalLeg = tasks.some(task => {
+                        const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
+                        const isToStation = orderObj?.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
+                        return (isToCustomer || isToStation) && task.status === 'in_progress';
+                    }) || ['in_transit'].includes(s);
+
+                    if (isTerminalLeg || (['in_transit', 'shipped'].includes(s) && isTerminalLeg)) {
+                        return 'In Transit';
+                    }
+                    
                     if (s === 'order_placed') return 'Order Placed';
                     if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
-                    if (['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'shipped'].includes(s)) return 'Shipped';
+                    if (['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
+                    
                     return 'Processing';
                   };
                   const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
@@ -306,7 +319,7 @@ export default function OrderTracking() {
                   {order.OrderItems.map((item) => {
                     const ff = item.FastFood || item.fastFood;
                     const p = item.Product || item.product;
-                    const imageUrl = resolveImageUrl(ff?.mainImage || ff?.image || p?.coverImage || p?.mainImage || p?.image);
+                    const imageUrl = ff ? resolveImageUrl(ff.mainImage || ff.image) : getProductMainImage(p);
                     const itemName = item.itemLabel || item.name || p?.name || ff?.name || 'Order Item';
 
                     return (
@@ -367,6 +380,9 @@ export default function OrderTracking() {
                 <div className="space-y-2 text-sm">
                   <p><strong>Name:</strong> {tracking.deliveryAgent.name}</p>
                   <p><strong>Email:</strong> {tracking.deliveryAgent.email}</p>
+                  {tracking.deliveryAgent.phone && (
+                    <p><strong>Phone:</strong> {tracking.deliveryAgent.phone}</p>
+                  )}
                 </div>
               </div>
             )}

@@ -26,10 +26,41 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     const [selectedDestId, setSelectedDestId] = useState('');
     const [selectedOriginId, setSelectedOriginId] = useState('');
     const [isDestLocked, setIsDestLocked] = useState(true);
+    const [isRouteLocked, setIsRouteLocked] = useState(true);
 
     const lastResetOrderId = React.useRef(null);
 
     const normalizeDeliveryType = (type) => type;
+    const WAREHOUSE_STAGE_STATUSES = new Set(['at_warehouse']);
+    const WAREHOUSE_INBOUND_TYPES = new Set(['seller_to_warehouse', 'customer_to_warehouse', 'pickup_station_to_warehouse']);
+
+    const isWarehouseReentryRoute = (currentOrder, routeType) => {
+        if (!currentOrder || !routeType) return false;
+        return WAREHOUSE_STAGE_STATUSES.has(currentOrder.status) && WAREHOUSE_INBOUND_TYPES.has(routeType);
+    };
+
+    const resolveOrderHubIds = () => {
+        const warehouseOrderId =
+            order?.destinationWarehouseId ||
+            order?.warehouseId ||
+            order?.DestinationWarehouse?.id ||
+            order?.Warehouse?.id ||
+            '';
+
+        const pickStationOrderId =
+            order?.destinationFastFoodPickupPointId ||
+            order?.destinationPickStationId ||
+            order?.pickupStationId ||
+            order?.pickStationId ||
+            order?.DestinationPickStation?.id ||
+            order?.PickupStation?.id ||
+            '';
+
+        return {
+            warehouseOrderId: String(warehouseOrderId || ''),
+            pickStationOrderId: String(pickStationOrderId || '')
+        };
+    };
 
     const getKnownRouteLocations = (currentOrder, currentSuggestions = null) => {
         const getSellerAddr = (seller) => {
@@ -63,6 +94,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             || currentOrder?.DestinationWarehouse?.landmark
             || currentOrder?.Warehouse?.address
             || currentOrder?.Warehouse?.landmark
+            || currentOrder?.destinationWarehouse?.address
             || currentSuggestions?.warehouseAddress
             || '';
 
@@ -72,11 +104,14 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             || currentOrder?.PickupStation?.address
             || currentOrder?.DestinationFastFoodPickupPoint?.address
             || currentOrder?.pickStation
+            || currentOrder?.pickupStation?.address
+            || currentOrder?.pickupStation?.location
             || currentSuggestions?.pickStationAddress
             || '';
 
         const customerAddress = currentOrder?.deliveryLocation
             || currentOrder?.deliveryAddress
+            || currentOrder?.pickupAddress // For return requests
             || currentSuggestions?.customerAddress
             || '';
 
@@ -120,6 +155,32 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
         const status = order.status;
         const method = order.deliveryMethod;
 
+        // Detect Return Requests
+        const isReturnRequest = 'orderId' in order && 'pickupMethod' in order;
+        if (isReturnRequest) {
+            if (order.pickupMethod === 'drop_off' || status === 'at_pick_station') {
+                 return allRoutes.filter(([key]) => [
+                    'pickup_station_to_warehouse',
+                    'pickup_station_to_seller',
+                    'warehouse_to_seller'
+                 ].includes(key));
+            } else {
+                 if (['approved', 'pending'].includes(status)) {
+                      return allRoutes.filter(([key]) => [
+                          'customer_to_warehouse',
+                          'customer_to_seller'
+                      ].includes(key));
+                 }
+                return allRoutes.filter(([key]) => [
+                    'customer_to_warehouse',
+                    'warehouse_to_seller',
+                    'customer_to_seller',
+                    'pickup_station_to_warehouse',
+                    'pickup_station_to_seller'
+                ].includes(key));
+            }
+        }
+
         const isFastFood = order.orderCategory === 'fastfood' || order.OrderItems?.some(i => i.FastFood);
         if (isFastFood) {
             if (order.adminRoutingStrategy === 'fastfood_pickup_point' || method === 'pickup_point' || method === 'pick_station') {
@@ -128,51 +189,34 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             return allRoutes.filter(([key]) => ['seller_to_customer'].includes(key));
         }
 
-        // Home Delivery preference: Prioritize direct delivery if confirmed
-        if (method === 'home_delivery' && ['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(status)) {
-             return allRoutes.filter(([key]) => [
-                'seller_to_customer',
-                'seller_to_warehouse',
-                'warehouse_to_customer'
-            ].includes(key));
-        }
-
-        // Pick Station preference
-        if (method === 'pick_station' && ['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(status)) {
+        // Pick Station stage routes
+        if (['at_pick_station', 'ready_for_pickup'].includes(status)) {
+            if (method === 'home_delivery') {
+                return allRoutes.filter(([key]) => ['pickup_station_to_customer'].includes(key));
+            }
+            if (method === 'pick_station') {
+                return allRoutes.filter(([key]) => ['pickup_station_to_warehouse'].includes(key));
+            }
             return allRoutes.filter(([key]) => [
-                'seller_to_pickup_station',
-                'seller_to_warehouse',
-                'warehouse_to_pickup_station'
-            ].includes(key));
-        }
-
-        // Logic-based filtering by status (fallback)
-        if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse'].includes(status)) {
-            return allRoutes.filter(([key]) => [
-                'seller_to_warehouse',
-                'seller_to_customer',
-                'seller_to_pickup_station',
-                'warehouse_to_customer',
-                'warehouse_to_pickup_station'
+                'pickup_station_to_customer',
+                'pickup_station_to_warehouse'
             ].includes(key));
         }
 
         // Hub/Warehouse stage routes
-        if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+        if (['at_warehouse', 'at_warehouse'].includes(status)) {
+            if (method === 'home_delivery') {
+                return allRoutes.filter(([key]) => [
+                    'warehouse_to_customer',
+                    'warehouse_to_pickup_station'
+                ].includes(key));
+            }
+            if (method === 'pick_station') {
+                return allRoutes.filter(([key]) => ['warehouse_to_pickup_station'].includes(key));
+            }
             return allRoutes.filter(([key]) => [
                 'warehouse_to_customer',
-                'warehouse_to_seller',
                 'warehouse_to_pickup_station'
-            ].includes(key));
-        }
-
-        // Pick Station stage routes
-        if (status === 'ready_for_pickup' || method === 'pick_station') {
-            return allRoutes.filter(([key]) => [
-                'pickup_station_to_customer',
-                'warehouse_to_pickup_station',
-                'pickup_station_to_warehouse',
-                'warehouse_to_customer'
             ].includes(key));
         }
 
@@ -187,7 +231,29 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             ].includes(key));
         }
 
-        return allRoutes; // Default show all if status is unusual
+        // Pre-Warehouse Stage (Default fallback for new or early transit)
+        if (method === 'home_delivery') {
+            return allRoutes.filter(([key]) => [
+                'seller_to_warehouse',
+                'seller_to_customer',
+                'seller_to_pickup_station'
+            ].includes(key));
+        }
+        if (method === 'pick_station') {
+            return allRoutes.filter(([key]) => [
+                'seller_to_warehouse',
+                'seller_to_pickup_station'
+            ].includes(key));
+        }
+        
+        // Final catch-all for unknown methods
+        return allRoutes.filter(([key]) => [
+            'seller_to_warehouse',
+            'seller_to_customer',
+            'warehouse_to_customer',
+            'warehouse_to_pickup_station',
+            'pickup_station_to_customer'
+        ].includes(key));
     };
 
     const visibleRoutes = getVisibleRoutes();
@@ -215,34 +281,84 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                 const possibleRoutes = getVisibleRoutes();
                 const defaultRoute = possibleRoutes.length > 0 ? possibleRoutes[0][0] : 'seller_to_warehouse';
                 let initialRoute = normalizeDeliveryType(order.deliveryType) || defaultRoute;
-                const isFastFoodPickupStrategy = order.adminRoutingStrategy === 'fastfood_pickup_point' || order.deliveryMethod === 'pickup_point';
-                if (isFastFoodPickupStrategy && initialRoute === 'seller_to_pickup_station') {
-                    initialRoute = 'fastfood_pickup_point';
+
+                // Priority 1: Honor Explicit Admin Routing Strategy set during confirmation
+                if (order.adminRoutingStrategy) {
+                    const strategy = order.adminRoutingStrategy;
+                    const status = order.status;
+                    const earlyStages = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'en_route_to_pick_station'];
+                    const hubStages = ['at_warehouse', 'at_warehouse'];
+                    const stationStages = ['at_pick_station', 'ready_for_pickup'];
+
+                    if (strategy === 'pick_station') {
+                        if (earlyStages.includes(status)) initialRoute = 'seller_to_pickup_station';
+                        else if (hubStages.includes(status)) initialRoute = 'warehouse_to_pickup_station';
+                        else if (stationStages.includes(status)) initialRoute = 'pickup_station_to_customer';
+                    } else if (strategy === 'warehouse') {
+                        if (earlyStages.includes(status)) initialRoute = 'seller_to_warehouse';
+                        else if (hubStages.includes(status)) initialRoute = 'warehouse_to_customer';
+                    } else if (strategy === 'fastfood_pickup_point') {
+                        initialRoute = 'fastfood_pickup_point';
+                    } else if (strategy === 'direct_delivery') {
+                        initialRoute = 'seller_to_customer';
+                    }
+                } else {
+                    // Priority 2: FastFood overrides
+                    const isFastFoodPickupStrategy = order.deliveryMethod === 'pickup_point';
+                    if (isFastFoodPickupStrategy && initialRoute === 'seller_to_pickup_station') {
+                        initialRoute = 'fastfood_pickup_point';
+                    }
+
+                    // Priority 3: Status-based normalization for hub flows
+                    if (['at_warehouse', 'at_warehouse', 'ready_for_pickup'].includes(order.status)) {
+                        if (order.deliveryMethod === 'pick_station' && possibleRoutes.some(([key]) => key === 'warehouse_to_pickup_station')) {
+                            initialRoute = 'warehouse_to_pickup_station';
+                        } else if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
+                            initialRoute = 'warehouse_to_customer';
+                        }
+                    } else if (order.status !== 'delivered' && order.selfDispatcherName) {
+                        if (order.deliveryMethod === 'pick_station' && possibleRoutes.some(([key]) => key === 'warehouse_to_pickup_station')) {
+                            initialRoute = 'warehouse_to_pickup_station';
+                        } else if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
+                            initialRoute = 'warehouse_to_customer';
+                        }
+                    }
                 }
 
-                if (['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status)) {
+                if (isWarehouseReentryRoute(order, initialRoute)) {
                     if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
                         initialRoute = 'warehouse_to_customer';
-                    }
-                } else if (order.status !== 'delivered' && order.selfDispatcherName) {
-                    // If seller is self-dispatching, Leg 1 is handled by them.
-                    // Anticipate assigning the *next* leg.
-                    if (order.deliveryMethod === 'pick_station' && possibleRoutes.some(([key]) => key === 'warehouse_to_pickup_station')) {
+                    } else if (possibleRoutes.some(([key]) => key === 'warehouse_to_pickup_station')) {
                         initialRoute = 'warehouse_to_pickup_station';
-                    } else if (possibleRoutes.some(([key]) => key === 'warehouse_to_customer')) {
-                        initialRoute = 'warehouse_to_customer';
+                    } else {
+                        initialRoute = defaultRoute;
                     }
                 }
 
                 setDeliveryType(initialRoute);
-                setSelectedDestId('');
-                setSelectedOriginId('');
+                
+                const { warehouseOrderId, pickStationOrderId } = resolveOrderHubIds();
+                const currentRoute = initialRoute;
+                
+                let initialDestId = '';
+                let initialOriginId = '';
+                
+                if (currentRoute.endsWith('warehouse')) initialDestId = warehouseOrderId;
+                else if (currentRoute.endsWith('pickup_station')) initialDestId = pickStationOrderId;
+                
+                if (currentRoute.startsWith('warehouse')) initialOriginId = warehouseOrderId;
+                else if (currentRoute.startsWith('pickup_station')) initialOriginId = pickStationOrderId;
+
+                setSelectedDestId(initialDestId);
+                setSelectedOriginId(initialOriginId);
+                
                 setDeliveryFee(order.deliveryFee || 0);
                 setNotes(order.deliveryInstructions || '');
                 setIsDestLocked(true); // Re-arm lock for new order
+                setIsRouteLocked(!!order.adminRoutingStrategy); // Lock route if strategy exists
 
                 const preferredDriverId = order.deliveryAgentId || order.deliveryAgent?.id || '';
-                const isHubStatus = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
+                const isHubStatus = ['at_warehouse', 'at_warehouse', 'ready_for_pickup'].includes(order.status);
 
                 // For delivery-request approval, preserve the requesting agent even if the modal
                 // normalizes the route type from a provisional/null value.
@@ -256,29 +372,30 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                     setSelectedDriverId(order.deliveryAgentId || '');
                 }
 
+                const fallbackOpenRoute = order.deliveryType || possibleRoutes[0]?.[0] || 'seller_to_warehouse';
+                const initialDisplayRoute =
+                    (order.adminRoutingStrategy === 'fastfood_pickup_point' || order.deliveryMethod === 'pickup_point')
+                        && normalizeDeliveryType(fallbackOpenRoute) === 'seller_to_pickup_station'
+                        ? 'fastfood_pickup_point'
+                        : fallbackOpenRoute;
+                const initialLocations = getRouteLocations(initialDisplayRoute, order);
+                setPickupLocation(initialLocations.pickup || '');
+                setDeliveryLocation(initialLocations.destination || '');
+
+                fetchAgentDistances(order.id);
+                fetchRouteFees();
+
+                // Fetch hub data
+                api.get('/warehouses').then(res => setWarehouses(res.data?.warehouses || [])).catch(() => { });
+                api.get('/pickup-stations').then(res => setPickupStations(res.data?.stations || [])).catch(() => { });
+
                 lastResetOrderId.current = order.id;
             }
-
-            const fallbackOpenRoute = order.deliveryType || getVisibleRoutes()[0]?.[0] || 'seller_to_warehouse';
-            const initialDisplayRoute =
-                (order.adminRoutingStrategy === 'fastfood_pickup_point' || order.deliveryMethod === 'pickup_point')
-                    && normalizeDeliveryType(fallbackOpenRoute) === 'seller_to_pickup_station'
-                    ? 'fastfood_pickup_point'
-                    : fallbackOpenRoute;
-            const initialLocations = getRouteLocations(initialDisplayRoute, order);
-            setPickupLocation(initialLocations.pickup || '');
-            setDeliveryLocation(initialLocations.destination || '');
-
-            fetchAgentDistances(order.id);
-            fetchRouteFees();
-
-            // Fetch hub data
-            api.get('/warehouses').then(res => setWarehouses(res.data?.warehouses || [])).catch(() => { });
-            api.get('/pickup-stations').then(res => setPickupStations(res.data?.stations || [])).catch(() => { });
         } else if (!isOpen) {
             lastResetOrderId.current = null; // Prepare for next open
         }
-    }, [isOpen, order, isBulk, selectedOrderIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, order, isBulk, selectedOrderIds ? selectedOrderIds.join(',') : '']);
 
     const fetchBulkOrdersDetails = async () => {
         setLoadingBulk(true);
@@ -314,8 +431,8 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                     || order.FastFoodPickupPoint?.deliveryFee
                     || 0;
                 if (pointFee > 0) {
-                    const items = order.OrderItems || order.items || [];
-                    const totalQty = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                    const items = Array.isArray(order.OrderItems) ? order.OrderItems : (Array.isArray(order.items) ? order.items : []);
+                    const totalQty = Array.isArray(items) ? items.reduce((sum, item) => sum + (item.quantity || 0), 0) : 0;
                     setDeliveryFee(pointFee * totalQty);
                     return;
                 }
@@ -324,8 +441,8 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             // Priority 2: User's selected pickstation price if applicable
             const isPickStation = order.deliveryMethod === 'pick_station';
             if (isPickStation && (deliveryType === 'pickup_station_to_customer' || deliveryType === 'warehouse_to_customer' || deliveryType === 'warehouse_to_pickup_station') && order.pickStationId) {
-                const items = order.OrderItems || order.items || [];
-                const totalQty = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                const items = Array.isArray(order.OrderItems) ? order.OrderItems : (Array.isArray(order.items) ? order.items : []);
+                const totalQty = Array.isArray(items) ? items.reduce((sum, item) => sum + (item.quantity || 0), 0) : 0;
                 const stationPrice = order.pickStationPrice || (order.PickupStation?.price) || 0;
 
                 if (stationPrice > 0) {
@@ -336,7 +453,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
 
             // Fallback: Sum product specific delivery fees
             let productFee = 0;
-            const items = order.OrderItems || order.items || [];
+            const items = Array.isArray(order.OrderItems) ? order.OrderItems : (Array.isArray(order.items) ? order.items : []);
             items.forEach(item => {
                 const fee = item.Product?.deliveryFee || item.FastFood?.deliveryFee || item.deliveryFee || 0;
                 productFee += (parseFloat(fee) || 0);
@@ -472,33 +589,18 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
         // 3. Addresses: prefer known order routing data, then suggestions as fallback
         const routeLocations = getRouteLocations(targetRoute, order, suggestions);
         if (routeLocations) {
-            if (routeLocations.pickup && !routeLocations.pickup.includes('not set')) setPickupLocation(routeLocations.pickup);
-            if (routeLocations.destination && !routeLocations.destination.includes('not set')) setDeliveryLocation(routeLocations.destination);
+            if (routeLocations.pickup && !routeLocations.pickup.includes('not set')) {
+                setPickupLocation(routeLocations.pickup);
+            }
+            // Update delivery location if defined, or if using a station route, prefer station suggestions
+            if (routeLocations.destination && !routeLocations.destination.includes('not set')) {
+                setDeliveryLocation(routeLocations.destination);
+            } else if (targetRoute.endsWith('pickup_station') && suggestions?.pickStationAddress) {
+                 setDeliveryLocation(suggestions.pickStationAddress);
+            }
         }
     }, [deliveryType, suggestions, order]);
 
-    const resolveOrderHubIds = () => {
-        const warehouseOrderId =
-            order?.destinationWarehouseId ||
-            order?.warehouseId ||
-            order?.DestinationWarehouse?.id ||
-            order?.Warehouse?.id ||
-            '';
-
-        const pickStationOrderId =
-            order?.destinationFastFoodPickupPointId ||
-            order?.destinationPickStationId ||
-            order?.pickupStationId ||
-            order?.pickStationId ||
-            order?.DestinationPickStation?.id ||
-            order?.PickupStation?.id ||
-            '';
-
-        return {
-            warehouseOrderId: String(warehouseOrderId || ''),
-            pickStationOrderId: String(pickStationOrderId || '')
-        };
-    };
 
     const getFallbackHubIds = () => {
         const route = normalizeDeliveryType(deliveryType);
@@ -533,6 +635,10 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             return;
         }
         const route = normalizeDeliveryType(deliveryType);
+        if (isWarehouseReentryRoute(order, route)) {
+            alert('This order is already at warehouse. Please select warehouse_to_customer or warehouse_to_pickup_station.');
+            return;
+        }
         const { fallbackDestId, fallbackOriginId } = getFallbackHubIds();
         // ... (remaining validation logic)
         // Require selection for routes that need it
@@ -560,6 +666,10 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
         setAssigning(true);
         try {
             const route = normalizeDeliveryType(deliveryType);
+            if (isWarehouseReentryRoute(order, route)) {
+                alert('Invalid route for current stage. Please select warehouse_to_customer or warehouse_to_pickup_station.');
+                return;
+            }
             const { fallbackDestId, fallbackOriginId } = getFallbackHubIds();
             const payload = {
                 password,
@@ -611,6 +721,11 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                 </div>
 
                 <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                    {isWarehouseReentryRoute(order, normalizeDeliveryType(deliveryType)) && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-xs font-semibold">
+                            Invalid route for this stage: this order is already at warehouse. Choose warehouse_to_customer or warehouse_to_pickup_station.
+                        </div>
+                    )}
                     {/* Bulk Route Summary */}
                     {isBulk && (
                         <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 mb-2 flex items-start gap-4 animate-in fade-in slide-in-from-top-4">
@@ -659,17 +774,25 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
 
                     {/* Routing Options */}
                     <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                        <label 
+                            onDoubleClick={() => setIsRouteLocked(!isRouteLocked)}
+                            className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2 cursor-pointer select-none group"
+                            title="Double-click to unlock/lock route selection"
+                        >
                             <FaRoute className="text-blue-500" /> Delivery Route Type
+                            {isRouteLocked ? <FaLock className="text-amber-500 ml-auto h-3 w-3" /> : <FaLockOpen className="text-blue-500 ml-auto h-3 w-3" />}
                         </label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className={`grid grid-cols-2 gap-2 ${isRouteLocked ? 'opacity-75' : ''}`}>
                             {visibleRoutes.map(([key, config]) => (
                                 <button
                                     key={key}
+                                    disabled={isRouteLocked}
                                     onClick={() => setDeliveryType(key)}
                                     className={`p-3 rounded-xl border text-left transition-all flex flex-col gap-1 ${deliveryType === key
                                         ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-100 shadow-sm'
-                                        : 'border-gray-200 hover:border-blue-300 bg-white'
+                                        : isRouteLocked 
+                                            ? 'border-gray-100 bg-gray-50 cursor-not-allowed'
+                                            : 'border-gray-200 hover:border-blue-300 bg-white'
                                         }`}
                                 >
                                     <span className="text-sm font-bold flex items-center gap-2 whitespace-nowrap">
@@ -679,6 +802,11 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                                 </button>
                             ))}
                         </div>
+                        {isRouteLocked && (
+                            <p className="text-[9px] text-amber-600 font-bold mt-1 uppercase tracking-tighter animate-pulse">
+                                Locked to Admin Routing Strategy. Double-click the lock icon to override.
+                            </p>
+                        )}
                     </div>
 
                     {/* Origin Selector for Routes starting at Hubs/Stations */}
@@ -1039,8 +1167,8 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                             </div>
                         </div>
                     ) : (() => {
-                        const canSubmit = ['seller_confirmed', 'super_admin_confirmed', 'at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
-                        const isSubmitDisabled = !selectedDriverId || assigning || !canSubmit;
+                        const canSubmit = ['seller_confirmed', 'super_admin_confirmed', 'at_warehouse', 'at_warehouse', 'ready_for_pickup'].includes(order.status);
+                        const isSubmitDisabled = !selectedDriverId || assigning || !canSubmit || isWarehouseReentryRoute(order, normalizeDeliveryType(deliveryType));
                         
                         return (
                             <button

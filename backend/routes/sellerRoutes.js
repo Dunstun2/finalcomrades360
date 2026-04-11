@@ -1,7 +1,7 @@
 const express = require('express');
 const { auth, checkRole, checkSellerProfile } = require('../middleware/auth');
 const { getMyOrders, getMyProducts, getMyProductById, updateMyProduct, duplicateCheck, getMyKpis, getOverview } = require('../controllers/sellerController');
-const { getSellerWallet } = require('../controllers/sellerWalletController');
+const { getSellerWallet, withdraw } = require('../controllers/sellerWalletController');
 const { uploadProductMedia } = require('../config/multer');
 const { compressUploadedImages } = require('../utils/imageCompression');
 
@@ -23,5 +23,6 @@ router.get('/kpis', auth, checkRole('seller', 'admin'), checkSellerProfile, getM
 
 // Wallet
 router.get('/wallet', auth, checkRole('seller', 'admin'), checkSellerProfile, getSellerWallet)
+router.post('/wallet/withdraw', auth, checkRole('seller', 'admin'), checkSellerProfile, withdraw)
 
 module.exports = router;

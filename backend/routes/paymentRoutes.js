@@ -9,6 +9,7 @@ const {
   handleAirtelCallback,
   checkPaymentStatus,
   verifyPayment,
+  verifyPaymentByOrder,
   getPaymentVerificationInfo,
   getUserPayments,
   processRefund,
@@ -34,6 +35,7 @@ router.post('/airtel/initiate', initiateAirtelMoneyPayment);
 router.post('/bank-transfer/create', validatePaymentRequest, createBankTransferPayment);
 router.post('/lipa-mdogo-mdogo/create', validatePaymentRequest, createLipaMdogoMdogoPayment);
 router.get('/status/:paymentId', checkPaymentStatus);
+router.post('/verify', verifyPaymentByOrder);
 router.post('/verify/:paymentId', verifyPayment);
 router.get('/verification-info/:paymentId', getPaymentVerificationInfo);
 router.get('/user', getUserPayments);

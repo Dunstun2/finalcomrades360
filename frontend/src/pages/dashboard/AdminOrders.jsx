@@ -10,6 +10,12 @@ import DeliveryChat from '../../components/delivery/DeliveryChat';
 import LogisticsDestination from '../../components/delivery/LogisticsDestination';
 import WarehouseReceiptModal from '../../components/delivery/WarehouseReceiptModal';
 import { getSocket, joinAdminRoom } from '../../services/socket';
+import { buildOrderLifecycleSteps } from '../../utils/orderLifecycle';
+
+const ORDERS_REQUEST_DEDUPE_WINDOW_MS = 1500;
+const DRIVERS_REQUEST_DEDUPE_WINDOW_MS = 10000;
+const recentOrdersRequestAt = new Map();
+let recentDriversRequestAt = 0;
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
@@ -17,9 +23,11 @@ export default function AdminOrders() {
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedOrderLoading, setSelectedOrderLoading] = useState(false);
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [orderToAssign, setOrderToAssign] = useState(null);
@@ -45,6 +53,14 @@ export default function AdminOrders() {
   const [routingPickStations, setRoutingPickStations] = useState([]);
   const [routingFastFoodPickupPoints, setRoutingFastFoodPickupPoints] = useState([]);
   const [routingLoading, setRoutingLoading] = useState(false);
+  
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500); // 500ms delay
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
   const pageSize = 20;
 
   // Stability refs
@@ -59,16 +75,20 @@ export default function AdminOrders() {
   const orderStatuses = {
     'order_placed': { icon: FaClock, color: 'text-yellow-600', bg: 'bg-yellow-100', label: 'Order Placed' },
     'seller_confirmed': { icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Seller Confirmed' },
+    'super_admin_confirmed': { icon: FaCheckCircle, color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'Super Admin Confirmed' },
     'en_route_to_warehouse': { icon: FaTruck, color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'En Route to Warehouse' },
-    'at_warehouse': { icon: FaBox, color: 'text-teal-600', bg: 'bg-teal-100', label: 'At Warehouse' },
+    'at_warehouse': { icon: FaInbox, color: 'text-teal-700', bg: 'bg-teal-50', label: 'Received at Hub' },
     'ready_for_pickup': { icon: FaBox, color: 'text-sky-600', bg: 'bg-sky-100', label: 'Ready for Pickup' },
+    'awaiting_delivery_assignment': { icon: FaUserPlus, color: 'text-blue-500', bg: 'bg-blue-50', label: 'Awaiting Agent' },
+    'processing': { icon: FaClock, color: 'text-orange-500', bg: 'bg-orange-50', label: 'Processing' },
     'in_transit': { icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-100', label: 'In Transit' },
+    'en_route_to_pick_station': { icon: FaRoute, color: 'text-purple-600', bg: 'bg-purple-100', label: 'To Station' },
+    'at_pick_station': { icon: FaWarehouse, color: 'text-purple-700', bg: 'bg-purple-50', label: 'At Station' },
     'delivered': { icon: FaCheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Delivered' },
     'completed': { icon: FaCheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100', label: 'Completed' },
     'failed': { icon: FaTimes, color: 'text-red-600', bg: 'bg-red-100', label: 'Failed' },
     'cancelled': { icon: FaTimes, color: 'text-red-600', bg: 'bg-red-100', label: 'Cancelled' },
-    'returned': { icon: FaTimes, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Returned' },
-    'return_in_progress': { icon: FaUndo, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Return in Progress' }
+    'returned': { icon: FaUndo, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Returned' }
   };
 
   // Filter options
@@ -78,10 +98,8 @@ export default function AdminOrders() {
     { key: 'processing', label: 'In Transit', count: backendStats?.processing ?? '...' },
     { key: 'delivered', label: 'Delivered', count: backendStats?.delivered ?? '...' },
     { key: 'completed', label: 'Completed', count: backendStats?.completed ?? '...' },
-    { key: 'cancelled', label: 'Cancelled Orders', count: backendStats?.cancelled ?? '...' },
-    { key: 'returned', label: 'Returned Orders', count: backendStats?.returned ?? '...' },
-    { key: 'return_in_progress', label: 'Return in Progress', count: backendStats?.return_in_progress ?? '...' }
-  ];
+    { key: 'cancelled', label: 'Cancelled Orders', count: backendStats?.cancelled ?? '...' }
+];
 
   // Logistics Categories
   const logisticsCategories = {
@@ -218,15 +236,26 @@ export default function AdminOrders() {
     try {
       if (showLoading) setLoading(true);
       const currentPage = isLoadMore ? page + 1 : 1;
+      const orderRequestKey = JSON.stringify({
+        page: currentPage,
+        pageSize,
+        workflowFilter: workflowFilter !== 'all' ? workflowFilter : '',
+        dateFilter: dateFilter !== 'all' ? dateFilter : '',
+        q: debouncedSearch || ''
+      });
+      const lastOrderRequest = recentOrdersRequestAt.get(orderRequestKey) || 0;
+      if (!isLoadMore && Date.now() - lastOrderRequest < ORDERS_REQUEST_DEDUPE_WINDOW_MS) {
+        return;
+      }
+      recentOrdersRequestAt.set(orderRequestKey, Date.now());
 
       const response = await api.get('/orders', {
         params: {
           page: currentPage,
           pageSize,
-          status: statusFilter !== 'all' ? statusFilter : undefined,
           workflowFilter: workflowFilter !== 'all' ? workflowFilter : undefined,
           dateFilter: dateFilter !== 'all' ? dateFilter : undefined,
-          q: searchTerm || undefined
+          q: debouncedSearch || undefined
         },
         signal: abortControllerRef.current.signal
       });
@@ -251,6 +280,12 @@ export default function AdminOrders() {
 
   const loadDrivers = async (showLoading = true) => {
     try {
+      const now = Date.now();
+      if (drivers.length > 0 && (now - recentDriversRequestAt) < DRIVERS_REQUEST_DEDUPE_WINDOW_MS) {
+        return;
+      }
+      recentDriversRequestAt = now;
+
       // Drivers usually load fast and don't change often, but we can silence this too
       const response = await api.get('/admin/delivery/agents');
       setDrivers(response.data || []);
@@ -259,9 +294,24 @@ export default function AdminOrders() {
     }
   };
 
-  useEffect(() => {
-    loadDrivers();
+  const loadReturns = async () => {
+    try {
+        setLoading(true);
+        const res = await api.get('/returns/admin/all', {
+            params: {
+                status: statusFilter !== 'all' ? statusFilter : undefined,
+                q: debouncedSearch || undefined
+            }
+        });
+        setReturns(res.data);
+    } catch (error) {
+        console.error('Failed to load returns:', error);
+    } finally {
+        setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     // Join admin room for real-time updates
     joinAdminRoom();
 
@@ -328,16 +378,24 @@ export default function AdminOrders() {
       if (page === 1) {
         loadOrders(false);
       }
-      loadDrivers(false);
     }, 30000); // 30 seconds
 
     return () => {
       clearInterval(interval);
       socket.off('orderUpdate', handleOrderUpdate);
+      socket.off('orderStatusUpdate', handleOrderStatusUpdate);
+      socket.off('deliveryRequestUpdate', handleOrderStatusUpdate);
+      socket.off('handover:confirmed', handleOrderStatusUpdate);
       socket.off('orderMessage', handleOrderMessage);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []); // NO dependencies — the polling logic stays stable
+
+  useEffect(() => {
+    if (isAssignModalOpen && drivers.length === 0) {
+      loadDrivers(false);
+    }
+  }, [isAssignModalOpen, drivers.length]);
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-KE', {
@@ -406,7 +464,7 @@ export default function AdminOrders() {
   // Handle filter changes to reset pagination
   useEffect(() => {
     loadOrders(true);
-  }, [workflowFilter, statusFilter, dateFilter, searchTerm]);
+  }, [workflowFilter, dateFilter, debouncedSearch]);
 
   const handleLoadMore = () => {
     if (hasMore && !loading) {
@@ -441,12 +499,38 @@ export default function AdminOrders() {
     return groups;
   };
 
+  const filteredOrders = orders.filter(order => {
+    const matchesSearch =
+      !debouncedSearch ||
+      order.orderNumber?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      order.User?.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      order.User?.email?.toLowerCase().includes(debouncedSearch.toLowerCase());
+
+    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+
+    let matchesDate = true;
+    if (dateFilter !== 'all') {
+      const orderDate = new Date(order.createdAt);
+      const now = new Date();
+      if (dateFilter === 'today') {
+        matchesDate = orderDate.toDateString() === now.toDateString();
+      } else if (dateFilter === 'week') {
+        const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+        matchesDate = orderDate >= startOfWeek;
+      } else if (dateFilter === 'month') {
+        matchesDate = orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
+      }
+    }
+
+    return matchesSearch && matchesStatus && matchesDate;
+  });
+
   // Grouping logic for multi-seller orders
   const groupedOrders = (() => {
     const groups = {};
     const result = [];
 
-    orders.forEach(order => {
+    filteredOrders.forEach(order => {
       if (order.checkoutOrderNumber) {
         if (!groups[order.checkoutOrderNumber]) {
           groups[order.checkoutOrderNumber] = [];
@@ -530,6 +614,60 @@ export default function AdminOrders() {
     }
   };
 
+  const handleBulkApproveRequests = async (requestedOrderIds) => {
+    if (requestedOrderIds.length === 0) return;
+    if (!window.confirm(`Approve agent requests for ${requestedOrderIds.length} orders?`)) return;
+    try {
+      setBulkLoading(true);
+      const selectedOrderObjects = orders.filter(o => requestedOrderIds.includes(o.id));
+      const taskIds = selectedOrderObjects
+        .map(o => getOrderDeliveryTask(o)?.id)
+        .filter(id => !!id);
+
+      if (taskIds.length === 0) {
+          alert('No valid requests found in selection.');
+          return;
+      }
+
+      await api.post('/admin/delivery/requests/bulk-approve', { requestIds: taskIds });
+      await loadOrders(false);
+      setSelectedOrders([]);
+      alert(`Approved ${taskIds.length} requests successfully`);
+    } catch (error) {
+      alert('Failed to approve requests: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkRejectRequests = async (requestedOrderIds) => {
+    if (requestedOrderIds.length === 0) return;
+    const reason = window.prompt(`Reject agent requests for ${requestedOrderIds.length} orders? Provide a reason (optional):`);
+    if (reason === null) return;
+
+    try {
+      setBulkLoading(true);
+      const selectedOrderObjects = orders.filter(o => requestedOrderIds.includes(o.id));
+      const taskIds = selectedOrderObjects
+        .map(o => getOrderDeliveryTask(o)?.id)
+        .filter(id => !!id);
+
+      if (taskIds.length === 0) {
+          alert('No valid requests found in selection.');
+          return;
+      }
+
+      await api.post('/admin/delivery/requests/bulk-reject', { requestIds: taskIds, reason });
+      await loadOrders(false);
+      setSelectedOrders([]);
+      alert(`Rejected ${taskIds.length} requests successfully`);
+    } catch (error) {
+      alert('Failed to reject requests: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
 
   const handleBulkAssignDriverUI = () => {
     if (selectedOrders.length === 0) return;
@@ -600,6 +738,24 @@ export default function AdminOrders() {
       }
     } catch (error) {
       alert('Failed: ' + (error.response?.data?.error || error.response?.data?.message || error.message));
+    }
+  };
+
+  const handleViewDetails = async (order) => {
+    if (selectedOrder?.id === order.id) {
+       setSelectedOrder(null);
+       return;
+    }
+    
+    try {
+      setSelectedOrderLoading(true);
+      // Fetch fresh details from the dedicated endpoint
+      const res = await api.get(`/orders/${order.id}`);
+      setSelectedOrder(res.data);
+    } catch (error) {
+      alert('Failed to load order details: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setSelectedOrderLoading(false);
     }
   };
 
@@ -802,14 +958,15 @@ export default function AdminOrders() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-2 text-gray-600">Loading orders...</span>
-      </div>
-    );
-  }
+  // Removed full-page blocking loader for immediate UI shell accessibility
+  // if (loading) {
+  //   return (
+  //     <div className="flex items-center justify-center h-64">
+  //       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+  //       <span className="ml-2 text-gray-600">Loading orders...</span>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="space-y-6">
@@ -877,7 +1034,7 @@ export default function AdminOrders() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {filterOptions.slice(1).map((option) => {
           const isActive = statusFilter === option.key ||
-            (option.key === 'pending' && statusFilter === 'order_placed,seller_confirmed,super_admin_confirmed,en_route_to_warehouse,at_warehouse,received_at_warehouse') ||
+            (option.key === 'pending' && statusFilter === 'order_placed,seller_confirmed,super_admin_confirmed,en_route_to_warehouse,at_warehouse,at_warehouse') ||
             (option.key === 'processing' && statusFilter === 'ready_for_pickup,in_transit');
           return (
             <button
@@ -885,7 +1042,7 @@ export default function AdminOrders() {
               onClick={() => {
                 setWorkflowFilter('all');
                 if (option.key === 'pending') {
-                  setStatusFilter('order_placed,seller_confirmed,super_admin_confirmed,en_route_to_warehouse,at_warehouse,received_at_warehouse');
+                  setStatusFilter('order_placed,seller_confirmed,super_admin_confirmed,en_route_to_warehouse,at_warehouse,at_warehouse');
                 } else if (option.key === 'processing') {
                   setStatusFilter('ready_for_pickup,in_transit');
                 } else {
@@ -1075,15 +1232,48 @@ export default function AdminOrders() {
                   </button>
                 )}
                 {/* ALL STAGES: Assignment is the only bulk action allowed now */}
-                {(workflowFilter === 'awaiting_collection' || workflowFilter === 'at_warehouse' || workflowFilter === 'dispatch_ready' || workflowFilter === 'cancelled') && isHomogeneous && (
-                  <button
-                    onClick={handleBulkAssignDriverUI}
-                    disabled={bulkLoading || hasAssigned}
-                    className={`group px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 ${hasAssigned ? 'bg-gray-400 text-gray-200 cursor-not-allowed shadow-none' : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-100'}`}
-                  >
-                    <FaTruck className="group-hover:translate-x-1 transition-transform" />
-                    {hasAssigned ? 'Review Assignment' : 'Assign Delivery Agent'}
-                  </button>
+                {(workflowFilter === 'awaiting_collection' || workflowFilter === 'at_warehouse' || workflowFilter === 'dispatch_ready' || workflowFilter === 'cancelled' || workflowFilter === 'all') && (
+                  <div className="flex flex-wrap gap-2">
+                    {/* Manual Assignment Button (Existing) */}
+                    <button
+                      onClick={handleBulkAssignDriverUI}
+                      disabled={bulkLoading || hasAssigned}
+                      className={`group px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-lg transition-all active:scale-95 ${hasAssigned ? 'bg-gray-400 text-gray-200 cursor-not-allowed shadow-none' : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-100'}`}
+                    >
+                      <FaTruck className="group-hover:translate-x-1 transition-transform" />
+                      {hasAssigned ? 'Review Assignment' : 'Manual Bulk Assign'}
+                    </button>
+
+                    {/* NEW: Bulk Approve Requested */}
+                    {(() => {
+                        const requestedOrderIds = selectedOrderObjects
+                            .filter(o => getOrderDeliveryTask(o)?.status === 'requested')
+                            .map(o => o.id);
+                        if (requestedOrderIds.length > 0) {
+                            return (
+                                <>
+                                    <button
+                                        onClick={() => handleBulkApproveRequests(requestedOrderIds)}
+                                        disabled={bulkLoading}
+                                        className="group px-5 py-2.5 bg-green-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95"
+                                    >
+                                        <FaCheckCircle className="group-hover:scale-110 transition-transform" />
+                                        Approve {requestedOrderIds.length} Requests
+                                    </button>
+                                    <button
+                                        onClick={() => handleBulkRejectRequests(requestedOrderIds)}
+                                        disabled={bulkLoading}
+                                        className="group px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-red-100 transition-all active:scale-95"
+                                    >
+                                        <FaTimes className="group-hover:rotate-90 transition-transform" />
+                                        Reject {requestedOrderIds.length}
+                                    </button>
+                                </>
+                            );
+                        }
+                        return null;
+                    })()}
+                  </div>
                 )}
 
 
@@ -1160,6 +1350,28 @@ export default function AdminOrders() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
+              {loading && orders.length === 0 ? (
+                <tr>
+                  <td colSpan="11" className="px-6 py-24 text-center">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-black text-gray-900 uppercase tracking-widest">Loading orders...</p>
+                        <p className="text-[10px] text-gray-400 font-bold">Connecting to logistics database</p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : orders.length === 0 ? (
+                <tr>
+                  <td colSpan="11" className="px-6 py-12 text-center text-gray-500">
+                    No orders found for this filter.
+                  </td>
+                </tr>
+              ) : (
+                <>
+                </>
+              )}
               {groupedOrders.map((item) => {
                 const isGroup = item.isGroup;
                 const ordersToRender = isGroup ? [item, ...(expandedGroups.includes(item.checkoutOrderNumber) ? item.subOrders : [])] : [item];
@@ -1264,22 +1476,30 @@ export default function AdminOrders() {
                         {!isParentRow ? (
                           <div className="flex items-center space-x-2">
                             <button
-                              onClick={() => setSelectedOrder(selectedOrder?.id === order.id ? null : order)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                              onClick={() => handleViewDetails(order)}
+                              disabled={selectedOrderLoading && selectedOrder?.id !== order.id}
+                              className={`p-2 ${selectedOrderLoading && selectedOrder?.id === order.id ? 'animate-pulse' : ''} text-blue-600 hover:bg-blue-50 rounded-full transition-colors`}
                               title="View Details"
                             >
-                              <FaEye className="h-4 w-4" />
+                              {selectedOrderLoading && selectedOrder?.id === order.id ? (
+                                <div className="w-4 h-4 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div>
+                              ) : (
+                                <FaEye className="h-4 w-4" />
+                              )}
                             </button>
 
-                            {['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'returned', 'failed'].includes(order.status) && (() => {
+                            {!['delivered', 'completed', 'cancelled'].includes(order.status) && (() => {
                               const activeTask = getOrderDeliveryTask(order);
-                              const isAtHub = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(order.status);
+                              const isAtHub = ['at_warehouse', 'at_warehouse', 'at_pick_station', 'ready_for_pickup'].includes(order.status);
                               const isLocked = !isAtHub && activeTask && ['accepted', 'in_progress'].includes(activeTask.status) && !['failed', 'cancelled'].includes(order.status);
                               const isWarehouseRoute = !['direct_delivery', 'fastfood_direct_delivery', 'fastfood_pickup_point'].includes(order.adminRoutingStrategy) && order.orderCategory !== 'fastfood' && order.shippingType === 'shipped_from_seller';
                               // If current task failed, we shouldn't lock the warehouse state; we need to re-assign
-                              const isLockedForWarehouse = isWarehouseRoute && !isAtHub && activeTask?.status !== 'failed';
+                              // Also, if a task is already specifically 'assigned' (but not yet accepted), we should NOT be locked from re-assigning it.
+                              const isLockedForWarehouse = isWarehouseRoute && !isAtHub && !['failed', 'assigned', 'rejected'].includes(activeTask?.status);
                               // Allow assign if status is confirmed OR if it's at the hub ready for the next leg
-                              const canAssign = order.status === 'seller_confirmed' || order.status === 'super_admin_confirmed' || isAtHub;
+                              // Enforcement: Seller must confirm before assignment is allowed
+                              // Exception: Already assigned orders (re-assignment) or orders at hub (next leg)
+                              const canAssign = order.sellerConfirmed || !!order.deliveryAgentId || !!activeTask?.agentId || isAtHub;
                               const isButtonDisabled = isLocked || isLockedForWarehouse || !canAssign;
 
                               return (
@@ -1816,20 +2036,7 @@ export default function AdminOrders() {
                     Status Lifecycle
                   </h4>
                   {(() => {
-                    const fastFoodOnly = isFastFoodOnlyOrder(selectedOrder);
-                    const hideWarehouseStep = selectedOrder.adminRoutingStrategy === 'direct_delivery' || fastFoodOnly;
-                    const lifecycleSteps = [
-                      { label: 'Placed', status: 'order_placed', done: true },
-                      { label: 'Admin Confirmed', status: 'super_admin_confirmed', done: selectedOrder.superAdminConfirmed },
-                      { label: 'Seller Confirmed', status: 'seller_confirmed', done: selectedOrder.sellerConfirmed },
-                      { label: 'At Warehouse', status: 'at_warehouse', done: !!selectedOrder.warehouseArrivalDate },
-                      { label: 'In Transit', status: 'in_transit', done: ['in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
-                      { label: 'Delivered', status: 'delivered', done: ['delivered', 'completed'].includes(selectedOrder.status) },
-                      { label: 'Complete', status: 'completed', done: selectedOrder.status === 'completed' }
-                    ];
-                    const steps = hideWarehouseStep
-                      ? lifecycleSteps.filter((step) => step.status !== 'at_warehouse')
-                      : lifecycleSteps;
+                    const steps = buildOrderLifecycleSteps(selectedOrder);
 
                     return (
                       <div className="flex flex-wrap gap-4 items-start justify-between relative before:absolute before:h-0.5 before:bg-gray-100 before:top-4 before:left-0 before:right-0 before:-z-10">
@@ -1978,7 +2185,7 @@ export default function AdminOrders() {
                         Assignment Locked: Waiting for item to arrive at warehouse (Seller is shipping to hub).
                       </div>
                     )}
-                    {((selectedOrder.status === 'at_warehouse' || selectedOrder.status === 'received_at_warehouse' || selectedOrder.status === 'ready_for_pickup' || ['cancelled', 'failed'].includes(selectedOrder.status))
+                    {((selectedOrder.status === 'at_warehouse' || selectedOrder.status === 'at_warehouse' || selectedOrder.status === 'ready_for_pickup' || ['cancelled', 'failed'].includes(selectedOrder.status))
                       || (
                         ['seller_confirmed', 'super_admin_confirmed'].includes(selectedOrder.status)
                         && (
@@ -1990,8 +2197,9 @@ export default function AdminOrders() {
                       )) && (() => {
                       const activeTask = getOrderDeliveryTask(selectedOrder);
                       // An order at_warehouse or ready_for_pickup is always re-assignable — old task is done
-                      const isAtHub = ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup'].includes(selectedOrder.status);
-                      const isLocked = !isAtHub && activeTask && ['accepted', 'in_progress'].includes(activeTask.status) && !['failed', 'cancelled'].includes(selectedOrder.status);
+                      const isAtHub = ['at_warehouse', 'at_warehouse', 'ready_for_pickup'].includes(selectedOrder.status);
+                      // Admins can ALWAYS override/re-assign even if an agent has accepted (to fix stuck processing orders)
+                      const isLocked = false; 
 
                       return (
                         <div className="w-full">

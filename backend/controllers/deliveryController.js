@@ -14,6 +14,7 @@ const {
 const { creditPending, moveToSuccess, revertPending } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout, settleDeliveryChargeForTask, upsertDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
 const { creditAgentForTask } = require('../services/earningsService');
+const { appendOrderTrackingUpdate } = require('../utils/trackingUpdates');
 
 const DELIVERY_AVAILABLE_ORDER_STATUSES = [
   'seller_confirmed',
@@ -24,11 +25,19 @@ const DELIVERY_AVAILABLE_ORDER_STATUSES = [
   'at_pick_station',
   'awaiting_delivery_assignment',
   'processing',
-  'received_at_warehouse',
+  'at_warehouse',
   'ready_for_pickup',
   'in_transit',
   'failed',
   'returned'
+];
+
+// Statuses where an external (seller) dispatcher is physically in transit to the destination.
+// While in these statuses WITH a selfDispatcherName set, the order must NOT be visible
+// to delivery agents — it should only appear once the goods have arrived and been confirmed.
+const EXTERNAL_DISPATCHER_TRANSIT_STATUSES = [
+  'en_route_to_warehouse',     // dispatcher heading to warehouse
+  'en_route_to_pick_station'   // dispatcher heading to pickup station
 ];
 
 const ACTIVE_DELIVERY_TASK_STATUSES = ['requested', 'assigned', 'accepted', 'in_progress'];
@@ -44,35 +53,96 @@ const getProvisionalDeliveryType = (order) => {
   }
 
   if (routing === 'warehouse') {
-    // Orders at the warehouse or already moving toward it — next leg is hub → destination
-    const hubStageStatuses = ['en_route_to_warehouse', 'at_warehouse', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'in_transit'];
+    // Hub-stage statuses: item is actually at the warehouse or being handled there.
+    // Next leg starts from warehouse.
+    const hubStageStatuses = ['at_warehouse', 'awaiting_delivery_assignment', 'processing', 'at_warehouse'];
     if (hubStageStatuses.includes(status)) {
       if (deliveryMethod === 'pick_station') {
         return 'warehouse_to_pickup_station';
       }
       return 'warehouse_to_customer';
     }
+    
+    // Leg 1 transitions: moving to hub or at station awaiting hub collection
+    if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse'].includes(status)) {
+      return 'seller_to_warehouse';
+    }
+
     if (['en_route_to_pick_station', 'at_pick_station', 'ready_for_pickup'].includes(status)) {
       return deliveryMethod === 'home_delivery' ? 'pickup_station_to_customer' : 'warehouse_to_pickup_station';
     }
+
+    // Final leg/delivered statuses
+    if (['in_transit', 'in_transit', 'delivered'].includes(status)) {
+      return 'warehouse_to_customer';
+    }
+
     return 'seller_to_warehouse';
   }
 
   if (routing === 'pick_station') {
-    if (deliveryMethod === 'home_delivery' && ['awaiting_delivery_assignment', 'in_transit', 'ready_for_pickup'].includes(status)) {
+    if (deliveryMethod === 'home_delivery' && ['at_pick_station', 'ready_for_pickup', 'awaiting_delivery_assignment', 'in_transit'].includes(status)) {
       return 'pickup_station_to_customer';
     }
     return 'seller_to_pickup_station';
   }
 
   if (routing === 'fastfood_pickup_point') {
-    if (deliveryMethod === 'home_delivery' && ['awaiting_delivery_assignment', 'in_transit', 'ready_for_pickup'].includes(status)) {
+    if (deliveryMethod === 'home_delivery' && ['at_pick_station', 'ready_for_pickup', 'awaiting_delivery_assignment', 'in_transit'].includes(status)) {
       return 'pickup_station_to_customer';
     }
     return 'seller_to_pickup_station';
   }
 
   return 'seller_to_customer';
+};
+
+/**
+ * Internal helper to process a delivery request approval.
+ * Updates both the task and the order within a transaction if provided.
+ */
+const _approveDeliveryRequestInternal = async (task, { deliveryType, deliveryFee, notes, transaction } = {}) => {
+  // Update the task to assigned status
+  await task.update({
+    status: 'assigned',
+    deliveryType: (deliveryType || task.deliveryType),
+    deliveryFee: (deliveryFee !== undefined ? deliveryFee : task.deliveryFee),
+    agentNotes: (notes || task.agentNotes),
+    assignedAt: new Date()
+  }, { transaction });
+
+  // Update the order with the agent assignment
+  if (task.order) {
+    await task.order.update({
+      deliveryAgentId: task.deliveryAgentId,
+      deliveryType: (deliveryType || task.deliveryType),
+      deliveryFee: (deliveryFee !== undefined ? deliveryFee : task.order.deliveryFee)
+    }, { transaction });
+  }
+
+  // Notify Agent (Notification logic is usually outside transaction if possible, but here we can return a flag or just do it)
+  const { createNotification, notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
+  if (task.deliveryAgentId && task.order) {
+    await createNotification(
+      task.deliveryAgentId,
+      'Delivery Request Approved',
+      `Your request to deliver Order #${task.order.orderNumber} has been approved. Route: ${deliveryType || task.deliveryType}.`,
+      'success'
+    );
+
+    let assignedType = deliveryType || task.deliveryType;
+    await notifyDeliveryAgentAssignment(task.deliveryAgentId, task.order, task.order.orderNumber, assignedType);
+
+    const { getIO } = require('../realtime/socket');
+    getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
+      orderId: task.orderId,
+      status: 'approved',
+      taskId: task.id,
+      deliveryType: (deliveryType || task.deliveryType)
+    });
+  }
+  
+  return task;
 };
 
 const orderItemIncludeConfig = [
@@ -360,7 +430,7 @@ const listAvailableOrders = async (req, res) => {
       const status = plain.status;
       
       // If at warehouse/hub
-      if (status === 'at_warehouse' || status === 'received_at_warehouse') {
+      if (status === 'at_warehouse' || status === 'at_warehouse') {
         const hub = plain.DestinationWarehouse || plain.Warehouse;
         pickupLat = hub?.lat;
         pickupLng = hub?.lng;
@@ -409,6 +479,17 @@ const listAvailableOrders = async (req, res) => {
         // This ensures that as soon as one agent requests an order, it disappears for all others.
         // Note: we check hasAnyRequest which includes the 'requested' status.
         return !plain.isLocked && !plain.hasAnyRequest;
+      })
+      .filter((plain) => {
+        // Gate: hide orders where the seller is using an external dispatcher and
+        // the goods have NOT yet arrived at the destination (warehouse or pickup station).
+        // Once the dispatcher arrives and the status transitions (e.g. to at_warehouse,
+        // at_warehouse, at_pick_station, ready_for_pickup), the order becomes visible.
+        if (
+          plain.selfDispatcherName &&
+          EXTERNAL_DISPATCHER_TRANSIT_STATUSES.includes(plain.status)
+        ) return false;
+        return true;
       })
       .filter((plain) => {
         // Also hide orders that are ALREADY assigned to ME but not yet accepted.
@@ -579,7 +660,7 @@ const updateMyOrderStatus = async (req, res) => {
     const { orderId } = req.params;
     const { status, notes } = req.body;
     // Restrict cancellation to admins via admin endpoint only
-    const allowedForAgent = ['processing', 'shipped', 'delivered', 'in_transit', 'out_for_delivery'];
+    const allowedForAgent = ['processing', 'shipped', 'delivered', 'in_transit', 'in_transit'];
     if (!allowedForAgent.includes(status)) {
       return res.status(400).json({ error: 'Invalid status for delivery agent' });
     }
@@ -614,7 +695,7 @@ const updateMyOrderStatus = async (req, res) => {
         return res.status(400).json({ error: 'This delivery task has already been settled.' });
       }
 
-      const taskStatus = status === 'delivered' ? 'completed' : (status === 'processing' || status === 'in_transit' || status === 'out_for_delivery') ? 'in_progress' : task.status;
+      const taskStatus = status === 'delivered' ? 'completed' : (status === 'processing' || status === 'in_transit' || status === 'in_transit') ? 'in_progress' : task.status;
 
       const updates = {
         status: taskStatus,
@@ -840,6 +921,18 @@ const requestOrderAssignment = async (req, res) => {
         return res.status(400).json({ error: `Order is not open for delivery requests in status: ${order.status}` });
       }
 
+      // Guard: reject if seller's external dispatcher hasn't delivered to the destination yet.
+      // The order will become available once confirmed at the warehouse or pickup station.
+      if (
+        order.selfDispatcherName &&
+        EXTERNAL_DISPATCHER_TRANSIT_STATUSES.includes(order.status)
+      ) {
+        await t.rollback();
+        return res.status(400).json({
+          error: 'This order is being handled by the seller\'s external dispatcher and has not yet arrived at its destination. It will become available once confirmed at the warehouse or pickup station.'
+        });
+      }
+
       const openTask = await DeliveryTask.findOne({
         where: {
           orderId,
@@ -883,14 +976,37 @@ const requestOrderAssignment = async (req, res) => {
         agentShare
       }, { transaction: t });
 
+      // Check for AUTO-APPROVE
+      let shouldAutoApprove = false;
+      try {
+        const logisticConfig = await PlatformConfig.findOne({ where: { key: 'logistic_settings' }, transaction: t });
+        if (logisticConfig) {
+          const settings = typeof logisticConfig.value === 'string' ? JSON.parse(logisticConfig.value) : logisticConfig.value;
+          if (settings.autoApproveRequests === true) {
+            shouldAutoApprove = true;
+          }
+        }
+      } catch (confErr) {
+        console.error('Error checking auto-approve config:', confErr);
+      }
+
+      if (shouldAutoApprove) {
+        // We need 'order' attached to 'task' for the helper to work fully (notifications etc)
+        task.order = order; 
+        await _approveDeliveryRequestInternal(task, { transaction: t });
+      }
+
       await t.commit();
+      
+      if (shouldAutoApprove) {
+        return res.json({ message: 'Request auto-approved and assigned!', task: { ...task.get({plain:true}), status: 'assigned' }, autoApproved: true });
+      }
     } catch (txErr) {
       await t.rollback();
       throw txErr;
     }
 
-
-    // Notify Admins
+    // Notify Admins (Only if NOT auto-approved)
     const { User } = require('../models');
     const admins = await User.findAll({ where: { role: ['admin', 'super_admin'] } });
     const { createNotification } = require('../utils/notificationHelpers');
@@ -965,75 +1081,50 @@ const listPendingRequests = async (req, res) => {
 
 // POST /api/delivery/requests/:taskId/approve (Admin Only)
 const adminApproveRequest = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { taskId } = req.params;
     const { deliveryType, deliveryFee, notes } = req.body;
 
     const task = await DeliveryTask.findByPk(taskId, {
-      include: [{ model: Order, as: 'order' }]
+      include: [{ model: Order, as: 'order' }],
+      transaction: t,
+      lock: t.LOCK.UPDATE
     });
-    
-    if (!task) return res.status(404).json({ error: 'Request not found' });
-    if (task.status !== 'requested') return res.status(400).json({ error: 'Only pending requests can be approved' });
 
-    const t = await sequelize.transaction();
-    try {
-      // Update the task to assigned status
-      await task.update({
-        status: 'assigned',
-        deliveryType: deliveryType || task.deliveryType,
-        deliveryFee: deliveryFee !== undefined ? deliveryFee : task.deliveryFee,
-        agentNotes: notes || task.agentNotes,
-        assignedAt: new Date()
-      }, { transaction: t });
-
-      // Update the order with the agent assignment
-      if (task.order) {
-        await task.order.update({
-          deliveryAgentId: task.deliveryAgentId,
-          deliveryType: deliveryType || task.deliveryType,
-          deliveryFee: deliveryFee !== undefined ? deliveryFee : task.order.deliveryFee
-        }, { transaction: t });
-      }
-
-      await t.commit();
-    } catch (txErr) {
+    if (!task) {
       await t.rollback();
-      throw txErr;
+      return res.status(404).json({ error: 'Request not found' });
     }
 
-    // Notify Agent
-    const { createNotification, notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
-    if (task.deliveryAgentId && task.order) {
-      await createNotification(
-        task.deliveryAgentId,
-        'Delivery Request Approved',
-        `Your request to deliver Order #${task.order.orderNumber} has been approved. Route: ${deliveryType || task.deliveryType}.`,
-        'success'
-      );
-
-      let assignedType = deliveryType || task.deliveryType;
-      await notifyDeliveryAgentAssignment(task.deliveryAgentId, task.order, task.order.orderNumber, assignedType);
-
-      const { getIO } = require('../realtime/socket');
-      getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
-        orderId: task.orderId,
-        status: 'approved',
-        taskId: task.id,
-        deliveryType: deliveryType || task.deliveryType
+    if (['assigned', 'accepted', 'arrived_at_pickup', 'in_progress', 'completed'].includes(task.status)) {
+      await t.commit();
+      return res.json({
+        message: 'Request already approved',
+        task: task.get({ plain: true }),
+        alreadyProcessed: true
       });
     }
 
-    res.json({ 
-      message: 'Request approved successfully', 
+    if (task.status !== 'requested') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Only pending requests can be approved' });
+    }
+
+    await _approveDeliveryRequestInternal(task, { deliveryType, deliveryFee, notes, transaction: t });
+    await t.commit();
+
+    return res.json({
+      message: 'Request approved successfully',
       task: {
         ...task.get({ plain: true }),
         status: 'assigned'
       }
     });
   } catch (e) {
+    await t.rollback();
     console.error('Error in adminApproveRequest:', e);
-    res.status(500).json({ error: 'Failed to approve request' });
+    return res.status(500).json({ error: 'Failed to approve request' });
   }
 };
 
@@ -1076,6 +1167,168 @@ const adminRejectRequest = async (req, res) => {
   } catch (e) {
     console.error('Error in adminRejectRequest:', e);
     res.status(500).json({ error: 'Failed to reject request' });
+  }
+};
+
+/**
+ * Admin: Bulk approve delivery requests.
+ * Loops through IDs and processes assignments within a transaction.
+ */
+const adminBulkApproveRequests = async (req, res) => {
+  try {
+    const { taskIds, deliveryType, notes } = req.body;
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ error: 'No task IDs provided' });
+    }
+
+    // Find all 'requested' tasks in the provided list
+    const tasks = await DeliveryTask.findAll({
+      where: { 
+        id: { [Op.in]: taskIds }, 
+        status: 'requested' 
+      },
+      include: [{ model: Order, as: 'order' }]
+    });
+
+    if (tasks.length === 0) {
+      return res.status(404).json({ error: 'No valid pending requests found' });
+    }
+
+    const t = await sequelize.transaction();
+    const results = [];
+    const { createNotification, notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
+    const { getIO } = require('../realtime/socket');
+
+    try {
+      for (const task of tasks) {
+        // 1. Update the task to assigned status
+        await task.update({
+          status: 'assigned',
+          deliveryType: deliveryType || task.deliveryType,
+          assignedAt: new Date(),
+          agentNotes: notes || 'Bulk approved by admin'
+        }, { transaction: t });
+
+        // 2. Update the order with the agent assignment
+        if (task.order) {
+          await task.order.update({
+            deliveryAgentId: task.deliveryAgentId,
+            deliveryType: deliveryType || task.deliveryType
+          }, { transaction: t });
+        }
+
+        results.push(task.id);
+      }
+      await t.commit();
+
+      // Notifications (outside transaction to avoid delays/locking issues)
+      for (const task of tasks) {
+        if (task.deliveryAgentId && task.order) {
+          // Internal Bell Notification
+          await createNotification(
+            task.deliveryAgentId,
+            'Delivery Request Approved 🚚',
+            `Your request for Order #${task.order.orderNumber} has been approved in bulk. Please check your assigned tasks.`,
+            'success'
+          );
+
+          // Standardized Assignment Notifications (Email/SMS/WhatsApp based on settings)
+          let assignedType = deliveryType || task.deliveryType;
+          await notifyDeliveryAgentAssignment(task.deliveryAgentId, task.order, task.order.orderNumber, assignedType);
+
+          // Real-time update
+          getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
+            orderId: task.orderId,
+            status: 'approved',
+            taskId: task.id,
+            deliveryType: assignedType
+          });
+        }
+      }
+    } catch (txErr) {
+      await t.rollback();
+      throw txErr;
+    }
+
+    res.json({ 
+      success: true,
+      message: `Successfully approved ${results.length} requests`, 
+      approvedIds: results 
+    });
+  } catch (e) {
+    console.error('Error in adminBulkApproveRequests:', e);
+    res.status(500).json({ error: 'Failed to bulk approve requests' });
+  }
+};
+
+/**
+ * Admin: Bulk reject delivery requests.
+ */
+const adminBulkRejectRequests = async (req, res) => {
+  try {
+    const { taskIds, reason } = req.body;
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ error: 'No task IDs provided' });
+    }
+
+    const tasks = await DeliveryTask.findAll({
+      where: { 
+        id: { [Op.in]: taskIds }, 
+        status: 'requested' 
+      },
+      include: [{ model: Order, as: 'order' }]
+    });
+
+    if (tasks.length === 0) {
+      return res.status(404).json({ error: 'No valid pending requests found' });
+    }
+
+    const t = await sequelize.transaction();
+    const results = [];
+    const { createNotification } = require('../utils/notificationHelpers');
+    const { getIO } = require('../realtime/socket');
+
+    try {
+      for (const task of tasks) {
+        await task.update({
+          status: 'rejected',
+          rejectionReason: reason || 'Bulk rejected by admin'
+        }, { transaction: t });
+        results.push(task.id);
+      }
+      await t.commit();
+
+      // Notifications
+      for (const task of tasks) {
+        if (task.deliveryAgentId) {
+          await createNotification(
+            task.deliveryAgentId,
+            'Delivery Request Rejected ❌',
+            `Your request for Order #${task.order?.orderNumber || 'Unknown'} was rejected. Reason: ${reason || 'Bulk rejected'}`,
+            'error'
+          );
+          
+          getIO().to(`user:${task.deliveryAgentId}`).emit('deliveryRequestUpdate', {
+            orderId: task.orderId,
+            status: 'rejected',
+            taskId: task.id,
+            rejectionReason: reason
+          });
+        }
+      }
+    } catch (txErr) {
+      await t.rollback();
+      throw txErr;
+    }
+
+    res.json({ 
+      success: true,
+      message: `Successfully rejected ${results.length} requests`, 
+      rejectedIds: results 
+    });
+  } catch (e) {
+    console.error('Error in adminBulkRejectRequests:', e);
+    res.status(500).json({ error: 'Failed to bulk reject requests' });
   }
 };
 
@@ -1156,7 +1409,9 @@ const updateTaskStatus = async (req, res) => {
         if (hubTypes.includes(task.deliveryType)) {
           orderStatus = 'at_warehouse';
         } else if (stationTypes.includes(task.deliveryType)) {
-          orderStatus = 'ready_for_pickup';
+          orderStatus = task.order.deliveryMethod === 'home_delivery' 
+            ? 'at_pick_station' 
+            : 'ready_for_pickup';
         } else if (returnTypes.includes(task.deliveryType)) {
           orderStatus = 'returned';
         } else {
@@ -1172,14 +1427,56 @@ const updateTaskStatus = async (req, res) => {
             if (sellerId) {
               // Get item total (order.total - deliveryFee)
               const sellerAmount = calculateSellerMerchandisePayout(task.order, task.order.OrderItems);
-              await moveToSuccess(sellerId, sellerAmount, task.order.orderNumber, 'Sale Earning', task.orderId, t);
+              await moveToSuccess(sellerId, sellerAmount, task.order.orderNumber, 'Sale Earning', task.orderId, t, 'seller');
             }
 
             // 2. Marketers move to success
+            let totalCommission = 0;
             const commissions = await Commission.findAll({ where: { orderId: task.orderId }, transaction: t });
             for (const comm of commissions) {
-              await moveToSuccess(comm.marketerId, comm.commissionAmount, task.order.orderNumber, 'Commission Earning', task.orderId, t);
+              totalCommission += parseFloat(comm.commissionAmount);
+              await moveToSuccess(comm.marketerId, comm.commissionAmount, task.order.orderNumber, 'Commission Earning', task.orderId, t, 'marketer');
               await comm.update({ status: 'success' }, { transaction: t });
+            }
+
+            // 3. Platform Item Sales Profit (Markup)
+            const { PlatformWallet, PlatformTransaction, OrderItem, Product, FastFood, Service } = require('../models');
+            const deliveredItems = await OrderItem.findAll({
+              where: { orderId: task.orderId },
+              include: [
+                { model: Product, attributes: ['basePrice'] },
+                { model: FastFood, attributes: ['basePrice'] },
+                { model: Service, attributes: ['basePrice'] }
+              ],
+              transaction: t
+            });
+
+            let orderMarkup = 0;
+            for (const item of deliveredItems) {
+              const basePrice = parseFloat(item.Product?.basePrice || item.FastFood?.basePrice || item.Service?.basePrice || 0);
+              const sellPrice = parseFloat(item.price || 0); // unit selling price
+              const qty = parseInt(item.quantity || 1);
+              orderMarkup += (sellPrice - basePrice) * qty;
+            }
+
+            const platformProfit = orderMarkup - totalCommission;
+
+            if (platformProfit > 0) {
+              const wallet = await PlatformWallet.findByPk(1, { transaction: t, lock: true });
+              if (wallet) {
+                wallet.balance = parseFloat(wallet.balance) + platformProfit;
+                wallet.totalEarned = parseFloat(wallet.totalEarned) + platformProfit;
+                await wallet.save({ transaction: t });
+
+                await PlatformTransaction.create({
+                  walletId: wallet.id,
+                  amount: platformProfit,
+                  type: 'credit',
+                  sourceType: 'item_sale',
+                  referenceId: task.order.id.toString(),
+                  description: `Sales profit for Order #${task.order.orderNumber}`
+                }, { transaction: t });
+              }
             }
 
             await t.commit();
@@ -1190,8 +1487,11 @@ const updateTaskStatus = async (req, res) => {
         }
       } else if (status === 'in_progress') {
         const warehouseLegs = ['seller_to_warehouse', 'customer_to_warehouse', 'warehouse_to_seller'];
+        const stationLegs = ['seller_to_pickup_station', 'warehouse_to_pickup_station'];
         if (warehouseLegs.includes(task.deliveryType)) {
           orderStatus = 'en_route_to_warehouse';
+        } else if (stationLegs.includes(task.deliveryType)) {
+          orderStatus = 'en_route_to_pick_station';
         } else {
           orderStatus = 'in_transit';
         }
@@ -1218,6 +1518,14 @@ const updateTaskStatus = async (req, res) => {
       }
 
       await task.order.update(orderUpdates);
+
+      await appendOrderTrackingUpdate(task.order, {
+        status: orderStatus,
+        message: `Delivery leg ${task.deliveryType || 'task'} moved to ${orderStatus.replace(/_/g, ' ')}.`,
+        location: status === 'in_progress' ? task.pickupLocation : task.deliveryLocation,
+        updatedBy: req.user?.id,
+        updatedByRole: req.user?.role || 'delivery_agent'
+      });
 
       // Trigger wallet credit if task is newly completed
       if (status === 'completed') {
@@ -1807,7 +2115,7 @@ const confirmCollection = async (req, res) => {
         break;
       case 'seller_to_pickup_station':
       case 'warehouse_to_pickup_station':
-        newOrderStatus = 'in_transit'; // En route to station
+        newOrderStatus = 'en_route_to_pick_station';
         break;
       default:
         newOrderStatus = 'in_transit';
@@ -1827,6 +2135,14 @@ const confirmCollection = async (req, res) => {
       await task.order.update({
         status: newOrderStatus,
         pickedUpAt: now
+      });
+
+      await appendOrderTrackingUpdate(task.order, {
+        status: newOrderStatus,
+        message: `Collection confirmed for ${deliveryType || 'delivery leg'}: now ${newOrderStatus.replace(/_/g, ' ')}.`,
+        location: task.deliveryLocation || null,
+        updatedBy: req.user?.id,
+        updatedByRole: req.user?.role || 'delivery_agent'
       });
 
       // Notify customer
@@ -2229,6 +2545,8 @@ module.exports = {
   listPendingRequests,
   adminApproveRequest,
   adminRejectRequest,
+  adminBulkApproveRequests,
+  adminBulkRejectRequests,
   confirmCollection,
   markArrivedAtPickup,
   markArrivedAtCustomer,

@@ -13,7 +13,10 @@ module.exports = (sequelize, DataTypes) => {
       description: { type: DataTypes.STRING, allowNull: true },
       note: { type: DataTypes.STRING, allowNull: true },
       orderId: { type: DataTypes.INTEGER, allowNull: true },
-      checkoutGroupId: { type: DataTypes.STRING, allowNull: true }
+      checkoutGroupId: { type: DataTypes.STRING, allowNull: true },
+      metadata: { type: DataTypes.TEXT, allowNull: true },
+      fee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+      walletType: { type: DataTypes.STRING, allowNull: true, defaultValue: null }
     },
     {
       sequelize,

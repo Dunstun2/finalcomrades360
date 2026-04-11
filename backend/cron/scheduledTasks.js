@@ -499,6 +499,25 @@ const initScheduledTasks = () => {
         }
     });
 
+    // Run every 4 minutes - Revert Pending Wallet Credits
+    cron.schedule('0 4 * * *', async () => {
+        console.log('⏰ Running wallet credit reversion task...');
+        try {
+            const pendingOrders = await Order.findAll({
+                where: { status: 'pending' },
+                include: [{ model: User, as: 'seller' }]
+            });
+
+            for (const order of pendingOrders) {
+                await revertPending(order.sellerId, order.totalAmount, order.id);
+            }
+
+            console.log('✅ Wallet credits reverted for pending orders.');
+        } catch (error) {
+            console.error('❌ Error reverting wallet credits:', error);
+        }
+    });
+
     console.log('✅ Scheduled tasks initialized.');
 
     // ─── DISABLED: Auto-confirm agent→customer delivery after 5 min ──

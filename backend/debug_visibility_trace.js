@@ -14,7 +14,7 @@ async function debug() {
     if (!profile) { console.log('Brian profile not found'); return; }
     if (!profile.isActive) { console.log('Brian profile marked as INACTIVE'); }
     
-    const DELIVERY_AVAILABLE_ORDER_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'failed', 'returned' ];
+    const DELIVERY_AVAILABLE_ORDER_STATUSES = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'at_warehouse', 'ready_for_pickup', 'in_transit', 'failed', 'returned' ];
     
     const order = await Order.findByPk(orderId, {
         include: [

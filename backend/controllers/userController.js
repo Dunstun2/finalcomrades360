@@ -69,33 +69,32 @@ const requestEmailChange = async (req, res) => {
 
 // Confirm email change using token
 const confirmEmailChange = async (req, res) => {
-  const userId = req.user.id;
-  const { token } = req.body || {};
-  try {
-    const user = await User.findByPk(userId);
-    if (!user) return res.status(404).json({ message: 'User not found.' });
-    if (!user.emailChangeToken || !user.pendingEmail) {
-      console.warn('⚠️ [confirmEmailChange] 400 Error: No pending email request', { userId });
-      return res.status(400).json({ message: 'No email change requested.' });
+    const { token } = req.body;
+    try {
+        const user = await User.findByPk(req.user.id);
+        if (!user || !user.emailChangeToken || !user.pendingEmail) {
+            return res.status(400).json({ message: 'No email change request found' });
+        }
+
+        if (user.emailChangeToken !== token) {
+            return res.status(400).json({ message: 'Invalid token' });
+        }
+
+        if (new Date(user.emailChangeExpiresAt) < new Date()) {
+            return res.status(400).json({ message: 'Token expired' });
+        }
+
+        user.email = user.pendingEmail;
+        user.emailVerified = true;
+        user.pendingEmail = null;
+        user.emailChangeToken = null;
+        user.emailChangeExpiresAt = null;
+        await user.save();
+
+        res.json({ message: 'Email updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error confirming email change', error: error.message });
     }
-    if (user.emailChangeToken !== token) {
-      console.warn('⚠️ [confirmEmailChange] 400 Error: Token mismatch', { userId, sentToken: token, realToken: user.emailChangeToken });
-      return res.status(400).json({ message: 'Invalid token.' });
-    }
-    if (user.emailChangeExpiresAt && new Date(user.emailChangeExpiresAt) < new Date()) {
-      console.warn('⚠️ [confirmEmailChange] 400 Error: Token expired', { userId, expiresAt: user.emailChangeExpiresAt });
-      return res.status(400).json({ message: 'Token expired.' });
-    }
-    user.email = user.pendingEmail;
-    user.pendingEmail = null;
-    user.emailChangeToken = null;
-    user.emailChangeExpiresAt = null;
-    user.emailVerified = true;
-    await user.save();
-    res.json({ message: 'Email updated successfully.' });
-  } catch (e) {
-    res.status(500).json({ message: 'Server error confirming email change.', error: e.message });
-  }
 };
 
 // Request phone change: generate OTP, store pendingPhone
@@ -125,20 +124,20 @@ const requestPhoneOtp = async (req, res) => {
 
     // Send OTP to the NEW phone number
     try {
-      const deliveryMethod = method === 'whatsapp' ? 'whatsapp' : 'sms';
+      const deliveryMethod = method === 'sms' ? 'sms' : 'whatsapp';
       const message = await getDynamicMessage('phoneVerification', 
         `Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.`,
-        { otp }
+        { name: user.name || user.username || 'User', otp }
       );
       await sendMessage(norm, message, deliveryMethod);
     } catch (err) {
-      console.error(`Error sending OTP via ${method}:`, err.message);
+      console.error(`Error sending OTP via ${method || 'WhatsApp'}:`, err.message);
     }
 
 
-    try { await Notification.create({ userId, title: 'Phone OTP', message: `An OTP was sent to your new phone number via ${method || 'SMS'}.` }); } catch (err) { }
+    try { await Notification.create({ userId, title: 'Phone OTP', message: `An OTP was sent to your new phone number via ${method === 'sms' ? 'SMS' : 'WhatsApp'}.` }); } catch (err) { }
 
-    res.json({ message: `OTP sent to your new phone via ${method === 'whatsapp' ? 'WhatsApp' : 'SMS'}. Please confirm to update phone.` });
+    res.json({ message: `OTP sent to your new phone via ${method === 'sms' ? 'SMS' : 'WhatsApp'}. Please confirm to update phone.` });
   } catch (e) {
     console.error('Critical Error in requestPhoneOtp:', e);
     res.status(500).json({ message: 'Server error requesting phone OTP.', error: e.message });
@@ -186,11 +185,35 @@ const changePassword = async (req, res) => {
   }
 };
 const makeRef = () => `COMRADES360-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+// Helper to strip placeholders so frontend forms show empty fields
+const sanitizeUserPayload = (userData) => {
+  const u = { ...userData };
+  let originalEmail = u.email;
+  let originalPhone = u.phone;
+
+  if (u.email && u.email.startsWith('noemail_')) u.email = '';
+  if (u.phone && u.phone.startsWith('nophone_')) u.phone = '';
+
+  // Clear name if it matches the email prefix or is "UserXXXX"
+  if (u.name) {
+    if (/^User\d{0,4}$/.test(u.name)) {
+      u.name = '';
+    } else if (originalEmail && typeof originalEmail === 'string') {
+      const prefix = originalEmail.split('@')[0];
+      if (u.name === prefix) u.name = '';
+    }
+  }
+  return u;
+};
+
 const me = async (req, res) => {
   const u = await User.findByPk(req.user.id, {
     attributes: { exclude: ['password', 'emailChangeToken', 'phoneOtp'] }
   });
-  res.json(u);
+  if (!u) return res.status(404).json({ message: 'User not found' });
+  const safeData = sanitizeUserPayload(u.get({ plain: true }));
+  res.json(safeData);
 };
 const applyRole = async (req, res) => { const { name, email, phone, password, role, nationalIdNumber } = req.body; if (!['seller', 'marketer', 'delivery'].includes(role)) return res.status(400).json({ error: 'Invalid role' }); let userId = req.user?.id; let u = null; if (!userId) { if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email' }); const norm = normalizeKenyanPhone(phone); if (!norm) return res.status(400).json({ error: 'Invalid phone' }); const hashed = await bcrypt.hash(password || Math.random().toString(36), 10); u = await User.create({ name, email, phone: norm, password: hashed, publicId: await genPublic(), referralCode: makeRef(), role: 'customer' }); userId = u.id; } const otp = `${Math.floor(100000 + Math.random() * 900000)}`; const r = await UserRole.create({ userId, role, nationalIdNumber, phoneOtp: otp, phoneOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) }); return res.json({ message: 'Role application received', otp, userRoleId: r.id }); };
 const verifyRolePhone = async (req, res) => { const { userRoleId, otp } = req.body; const r = await UserRole.findByPk(userRoleId); if (!r || r.phoneOtp !== otp || r.phoneOtpExpiresAt < new Date()) return res.status(400).json({ error: 'Invalid/expired OTP' }); await r.update({ phoneOtp: null }); return res.json({ message: 'Phone verified' }); };
@@ -211,7 +234,7 @@ const listPendingRoles = async (_req, res) => {
 const updateProfile = async (req, res) => {
   const userId = req.user.id;
   const {
-    name, username, county, town, estate, houseNumber, additionalPhone, bio, gender, dateOfBirth, profileVisibility,
+    name, phone, username, county, town, estate, houseNumber, additionalPhone, bio, gender, dateOfBirth, profileVisibility,
     businessName, businessAddress, businessCounty, businessTown, businessLandmark, businessPhone,
     businessLat, businessLng
   } = req.body || {};
@@ -227,6 +250,23 @@ const updateProfile = async (req, res) => {
 
     // Update basic profile fields
     if (name !== undefined && name !== null) user.name = String(name).trim();
+    
+    // Update phone
+    if (phone !== undefined) {
+      if (phone) {
+        const normPhone = normalizeKenyanPhone(phone);
+        if (!normPhone) return res.status(400).json({ message: 'Invalid phone number format.' });
+        if (normPhone !== user.phone) {
+          const existing = await User.findOne({ where: { phone: normPhone, id: { [Op.ne]: userId } } });
+          if (existing) return res.status(400).json({ message: 'Phone number already in use.' });
+          user.phone = normPhone;
+          // user.phoneVerified = false; // Optional: Reset verification if it changes
+        }
+      } else {
+        // user.phone = null; // SQLite NOT NULL might prevent this, but usually we want to keep it
+      }
+    }
+
     if (username !== undefined && username !== null) {
       const trimmedUsername = String(username).trim();
       if (trimmedUsername && trimmedUsername !== user.username) {
@@ -442,7 +482,7 @@ const getFullProfile = async (req, res) => {
     // Add order count
     userData.totalOrders = await Order.count({ where: { userId: user.id } });
 
-    res.json(userData);
+    res.json(sanitizeUserPayload(userData));
   } catch (error) {
     console.error('Error fetching full user profile:', error);
     res.status(500).json({ message: 'Error fetching user profile', error: error.message });

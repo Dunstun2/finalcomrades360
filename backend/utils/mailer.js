@@ -1,18 +1,40 @@
 // Attempt to send real email using Nodemailer if SMTP env vars are set and nodemailer is installed.
 // Falls back to console logging in development.
-async function sendEmail(to, subject, text) {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env || {};
-  const hasSmtp = SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS;
 
-  if (hasSmtp) {
+let _transporter = null;
+
+function getTransporter() {
+  if (_transporter) return _transporter;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env || {};
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) return null;
+  try {
+    const nodemailer = require('nodemailer');
+    _transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT),
+      secure: Number(SMTP_PORT) === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      pool: true,          // reuse connections
+      maxConnections: 3,
+      maxMessages: 100,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
+    });
+    console.log('[Mailer] SMTP transporter created (pooled)');
+    return _transporter;
+  } catch (e) {
+    console.warn('[Mailer] Failed to create transporter:', e.message);
+    return null;
+  }
+}
+
+async function sendEmail(to, subject, text) {
+  const transporter = getTransporter();
+  const { SMTP_USER, SMTP_FROM } = process.env || {};
+
+  if (transporter) {
     try {
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: SMTP_HOST,
-        port: Number(SMTP_PORT),
-        secure: Number(SMTP_PORT) === 465, // true for 465, false for other ports
-        auth: { user: SMTP_USER, pass: SMTP_PASS }
-      });
       const info = await transporter.sendMail({
         from: SMTP_FROM || `Comrades360 <${SMTP_USER}>`,
         to,
@@ -39,3 +61,4 @@ async function sendEmail(to, subject, text) {
 }
 
 module.exports = { sendEmail };
+

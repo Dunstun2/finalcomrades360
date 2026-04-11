@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 
@@ -99,6 +100,7 @@ const OtpConfirm = ({ label, placeholder, buttonLabel, loading, onConfirm, onCan
 // ══════════════════════════════════════════════════════════════════════════════
 
 const ProfileSettings = () => {
+  const navigate = useNavigate();
   const { user, updateUser } = useAuth();
 
   // ── Basic profile form ────────────────────────────────────────────────────
@@ -157,8 +159,11 @@ const ProfileSettings = () => {
     try {
       await api.post('/users/me/phone-otp/confirm', { otp });
       setPhoneMsg({ type: 'success', text: '✅ Phone number updated successfully!' });
-      setPhoneStep('done');
       setNewPhone('');
+      
+      // Redirect to account verification page
+      navigate('/customer/account-verification');
+
       // Refresh user data
       const me = await api.get('/users/me');
       updateUser(me.data);

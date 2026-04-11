@@ -1,5 +1,17 @@
 const { Payment, Order } = require('../../models');
 const mpesaService = require('./mpesaService');
+const { Op } = require('sequelize');
+
+const ELIGIBLE_PAYMENT_CONFIRMATION_STATUSES = [
+    'order_placed', 
+    'seller_confirmed', 
+    'super_admin_confirmed', 
+    'en_route_to_warehouse', 
+    'at_warehouse', 
+    'at_warehouse', 
+    'awaiting_delivery_assignment', 
+    'processing'
+];
 
 class PaymentVerificationService {
   // Verify M-Pesa payment status with enhanced logic
@@ -78,9 +90,8 @@ class PaymentVerificationService {
 
         // Update order if not already updated
         if (!payment.order.paymentConfirmed) {
-          const statusGuards = ['order_placed', 'super_admin_confirmed'];
           const updateData = { paymentConfirmed: true };
-          if (statusGuards.includes(payment.order.status)) {
+          if (ELIGIBLE_PAYMENT_CONFIRMATION_STATUSES.includes(payment.order.status)) {
             updateData.status = 'paid';
           }
           await payment.order.update(updateData);
@@ -194,18 +205,17 @@ class PaymentVerificationService {
         })
       });
 
-      // Update order
-      const statusGuards = ['order_placed', 'super_admin_confirmed'];
-      const updateData = { 
-        paymentConfirmed: true,
-        paymentMethod: method?.toLowerCase().includes('mpesa') ? 'M-Pesa' : (method === 'bank_transfer' ? 'Bank Transfer' : method)
-      };
-      
-      if (statusGuards.includes(payment.order.status)) {
-        updateData.status = 'paid';
-      }
+        // Update order
+        const updateData = { 
+            paymentConfirmed: true,
+            paymentMethod: method?.toLowerCase().includes('mpesa') ? 'M-Pesa' : (method === 'bank_transfer' ? 'Bank Transfer' : (method === 'manual' ? 'Manual' : method))
+        };
+        
+        if (ELIGIBLE_PAYMENT_CONFIRMATION_STATUSES.includes(payment.order.status)) {
+            updateData.status = 'paid';
+        }
 
-      await payment.order.update(updateData);
+        await payment.order.update(updateData);
 
       // Add tracking update
       let trackingUpdates = [];

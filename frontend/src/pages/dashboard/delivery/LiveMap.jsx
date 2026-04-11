@@ -61,6 +61,7 @@ const DeliveryLiveMap = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState(null);
+    const [locationSharing, setLocationSharing] = useState(false);
 
     const fetchStatus = async () => {
         try {
@@ -131,6 +132,18 @@ const DeliveryLiveMap = () => {
     };
 
     const watchIdRef = useRef(null);
+    const locationPushRef = useRef(null);
+    const latestLocationRef = useRef(null);
+
+    // Push location to backend so customers see live tracking
+    const pushLocationToBackend = async (lat, lng) => {
+        if (!lat || !lng) return;
+        try {
+            await api.patch('/delivery/profile/location', { lat, lng });
+        } catch (e) {
+            // Silent fail – don't disrupt UX
+        }
+    };
 
     useEffect(() => {
         fetchStatus();
@@ -139,10 +152,9 @@ const DeliveryLiveMap = () => {
         if ("geolocation" in navigator && !window._geoDenied) {
             watchIdRef.current = navigator.geolocation.watchPosition(
                 (pos) => {
-                    setCurrentLocation({
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
+                    const { latitude: lat, longitude: lng } = pos.coords;
+                    setCurrentLocation({ lat, lng });
+                    latestLocationRef.current = { lat, lng };
                 },
                 (err) => {
                     if (err.code === 1) { // PERMISSION_DENIED
@@ -153,19 +165,29 @@ const DeliveryLiveMap = () => {
                     }
                 },
                 {
-                    enableHighAccuracy: false,
+                    enableHighAccuracy: true,
                     timeout: 10000,
-                    maximumAge: 60000
+                    maximumAge: 5000
                 }
             );
+
+            // Push location to backend every 15 seconds if online
+            locationPushRef.current = setInterval(() => {
+                const loc = latestLocationRef.current;
+                if (loc && isOnline) {
+                    pushLocationToBackend(loc.lat, loc.lng);
+                    setLocationSharing(true);
+                }
+            }, 15000);
         }
 
         const interval = setInterval(fetchActiveOrder, 30000);
         return () => {
             if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
+            if (locationPushRef.current) clearInterval(locationPushRef.current);
             clearInterval(interval);
         };
-    }, []);
+    }, [isOnline]);
 
     if (loading) return <div className="p-8 text-center text-gray-500 flex items-center justify-center gap-2"><FaSpinner className="animate-spin" /> Initializing Map...</div>;
 
@@ -174,7 +196,15 @@ const DeliveryLiveMap = () => {
             <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-lg shadow gap-4">
                 <div className="flex-1">
                     <h2 className="text-lg font-bold text-gray-900">Live Map (Real-Time)</h2>
-                    <p className="text-sm text-gray-500">{isOnline ? 'You are online and tracking deliveries' : 'You are offline'}</p>
+                    <p className="text-sm text-gray-500">
+                        {isOnline ? 'You are online and tracking deliveries' : 'You are offline'}
+                        {locationSharing && isOnline && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-green-600 text-xs font-semibold">
+                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse inline-block" />
+                                Sharing location
+                            </span>
+                        )}
+                    </p>
                 </div>
 
                 {/* Search Bar */}

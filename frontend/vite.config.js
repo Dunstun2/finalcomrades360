@@ -24,6 +24,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'react-native': 'react-native-web',
+      'react-native-svg': 'react-native-svg',
     },
   },
   server: {
@@ -43,20 +45,20 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy API requests to the backend
       '/api': {
-        target: 'http://127.0.0.1:5002',
+        target: 'http://127.0.0.1:5001',
         changeOrigin: true,
         secure: false,
         ws: true, // Enable WebSocket proxying
       },
       // Proxy WebSocket requests
       '/socket.io': {
-        target: 'ws://localhost:5002',
+        target: 'ws://localhost:5001',
         ws: true,
         changeOrigin: true,
       },
       // Proxy uploads directory for images
       '/uploads': {
-        target: 'http://localhost:5002',
+        target: 'http://localhost:5001',
         changeOrigin: true,
         secure: false,
         ws: true,

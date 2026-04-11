@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import api from '../../utils/api';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import api from '../../services/api';
 
 // Map each handoverType to a human label and icon
 const HANDOVER_META = {
@@ -10,6 +10,8 @@ const HANDOVER_META = {
     agent_to_customer:  { label: 'Agent → Customer Delivery',       giverTitle: 'Delivery Code',        receiverTitle: 'Customer Delivery Confirmation',  giverHint: 'Share this code with the customer when delivering their order.', receiverHint: 'Enter the code provided by the delivery agent to confirm you have received your order.' },
     station_to_customer:{ label: 'Station → Customer Collection',     giverTitle: 'Pickup Code',         receiverTitle: 'Customer Pickup Confirmation',    giverHint: 'Share this code with the customer when they arrive for collection.', receiverHint: 'Enter the code provided by the station manager to confirm you have picked up your order.' },
     seller_to_warehouse:{ label: 'Seller → Warehouse (Internal)',    giverTitle: 'Dispatch Code',        receiverTitle: 'Warehouse Receipt Confirmation',  giverHint: 'Share this code with the warehouse staff when dropping off the order.', receiverHint: 'Enter the code from the seller/internal dispatcher to confirm receipt at the warehouse.' },
+    pickup_station_to_warehouse: { label: 'Station → Warehouse Drop-off', giverTitle: 'Station Release Code', receiverTitle: 'Warehouse Receipt Confirmation', giverHint: 'Share this code with the delivery agent or warehouse staff.', receiverHint: 'Enter the code from the station manager to confirm receipt.' },
+    station_to_agent:      { label: 'Station → Agent Pickup',         giverTitle: 'Station Release Code', receiverTitle: 'Agent Pickup Confirmation',     giverHint: 'Share this code with the delivery agent when they collect the item.', receiverHint: 'Enter the code from the station manager to confirm collection.' },
 };
 
 /**
@@ -26,6 +28,7 @@ export default function HandoverCodeWidget({
     mode,
     handoverType,
     orderId,
+    orderIds, // Stable memoization handled below
     taskId,
     onConfirmed,
     buttonLabel,
@@ -36,6 +39,13 @@ export default function HandoverCodeWidget({
     const meta = HANDOVER_META[handoverType] || {};
     const defaultContainerClass = `rounded-xl border-2 border-blue-200 bg-blue-50`;
     const activeContainerClass = containerClass || defaultContainerClass;
+
+    // Normalize IDs: if orderIds is provided, use it. Otherwise use [orderId].
+    const ids = useMemo(() => {
+        const baseIds = orderIds || [];
+        return baseIds.length > 0 ? baseIds : (orderId ? [orderId] : []);
+    }, [orderId, orderIds]);
+    const isBulk = ids.length > 1;
 
     // GIVER state
     const [code, setCode] = useState('');
@@ -54,42 +64,53 @@ export default function HandoverCodeWidget({
     const [success, setSuccess] = useState('');
     const [isConfirmed, setIsConfirmed] = useState(false);
     const [isCodeHidden, setIsCodeHidden] = useState(false);
+    const [hasActiveCode, setHasActiveCode] = useState(false);
+    const [initialLoadDone, setInitialLoadDone] = useState(false);
+    const [actualType, setActualType] = useState(null);
 
-    // On mount: check if there's already an active or confirmed code
-    useEffect(() => {
-        if (!orderId) return;
-        api.get(`/handover/status/${orderId}/${handoverType}`)
-            .then(res => {
-                if (res.data.active) {
-                    setCode(res.data.code);
-                    setExpiresAt(new Date(res.data.expiresAt));
-                    if (res.data.autoConfirmAt) {
-                        setAutoConfirmAt(new Date(res.data.autoConfirmAt));
-                    }
+    // On mount: check status of the FIRST order in the set (proxy for the group)
+    const checkStatus = useCallback(async () => {
+        if (ids.length === 0) return;
+        try {
+            const res = await api.get(`/handover/status/${ids[0]}/${handoverType}`);
+            setHasActiveCode(res.data.active);
+            if (res.data.active) {
+                if (res.data.code) setCode(res.data.code);
+                if (res.data.actualHandoverType) setActualType(res.data.actualHandoverType);
+                setExpiresAt(new Date(res.data.expiresAt));
+                if (res.data.autoConfirmAt) {
+                    setAutoConfirmAt(new Date(res.data.autoConfirmAt));
                 }
-                if (res.data.confirmed) {
-                    setIsConfirmed(true);
-                }
-            })
-            .catch(() => {}); // Silent fail
-    }, [orderId, handoverType]);
+            }
+            if (res.data.confirmed) {
+                setIsConfirmed(true);
+            }
+            setInitialLoadDone(true);
+        } catch (err) {
+            setInitialLoadDone(true);
+        }
+    }, [ids, handoverType]);
 
-    // Poll for confirmation if we are in giver mode and have a code
     useEffect(() => {
-        if (mode !== 'giver' || !code || isConfirmed) return;
+        checkStatus();
+    }, [checkStatus]);
+
+    // Poll for confirmation
+    useEffect(() => {
+        if (mode !== 'giver' || !code || isConfirmed || ids.length === 0) return;
         const interval = setInterval(async () => {
             try {
-                const res = await api.get(`/handover/status/${orderId}/${handoverType}`);
+                const res = await api.get(`/handover/status/${ids[0]}/${handoverType}`);
                 if (res.data.confirmed) {
                     setIsConfirmed(true);
-                    setSuccess('✅ Handover confirmed and completed!');
+                    setSuccess('✅ Bulk handover confirmed!');
                     clearInterval(interval);
                     if (onConfirmed) onConfirmed(res.data);
                 }
             } catch (err) {}
         }, 5000);
         return () => clearInterval(interval);
-    }, [mode, code, isConfirmed, orderId, handoverType]);
+    }, [mode, code, isConfirmed, ids, handoverType, onConfirmed]);
 
     // Countdown timer for the giver (code expiration)
     useEffect(() => {
@@ -138,60 +159,88 @@ export default function HandoverCodeWidget({
     }, [code, isConfirmed, isCodeHidden]);
 
     const handleGenerate = useCallback(async () => {
+        if (ids.length === 0) return;
         setError('');
         setGenerating(true);
         try {
-            const res = await api.post('/handover/generate', { orderId, taskId, handoverType });
+            let res;
+            if (isBulk) {
+                // Use the bulk generation endpoint
+                res = await api.post('/handover/bulk-generate', { orderIds: ids, handoverType });
+            } else {
+                res = await api.post('/handover/generate', { orderId: ids[0], taskId, handoverType });
+            }
+            
             setCode(res.data.code);
             setExpiresAt(new Date(res.data.expiresAt));
             if (res.data.autoConfirmAt) {
                 setAutoConfirmAt(new Date(res.data.autoConfirmAt));
             }
-            setIsCodeHidden(false); // Make sure it's visible after generation
+            setIsCodeHidden(false);
+            setIsConfirmed(false);
             setSuccess('');
         } catch (err) {
-            setError(err.response?.data?.error || 'Failed to generate code. Please try again.');
+            setError(err.response?.data?.error || 'Failed to generate code.');
         } finally {
             setGenerating(false);
         }
-    }, [orderId, taskId, handoverType]);
+    }, [ids, isBulk, taskId, handoverType]);
 
     useEffect(() => {
-        if (mode !== 'giver' || !autoGenerate || !orderId) return;
+        if (mode !== 'giver' || !autoGenerate || ids.length === 0) return;
         if (code || generating || isConfirmed) return;
         handleGenerate();
-    }, [mode, autoGenerate, orderId, code, generating, isConfirmed, handleGenerate]);
+    }, [mode, autoGenerate, ids, code, generating, isConfirmed, handleGenerate]);
 
     const handleConfirm = useCallback(async () => {
         if (inputCode.length !== 5) {
             setError('Please enter the full 5-digit code.');
             return;
         }
+        if (ids.length === 0) return;
+        
         setError('');
         setConfirming(true);
         try {
-            const res = await api.post('/handover/confirm', {
-                code: inputCode.trim(),
-                orderId,
-                handoverType
-            });
-            setSuccess(res.data.message || '✅ Handover confirmed!');
+            let res;
+            if (isBulk) {
+                 res = await api.post('/handover/bulk-confirm', {
+                    code: inputCode.trim(),
+                    orderIds: ids,
+                    handoverType: handoverType
+                });
+            } else {
+                res = await api.post('/handover/confirm', {
+                    code: inputCode.trim(),
+                    orderId: ids[0],
+                    handoverType: actualType || handoverType,
+                    taskId
+                });
+            }
+            setSuccess(res.data.message || '✅ Confirmed!');
             setError('');
             if (onConfirmed) onConfirmed(res.data);
         } catch (err) {
-            setError(err.response?.data?.error || 'Invalid or expired code. Please check and try again.');
+            setError(err.response?.data?.error || 'Invalid code.');
         } finally {
             setConfirming(false);
         }
-    }, [inputCode, orderId, handoverType, onConfirmed]);
+    }, [inputCode, ids, isBulk, handoverType, actualType, taskId, onConfirmed]);
 
     // ═══════════════ GIVER UI ═════════════════════════════════════════════════
     if (mode === 'giver') {
         if (isConfirmed) {
             return (
-                <div className="rounded-xl border-2 border-green-300 bg-green-50 p-4 text-center space-y-1">
+                <div className="rounded-xl border-2 border-green-300 bg-green-50 p-4 text-center space-y-2">
                     <p className="text-green-700 font-bold text-lg">✅ Confirmed!</p>
                     <p className="text-green-600 text-sm">{success || 'Handover confirmed successfully.'}</p>
+                    <button 
+                        onClick={handleGenerate} 
+                        disabled={generating}
+                        className="w-full py-1.5 bg-green-100 hover:bg-green-200 text-green-700 text-[10px] uppercase tracking-wider font-black rounded-lg border border-green-300 transition-all active:scale-95"
+                    >
+                        {generating ? 'Regenerating...' : '🔄 Regenerate release code anyway?'}
+                    </button>
                 </div>
             );
         }
@@ -268,6 +317,29 @@ export default function HandoverCodeWidget({
                 <div className="rounded-xl border-2 border-green-300 bg-green-50 p-4 text-center space-y-1">
                     <p className="text-green-700 font-bold text-lg">✅ Confirmed!</p>
                     <p className="text-green-600 text-sm">{success}</p>
+                </div>
+            );
+        }
+
+        if (initialLoadDone && !hasActiveCode && !isConfirmed) {
+            return (
+                <div className="rounded-xl border-2 border-amber-100 bg-amber-50 p-4 text-center space-y-3">
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-amber-500 animate-pulse">
+                            <span className="text-xl">⏳</span>
+                        </div>
+                        <div className="space-y-1">
+                            <p className="font-bold text-amber-800 text-sm">Waiting for Handover Code</p>
+                            <p className="text-[10px] text-amber-600 max-w-[200px] mx-auto">The giver hasn't generated a release code for this leg yet. Please ask them to click "Generate Code" on their screen.</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={checkStatus} 
+                        className="px-4 py-2 bg-white hover:bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-lg border border-amber-200 transition-all active:scale-95 shadow-sm flex items-center gap-2 mx-auto"
+                    >
+                        🔄 Refresh Status
+                    </button>
+                    {error && <p className="text-xs text-red-600 font-semibold text-center bg-red-50 rounded-lg p-2">{error}</p>}
                 </div>
             );
         }

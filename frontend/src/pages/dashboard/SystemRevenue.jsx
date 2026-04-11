@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../../services/api';
 import {
-    FaMoneyBillWave, FaTruck, FaTimes, FaChevronRight, FaCogs, FaClock, FaArrowLeft
+    FaMoneyBillWave, FaTruck, FaTimes, FaChevronRight, FaCogs, FaClock, FaArrowLeft, FaPercentage
 } from 'react-icons/fa';
 
 export default function SystemRevenue() {
@@ -11,15 +11,23 @@ export default function SystemRevenue() {
             itemSaleRevenue: 0,
             marketerRevenue: 0,
             deliveryRevenue: 0,
-            agentRevenue: 0
+            agentRevenue: 0,
+            withdrawalFeeRevenue: 0
         },
-        orders: []
+        orders: [],
+        withdrawalTransactions: []
     });
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selectedRevenueOrder, setSelectedRevenueOrder] = useState(null);
-    const [activeRevenueType, setActiveRevenueType] = useState('overview'); // 'overview', 'item', 'delivery'
+    const [activeRevenueType, setActiveRevenueType] = useState('overview'); // 'overview', 'item', 'delivery', 'withdrawal'
+    const [platformWallet, setPlatformWallet] = useState(null);
+    const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+
+    // Get current user role
+    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const isSuperAdmin = currentUser?.role === 'super_admin';
 
     const navigate = useNavigate();
 
@@ -33,9 +41,19 @@ export default function SystemRevenue() {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const revenueRes = await adminApi.getRevenueAnalytics();
-                if (revenueRes.data) {
+                const [revenueRes, walletRes] = await Promise.all([
+                    adminApi.getRevenueAnalytics(),
+                    adminApi.getPlatformWalletDetails().catch(e => {
+                        console.error("Platform wallet fetch failed, probably standard admin:", e);
+                        return null; // Might fail if normal admin and API limits it, but currently route is adminOrFinance
+                    })
+                ]);
+                
+                if (revenueRes?.data) {
                     setRevenueStats(revenueRes.data);
+                }
+                if (walletRes?.data && walletRes.data.wallet) {
+                    setPlatformWallet({ ...walletRes.data.wallet, transactions: walletRes.data.transactions });
                 }
             } catch (err) {
                 console.error('Error fetching revenue data:', err);
@@ -95,8 +113,38 @@ export default function SystemRevenue() {
                 </div>
             </header>
 
+            {/* Main Platform Wallet Section */}
+            {platformWallet && (
+                <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-black rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden mb-8">
+                    <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-400 mb-2">Main Platform Wallet</p>
+                            <h2 className="text-5xl font-black">{formatCurrency(platformWallet.balance)}</h2>
+                            <div className="flex gap-6 mt-4 text-sm text-slate-400">
+                                <p>Total Earned: <span className="text-emerald-400 font-bold">{formatCurrency(platformWallet.totalEarned)}</span></p>
+                                <p>Total Withdrawn: <span className="text-red-400 font-bold">{formatCurrency(platformWallet.totalWithdrawn)}</span></p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => { setActiveRevenueType('wallet_ledger'); window.scrollTo(0,0); }}
+                                className="px-6 py-3 rounded-xl bg-white bg-opacity-10 hover:bg-opacity-20 font-bold transition-all text-sm uppercase tracking-widest border border-white border-opacity-10 whitespace-nowrap">
+                                View Ledger
+                            </button>
+                            {isSuperAdmin && (
+                                <button 
+                                    onClick={() => setIsWithdrawModalOpen(true)}
+                                    className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-sm uppercase tracking-widest shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] whitespace-nowrap">
+                                    Withdraw Funds
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Financial Hub</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <RevenueCard
                     icon={FaMoneyBillWave}
                     title="Sales Revenue (Platform)"
@@ -117,7 +165,121 @@ export default function SystemRevenue() {
                     bgColor="bg-blue-600"
                     textColor="text-white"
                 />
+                <div
+                    onClick={() => { setActiveRevenueType('withdrawal'); window.scrollTo(0, 0); }}
+                    className="relative p-8 rounded-3xl shadow-xl overflow-hidden bg-emerald-600 text-white transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl cursor-pointer group"
+                >
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-6">
+                            <div className="p-4 rounded-2xl bg-white bg-opacity-20 backdrop-blur-md">
+                                <FaPercentage className="w-8 h-8" />
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs uppercase tracking-[0.2em] font-black opacity-70 mb-1">Withdrawal Fee Revenue</p>
+                                <h3 className="text-3xl font-black">
+                                    {loading ? '...' : formatCurrency(revenueStats.summary.withdrawalFeeRevenue)}
+                                </h3>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center py-4 border-t border-white border-opacity-10">
+                            <span className="text-sm opacity-80">Fees from processed withdrawals</span>
+                            <span className="text-lg font-bold">{loading ? '...' : `${revenueStats.summary.withdrawalFeeRevenue > 0 ? '✓ Active' : '—'}`}</span>
+                        </div>
+                        <div className="mt-4 text-center">
+                            <span className="text-xs font-bold uppercase tracking-widest px-6 py-2 bg-white bg-opacity-10 rounded-full border border-white border-opacity-10 group-hover:bg-opacity-20 transition-all">
+                                Explore Records
+                            </span>
+                        </div>
+                    </div>
+                    <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white bg-opacity-5 rounded-full transform rotate-12 transition-transform group-hover:scale-150 duration-700"></div>
+                </div>
             </div>
+        </section>
+    );
+
+    const renderWithdrawalTable = () => (
+        <section className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="flex items-center gap-6">
+                <button
+                    onClick={() => setActiveRevenueType('overview')}
+                    className="p-4 bg-white border border-slate-200 rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm group"
+                >
+                    <FaArrowLeft className="group-hover:-translate-x-1 transition-transform" />
+                </button>
+                <div>
+                    <h2 className="text-3xl font-black text-slate-900">Withdrawal Fee Ledger</h2>
+                    <p className="text-slate-500 font-bold mt-1">All processed withdrawal transactions and fees collected.</p>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-slate-900 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                            <th className="px-8 py-6">User</th>
+                            <th className="px-8 py-6">Role</th>
+                            <th className="px-8 py-6">Phone</th>
+                            <th className="px-8 py-6 text-right">Amount Requested</th>
+                            <th className="px-8 py-6 text-right">Fee Collected</th>
+                            <th className="px-8 py-6 text-right">Net Paid Out</th>
+                            <th className="px-8 py-6">Method</th>
+                            <th className="px-8 py-6">Reference</th>
+                            <th className="px-8 py-6">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                        {(revenueStats.withdrawalTransactions || []).length === 0 ? (
+                            <tr>
+                                <td colSpan="9" className="py-24 text-center">
+                                    <div className="w-20 h-20 bg-slate-50 rounded-3xl border border-slate-100 flex items-center justify-center mx-auto mb-6 text-slate-300 text-3xl">
+                                        <FaPercentage />
+                                    </div>
+                                    <h3 className="text-xl font-black text-slate-700">No withdrawal fees collected yet</h3>
+                                    <p className="text-sm text-slate-400 mt-2">Fees will appear here once users' withdrawal requests are fulfilled.</p>
+                                </td>
+                            </tr>
+                        ) : (
+                            (revenueStats.withdrawalTransactions || []).map(tx => (
+                                <tr key={tx.id} className="hover:bg-emerald-50/30 transition-all">
+                                    <td className="px-8 py-5 font-black text-slate-900 text-sm">{tx.userName}</td>
+                                    <td className="px-8 py-5">
+                                        <span className="text-[10px] font-black px-2 py-1 bg-slate-100 text-slate-500 rounded-full uppercase tracking-wider">
+                                            {tx.userRole?.replace('_', ' ')}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-5 text-sm text-slate-500 font-mono">{tx.userPhone}</td>
+                                    <td className="px-8 py-5 text-right font-bold text-slate-700">{formatCurrency(tx.amount)}</td>
+                                    <td className="px-8 py-5 text-right">
+                                        <span className="font-black text-emerald-600">{formatCurrency(tx.fee)}</span>
+                                    </td>
+                                    <td className="px-8 py-5 text-right font-bold text-slate-900">{formatCurrency(tx.netAmount)}</td>
+                                    <td className="px-8 py-5">
+                                        <span className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wider ${
+                                            tx.paymentMethod === 'mpesa' ? 'bg-green-100 text-green-700' :
+                                            tx.paymentMethod === 'bank' ? 'bg-blue-100 text-blue-700' :
+                                            'bg-gray-100 text-gray-500'
+                                        }`}>
+                                            {tx.paymentMethod}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-5 text-sm font-mono text-slate-500">{tx.paymentReference}</td>
+                                    <td className="px-8 py-5 text-sm text-slate-400">
+                                        {new Date(tx.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Summary footer */}
+            {(revenueStats.withdrawalTransactions || []).length > 0 && (
+                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-2xl px-8 py-5">
+                    <span className="text-sm font-bold text-emerald-700">Total Withdrawal Fees Collected</span>
+                    <span className="text-2xl font-black text-emerald-600">{formatCurrency(revenueStats.summary.withdrawalFeeRevenue)}</span>
+                </div>
+            )}
         </section>
     );
 
@@ -205,6 +367,93 @@ export default function SystemRevenue() {
         </section>
     );
 
+    const renderPlatformWalletLedger = () => (
+        <section className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="flex items-center gap-6">
+                <button
+                    onClick={() => setActiveRevenueType('overview')}
+                    className="p-4 bg-white border border-slate-200 rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm group"
+                >
+                    <FaArrowLeft className="group-hover:-translate-x-1 transition-transform" />
+                </button>
+                <div>
+                    <h2 className="text-3xl font-black text-slate-900">Platform Wallet Ledger</h2>
+                    <p className="text-slate-500 font-bold mt-1">Detailed log of all platform credits and debits.</p>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="bg-slate-900 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                            <th className="px-8 py-6">Date</th>
+                            <th className="px-8 py-6">Type</th>
+                            <th className="px-8 py-6">Source</th>
+                            <th className="px-8 py-6">Description</th>
+                            <th className="px-8 py-6 text-right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                        {(!platformWallet?.transactions || platformWallet.transactions.length === 0) ? (
+                            <tr>
+                                <td colSpan="5" className="py-24 text-center">
+                                    <div className="w-20 h-20 bg-slate-50 rounded-3xl border border-slate-100 flex items-center justify-center mx-auto mb-6 text-slate-300 text-3xl">
+                                        <FaMoneyBillWave />
+                                    </div>
+                                    <h3 className="text-xl font-black text-slate-700">No transactions recorded</h3>
+                                    <p className="text-sm text-slate-400 mt-2">Platform income and withdrawals will appear here.</p>
+                                </td>
+                            </tr>
+                        ) : (
+                            platformWallet.transactions.map(tx => (
+                                <tr key={tx.id} className="hover:bg-slate-50/50 transition-all">
+                                    <td className="px-8 py-5 text-sm text-slate-500">{new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString()}</td>
+                                    <td className="px-8 py-5">
+                                        <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${tx.type === 'credit' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                            {tx.type}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-5">
+                                        <span className="text-[10px] font-black px-2 py-1 bg-slate-100 text-slate-500 rounded-full uppercase tracking-wider">
+                                            {tx.sourceType?.replace('_', ' ')}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-5 text-sm text-slate-600 font-medium max-w-md truncate">{tx.description}</td>
+                                    <td className={`px-8 py-5 text-right font-black ${tx.type === 'credit' ? 'text-emerald-600' : 'text-red-500'}`}>
+                                        {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    );
+
+    const handleWithdrawPlatformFunds = async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const amount = formData.get('amount');
+        const destination = formData.get('destination');
+        const reference = formData.get('reference');
+        const notes = formData.get('notes');
+
+        try {
+            await adminApi.withdrawPlatformFunds({ amount, destination, reference, notes });
+            setIsWithdrawModalOpen(false);
+            // Refresh wallet
+            const walletRes = await adminApi.getPlatformWalletDetails();
+            if (walletRes?.data && walletRes.data.wallet) {
+                setPlatformWallet({ ...walletRes.data.wallet, transactions: walletRes.data.transactions });
+            }
+            alert('Platform funds withdrawn successfully!');
+        } catch (err) {
+            console.error('Withdrawal failed', err);
+            alert(err.response?.data?.message || 'Failed to process platform withdrawal.');
+        }
+    };
+
     return (
         <div className="p-8 max-w-[1600px] mx-auto space-y-12 bg-transparent min-h-screen">
             {error && (
@@ -214,7 +463,12 @@ export default function SystemRevenue() {
                 </div>
             )}
 
-            {activeRevenueType === 'overview' ? renderOverview() : renderAuditTable()}
+            {activeRevenueType === 'overview' ? renderOverview() : 
+             activeRevenueType === 'item' ? renderAuditTable() : 
+             activeRevenueType === 'delivery' ? renderAuditTable() :
+             activeRevenueType === 'withdrawal' ? renderWithdrawalTable() : 
+             activeRevenueType === 'wallet_ledger' ? renderPlatformWalletLedger() :
+             renderAuditTable()}
 
             {/* Item Extraction Modal ProjectPro */}
             {selectedRevenueOrder && (
@@ -286,6 +540,53 @@ export default function SystemRevenue() {
                             <button onClick={() => setSelectedRevenueOrder(null)} className="px-14 py-5 bg-slate-900 text-white font-black uppercase text-xs tracking-[0.3em] rounded-3xl">Exit Audit</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Platform Withdrawal Modal */}
+            {isWithdrawModalOpen && isSuperAdmin && (
+                <div className="fixed inset-0 z-[120] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
+                    <form onSubmit={handleWithdrawPlatformFunds} className="bg-white w-full max-w-lg rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+                        <div className="p-8 border-b bg-slate-50 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-2xl font-black text-slate-900 tracking-tighter">Withdraw Platform Funds</h2>
+                                <p className="text-sm text-slate-500 mt-1 font-medium">Available: {formatCurrency(platformWallet?.balance)}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsWithdrawModalOpen(false)}
+                                className="p-3 hover:bg-slate-200 rounded-2xl transition-all"
+                            >
+                                <FaTimes className="text-slate-400" />
+                            </button>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Amount (KES)</label>
+                                <input type="number" name="amount" min="1" max={platformWallet?.balance} step="0.01" required className="w-full p-4 border border-slate-200 rounded-2xl font-bold bg-slate-50 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all outline-none" placeholder="e.g. 5000" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Destination Account</label>
+                                <input type="text" name="destination" required className="w-full p-4 border border-slate-200 rounded-2xl font-bold bg-slate-50 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all outline-none" placeholder="e.g. Paybill 123456" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Reference Number</label>
+                                <input type="text" name="reference" required className="w-full p-4 border border-slate-200 rounded-2xl font-bold bg-slate-50 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all outline-none" placeholder="e.g. MPESA-ABCDEF1234" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Notes</label>
+                                <textarea name="notes" rows="2" className="w-full p-4 border border-slate-200 rounded-2xl text-sm bg-slate-50 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all outline-none" placeholder="Optional notes..."></textarea>
+                            </div>
+                        </div>
+                        <div className="p-8 border-t bg-slate-50 flex justify-end gap-4">
+                            <button type="button" onClick={() => setIsWithdrawModalOpen(false)} className="px-8 py-4 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-all">
+                                Cancel
+                            </button>
+                            <button type="submit" className="px-8 py-4 rounded-xl font-black bg-emerald-500 hover:bg-emerald-400 text-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.4)]">
+                                Confirm Withdrawal
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
         </div>

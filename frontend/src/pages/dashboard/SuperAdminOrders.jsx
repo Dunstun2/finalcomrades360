@@ -6,6 +6,7 @@ import DeliveryAssignmentModal from '../../components/delivery/DeliveryAssignmen
 import DeliveryChat from '../../components/delivery/DeliveryChat'
 import LogisticsDestination from '../../components/delivery/LogisticsDestination'
 import { getSocket } from '../../services/socket'
+import { buildOrderLifecycleSteps } from '../../utils/orderLifecycle'
 
 export default function SuperAdminOrders() {
     const [rows, setRows] = useState([])
@@ -25,8 +26,8 @@ export default function SuperAdminOrders() {
 
     const PENDING_STATUSES = [
         'order_placed', 'seller_confirmed', 'en_route_to_warehouse',
-        'at_warehouse', 'ready_for_pickup', 'out_for_delivery',
-        'processing', 'received_at_warehouse', 'super_admin_confirmed'
+        'at_warehouse', 'ready_for_pickup', 'in_transit',
+        'processing', 'at_warehouse', 'super_admin_confirmed'
     ]
     const COMPLETED_STATUSES = ['delivered', 'failed', 'cancelled', 'returned']
 
@@ -149,11 +150,11 @@ export default function SuperAdminOrders() {
             'order_placed': 'bg-yellow-100 text-yellow-800',
             'seller_confirmed': 'bg-blue-100 text-blue-800',
             'en_route_to_warehouse': 'bg-indigo-100 text-indigo-800',
-            'received_at_warehouse': 'bg-teal-100 text-teal-800',
+            'at_warehouse': 'bg-teal-100 text-teal-800',
             'super_admin_confirmed': 'bg-green-100 text-green-800',
             'processing': 'bg-purple-100 text-purple-800',
             'ready_for_pickup': 'bg-sky-100 text-sky-800',
-            'out_for_delivery': 'bg-orange-100 text-orange-800',
+            'in_transit': 'bg-orange-100 text-orange-800',
             'delivered': 'bg-green-600 text-white',
             'failed': 'bg-red-600 text-white',
             'cancelled': 'bg-red-100 text-red-800',
@@ -467,23 +468,7 @@ export default function SuperAdminOrders() {
                                 Status Lifecycle
                             </h4>
                             {(() => {
-                                const isFastFoodOnlyOrder = (order) => {
-                                    return (order.OrderItems || []).every(item => !!item.FastFoodId);
-                                };
-                                const fastFoodOnly = isFastFoodOnlyOrder(selectedOrder);
-                                const hideWarehouseStep = selectedOrder.adminRoutingStrategy === 'direct_delivery' || fastFoodOnly;
-                                const lifecycleSteps = [
-                                    { label: 'Placed', status: 'order_placed', done: true },
-                                    { label: 'Admin Confirmed', status: 'super_admin_confirmed', done: selectedOrder.superAdminConfirmed },
-                                    { label: 'Seller Confirmed', status: 'seller_confirmed', done: selectedOrder.sellerConfirmed },
-                                    { label: 'At Warehouse', status: 'at_warehouse', done: !!selectedOrder.warehouseArrivalDate || ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
-                                    { label: 'In Transit', status: 'in_transit', done: ['in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
-                                    { label: 'Delivered', status: 'delivered', done: ['delivered', 'completed'].includes(selectedOrder.status) },
-                                    { label: 'Complete', status: 'completed', done: selectedOrder.status === 'completed' }
-                                ];
-                                const steps = hideWarehouseStep
-                                    ? lifecycleSteps.filter((step) => step.status !== 'at_warehouse')
-                                    : lifecycleSteps;
+                                            const steps = buildOrderLifecycleSteps(selectedOrder);
 
                                 return (
                                     <div className="flex flex-wrap gap-4 items-start justify-between relative before:absolute before:h-0.5 before:bg-gray-100 before:top-4 before:left-0 before:right-0 before:-z-10">

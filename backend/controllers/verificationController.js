@@ -170,6 +170,38 @@ const verifyFirebaseToken = async (req, res) => {
   }
 };
 
+const approveNationalId = async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        user.nationalIdStatus = 'approved';
+        await user.save();
+
+        res.json({ message: 'National ID approved successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error approving National ID', error: error.message });
+    }
+};
+
+const rejectNationalId = async (req, res) => {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        user.nationalIdStatus = 'rejected';
+        user.nationalIdRejectionReason = reason;
+        await user.save();
+
+        res.json({ message: 'National ID rejected successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error rejecting National ID', error: error.message });
+    }
+};
+
 module.exports = {
     getVerificationStatus
 };

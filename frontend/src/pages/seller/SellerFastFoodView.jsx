@@ -44,7 +44,7 @@ const SellerFastFoodView = () => {
 
     if (loading) {
         return (
-            <div className="p-8 flex justify-center items-center">
+            <div className="p-0 sm:p-6 flex justify-center items-center h-64">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mr-2"></div>
                 <span className="text-gray-600">Loading item details...</span>
             </div>
@@ -53,7 +53,7 @@ const SellerFastFoodView = () => {
 
     if (error) {
         return (
-            <div className="p-8">
+            <div className="p-0 sm:p-6 w-full">
                 <div className="bg-red-50 text-red-700 p-4 rounded-lg flex items-center gap-3 border border-red-100">
                     <XCircle className="h-5 w-5" />
                     <p>{error}</p>
@@ -91,7 +91,7 @@ const SellerFastFoodView = () => {
     );
 
     return (
-        <div className="p-6 max-w-6xl mx-auto">
+        <div className="p-0 sm:p-6 w-full">
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                 <div className="flex items-center gap-4">
@@ -99,7 +99,7 @@ const SellerFastFoodView = () => {
                         <ArrowLeft className="h-6 w-6 text-gray-600" />
                     </button>
                     <div>
-                        <h1 className="text-2xl font-black text-gray-900">{item.name}</h1>
+                        <h1 className="text-xl md:text-2xl font-black text-gray-900 leading-tight">{item.name}</h1>
                         <div className="flex items-center gap-2 mt-1">
                             <StatusBadge approved={item.approved} reviewStatus={item.reviewStatus} />
                             <span className="text-gray-400 text-xs font-medium">ID: {item.id}</span>
@@ -269,10 +269,13 @@ const SellerFastFoodView = () => {
                                             <tbody className="divide-y divide-gray-50">
                                                 {validVariants.map((v, i) => {
                                                     const variant = recursiveParse(v);
+                                                    const name = variant?.label || variant?.name || variant?.size || (typeof variant === 'string' ? variant : 'Unnamed Variant');
+                                                    const price = variant?.basePrice || variant?.price || variant?.displayPrice || 0;
+                                                    
                                                     return (
                                                         <tr key={i} className="group hover:bg-gray-50 transition-colors">
-                                                            <td className="py-3 font-medium text-gray-900">{variant.name || variant.size || variant}</td>
-                                                            <td className="py-3 text-gray-500">KES {(variant.basePrice || variant.price || variant.displayPrice || 0).toLocaleString()}</td>
+                                                            <td className="py-3 font-medium text-gray-900">{name}</td>
+                                                            <td className="py-3 text-gray-500">KES {Number(price).toLocaleString()}</td>
                                                         </tr>
                                                     );
                                                 })}
@@ -304,13 +307,15 @@ const SellerFastFoodView = () => {
                                             <tbody className="divide-y divide-gray-50">
                                                 {validCombos.map((c, i) => {
                                                     const opt = recursiveParse(c);
+                                                    const name = opt?.label || opt?.name || (typeof opt === 'string' ? opt : 'Unnamed Option');
+                                                    const price = opt?.basePrice || opt?.price || opt?.displayPrice || 0;
+                                                    const items = Array.isArray(opt?.items) ? opt.items.join(', ') : (opt?.items || 'None');
+
                                                     return (
                                                         <tr key={i} className="group hover:bg-gray-50 transition-colors">
-                                                            <td className="py-3 font-medium text-gray-900">{opt.name || (typeof opt === 'string' ? opt : 'Unnamed Option')}</td>
-                                                            <td className="py-3 text-gray-500">
-                                                                {Array.isArray(opt.items) ? opt.items.join(', ') : (opt.items || 'None')}
-                                                            </td>
-                                                            <td className="py-3 text-gray-500">KES {(opt.basePrice || opt.price || opt.displayPrice || 0).toLocaleString()}</td>
+                                                            <td className="py-3 font-medium text-gray-900">{name}</td>
+                                                            <td className="py-3 text-gray-500">{items}</td>
+                                                            <td className="py-3 text-gray-500">KES {Number(price).toLocaleString()}</td>
                                                         </tr>
                                                     );
                                                 })}

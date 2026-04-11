@@ -219,6 +219,19 @@ export const useOptimizedHomepage = () => {
     };
   }, [offlineMode, isPending, products.length, currentPage, hasMore, categories.length]);
 
+  // Background refresh for stale data
+  useEffect(() => {
+    if (!offlineMode && dataUpdatedAt) {
+        const dataAge = Date.now() - dataUpdatedAt;
+        const staleThreshold = 2 * 60 * 1000; // 2 minutes
+
+        if (dataAge > staleThreshold) {
+            console.log('[OptimizedHomepage] Background refreshing stale data');
+            refetch();
+        }
+    }
+}, [offlineMode, dataUpdatedAt, refetch]);
+
   return {
     // Data
     products,

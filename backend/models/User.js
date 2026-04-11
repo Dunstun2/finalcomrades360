@@ -11,7 +11,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     name: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false  // auto-generated from email/phone if not provided
     },
     username: {
       type: DataTypes.STRING,
@@ -20,15 +20,12 @@ module.exports = (sequelize, DataTypes) => {
     },
     email: {
       type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-      validate: {
-        isEmail: true
-      }
+      allowNull: false,  // placeholder used if user registers with phone only
+      unique: true
     },
     phone: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: false,  // placeholder used if user registers with email only
       unique: true
     },
     password: {
@@ -277,6 +274,10 @@ module.exports = (sequelize, DataTypes) => {
     loyaltyPoints: {
       type: DataTypes.INTEGER,
       defaultValue: 0
+    },
+    mustChangePassword: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
     }
   }, {
     sequelize,
@@ -381,6 +382,28 @@ module.exports = (sequelize, DataTypes) => {
     User.hasOne(models.Wallet, {
       foreignKey: 'userId',
       as: 'wallet'
+    });
+
+    // Bidirectional associations for Products
+    User.hasMany(models.Product, {
+      foreignKey: 'sellerId',
+      as: 'products'
+    });
+
+    User.hasMany(models.Product, {
+      foreignKey: 'addedBy',
+      as: 'addedProducts'
+    });
+
+    // Bidirectional associations for FastFood and Services
+    User.hasMany(models.FastFood, {
+      foreignKey: 'vendor',
+      as: 'vendorProducts'
+    });
+
+    User.hasMany(models.Service, {
+      foreignKey: 'userId',
+      as: 'providedServices'
     });
   };
 

@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'react-toastify';
 import userService from '../services/userService';
+import { formatKenyanPhoneInput } from '../utils/validation';
 
 const ProfileComponent = ({
   userData,
@@ -22,7 +23,8 @@ const ProfileComponent = ({
   onSaveProfile,
   isSaved,
   setIsSaved,
-  setActiveTab
+  setActiveTab,
+  saveError
 }) => {
   console.log('ProfileComponent Prop [userData]:', userData);
   const { user: authUser, updateUser } = useAuth();
@@ -271,17 +273,32 @@ const ProfileComponent = ({
                   )}
                 </label>
                 {isEditing ? (
-                  <input
-                    type="email"
-                    name="email"
-                    value={editForm.email || ''}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
-                    disabled
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-500 cursor-not-allowed"
-                    title="Email cannot be changed directly. Use the Security tab to verify/change email."
-                  />
+                  <div className="relative">
+                    <input
+                      type="email"
+                      name="email"
+                      value={editForm.email || ''}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-500 cursor-not-allowed pr-24"
+                      title="Email cannot be changed directly. Use the Security tab to verify/change email."
+                      placeholder="No email set"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setIsEditing(false); // Cancel edit mode
+                        if (setIsSaved) setIsSaved(false);
+                        if (setActiveTab) setActiveTab('security');
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] sm:text-xs font-bold text-blue-600 bg-blue-50 px-2 sm:px-3 py-1 sm:py-1.5 rounded hover:bg-blue-100 transition-colors"
+                    >
+                      {userData?.email ? 'Change' : 'Add Email'}
+                    </button>
+                  </div>
                 ) : (
-                  <p className="text-gray-900 py-2 border-b border-transparent">{userData.email}</p>
+                  <p className="text-gray-900 py-2 border-b border-transparent">{userData.email || 'Not set'}</p>
                 )}
               </div>
 
@@ -306,9 +323,15 @@ const ProfileComponent = ({
                     type="tel"
                     name="phone"
                     value={editForm.phone || ''}
+                    onInput={(e) => {
+                      if (/^[\d+]+$/.test(e.target.value)) {
+                        e.target.value = formatKenyanPhoneInput(e.target.value);
+                      }
+                    }}
                     onChange={(e) => handleInputChange('phone', e.target.value)}
                     className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${isSaved ? 'bg-gray-50 text-gray-500' : ''}`}
                     disabled={isSaved}
+                    placeholder="e.g. 0712345678"
                   />
                 ) : (
                   <p className="text-gray-900 py-2 border-b border-transparent">{userData.phone || 'Not set'}</p>
@@ -330,8 +353,6 @@ const ProfileComponent = ({
                     <option value="">Select gender</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
-                    <option value="other">Other</option>
-                    <option value="prefer-not-to-say">Prefer not to say</option>
                   </select>
                 ) : (
                   <p className="text-gray-900 py-2">{userData.gender || 'Not set'}</p>
@@ -539,6 +560,12 @@ const ProfileComponent = ({
 
         {/* Security and Login History sections are now handled in the main AccountSettings 'Security' tab */}
       </div>
+      {saveError && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 mx-4 mt-6 flex items-center gap-3">
+          <FaExclamationTriangle className="text-red-500 flex-shrink-0" />
+          <p className="text-sm text-red-700 font-medium">{saveError}</p>
+        </div>
+      )}
     </div>
   );
 };

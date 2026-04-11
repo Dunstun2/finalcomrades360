@@ -922,6 +922,75 @@ const verifyPayment = async (req, res) => {
   }
 };
 
+// Verify payment by Order ID (handles cases where no payment record exists yet)
+const verifyPaymentByOrder = async (req, res) => {
+  const { orderId, manual, verificationData } = req.body;
+  const verifierUserId = req.user.id;
+
+  try {
+    const order = await Order.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check permissions: Admin or Assigned Agent
+    const isAdmin = ['admin', 'super_admin', 'superadmin'].includes(req.user.role);
+    let isAuthorized = isAdmin || order.deliveryAgentId === verifierUserId;
+
+    if (!isAuthorized) {
+      const deliveryTask = await DeliveryTask.findOne({
+        where: { orderId, deliveryAgentId: verifierUserId, status: { [Op.ne]: 'cancelled' } }
+      });
+      if (deliveryTask) isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to verify payment for this order' });
+    }
+
+    // Find any existing pending/processing payment
+    let payment = await Payment.findOne({
+      where: { orderId, status: { [Op.in]: ['pending', 'processing'] } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    // If no payment exists and it's a manual confirm, create a new manual payment record
+    if (!payment && manual) {
+      console.log(`[Payment] Creating new manual payment record for order ${orderId}`);
+      payment = await Payment.create({
+        orderId,
+        userId: order.userId,
+        paymentMethod: 'cash_on_delivery', // Default for manual agent confirmation
+        paymentType: order.paymentType || 'prepay',
+        amount: order.total,
+        currency: 'KES',
+        status: 'pending',
+        initiatedAt: new Date(),
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        metadata: JSON.stringify({ isManualAtCreation: true, createdBy: verifierUserId })
+      });
+    }
+
+    if (!payment) {
+      return res.status(400).json({ success: false, message: 'No pending payment found to verify. Please initiate a payment or use Force Manual Confirm.' });
+    }
+
+    // Now call the service to verify this payment manually
+    const result = await paymentVerificationService.verifyManualPayment(payment.id, verifierUserId, verificationData || { method: 'manual' });
+
+    res.json({
+      success: result.verified,
+      message: result.message,
+      status: result.status
+    });
+
+  } catch (error) {
+    console.error('Error verifying order payment:', error);
+    res.status(500).json({ success: false, message: 'Failed to verify order payment' });
+  }
+};
+
 // Get payment verification info
 const getPaymentVerificationInfo = async (req, res) => {
   const { paymentId } = req.params;
@@ -1280,7 +1349,8 @@ const initiateWalletPayment = async (req, res) => {
       userId: customer.id,
       amount: -amount,
       type: 'debit',
-      note: `Payment for Order #${order.orderNumber} via Delivery Agent`
+      note: `Payment for Order #${order.orderNumber} via Delivery Agent`,
+      walletType: 'customer'
     }, { transaction: t });
 
     // Create payment record
@@ -1355,6 +1425,7 @@ module.exports = {
   handleMpesaCallback,
   checkPaymentStatus,
   verifyPayment,
+  verifyPaymentByOrder,
   getPaymentVerificationInfo,
   getUserPayments,
   processRefund,

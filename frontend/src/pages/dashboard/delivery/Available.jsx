@@ -159,7 +159,80 @@ const DeliveryAgentAvailable = () => {
 
   const [requestedOrders, setRequestedOrders] = useState([]);
   const [requestingIds, setRequestingIds] = useState([]); // Track loading state per order
+  const [selectedOrders, setSelectedOrders] = useState([]);
+  const [bulkRequesting, setBulkRequesting] = useState(false);
   const [modal, setModal] = useState({ isOpen: false, type: 'info', title: '', message: '' });
+
+  const getLatestTask = (order) => {
+    if (!order.deliveryTasks || order.deliveryTasks.length === 0) return null;
+    return [...order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  };
+
+  const getRouteColor = (pickup, destination) => {
+    if (!pickup || !destination) return '#CBD5E1';
+    const str = `${pickup}-${destination}`;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = Math.abs(hash % 360);
+    return `hsl(${h}, 70%, 45%)`;
+  };
+
+  const getPickupLabel = (order) => {
+    const task = getLatestTask(order);
+    const type = task?.deliveryType || order.deliveryType || 'seller_to_customer';
+    if (type?.startsWith('warehouse')) return order.Warehouse?.name || 'Warehouse';
+    if (type?.startsWith('pickup_station')) return order.PickupStation?.name || 'Station';
+    return order.seller?.businessName || order.seller?.name || 'Seller';
+  };
+
+  const getDestinationLabel = (order) => {
+    const task = getLatestTask(order);
+    const type = task?.deliveryType || order.deliveryType || 'seller_to_customer';
+    if (type?.endsWith('warehouse')) return order.DestinationWarehouse?.name || 'Warehouse';
+    if (type?.endsWith('pickup_station')) return order.DestinationPickStation?.name || 'Station';
+    return 'Customer';
+  };
+
+  const handleSelectOrder = (orderId) => {
+    setSelectedOrders(prev => 
+      prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  const handleBulkRequest = async () => {
+    if (selectedOrders.length === 0) return;
+    setBulkRequesting(true);
+    let successCount = 0;
+    try {
+        for (const orderId of selectedOrders) {
+            try {
+                await api.post(`/delivery/orders/${orderId}/request`);
+                successCount++;
+            } catch (err) {
+                console.error(`Request failed for order ${orderId}:`, err);
+            }
+        }
+        setRequestedOrders(prev => [...new Set([...prev, ...selectedOrders])]);
+        setSelectedOrders([]);
+        setModal({
+            isOpen: true,
+            type: 'success',
+            title: 'Bulk Request Complete',
+            message: `Successfully requested ${successCount} out of ${selectedOrders.length} orders.`
+        });
+    } catch (err) {
+        setModal({
+            isOpen: true,
+            type: 'error',
+            title: 'Bulk Request Failed',
+            message: 'One or more requests failed. Please check individually.'
+        });
+    } finally {
+        setBulkRequesting(false);
+    }
+  };
 
   const handleRequestAssignment = async (orderId) => {
     try {
@@ -247,116 +320,215 @@ const DeliveryAgentAvailable = () => {
           <p className="text-gray-600">Request assignment for orders in your area</p>
         </div>
 
-        <div className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-lg text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold">Available Now</h3>
-                  <p className="text-blue-100">{availableOrders.length} orders</p>
-                </div>
-                <FaMapMarkedAlt className="text-3xl text-blue-200" />
-              </div>
-            </div>
-            <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-lg text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold">Today's Earnings</h3>
-                  <p className="text-green-100">{formatPrice(stats.totalEarnings || 0)}</p>
-                </div>
-                <FaDollarSign className="text-3xl text-green-200" />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {blockingReason ? (
-              <div className="text-center py-12 bg-red-50 rounded-lg border-2 border-dashed border-red-200">
-                <FaCheckCircle className="mx-auto h-12 w-12 text-red-400 mb-4 rotate-180" />
-                <h3 className="text-lg font-medium text-red-900">Access Restricted</h3>
-                <p className="mt-2 text-sm text-red-600 max-w-md mx-auto">{blockingReason}</p>
-                {missingFields.length > 0 && (
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {missingFields.map(f => (
-                      <span key={f} className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded uppercase tracking-wider">{f}</span>
-                    ))}
+          <div className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-lg text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Available Now</h3>
+                    <p className="text-blue-100">{availableOrders.length} orders</p>
                   </div>
-                )}
-                <button
-                  onClick={fetchAvailableOrders}
-                  className="mt-6 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                >
-                  Check Status Again
-                </button>
+                  <FaMapMarkedAlt className="text-3xl text-blue-200" />
+                </div>
               </div>
-            ) : availableOrders.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <FaMapMarkedAlt className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium text-gray-900">No Orders Available</h3>
-                <p className="mt-2 text-sm text-gray-500">There are currently no orders waiting for delivery in your area.</p>
-                <button
-                  onClick={fetchAvailableOrders}
-                  className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  Refresh List
-                </button>
+              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-lg text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Today's Earnings</h3>
+                    <p className="text-green-100">{formatPrice(stats.totalEarnings || 0)}</p>
+                  </div>
+                  <FaDollarSign className="text-3xl text-green-200" />
+                </div>
               </div>
-            ) : (
-              availableOrders.map((order) => {
-                const { agentEarnings } = computeOrderTotals(order);
-                const isExpanded = expandedOrderId === order.id;
+            </div>
 
-                return (
-                  <DeliveryTaskConsole
-                    key={order.id}
-                    order={order}
-                    agentSharePercent={agentShare}
-                    isExpanded={isExpanded}
-                    onToggleExpand={() => toggleExpand(order.id)}
-                  >
-                    <div className="flex justify-between items-center w-full mt-4 bg-white border border-blue-100 rounded-xl p-4 shadow-sm">
-                      <div className="flex gap-8">
-                        <div>
-                          <p className="text-[10px] text-gray-400 uppercase mb-1">Item Pickup</p>
-                          <p className="text-sm font-bold text-gray-900 truncate max-w-[200px]">
-                            {['at_warehouse', 'received_at_warehouse'].includes(order.status)
-                              ? (order.DestinationWarehouse?.address || order.Warehouse?.address || 'Warehouse Hub')
-                              : ['at_pick_station', 'ready_for_pickup'].includes(order.status)
-                                ? (order.DestinationPickStation?.location || order.PickupStation?.location || order.DestinationFastFoodPickupPoint?.address || 'Pickup Hub')
-                                : (order.seller?.businessAddress || 'Seller Location')}
-                          </p>
-                        </div>
-                        {order.distanceText && (
-                          <div>
-                          <p className="text-[10px] text-gray-400 uppercase mb-1">Pickup Distance</p>
-                            <p className="text-sm font-bold text-gray-900">{order.distanceText}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleRequestAssignment(order.id); }}
-                        disabled={requestedOrders.includes(order.id) || requestingIds.includes(order.id)}
-                        className={`px-8 py-3 rounded-xl transition-all font-black uppercase tracking-widest text-xs flex items-center justify-center min-w-[180px] shadow-lg ${requestedOrders.includes(order.id)
-                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none'
-                          : requestingIds.includes(order.id)
-                            ? 'bg-blue-400 text-white cursor-wait'
-                            : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 active:scale-95'
-                          }`}
-                      >
-                        {requestingIds.includes(order.id) ? (
-                          <FaSpinner className="animate-spin h-5 w-5" />
-                        ) : requestedOrders.includes(order.id) ? (
-                          <span className="flex items-center gap-2"><FaCheckCircle /> Requested</span>
-                        ) : (
-                          'Request Assignment'
-                        )}
-                      </button>
+            <div className="space-y-4">
+              {blockingReason ? (
+                <div className="text-center py-12 bg-red-50 rounded-lg border-2 border-dashed border-red-200">
+                  <FaCheckCircle className="mx-auto h-12 w-12 text-red-400 mb-4 rotate-180" />
+                  <h3 className="text-lg font-medium text-red-900">Access Restricted</h3>
+                  <p className="mt-2 text-sm text-red-600 max-w-md mx-auto">{blockingReason}</p>
+                  {missingFields.length > 0 && (
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      {missingFields.map(f => (
+                        <span key={f} className="px-2 py-1 bg-red-100 text-red-700 text-[10px] font-bold rounded uppercase tracking-wider">{f}</span>
+                      ))}
                     </div>
-                  </DeliveryTaskConsole>
-                );
-              })
-            )}
+                  )}
+                  <button
+                    onClick={fetchAvailableOrders}
+                    className="mt-6 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    Check Status Again
+                  </button>
+                </div>
+              ) : availableOrders.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                  <FaMapMarkedAlt className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900">No Orders Available</h3>
+                  <p className="mt-2 text-sm text-gray-500">There are currently no orders waiting for delivery in your area.</p>
+                  <button
+                    onClick={fetchAvailableOrders}
+                    className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    Refresh List
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                    {/* Bulk Available Action Bar */}
+                    {selectedOrders.length > 0 && (
+                        <div className="mb-6 p-4 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-lg border border-blue-400/30 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 relative">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-white text-blue-700 px-3 py-1 rounded-full text-sm font-black shadow-inner">
+                                    {selectedOrders.length}
+                                </div>
+                                <div className="text-white">
+                                    <p className="text-sm font-black leading-none italic">Bulk Request</p>
+                                    <p className="text-[10px] text-blue-100 font-bold uppercase tracking-wider mt-1 opacity-80">Request multiple related assignments</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 justify-center">
+                                <button
+                                    onClick={handleBulkRequest}
+                                    disabled={bulkRequesting}
+                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-2"
+                                >
+                                    <FaClipboardCheck className="h-3 w-3" /> Request Selected ({selectedOrders.length})
+                                </button>
+                                <button
+                                    onClick={() => setSelectedOrders([])}
+                                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+
+                            {bulkRequesting && (
+                                <div className="absolute inset-0 bg-blue-900/40 backdrop-blur-[1px] rounded-2xl flex items-center justify-center z-10">
+                                    <div className="flex items-center gap-2 text-white font-black text-xs uppercase animate-pulse">
+                                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                        Sending Requests...
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {(() => {
+                        const groups = {};
+                        availableOrders.forEach(order => {
+                            const pickup = getPickupLabel(order);
+                            const destination = getDestinationLabel(order);
+                            const key = `${pickup} → ${destination}`;
+                            if (!groups[key]) groups[key] = { items: [], color: getRouteColor(pickup, destination), pickup, destination };
+                            groups[key].items.push(order);
+                        });
+
+                        return Object.entries(groups).map(([routeKey, group]) => (
+                            <div key={routeKey} className="space-y-4">
+                                <div className="flex items-center justify-between gap-3 px-1">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: group.color }}></div>
+                                        <h4 className="text-[11px] font-black uppercase tracking-[0.15em] text-gray-400">
+                                            Route: <span className="text-gray-900">{routeKey}</span>
+                                            <span className="ml-2 text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full lowercase font-bold tracking-normal">
+                                                {group.items.length} available
+                                            </span>
+                                        </h4>
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            const allIds = group.items.map(o => o.id).filter(id => !requestedOrders.includes(id));
+                                            const allSelected = allIds.every(id => selectedOrders.includes(id));
+                                            if (allSelected) {
+                                                setSelectedOrders(prev => prev.filter(id => !allIds.includes(id)));
+                                            } else {
+                                                setSelectedOrders(prev => [...new Set([...prev, ...allIds])]);
+                                            }
+                                        }}
+                                        className="text-[10px] font-black uppercase text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 transition-all"
+                                    >
+                                        {group.items.filter(o => !requestedOrders.includes(o.id)).every(o => selectedOrders.includes(o.id)) ? 'Deselect Group' : 'Select Group'}
+                                    </button>
+                                </div>
+
+                                <div className="grid gap-4">
+                                    {group.items.map((order) => {
+                                        const isExpanded = expandedOrderId === order.id;
+                                        return (
+                                            <DeliveryTaskConsole
+                                                key={order.id}
+                                                order={order}
+                                                agentSharePercent={agentShare}
+                                                isExpanded={isExpanded}
+                                                onToggleExpand={() => toggleExpand(order.id)}
+                                                groupColor={group.color}
+                                                isSelected={selectedOrders.includes(order.id)}
+                                                checkbox={
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedOrders.includes(order.id)}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSelectOrder(order.id);
+                                                        }}
+                                                        disabled={requestedOrders.includes(order.id)}
+                                                        style={{ accentColor: group.color }}
+                                                        className="w-4 h-4 rounded border-gray-300 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                                    />
+                                                }
+                                            >
+                                                <div className="flex justify-between items-center w-full mt-4 bg-white border border-blue-100 rounded-xl p-4 shadow-sm">
+                                                    <div className="flex gap-8">
+                                                        <div>
+                                                            <p className="text-[10px] text-gray-400 uppercase mb-1">Item Pickup</p>
+                                                            <p className="text-sm font-bold text-gray-900 truncate max-w-[200px]">
+                                                                {['at_warehouse', 'at_warehouse'].includes(order.status)
+                                                                    ? (order.DestinationWarehouse?.address || order.Warehouse?.address || 'Warehouse Hub')
+                                                                    : ['at_pick_station', 'ready_for_pickup'].includes(order.status)
+                                                                        ? (order.DestinationPickStation?.location || order.PickupStation?.location || order.DestinationFastFoodPickupPoint?.address || 'Pickup Hub')
+                                                                        : (order.seller?.businessAddress || 'Seller Location')}
+                                                            </p>
+                                                        </div>
+                                                        {order.distanceText && (
+                                                            <div>
+                                                                <p className="text-[10px] text-gray-400 uppercase mb-1">Pickup Distance</p>
+                                                                <p className="text-sm font-bold text-gray-900">{order.distanceText}</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleRequestAssignment(order.id); }}
+                                                        disabled={requestedOrders.includes(order.id) || requestingIds.includes(order.id)}
+                                                        className={`px-8 py-3 rounded-xl transition-all font-black uppercase tracking-widest text-xs flex items-center justify-center min-w-[180px] shadow-lg ${requestedOrders.includes(order.id)
+                                                            ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none'
+                                                            : requestingIds.includes(order.id)
+                                                                ? 'bg-blue-400 text-white cursor-wait'
+                                                                : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 active:scale-95'
+                                                            }`}
+                                                    >
+                                                        {requestingIds.includes(order.id) ? (
+                                                            <FaSpinner className="animate-spin h-5 w-5" />
+                                                        ) : requestedOrders.includes(order.id) ? (
+                                                            <span className="flex items-center gap-2"><FaCheckCircle /> Requested</span>
+                                                        ) : (
+                                                            'Request Assignment'
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            </DeliveryTaskConsole>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ));
+                    })()}
+                </div>
+              )
+            }
             {availableOrders.length > 0 && (
               <div className="pt-8 pb-12 flex flex-col items-center gap-4">
                 {hasMore ? (

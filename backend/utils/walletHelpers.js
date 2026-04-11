@@ -3,7 +3,7 @@ const { Wallet, Transaction } = require('../models');
 /**
  * Credits the pending balance of a user and creates a pending transaction.
  */
-const creditPending = async (userId, amount, description, orderId = null, transaction = null) => {
+const creditPending = async (userId, amount, description, orderId = null, transaction = null, walletType = null) => {
     if (amount <= 0) return;
 
     let wallet = await Wallet.findOne({ where: { userId }, transaction });
@@ -21,14 +21,15 @@ const creditPending = async (userId, amount, description, orderId = null, transa
         type: 'credit',
         status: 'pending',
         description,
-        orderId
+        orderId,
+        walletType
     }, { transaction });
 };
 
 /**
  * Moves funds from pendingBalance to successBalance and updates transaction status.
  */
-const moveToSuccess = async (userId, amount, orderNumber, description, orderId = null, transaction = null) => {
+const moveToSuccess = async (userId, amount, orderNumber, description, orderId = null, transaction = null, walletType = null) => {
     if (amount <= 0) return;
 
     const { PlatformConfig } = require('../models');
@@ -55,7 +56,7 @@ const moveToSuccess = async (userId, amount, orderNumber, description, orderId =
 
         let successTxId = null;
         if (tx) {
-            await tx.update({ status: 'success' }, { transaction });
+            await tx.update({ status: 'success', walletType: walletType || tx.walletType }, { transaction });
             successTxId = tx.id;
         } else {
             // Fallback: Create a new success transaction if not found (though ideally we update existing)
@@ -65,7 +66,8 @@ const moveToSuccess = async (userId, amount, orderNumber, description, orderId =
                 type: 'credit',
                 status: 'success',
                 description: `${description} (Cleared Pending)`,
-                orderId
+                orderId,
+                walletType
             }, { transaction });
             successTxId = newTx.id;
         }
@@ -133,9 +135,28 @@ const revertPending = async (userId, amount, orderId, transaction = null) => {
     }
 };
 
+/**
+ * Calculates a tiered withdrawal fee based on the amount and settings.
+ */
+const calculateWithdrawalFee = (amount, settings) => {
+    if (!settings || !settings.withdrawalTiers || !Array.isArray(settings.withdrawalTiers)) {
+        return 0; // Fallback to 0 if no config
+    }
+
+    const tier = settings.withdrawalTiers.find(t => amount >= t.min && amount <= t.max);
+    if (tier) {
+        return parseFloat(tier.fee) || 0;
+    }
+
+    // Fallback if amount exceeds all tiers, find the last tier fee
+    const lastTier = settings.withdrawalTiers[settings.withdrawalTiers.length - 1];
+    return lastTier ? parseFloat(lastTier.fee) || 0 : 0;
+};
+
 module.exports = {
     creditPending,
     moveToSuccess,
     moveToPaid,
-    revertPending
+    revertPending,
+    calculateWithdrawalFee
 };

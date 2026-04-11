@@ -105,7 +105,7 @@ const DeliveryTrackingMap = ({
         }
 
         // Active delivery: Simulate movement
-        if (['in_transit', 'en_route_to_warehouse', 'transit', 'out_for_delivery'].includes(status)) {
+        if (['in_transit', 'en_route_to_warehouse', 'transit', 'in_transit'].includes(status)) {
             const start = effectivePickup;
             const end = effectiveDropoff;
             const speed = 0.00005; // Simulation speed
@@ -217,7 +217,7 @@ const DeliveryTrackingMap = ({
                 </Marker>
 
                 {/* Driver Marker */}
-                {['in_transit', 'transit', 'delivered', 'out_for_delivery'].includes(status) && (
+                {['in_transit', 'transit', 'delivered', 'in_transit'].includes(status) && (
                     <Marker position={[currentDriverLocation.lat, currentDriverLocation.lng]} icon={driverIcon}>
                         <Popup>
                             <div className="p-1">

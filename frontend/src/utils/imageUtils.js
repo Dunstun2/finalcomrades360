@@ -64,9 +64,7 @@ export const updateImageVersion = (imageUrl, newVersion = null) => {
 
   // Clear from cache to force refresh
   imageCache.delete(imageUrl);
-
-  console.log(`🔄 Image version updated for ${imageUrl}: v=${version}`);
-};
+}
 
 /**
  * Get current version for an image
@@ -83,7 +81,6 @@ export const getImageVersion = (imageUrl) => {
 export const clearAllImageCaches = () => {
   imageCache.clear();
   imageVersions.clear();
-  console.log('🗑️ All image caches cleared');
 };
 
 /**
@@ -168,10 +165,12 @@ export const resolveImageUrl = (imageUrl, baseUrl = null, version = null) => {
       return FALLBACK_IMAGE;
     }
 
-    // If we have a base URL and it's not localhost:5000, use it as is
-    // Improved check: only use baseUrl if it looks like a proper domain/protocol base
+    // If we have a base URL and it's not a local dev URL, use it as is
+    // This allows for external CDNs while keeping internal uploads proxied via Vite
+    const isLocalUrl = baseUrl && (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'));
+    
     if (baseUrl &&
-      baseUrl !== 'http://localhost:5000' &&
+      !isLocalUrl &&
       !baseUrl.startsWith('/uploads/') &&
       !baseUrl.includes('.jpg') &&
       !baseUrl.includes('.png')) {

@@ -1778,13 +1778,13 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
   }, [formData.categoryId, allCategories]);
 
   return (
-    <div className="p-4">
+    <div className="p-0 sm:p-6 w-full">
       {mode === 'edit' && (
-        <div className="mb-4">
+        <div className="mb-6">
           <Button
             variant="outline"
             onClick={() => navigate('/seller/products')}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 border-gray-200 text-gray-600"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to My Products
@@ -1793,10 +1793,13 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
       )}
 
       {(loading && mode === 'edit') ? (
-        <div className="text-gray-600">Loading...</div>
+        <div className="flex items-center justify-center p-12 text-gray-500">
+          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-3"></div>
+          Loading product details...
+        </div>
       ) : (
         <>
-          <h1 className="text-2xl font-semibold mb-4">{mode === 'edit' ? 'Edit Product' : 'Create Product'}</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight mb-6">{mode === 'edit' ? 'Edit Product' : 'Create Product'}</h1>
 
           {/* Smart Form Type Indicator */}
           {(currentFormType === CATEGORY_TYPES.FOOD_DRINKS || currentFormType === CATEGORY_TYPES.SERVICES) && (

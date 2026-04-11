@@ -133,7 +133,7 @@ const ServicesManagement = () => {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="w-full p-4 md:p-6">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Services Management</h1>
         <p className="text-gray-600 mt-1">Manage all service-related activities</p>

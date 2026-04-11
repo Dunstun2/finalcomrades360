@@ -11,7 +11,9 @@ import {
     FaUser,
     FaArrowRight,
     FaArrowDown,
-    FaMotorcycle
+    FaMotorcycle,
+    FaPhone,
+    FaWhatsapp
 } from 'react-icons/fa';
 import { resolveImageUrl } from '../../utils/imageUtils';
 import { formatPrice } from '../../utils/currency';
@@ -35,6 +37,8 @@ const DeliveryTaskConsole = ({
     isExpanded = false,
     onToggleExpand,
     checkbox = null,
+    groupColor = null,
+    isSelected = false,
     children = null
 }) => {
     const activeTask = task || (() => {
@@ -54,7 +58,9 @@ const DeliveryTaskConsole = ({
         const method = order?.deliveryMethod;
 
         // Hub-stage statuses: item is at/moving to warehouse. Next leg starts from warehouse.
-        const hubStageStatuses = ['en_route_to_warehouse', 'at_warehouse', 'received_at_warehouse', 'awaiting_delivery_assignment', 'processing', 'in_transit'];
+        // Hub-stage statuses: item is actually at the warehouse or being handled there.
+        // en_route_to_warehouse and in_transit are removed from this list as they represents legs in transit.
+        const hubStageStatuses = ['at_warehouse', 'at_warehouse'];
         if (hubStageStatuses.includes(oStatus) && routing === 'warehouse') {
             return method === 'pick_station' ? 'warehouse_to_pickup_station' : 'warehouse_to_customer';
         }
@@ -62,33 +68,43 @@ const DeliveryTaskConsole = ({
             return 'warehouse_to_pickup_station';
         }
 
-        // Seller-dispatch stage
-        if (['order_placed', 'seller_confirmed', 'super_admin_confirmed'].includes(oStatus)) {
-            if (routing === 'warehouse') return 'seller_to_warehouse';
-            if (routing === 'pick_station') return 'seller_to_pickup_station';
-            if (routing === 'direct_delivery') return 'seller_to_customer';
-        }
-        if (oStatus === 'en_route_to_warehouse') {
-            // The seller/driver is moving to the warehouse — leg 1
-            return 'seller_to_warehouse';
+        // Seller-dispatch or Leg 1 stage
+        if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'in_transit'].includes(oStatus)) {
+            // If the explicit task type is already a hub-to-hub or hub-to-customer, 
+            // and status is in_transit, we shouldn't force it back to seller_to_hub.
+            // But if there's NO task, or the task IS seller_to_hub, then in_transit here means Leg 1.
+            const isTaskTerminal = activeTask?.deliveryType?.includes('_to_customer');
+            if (!isTaskTerminal) {
+                if (routing === 'warehouse') return 'seller_to_warehouse';
+                if (routing === 'pick_station') return 'seller_to_pickup_station';
+                if (routing === 'direct_delivery') return 'seller_to_customer';
+            }
         }
 
         if (['en_route_to_pick_station', 'at_pick_station', 'ready_for_pickup'].includes(oStatus)) {
             return method === 'home_delivery' ? 'pickup_station_to_customer' : 'warehouse_to_pickup_station';
         }
-        if (['out_for_delivery', 'delivered'].includes(oStatus)) {
-            return 'seller_to_customer';
+        if (['in_transit', 'delivered'].includes(oStatus) || (oStatus === 'in_transit' && activeTask?.deliveryType?.includes('_to_customer'))) {
+            // in_transit is primarily used for the final delivery leg (warehouse/station to customer)
+            // but we only override to it if we aren't already identified as a seller-to-hub leg above.
+            return routing === 'warehouse' ? 'warehouse_to_customer' : 'seller_to_customer';
         }
+        return null; // genuinely unknown
         return null; // genuinely unknown
     })();
 
     // Use the task deliveryType unless it looks stale (e.g. still says seller_to_warehouse
     // but we can tell from order status the item is already past the seller stage).
     const taskType = activeTask?.deliveryType;
-    const staleSellerTask = taskType === 'seller_to_warehouse' &&
-        ['at_warehouse', 'received_at_warehouse', 'awaiting_delivery_assignment', 'processing', 'in_transit'].includes(order?.status);
+    const isEarlyStage = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'assigned', 'accepted', 'arrived_at_pickup', 'request_pending', 'requested'].includes(order?.status);
+    
+    // Safety check: if task is a HUB-based leg but order is still at SELLER-based stage, it's a mismatch.
+    const wrongHubTask = (taskType?.startsWith('warehouse') || taskType?.startsWith('pickup_station')) && isEarlyStage;
 
-    const deliveryType = staleSellerTask
+    const staleSellerTask = taskType === 'seller_to_warehouse' &&
+        ['at_warehouse', 'at_warehouse', 'in_transit'].includes(order?.status);
+
+    const deliveryType = (staleSellerTask || wrongHubTask)
         ? (derivedDeliveryType || taskType)
         : (taskType || derivedDeliveryType || order.deliveryType || 'seller_to_warehouse');
     const status = activeTask ? activeTask.status : order.status;
@@ -180,7 +196,18 @@ const DeliveryTaskConsole = ({
 
     const legLabel = getLegLabel();
 
+    const isAtStationStatus = (s) => ['at_pick_station', 'return_at_pick_station', 'ready_for_pickup'].includes(s);
+    const isAtWarehouseStatus = (s) => ['at_warehouse', 'at_warehouse', 'return_at_warehouse'].includes(s);
+    const isAtHubStatus = (s) => isAtStationStatus(s) || isAtWarehouseStatus(s);
+
     const getStatusInfo = (s) => {
+        // Core Logic: If it's a "processing" or "awaiting assignment" order at a station/warehouse leg, simplify it to "At Station/Warehouse"
+        const atStation = isAtStationStatus(s) || (['processing', 'awaiting_delivery_assignment'].includes(s) && deliveryType.startsWith('pickup_station'));
+        const atWarehouse = isAtWarehouseStatus(s) || (['processing', 'awaiting_delivery_assignment'].includes(s) && (deliveryType.startsWith('warehouse') || ['seller_to_warehouse'].includes(deliveryType)));
+
+        if (atStation) return { label: s === 'at_pick_station' ? 'At Station' : s === 'ready_for_pickup' ? 'Ready for Pickup' : 'At Station (Handling)', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <FaStore /> };
+        if (atWarehouse) return { label: (s === 'at_warehouse' || s === 'at_warehouse') ? 'At Warehouse' : 'At Warehouse (Handling)', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: <FaWarehouse /> };
+
         switch (s) {
             case 'requested':
                 return { label: 'Request Pending', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: <FaClock /> };
@@ -192,8 +219,6 @@ const DeliveryTaskConsole = ({
                 return { label: 'Step 1: Processing', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: <FaClipboardCheck /> };
             case 'en_route_to_warehouse':
                 return { label: 'Moving to Warehouse', color: 'bg-indigo-600 text-white border-indigo-700', icon: <FaTruck className="animate-pulse" /> };
-            case 'at_warehouse':
-                return { label: 'Arrived at Warehouse', color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: <FaWarehouse /> };
             case 'ready_for_pickup':
                 return { label: 'Ready for Pickup', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: <FaClock /> };
             case 'failed':
@@ -348,7 +373,12 @@ const DeliveryTaskConsole = ({
     const totals = computeTotals();
 
     return (
-        <div className={`delivery-console-card bg-white rounded-xl sm:rounded-2xl shadow-sm border transition-all duration-300 ${isExpanded ? 'ring-2 ring-blue-500 border-transparent shadow-xl' : 'hover:border-blue-300'}`}>
+        <div 
+            className={`delivery-console-card bg-white rounded-xl sm:rounded-2xl shadow-sm border transition-all duration-300 
+                ${isExpanded ? 'ring-2 ring-blue-500 border-transparent shadow-xl' : 'hover:border-blue-300'}
+                ${isSelected ? 'bg-blue-50/50' : ''}`}
+            style={groupColor ? { borderLeft: `6px solid ${groupColor}` } : {}}
+        >
             {/* Header Section */}
             <div
                 onClick={onToggleExpand}
@@ -411,9 +441,14 @@ const DeliveryTaskConsole = ({
                                             <p className="text-xs sm:text-sm font-black text-gray-800">{pickupDisplay}</p>
                                             <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{pickupAddress}</p>
                                             {pickupPhone && (
-                                                <p className="text-[10px] sm:text-xs text-blue-600 font-bold mt-1.5 flex items-center gap-1.5">
-                                                    📞 {pickupPhone}
-                                                </p>
+                                                <div className="flex gap-2 mt-2">
+                                                  <a href={`tel:${pickupPhone}`} className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-blue-100 border border-blue-200">
+                                                    <FaPhone size={10} /> Call
+                                                  </a>
+                                                  <a href={`https://wa.me/${pickupPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-green-100 border border-green-200">
+                                                    <FaWhatsapp size={10} /> WhatsApp
+                                                  </a>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -441,9 +476,14 @@ const DeliveryTaskConsole = ({
                                             <p className="text-xs sm:text-sm font-black text-gray-800">{destinationDisplay}</p>
                                             <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 italic">{destinationAddress}</p>
                                             {destinationPhone && (
-                                                <p className="text-[10px] sm:text-xs text-blue-600 font-bold mt-1.5 flex items-center gap-1.5">
-                                                    📞 {destinationPhone}
-                                                </p>
+                                                <div className="flex gap-2 mt-2">
+                                                  <a href={`tel:${destinationPhone}`} className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-blue-100 border border-blue-200">
+                                                    <FaPhone size={10} /> Call
+                                                  </a>
+                                                  <a href={`https://wa.me/${destinationPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-green-100 border border-green-200">
+                                                    <FaWhatsapp size={10} /> WhatsApp
+                                                  </a>
+                                                </div>
                                             )}
                                         </div>
                                     </div>

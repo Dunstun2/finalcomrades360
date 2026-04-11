@@ -2,6 +2,7 @@ const { HandoverCode, Order, DeliveryTask, User, Wallet, Transaction, Commission
 const { creditAgentForTask } = require('./earningsService');
 const { moveToSuccess } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout } = require('../utils/deliveryChargeHelpers');
+const { appendOrderTrackingUpdate } = require('../utils/trackingUpdates');
 
 /**
  * Common logic for confirming a handover code.
@@ -31,11 +32,29 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
             return { success: true, message: `Handover already ${handover.status}` };
         }
 
-        const { handoverType, orderId, taskId } = handover;
+        const { handoverType, orderId, taskId: linkedTaskId } = handover;
         const order = handover.order;
-        const task = handover.task;
+        let task = handover.task;
 
-        console.log(`[handoverService] Processing handover confirmation: Type=${handoverType}, Order=${orderId}, Task=${taskId || 'none'}`);
+        // FALLBACK: If no task is explicitly linked to the handover code, try to find an active task for this order and agent (the confirmer)
+        if (!task && orderId && confirmerId) {
+            console.log(`[handoverService] Task missing from handover code ${codeId}, searching for active task for agent ${confirmerId}...`);
+            task = await DeliveryTask.findOne({
+                where: {
+                    orderId,
+                    deliveryAgentId: confirmerId,
+                    status: { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] }
+                },
+                order: [['createdAt', 'DESC']],
+                transaction: t
+            });
+            if (task) {
+                console.log(`[handoverService] Found matching task ${task.id} for agent ${confirmerId}. Linking...`);
+                await handover.update({ taskId: task.id }, { transaction: t });
+            }
+        }
+
+        console.log(`[handoverService] Processing handover confirmation: Type=${handoverType}, Order=${orderId}, Task=${task?.id || 'none'}`);
 
         // 1. Update HandoverCode status
         await handover.update({
@@ -51,7 +70,7 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
 
         switch (handoverType) {
             case 'seller_to_agent':
-                nextOrderStatus = 'shipped';
+                nextOrderStatus = 'in_transit';
                 nextTaskStatus = 'in_progress';
                 break;
             case 'agent_to_warehouse':
@@ -60,16 +79,22 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
                 nextTaskStatus = 'completed';
                 break;
             case 'warehouse_to_agent':
-                nextOrderStatus = 'shipped';
+                nextOrderStatus = task?.deliveryType === 'warehouse_to_pickup_station'
+                    ? 'en_route_to_pick_station'
+                    : 'in_transit';
                 nextTaskStatus = 'in_progress';
                 break;
             case 'agent_to_station':
-                nextOrderStatus = 'at_pick_station';
+                nextOrderStatus = order.deliveryMethod === 'home_delivery' ? 'at_pick_station' : 'ready_for_pickup';
                 nextTaskStatus = 'completed';
                 break;
             case 'station_to_agent':
-                nextOrderStatus = 'shipped';
+                nextOrderStatus = order.status === 'return_in_progress' ? 'return_in_progress' : 'in_transit';
                 nextTaskStatus = 'in_progress';
+                break;
+            case 'pickup_station_to_warehouse':
+                nextOrderStatus = order.status === 'return_in_progress' ? 'return_in_progress' : 'at_warehouse';
+                nextTaskStatus = 'completed';
                 break;
             case 'agent_to_customer':
             case 'station_to_customer':
@@ -93,7 +118,7 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
             paymentConfirmed: (nextOrderStatus === 'delivered') ? true : order.paymentConfirmed
         };
 
-        if (['at_warehouse', 'received_at_warehouse', 'at_pick_station'].includes(nextOrderStatus)) {
+        if (['at_warehouse', 'at_warehouse', 'at_pick_station'].includes(nextOrderStatus)) {
             orderUpdates.deliveryType = null;
             orderUpdates.deliveryAgentId = null;
         } else if (nextOrderStatus === 'delivered' || nextOrderStatus === 'returned') {
@@ -102,8 +127,16 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
 
         await order.update(orderUpdates, { transaction: t });
 
+        await appendOrderTrackingUpdate(order, {
+            status: nextOrderStatus,
+            message: `Handover confirmed (${handoverType.replace(/_/g, ' ')}). Order moved to ${nextOrderStatus.replace(/_/g, ' ')}.`,
+            location: task?.deliveryLocation || order.deliveryAddress || null,
+            updatedBy: confirmerId,
+            updatedByRole: 'handover_confirmer'
+        }, { transaction: t });
+
         // Clean up hanging tasks if a leg just finished at a hub or destination
-        if (['at_warehouse', 'received_at_warehouse', 'at_pick_station', 'delivered', 'returned'].includes(nextOrderStatus)) {
+        if (['at_warehouse', 'at_warehouse', 'at_pick_station', 'delivered', 'returned'].includes(nextOrderStatus)) {
             await DeliveryTask.update(
                 { 
                     status: 'completed',
@@ -148,7 +181,8 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
                             type: 'debit',
                             status: 'completed',
                             description: `Logistics Fee (${handoverType}) for Order #${order.orderNumber}`,
-                            orderId: order.id
+                            orderId: order.id,
+                            walletType: 'seller'
                         }, { transaction: t });
                     }
                 }
@@ -171,13 +205,13 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
                     transaction: t 
                 });
                 const sellerAmount = calculateSellerMerchandisePayout(order, items);
-                await moveToSuccess(sellerId, sellerAmount, order.orderNumber, 'Sale Earning', order.id, t);
+                await moveToSuccess(sellerId, sellerAmount, order.orderNumber, 'Sale Earning', order.id, t, 'seller');
             }
 
             // Marketer Commissions
             const commissions = await Commission.findAll({ where: { orderId: order.id }, transaction: t });
             for (const comm of commissions) {
-                await moveToSuccess(comm.marketerId, comm.commissionAmount, order.orderNumber, 'Commission Earning', order.id, t);
+                await moveToSuccess(comm.marketerId, comm.commissionAmount, order.orderNumber, 'Commission Earning', order.id, t, 'marketer');
                 await comm.update({ status: 'success' }, { transaction: t });
             }
         }
@@ -191,11 +225,16 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
             if (activeReturn) {
                 if (handoverType === 'customer_to_agent' || handoverType === 'customer_to_station') {
                     await activeReturn.update({ status: 'item_collected' }, { transaction: t });
-                } else if (nextOrderStatus === 'at_warehouse' && ['agent_to_warehouse', 'seller_to_warehouse'].includes(handoverType)) {
+                } else if (['agent_to_warehouse', 'seller_to_warehouse', 'pickup_station_to_warehouse'].includes(handoverType)) {
                     // If it was a return leg ending at warehouse
                     if (activeReturn.status === 'item_collected') {
                         await activeReturn.update({ status: 'item_received' }, { transaction: t });
                     }
+                } else if (handoverType === 'station_to_agent' || handoverType === 'pickup_station_to_warehouse') {
+                     // Potential progress update for return being released from station
+                     if (activeReturn.status === 'approved') {
+                         await activeReturn.update({ status: 'item_collected' }, { transaction: t });
+                     }
                 }
             }
         } catch (returnErr) {

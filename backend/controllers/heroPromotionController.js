@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { HeroPromotion, Product, User, Notification, PlatformConfig } = require('../models/index');
+const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood } = require('../models/index');
 
 const getRateConfig = async () => {
   const rows = await PlatformConfig.findAll({ where: { key: { [Op.in]: ['HERO_RATE_PER_DAY', 'HERO_RATE_PER_PRODUCT'] } }, raw: true })
@@ -137,32 +137,53 @@ const requestRefund = async (req, res) => {
 const applyHeroPromotion = async (req, res) => {
   try {
     const sellerId = req.user?.id || req.user?.userId
-    const { productIds = [], durationDays = 7, slotsCount = 1 } = req.body || {}
+    const { productIds = [], fastFoodIds = [], durationDays = 7, slotsCount = 1, promoType = 'product', title, subtitle } = req.body || {}
 
-    if (!Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ error: 'productIds required' })
+
+    const ids = promoType === 'fastfood' ? fastFoodIds : productIds;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: promoType === 'fastfood' ? 'fastFoodIds required' : 'productIds required' })
     }
 
-    // verify products belong to seller and are approved
-    const products = await Product.findAll({
-      where: { id: { [Op.in]: productIds }, sellerId, approved: true },
-      attributes: ['id']
-    })
-    if (products.length !== productIds.length) {
-      return res.status(400).json({ error: 'One or more products invalid or not approved' })
+    if (!title || !title.trim() || !subtitle || !subtitle.trim()) {
+      return res.status(400).json({ error: 'Banner heading (title) and subheading (subtitle) are strictly required.' })
+    }
+
+    // verify items belong to seller and are approved
+    if (promoType === 'fastfood') {
+      const fastfoods = await FastFood.findAll({
+        where: { id: { [Op.in]: ids }, vendor: sellerId, approved: true },
+        attributes: ['id']
+      })
+      if (fastfoods.length !== ids.length) {
+        return res.status(400).json({ error: 'One or more fastfood items invalid or not approved' })
+      }
+    } else {
+      const products = await Product.findAll({
+        where: { id: { [Op.in]: ids }, sellerId, approved: true },
+        attributes: ['id']
+      })
+      if (products.length !== ids.length) {
+        return res.status(400).json({ error: 'One or more products invalid or not approved' })
+      }
     }
 
     const { perDay, perProduct } = await getRateConfig()
-    const amount = (Number(durationDays) || 0) * (perDay + (productIds.length * perProduct))
+    const amount = (Number(durationDays) || 0) * (perDay + (ids.length * perProduct))
 
     const app = await HeroPromotion.create({
       sellerId,
-      productIds,
+      productIds: promoType === 'product' ? ids : [],
+      fastFoodIds: promoType === 'fastfood' ? ids : [],
+      promoType,
       status: 'pending_payment',
       paymentStatus: 'unpaid',
       amount,
       durationDays: Number(durationDays) || 7,
-      slotsCount: Number(slotsCount) || 1
+      slotsCount: Number(slotsCount) || 1,
+      title,
+      subtitle
     })
 
     return res.json({ ok: true, promotion: app })
@@ -213,15 +234,24 @@ const listActiveHeroPromotions = async (req, res) => {
       })
     }
 
-    // hydrate with product details minimal
+    // hydrate with item details minimal
     const result = []
     for (const p of items) {
-      const ids = p.productIds || []
-      const prods = ids.length > 0 ? await Product.findAll({
-        where: { id: { [Op.in]: ids } },
-        attributes: ['id', 'name', 'coverImage', 'galleryImages', 'price', 'displayPrice', 'discountPrice', 'discountPercentage']
-      }) : []
-      result.push({ ...p.toJSON(), products: prods })
+      if (p.promoType === 'fastfood') {
+        const ids = p.fastFoodIds || []
+        const fastfoods = ids.length > 0 ? await FastFood.findAll({
+          where: { id: { [Op.in]: ids } },
+          attributes: ['id', 'name', 'mainImage', 'galleryImages', 'basePrice', 'displayPrice', 'discountPrice', 'discountPercentage']
+        }) : []
+        result.push({ ...p.toJSON(), fastfoods })
+      } else {
+        const ids = p.productIds || []
+        const prods = ids.length > 0 ? await Product.findAll({
+          where: { id: { [Op.in]: ids } },
+          attributes: ['id', 'name', 'coverImage', 'galleryImages', 'price', 'displayPrice', 'discountPrice', 'discountPercentage']
+        }) : []
+        result.push({ ...p.toJSON(), products: prods })
+      }
     }
 
     res.json({ items: result })

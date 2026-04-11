@@ -27,12 +27,22 @@ const sendSms = async (to, message) => {
       message: message,
       enqueue: true // Enqueue for reliability
     });
-    
+
+    const recipients = result?.SMSMessageData?.Recipients || [];
+
     // Log detailed status for each recipient
-    if (result.SMSMessageData && result.SMSMessageData.Recipients) {
-      result.SMSMessageData.Recipients.forEach(rec => {
+    if (recipients.length > 0) {
+      recipients.forEach(rec => {
         console.log(`[Africatalking] Recipient: ${rec.number}, Status: ${rec.status}, StatusCode: ${rec.statusCode}, Cost: ${rec.cost}`);
       });
+
+      const failedRecipients = recipients.filter((rec) => String(rec.status || '').toLowerCase() !== 'success');
+      if (failedRecipients.length > 0) {
+        const details = failedRecipients
+          .map((rec) => `${rec.number}:${rec.status || 'Unknown'}(${rec.statusCode || 'n/a'})`)
+          .join(', ');
+        throw new Error(`Africatalking delivery failed: ${details}`);
+      }
     }
 
     console.log('✅ [Africatalking] API Response:', JSON.stringify(result, null, 2));

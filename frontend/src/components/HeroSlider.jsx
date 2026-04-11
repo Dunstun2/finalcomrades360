@@ -62,31 +62,35 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
             onMouseEnter={() => setIsAutoPlaying(false)}
             onMouseLeave={() => setIsAutoPlaying(true)}
         >
-            <div className="relative w-full h-60 sm:h-64 md:min-h-[500px] transition-all duration-700 ease-in-out overflow-hidden">
+            <div className="relative w-full h-52 sm:h-64 md:min-h-[500px] transition-all duration-700 ease-in-out overflow-hidden">
                 {/* Split background like Jumia-style promo banners */}
                 <div className="absolute inset-0 flex">
-                    <div className="w-3/5 bg-[#a172d5]"></div>
-                    <div className="w-2/5 bg-[#f59e0b]"></div>
+                    <div className="w-[55%] bg-[#a172d5]"></div>
+                    <div className="w-[45%] bg-[#f59e0b]"></div>
                 </div>
-                <div className="absolute inset-0 left-[58%] w-1 bg-white/25 rotate-[10deg] origin-top"></div>
+                <div className="absolute inset-0 left-[53%] w-1 bg-white/25 rotate-[10deg] origin-top"></div>
+
 
                 <div className="relative z-10 w-full h-full flex">
-                    <div className="w-3/5 h-full px-3 sm:px-5 md:px-10 pt-6 pb-3 sm:py-4 md:py-10 flex flex-col justify-start animate-fade-in-up">
-                        <h1 className="text-white text-[14px] sm:text-xl md:text-5xl font-black leading-tight tracking-tight line-clamp-2 md:line-clamp-none">
+                    <div className="w-3/5 h-full px-3 sm:px-5 md:px-10 py-4 sm:py-6 md:py-10 flex flex-col justify-start animate-fade-in-up">
+
+
+                        <h1 className="text-white text-[15px] sm:text-xl md:text-5xl font-black leading-tight tracking-tight line-clamp-1 md:line-clamp-none">
                             {currentItem.title || (firstProduct ? firstProduct.name : '')}
                         </h1>
-                        <p className="mt-1 text-white/95 text-[11px] sm:text-sm md:text-xl font-semibold line-clamp-2 md:line-clamp-none max-w-[95%]">
+                        <p className="mt-0.5 text-white/95 text-[10px] sm:text-sm md:text-xl font-semibold line-clamp-1 md:line-clamp-none max-w-[95%]">
                             {currentItem.subtitle || (firstProduct ? `Experience the best of ${firstProduct.name}.` : '')}
                         </p>
 
                         {firstProduct && (
-                            <div className="mt-2 sm:mt-3 flex flex-col items-start">
+                            <div className="mt-1.5 sm:mt-3 flex flex-col items-start">
+
                                 <p className="text-white text-[12px] sm:text-sm md:text-lg font-extrabold tracking-tight line-clamp-1 max-w-[95%]">
                                     {firstProduct.name}
                                 </p>
                                 <button
                                     onClick={(e) => handleAddToCartClick(e, firstProduct.id)}
-                                    className="mt-1.5 inline-flex w-fit items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 bg-white text-[#f59e0b] rounded-md sm:rounded-lg font-black text-[11px] sm:text-sm shadow-md hover:opacity-95 transition"
+                                    className="mt-1 inline-flex w-fit items-center gap-1 px-2.5 py-1 sm:px-4 sm:py-2 bg-white text-[#f59e0b] rounded-md sm:rounded-lg font-black text-[10px] sm:text-sm shadow-md hover:opacity-95 transition"
                                 >
                                     <span>BUY NOW</span>
                                     <FaShoppingCart />
@@ -95,12 +99,15 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                         )}
                     </div>
 
-                    <div className="w-2/5 h-full flex items-end justify-center pr-1 sm:pr-2 md:pr-6 animate-fade-in-up delay-200">
-                        <div className="w-full h-full flex items-end justify-center">
+                    <div className="w-[45%] h-full flex items-center justify-center pr-1 sm:pr-2 md:pr-6 animate-fade-in-up delay-200">
+
+                        <div className="w-full h-full flex items-center justify-center">
+
                             <img
                                 src={resolveImageUrl(hasCustomImage ? currentItem.customImageUrl : (firstProduct?.coverImage || FALLBACK_IMAGE))}
                                 alt={currentItem.title || firstProduct?.name || 'Promotion'}
-                                className="w-full h-full object-contain object-bottom drop-shadow-[0_8px_14px_rgba(0,0,0,0.35)]"
+                                className="w-full h-full object-contain object-center drop-shadow-[0_12px_20px_rgba(0,0,0,0.4)] scale-110 sm:scale-125 transition-transform duration-500"
+
                             />
                         </div>
                     </div>

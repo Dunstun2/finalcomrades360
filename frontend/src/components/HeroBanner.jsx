@@ -13,7 +13,7 @@ const HeroBanner = ({
 }) => {
     if (loading) {
         return (
-            <div className="w-full h-40 sm:h-56 bg-gradient-to-br from-blue-100 to-blue-200 animate-pulse rounded-lg mb-4" />
+            <div className="w-full h-52 sm:h-64 bg-gradient-to-br from-blue-100 to-blue-200 animate-pulse rounded-lg mb-4" />
         );
     }
     // If we have active dynamic promotions, show the slider instead of static banner

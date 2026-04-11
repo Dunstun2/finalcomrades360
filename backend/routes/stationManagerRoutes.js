@@ -1,17 +1,19 @@
 const express = require('express');
-const {
-  getStationDashboard,
-  markOrderReceivedAtWarehouse,
-  markOrderReadyAtPickupStation
-} = require('../controllers/stationManagerController');
-const { auth, checkRole } = require('../middleware/auth');
-
 const router = express.Router();
+const stationManagerController = require('../controllers/stationManagerController');
+const { authenticate } = require('../middleware/auth');
 
-router.use(auth, checkRole(['station_manager', 'warehouse_manager', 'pickup_station_manager']));
+console.log('[stationManagerRoutes] Mounting routes...');
 
-router.get('/dashboard', getStationDashboard);
-router.post('/orders/:orderId/warehouse-received', markOrderReceivedAtWarehouse);
-router.post('/orders/:orderId/ready-for-pickup', markOrderReadyAtPickupStation);
+// Dashboard
+router.get('/dashboard', authenticate, stationManagerController.getStationDashboard);
+
+// Orders
+router.post('/orders/:orderId/warehouse-received', authenticate, stationManagerController.markOrderReceivedAtWarehouse);
+router.post('/orders/:orderId/ready-for-pickup', authenticate, stationManagerController.markOrderReadyAtPickupStation);
+
+// Returns
+router.post('/returns/:returnId/receive', authenticate, stationManagerController.markReturnReceivedAtStation);
+router.post('/returns/:returnId/receive-warehouse', authenticate, stationManagerController.markReturnReceivedAtWarehouse);
 
 module.exports = router;

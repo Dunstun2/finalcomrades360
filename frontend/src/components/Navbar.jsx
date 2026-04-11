@@ -100,16 +100,53 @@ export default function Navbar() {
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  
+  // Maintenance Visibility Logic
+  const [maintenance, setMaintenance] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('maintenance_settings') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      const data = e.detail || (e.key === 'maintenance_settings' ? JSON.parse(e.newValue || '{}') : null);
+      if (data) setMaintenance(data);
+    };
+    window.addEventListener('maintenance-settings-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('maintenance-settings-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const isAdmin = (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'));
+  
+  const isSectionVisible = (sectionKey) => {
+    if (isAdmin) return true;
+    const settings = maintenance.sections?.[sectionKey];
+    return !settings?.enabled;
+  };
+
+  const isDashboardVisible = (dashboardKey) => {
+    if (isAdmin) return true;
+    const settings = maintenance.dashboards?.[dashboardKey];
+    return !settings?.enabled;
+  };
+
   const dashboardLinks = [
-    ((userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin')) ? { to: '/dashboard', label: 'Admin Dashboard', icon: '🔒' } : null),
-    (userRoles.includes('ops_manager') ? { to: '/ops', label: 'Operations Dashboard', icon: '⚙️' } : null),
-    (userRoles.includes('logistics_manager') ? { to: '/logistics', label: 'Logistics Dashboard', icon: '🚚' } : null),
-    (userRoles.includes('finance_manager') ? { to: '/finance', label: 'Finance Dashboard', icon: '💰' } : null),
-    (userRoles.includes('seller') ? { to: '/seller', label: 'Seller Panel', icon: '🏪' } : null),
-    (userRoles.includes('marketer') ? { to: '/marketing', label: 'Marketer Hub', icon: '📢' } : null),
-    (userRoles.includes('delivery_agent') ? { to: '/delivery', label: 'Delivery App', icon: '🛵' } : null),
-    (userRoles.includes('service_provider') ? { to: '/dashboard/service-provider', label: 'Provider Portal', icon: '🛠️' } : null),
-    ((userRoles.includes('station_manager') || userRoles.includes('warehouse_manager') || userRoles.includes('pickup_station_manager')) ? { to: '/station', label: 'Station Ops', icon: '📦' } : null),
+    (isDashboardVisible('admin') && (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'))) ? { to: '/dashboard', label: 'Admin Dashboard', icon: '🔒' } : null,
+    (isDashboardVisible('ops') && userRoles.includes('ops_manager')) ? { to: '/ops', label: 'Operations Dashboard', icon: '⚙️' } : null,
+    (isDashboardVisible('logistics') && userRoles.includes('logistics_manager')) ? { to: '/logistics', label: 'Logistics Dashboard', icon: '🚚' } : null,
+    (isDashboardVisible('finance') && userRoles.includes('finance_manager')) ? { to: '/finance', label: 'Finance Dashboard', icon: '💰' } : null,
+    (isDashboardVisible('seller') && userRoles.includes('seller')) ? { to: '/seller', label: 'Seller Panel', icon: '🏪' } : null,
+    (isDashboardVisible('marketer') && userRoles.includes('marketer')) ? { to: '/marketing', label: 'Marketer Hub', icon: '📢' } : null,
+    (isDashboardVisible('delivery') && userRoles.includes('delivery_agent')) ? { to: '/delivery', label: 'Delivery App', icon: '🛵' } : null,
+    (isDashboardVisible('provider') && userRoles.includes('service_provider')) ? { to: '/dashboard/service-provider', label: 'Provider Portal', icon: '🛠️' } : null,
+    (isDashboardVisible('station') && (userRoles.includes('station_manager') || userRoles.includes('warehouse_manager') || userRoles.includes('pickup_station_manager'))) ? { to: '/station', label: 'Station Ops', icon: '📦' } : null,
   ].filter(Boolean);
 
   // Define role-specific sub-links for the mobile menu
@@ -138,6 +175,7 @@ export default function Navbar() {
   ];
 
   const [activeSubMenu, setActiveSubMenu] = useState(null); // 'seller', 'marketer', 'provider', etc.
+  
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -216,7 +254,7 @@ export default function Navbar() {
         </div>
       )}
 
-      <nav className={`${(isDetailRoute) ? 'hidden lg:block' : ''} bg-white border-b shadow-sm fixed top-0 left-0 w-full z-50`}>
+      <nav className="bg-white border-b shadow-sm fixed top-0 left-0 w-full z-50">
         <div className="max-w-7xl mx-auto px-0 md:px-4">
 
           {/* DESKTOP NAVIGATION (>= lg) - Exact original appearance restored */}
@@ -240,8 +278,14 @@ export default function Navbar() {
                 {showCategories && (
                   <div className="absolute left-0 mt-2 bg-white border rounded shadow-md z-50">
                     <ul className="w-64 py-1">
-                      {categoriesWithSubcategories.map((cat, i) => {
-                        const hasSub = cat.subcategories?.length > 0;
+                      {categoriesWithSubcategories
+                        .filter(cat => {
+                          if (cat.name === 'Food & Drinks') return isSectionVisible('fastfood');
+                          if (cat.name === 'Student Services') return isSectionVisible('services');
+                          return isSectionVisible('products');
+                        })
+                        .map((cat, i) => {
+                          const hasSub = cat.subcategories?.length > 0;
                         return (
                           <li key={cat.id} className="relative">
                             <div
@@ -575,7 +619,7 @@ export default function Navbar() {
               </div>
             </div>
 
-            {!isStationUser && !isDashboardRoute && (
+            {!isStationUser && !isDashboardRoute && !isDetailRoute && (
             <div className="pb-3 px-1.5">
               <div className="relative flex items-center bg-gray-100 rounded-xl px-2 py-1.5 border border-gray-200/50">
                 <svg className="w-4 h-4 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -667,8 +711,14 @@ export default function Navbar() {
 
                         {isCategoriesOpen && (
                           <div className="px-2 pb-2 space-y-0.5">
-                            {categoriesWithSubcategories.map(cat => {
-                              const hasSub = cat.subcategories?.length > 0;
+                            {categoriesWithSubcategories
+                              .filter(cat => {
+                                if (cat.name === 'Food & Drinks') return isSectionVisible('fastfood');
+                                if (cat.name === 'Student Services') return isSectionVisible('services');
+                                return isSectionVisible('products');
+                              })
+                              .map(cat => {
+                                const hasSub = cat.subcategories?.length > 0;
                               const isExpanded = activeMobileCategory === cat.id;
                               return (
                                 <div key={cat.id}>
@@ -715,12 +765,16 @@ export default function Navbar() {
                         )}
                       </div>
 
-                      <Link to="/fastfood" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                         <span className="mr-3">🍔</span> Fast Food
-                      </Link>
-                      <Link to="/services" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                         <span className="mr-3">🛠️</span> Student Services
-                      </Link>
+                      {isSectionVisible('fastfood') && (
+                        <Link to="/fastfood" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
+                           <span className="mr-3">🍔</span> Fast Food
+                        </Link>
+                      )}
+                      {isSectionVisible('services') && (
+                        <Link to="/services" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
+                           <span className="mr-3">🛠️</span> Student Services
+                        </Link>
+                      )}
                     </nav>
 
                     <div className="mt-8">

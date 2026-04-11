@@ -7,9 +7,12 @@ import { useWishlist } from '../contexts/WishlistContext';
 import { useCategories } from '../contexts/CategoriesContext';
 import api, { productApi } from '../services/api';
 import HomeProductCard from '../components/HomeProductCard';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
+import MaintenanceOverlay from '../components/MaintenanceOverlay';
 import HeroBanner from '../components/HeroBanner';
 import Footer from '../components/Footer';
 import useHeroPromotions from '../hooks/useHeroPromotions';
+import PageLayout from '../components/layout/PageLayout';
 
 // Fallback categories in case backend is down
 const fallbackCategories = [
@@ -49,6 +52,32 @@ const Products = () => {
 
   const productsPerPage = 24;
 
+  // --- Granular Maintenance Check ---
+  const [maintenanceSettings, setMaintenanceSettings] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('maintenance_settings') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      const data = e.detail || (e.key === 'maintenance_settings' ? JSON.parse(e.newValue || '{}') : null);
+      if (data) setMaintenanceSettings(data);
+    };
+    window.addEventListener('maintenance-settings-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('maintenance-settings-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const userRoles = Array.isArray(user?.roles) ? user.roles : (user?.role ? [user.role] : []);
+  const isAdmin = (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'));
+  const isMaintenanceActive = !isAdmin && (maintenanceSettings.enabled || maintenanceSettings.sections?.products?.enabled);
+
   // Handle URL parameters for category and subcategory filtering
   useEffect(() => {
     const urlParams = new URLSearchParams(location.search);
@@ -58,12 +87,9 @@ const Products = () => {
     if (categoryId) {
       const category = displayCategories.find(cat => cat.id === parseInt(categoryId));
       if (category) {
-        // Only update if selection changed to avoid infinite loops
         if (!selectedCategory || selectedCategory.id !== category.id) {
           setSelectedCategory(category);
         }
-
-        // If subcategoryId is provided, find and set it
         if (subcategoryId && category.subcategories) {
           const subcategory = category.subcategories.find(sub => sub.id === parseInt(subcategoryId));
           if (subcategory && (!selectedSubcategory || selectedSubcategory.id !== subcategory.id)) {
@@ -72,7 +98,6 @@ const Products = () => {
         }
       }
     } else {
-      // Clear selection if no categoryId in URL
       if (selectedCategory) setSelectedCategory(null);
       if (selectedSubcategory) setSelectedSubcategory(null);
     }
@@ -142,12 +167,6 @@ const Products = () => {
   };
 
   const handleAddToCart = async (productId) => {
-    // Login check removed to allow guest cart
-    // if (!user) {
-    //   navigate('/login');
-    //   return;
-    // }
-
     try {
       const isInCart = cart?.items?.some(item => item.productId === productId || item.product?.id === productId);
       if (isInCart) {
@@ -166,7 +185,6 @@ const Products = () => {
       navigate('/login');
       return;
     }
-
     try {
       await toggleWishlist(productId);
     } catch (error) {
@@ -176,15 +194,8 @@ const Products = () => {
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
-    setCurrentPage(1); // Reset page when filtering
-
-    // Smooth scroll to top of page
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-
-    // Update URL without page reload
+    setCurrentPage(1); 
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     const params = new URLSearchParams(location.search);
     if (category) {
       params.set('categoryId', category.id.toString());
@@ -194,41 +205,9 @@ const Products = () => {
     navigate(`${location.pathname}?${params.toString()}`);
   };
 
-  const clearCategoryFilter = () => {
-    setSelectedCategory(null);
-    setCurrentPage(1);
-
-    // Smooth scroll to top
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-
-    navigate(location.pathname); // Remove query parameters
-  };
-
-  // Keyboard navigation for category buttons
-  const handleKeyDown = (event, category) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleCategorySelect(category);
-    }
-  };
-
-  // Check if we're using fallback categories
-  const isUsingFallback = !categories || categories.length === 0;
-
-  // Function to retry loading categories
-  const retryLoadCategories = async () => {
-    setCategoriesLoading(true);
-    // Force a re-render by changing the window location briefly
-    window.location.reload();
-  };
-
-  // Infinite scrolling logic using IntersectionObserver
+  // Infinite scrolling logic
   useEffect(() => {
     if (loading || loadingMore || currentPage >= totalPages) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !loadingMore && currentPage < totalPages) {
@@ -237,19 +216,11 @@ const Products = () => {
       },
       { threshold: 0.1, rootMargin: '1500px' }
     );
-
-    if (observerSentinel.current) {
-      observer.observe(observerSentinel.current);
-    }
-
+    if (observerSentinel.current) observer.observe(observerSentinel.current);
     return () => {
-      if (observerSentinel.current) {
-        observer.unobserve(observerSentinel.current);
-      }
+      if (observerSentinel.current) observer.unobserve(observerSentinel.current);
     };
   }, [loading, loadingMore, currentPage, totalPages]);
-
-
 
   if (error) {
     return (
@@ -261,10 +232,7 @@ const Products = () => {
               <h3 className="text-lg font-semibold text-red-800">Error Loading Products</h3>
               <p className="text-sm text-red-600 mt-1">{error}</p>
               <button
-                onClick={() => {
-                  setCurrentPage(1);
-                  fetchProducts();
-                }}
+                onClick={() => { setCurrentPage(1); fetchProducts(); }}
                 className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
               >
                 Try Again
@@ -277,181 +245,156 @@ const Products = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Back Button */}
-      <div className="w-full px-0 md:px-4 py-4">
-        <button
-          onClick={() => navigate('/')}
-          className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors ml-4 md:ml-0"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Homepage
-        </button>
-      </div>
-
-      <HeroBanner
-        title="Explore All Products"
-        subtitle="Discover the best deals and essentials from campus sellers"
-        promotions={heroPromotions}
-        onAddToCart={handleAddToCart}
+    <div className="relative min-h-screen">
+      <MaintenanceOverlay 
+        isVisible={isMaintenanceActive} 
+        message={maintenanceSettings.sections?.products?.message} 
       />
-
-      {/* Back Button */}
-      <div className="w-full px-0 md:px-4 py-4">
-
-        {/* Category Navigation Bar */}
-        <div className="flex space-x-2 overflow-x-auto pb-3 scrollbar-hide relative">
-          {/* All Products Button */}
-          <button
-            onClick={() => handleCategorySelect(null)}
-            onKeyDown={(e) => handleKeyDown(e, null)}
-            tabIndex={0}
-            role="tab"
-            aria-selected={!selectedCategory}
-            className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${!selectedCategory
-              ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
-              : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
-              }`}
-          >
-            <div className="flex items-center space-x-2">
-              <span className="text-lg">📦</span>
-              <div className="text-left">
-                <div className="text-sm font-semibold">All Products</div>
-              </div>
-            </div>
-          </button>
-
-          {/* Category Buttons with Product Counts */}
-          {displayCategories.map(category => (
-            <button
-              key={category.id}
-              onClick={() => handleCategorySelect(category)}
-              onKeyDown={(e) => handleKeyDown(e, category)}
-              tabIndex={0}
-              role="tab"
-              aria-selected={selectedCategory?.id === category.id}
-              aria-label={`Filter by ${category.name} category with ${category.productCount || 0} products`}
-              className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${selectedCategory?.id === category.id
-                ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
-                : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
-                }`}
-            >
-              <div className="flex items-center space-x-2">
-                <span className="text-lg">{category.emoji || '📦'}</span>
-                <div className="text-left">
-                  <div className="text-sm font-semibold truncate max-w-24">{category.name}</div>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Products Grid */}
-      <div className="w-full px-0 md:px-4 py-8">
-        {(loading && products.length === 0) ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-            {Array.from({ length: 12 }).map((_, index) => (
-              <div key={`skeleton-${index}`} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden h-full flex flex-col">
-                <div className="aspect-[3/4] bg-gray-100 animate-pulse"></div>
-                <div className="p-3 flex-grow flex flex-col">
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : products.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 mb-4">
-              <Search className="h-6 w-6 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
-            <p className="text-gray-500">
-              No products are currently available.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* All Products - Grid Layout (matching homepage) */}
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                All Products
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {products.map(product => {
-                  const isProductInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(product.id));
-                  return (
-                    <HomeProductCard
-                      key={product.id}
-                      product={product}
-                      isInCart={!!isProductInCart}
-                      onView={handleViewProduct}
-                      onAddToCart={handleAddToCart}
-                      onWishlistToggle={handleWishlistToggle}
-                      user={user}
-                      navigate={navigate}
-                    />
-                  );
-                })}
-              </div>
+      
+      <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
+        <PageLayout>
+          <div className="min-h-screen bg-gray-50 pb-20">
+            {/* Back Button */}
+            <div className="w-full px-0 md:px-4 py-4">
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors ml-4 md:ml-0"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Homepage
+              </button>
             </div>
 
-            {/* Pagination Skeletons for continuous feel */}
-            {loadingMore && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 mt-4">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <div key={`pag-skeleton-${index}`} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden h-full flex flex-col">
-                    <div className="aspect-[3/4] bg-gray-100 animate-pulse"></div>
-                    <div className="p-3 flex-grow flex flex-col">
-                      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+            <HeroBanner
+              title="Explore All Products"
+              subtitle="Discover the best deals and essentials from campus sellers"
+              promotions={heroPromotions}
+              onAddToCart={handleAddToCart}
+            />
+
+            {/* Category Navigation Bar */}
+            <div className="w-full px-0 md:px-4 py-4">
+              <div className="flex space-x-2 overflow-x-auto pb-3 scrollbar-hide relative">
+                <button
+                  onClick={() => handleCategorySelect(null)}
+                  className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${!selectedCategory
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
+                    }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">📦</span>
+                    <div className="text-left">
+                      <div className="text-sm font-semibold">All Products</div>
                     </div>
                   </div>
+                </button>
+
+                {displayCategories.map(category => (
+                  <button
+                    key={category.id}
+                    onClick={() => handleCategorySelect(category)}
+                    className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${selectedCategory?.id === category.id
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
+                      }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="text-lg">{category.emoji || '📦'}</span>
+                      <div className="text-left">
+                        <div className="text-sm font-semibold truncate max-w-24">{category.name}</div>
+                      </div>
+                    </div>
+                  </button>
                 ))}
               </div>
-            )}
+            </div>
 
+            {/* Products Grid */}
+            <div className="w-full px-0 md:px-4 py-8">
+              {(loading && products.length === 0) ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                  {Array.from({ length: 12 }).map((_, index) => (
+                    <div key={`skeleton-${index}`} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden h-full flex flex-col">
+                      <div className="aspect-[3/4] bg-gray-100 animate-pulse"></div>
+                      <div className="p-3 flex-grow flex flex-col">
+                        <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : products.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 mb-4">
+                    <Search className="h-6 w-6 text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
+                  <p className="text-gray-500">No products are currently available.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">All Products</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                      {products.map(product => {
+                        const isProductInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(product.id));
+                        return (
+                          <HomeProductCard
+                            key={product.id}
+                            product={product}
+                            isInCart={!!isProductInCart}
+                            onView={handleViewProduct}
+                            onAddToCart={handleAddToCart}
+                            onWishlistToggle={handleWishlistToggle}
+                            user={user}
+                            navigate={navigate}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
 
+                  {loadingMore && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 mt-4">
+                      {Array.from({ length: 6 }).map((_, index) => (
+                        <div key={`pag-skeleton-${index}`} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden h-full flex flex-col">
+                          <div className="aspect-[3/4] bg-gray-100 animate-pulse"></div>
+                          <div className="p-3 flex-grow flex flex-col">
+                            <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                            <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-            {/* Observer Sentinel */}
-            <div ref={observerSentinel} className="h-4 w-full" aria-hidden="true"></div>
+                  <div ref={observerSentinel} className="h-4 w-full" aria-hidden="true"></div>
 
-            {/* No More Products Message */}
-            {currentPage >= totalPages && products.length > 0 && (
-              <div className="text-center mt-8 py-4 text-gray-500">
-                <p>
-                  🎉 You've seen all {totalCount} products!
-                </p>
+                  {currentPage >= totalPages && products.length > 0 && (
+                    <div className="text-center mt-8 py-4 text-gray-500">
+                      <p>🎉 You've seen all {totalCount} products!</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {!user && (
+              <div className="bg-blue-50 border-t">
+                <div className="w-full px-0 md:px-4 py-12 text-center">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4">Want to sell your products?</h3>
+                  <p className="text-gray-600 mb-6">Join our platform and start selling to our community.</p>
+                  <Link to="/register" className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">Get Started</Link>
+                </div>
               </div>
             )}
-          </>
-        )}
-      </div>
 
-      {/* Call to Action */}
-      {
-        !user && (
-          <div className="bg-blue-50 border-t">
-            <div className="w-full px-0 md:px-4 py-12 text-center">
-              <h3 className="text-2xl font-bold text-gray-900 mb-4">Want to sell your products?</h3>
-              <p className="text-gray-600 mb-6">
-                Join our platform and start selling to our community.
-              </p>
-              <Link
-                to="/register"
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Get Started
-              </Link>
-            </div>
+            <Footer />
           </div>
-        )
-      }
-
-      {/* Footer */}
-      <Footer />
-    </div >
+        </PageLayout>
+      </div>
+    </div>
   );
 };
 

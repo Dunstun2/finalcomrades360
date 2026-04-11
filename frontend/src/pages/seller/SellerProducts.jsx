@@ -151,28 +151,28 @@ export default function SellerProducts() {
 
 
   const renderTabs = () => (
-    <div className="flex flex-wrap border-b border-gray-200 mb-6">
+    <div className="flex flex-nowrap overflow-x-auto scrollbar-hide border-b border-gray-200 mb-6 -mx-4 px-4 sm:mx-0 sm:px-0">
       <button
         onClick={() => handleTabChange('approved_products')}
-        className={`mr-4 py-2 px-4 font-medium text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'approved_products' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        className={`flex-shrink-0 mr-2 sm:mr-4 py-2 px-2 sm:px-4 font-medium text-[11px] sm:text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'approved_products' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
       >
         Approved Products
       </button>
       <button
         onClick={() => handleTabChange('approved_fastfood')}
-        className={`mr-4 py-2 px-4 font-medium text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'approved_fastfood' ? 'border-orange-600 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        className={`flex-shrink-0 mr-2 sm:mr-4 py-2 px-2 sm:px-4 font-medium text-[11px] sm:text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'approved_fastfood' ? 'border-orange-600 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
       >
         Approved Fast Food
       </button>
       <button
         onClick={() => handleTabChange('pending_products')}
-        className={`mr-4 py-2 px-4 font-medium text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'pending_products' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        className={`flex-shrink-0 mr-2 sm:mr-4 py-2 px-2 sm:px-4 font-medium text-[11px] sm:text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'pending_products' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
       >
         Pending Products
       </button>
       <button
         onClick={() => handleTabChange('pending_fastfood')}
-        className={`py-2 px-4 font-medium text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'pending_fastfood' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        className={`flex-shrink-0 py-2 px-2 sm:px-4 font-medium text-[11px] sm:text-sm focus:outline-none transition-colors duration-200 border-b-2 ${activeTab === 'pending_fastfood' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
       >
         Pending Fast Food
       </button>
@@ -180,79 +180,66 @@ export default function SellerProducts() {
   );
 
   const renderProductCard = (p, isPending = false) => {
-    // Debug: Log price data
-    if (p.name === 'Infinix Hot Test') {
-      console.log('🔍 Price Debug:', {
-        name: p.name,
-        displayPrice: p.displayPrice,
-        basePrice: p.basePrice,
-        formatted: formatPrice(p.displayPrice || 0),
-        typeof_display: typeof p.displayPrice,
-        typeof_base: typeof p.basePrice
-      });
-    }
-
     return (
-      <div key={p.id} className="w-[210px] min-w-[210px] max-w-[210px] flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden flex flex-col h-full border border-gray-100 p-3">
-        <div className="relative h-48 mb-3 overflow-hidden rounded bg-gray-100">
+      <div key={p.id} className="group w-full bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden flex flex-col h-full border border-gray-100">
+        <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
           <img
             src={resolveImageUrl((p.images || [])[0])}
             alt={p.name}
-            className="w-full h-full object-cover transition-transform hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = resolveImageUrl(null); }}
           />
           {isPending ? (
-            <div className="absolute top-2 right-2">
+            <div className="absolute top-2 right-2 z-10">
               {p.reviewStatus === 'rejected' ? (
-                <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-800 font-semibold shadow-sm">Rejected</span>
+                <span className="text-[10px] px-2 py-1 rounded bg-red-100 text-red-800 font-bold shadow-sm">Rejected</span>
               ) : p.reviewStatus === 'changes_requested' ? (
-                <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 font-semibold shadow-sm">Changes Requested</span>
+                <span className="text-[10px] px-2 py-1 rounded bg-amber-100 text-amber-800 font-bold shadow-sm">Changes Requested</span>
               ) : (
-                <span className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-700 font-semibold shadow-sm">Pending</span>
+                <span className="text-[10px] px-2 py-1 rounded bg-gray-200 text-gray-700 font-bold shadow-sm">Pending</span>
               )}
             </div>
           ) : null}
         </div>
 
-        <div className="flex-grow">
-          <h3 className="font-semibold text-gray-900 mb-1 truncate" title={p.name}>{p.name}</h3>
-          <div className="flex items-baseline gap-2 mb-2">
-            <div className="flex flex-col">
-              <span className="text-blue-600 font-bold text-lg">
-                {formatPrice(p.basePrice || 0)}
-              </span>
-            </div>
+        <div className="px-2 sm:px-3 py-2 flex-grow flex flex-col">
+          <h3 className="font-display font-semibold text-gray-900 mb-1 text-sm sm:text-base tracking-tight truncate group-hover:text-blue-600 transition-colors" title={p.name}>{p.name}</h3>
+          
+          <div className="mb-1.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
+            <span className="font-sans text-sm sm:text-base font-black text-gray-900">
+              {formatPrice(p.basePrice || 0)}
+            </span>
+            <span className="text-[10px] text-gray-500">Stock: {p.stock}</span>
           </div>
-          <div className="text-sm text-gray-500 mb-2">Stock: {p.stock}</div>
+
           {isPending && !p.approved && p.reviewNotes ? (
-            <div className="text-xs bg-yellow-50 text-yellow-800 p-2 rounded mb-2 border border-yellow-100">
+            <div className="text-[10px] bg-yellow-50 text-yellow-800 p-1.5 rounded mb-2 border border-yellow-100 line-clamp-2">
               <span className="font-bold">Note:</span> {p.reviewNotes}
             </div>
           ) : null}
         </div>
 
-        <div className="flex gap-2 mt-auto pt-3 border-t border-gray-100">
+        <div className="flex gap-1 p-2 mt-auto pt-3 border-t border-gray-100">
           <Link
             to={`/seller/products/${p.id}/view`}
-            className="flex-1 py-1.5 text-center text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded border border-blue-200 transition-colors"
+            className="flex-1 py-1.5 text-center text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors truncate"
             title="View Details"
           >
-            👁️ View
+            View
           </Link>
           <Link
             to={`/seller/products/${p.id}/edit`}
-            className="flex-1 py-1.5 text-center text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors"
+            className="flex-1 py-1.5 text-center text-[10px] sm:text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors truncate"
             title="Edit Product"
           >
-            ✏️ Edit
+            Edit
           </Link>
-          {/* Delete button (mostly for pending, but approved/rejected logic handled in modal) */}
           <button
             onClick={() => handleDeleteProduct(p.id)}
-            className="px-3 py-1.5 text-sm bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200 rounded transition-colors"
+            className="px-2 py-1.5 text-[10px] bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-200 rounded transition-colors"
             title="Delete"
           >
-            <FaTrash />
+            <FaTrash size={12} />
           </button>
         </div>
       </div>
@@ -260,12 +247,12 @@ export default function SellerProducts() {
   };
 
   const renderFastFoodList = (items) => (
-    <div className="flex flex-wrap gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
       {items.map(item => {
         const isPending = item.status === 'pending' || (item.status === 'draft' && item.reviewStatus === 'pending');
 
         return (
-          <div key={item.id} className="w-full sm:w-[280px]">
+          <div key={item.id} className="w-full">
             <FastFoodCard
               item={item}
               clickable={false}
@@ -354,9 +341,9 @@ export default function SellerProducts() {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-0 sm:p-6 w-full">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">My Listings</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">My Listings</h1>
         <Link to="/seller/products/add" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
           + Add New
         </Link>
@@ -374,7 +361,7 @@ export default function SellerProducts() {
       <div className="min-h-[300px]">
         {activeTab === 'approved_products' && (
           products.length > 0 ? (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {products.map(p => renderProductCard(p))}
             </div>
           ) : (
@@ -384,7 +371,7 @@ export default function SellerProducts() {
 
         {activeTab === 'pending_products' && (
           products.length > 0 ? (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {products.map(p => renderProductCard(p, true))}
             </div>
           ) : (

@@ -35,7 +35,7 @@ id: {
           defaultValue: 0
         },
         status: {
-          type: Sequelize.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned'),
+          type: Sequelize.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned'),
           defaultValue: 'order_placed'
         },
         paymentMethod: {

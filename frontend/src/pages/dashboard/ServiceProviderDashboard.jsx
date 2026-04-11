@@ -95,7 +95,7 @@ const ServiceProviderDashboard = () => {
 
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar">
-          <div className="max-w-7xl mx-auto w-full p-2 lg:p-8 min-h-full pb-20 lg:pb-0">
+          <div className="w-full p-2 lg:p-4 min-h-full pb-20 lg:pb-0">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 min-h-full">
               <div className="p-2 sm:p-6 lg:p-8">
                 {/* Page Header with Navigation Buttons */}

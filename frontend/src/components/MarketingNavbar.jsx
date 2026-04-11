@@ -5,6 +5,7 @@ import { useCart } from '../contexts/CartContext';
 import { useCategories } from '../contexts/CategoriesContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './ui/use-toast';
+import { copyToClipboard } from '../utils/clipboard';
 
 export default function MarketingNavbar() {
     const { cart } = useCart();
@@ -27,6 +28,44 @@ export default function MarketingNavbar() {
     const categoriesRef = useRef(null);
     const [copied, setCopied] = useState(false);
 
+    // Maintenance Visibility Logic
+    const [maintenance, setMaintenance] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('maintenance_settings') || '{}');
+        } catch {
+            return {};
+        }
+    });
+
+    useEffect(() => {
+        const handleUpdate = (e) => {
+            // Check if it's our custom event (has detail) or storage event (has newValue)
+            const data = e.detail || (e.key === 'maintenance_settings' ? JSON.parse(e.newValue || '{}') : null);
+            if (data) setMaintenance(data);
+        };
+        window.addEventListener('maintenance-settings-updated', handleUpdate);
+        window.addEventListener('storage', handleUpdate);
+        return () => {
+            window.removeEventListener('maintenance-settings-updated', handleUpdate);
+            window.removeEventListener('storage', handleUpdate);
+        };
+    }, []);
+
+    const userRoles = Array.isArray(user?.roles) ? user.roles : (user?.role ? [user.role] : []);
+    const isAdmin = (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'));
+
+    const isSectionVisible = (sectionKey) => {
+        if (isAdmin) return true;
+        const settings = maintenance.sections?.[sectionKey];
+        return !settings?.enabled;
+    };
+
+    const isDashboardVisible = (dashboardKey) => {
+        if (isAdmin) return true;
+        const settings = maintenance.dashboards?.[dashboardKey];
+        return !settings?.enabled;
+    };
+
     const handleCopyLink = () => {
         if (!user?.referralCode) {
             toast({
@@ -38,29 +77,42 @@ export default function MarketingNavbar() {
         }
 
         const url = `${window.location.origin}/?ref=${user.referralCode}`;
-        navigator.clipboard.writeText(url).then(() => {
-            setCopied(true);
-            toast({
-                title: "Link Copied!",
-                description: "Referral link copied to clipboard.",
-                duration: 2000
-            });
-            setTimeout(() => setCopied(false), 2000);
-        }).catch(() => {
-            toast({
-                title: "Failed to Copy",
-                description: "Could not copy link to clipboard.",
-                variant: "destructive"
-            });
+        copyToClipboard(url).then((success) => {
+            if (success) {
+                setCopied(true);
+                toast({
+                    title: "Link Copied!",
+                    description: "Referral link copied to clipboard.",
+                    duration: 2000
+                });
+                setTimeout(() => setCopied(false), 2000);
+            } else {
+                toast({
+                    title: "Failed to Copy",
+                    description: "Please copy the link manually.",
+                    variant: "destructive"
+                });
+            }
         });
+
     };
 
     const handleExit = () => {
         localStorage.removeItem('marketing_mode');
-        window.location.reload();
+        window.location.href = '/';
     };
 
+
+    const isDashboardRoute = location.pathname.startsWith('/dashboard') ||
+        ['/marketing', '/seller', '/customer', '/ops', '/logistics', '/finance', '/station'].some(path => location.pathname.startsWith(path));
+
+    const isDetailRoute = location.pathname.startsWith('/product/') || 
+                         location.pathname.startsWith('/category/') ||
+                         location.pathname.startsWith('/fastfood/') || 
+                         location.pathname.startsWith('/service/');
+
     // Close dropdowns when clicking outside
+
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (categoriesRef.current && !categoriesRef.current.contains(event.target)) {
@@ -81,8 +133,9 @@ export default function MarketingNavbar() {
 
     return (
         <nav className="bg-blue-900 border-b border-blue-800 shadow-md fixed top-0 left-0 w-full z-50 text-white">
-            <div className="max-w-7xl mx-auto px-4">
-                <div className="flex justify-between items-center h-16 gap-4">
+            <div className="max-w-7xl mx-auto px-1.5 sm:px-4">
+                <div className="flex justify-between items-center h-14 md:h-16 gap-4">
+
                     {/* Left: Branding & Categories */}
                     <div className="flex items-center space-x-6">
                         <Link to="/" className="text-xl font-bold tracking-tight flex items-center gap-2 flex-shrink-0">
@@ -104,7 +157,13 @@ export default function MarketingNavbar() {
                                 <div className="absolute left-0 mt-2 bg-white text-gray-800 border rounded shadow-xl z-50 w-64 py-1">
                                     <ul>
                                         {/* Removed View All Products top link */}
-                                        {categoriesWithSubcategories.map((cat, i) => {
+                                        {categoriesWithSubcategories
+                                            .filter(cat => {
+                                                if (cat.name === 'Food & Drinks') return isSectionVisible('fastfood');
+                                                if (cat.name === 'Student Services') return isSectionVisible('services');
+                                                return isSectionVisible('products');
+                                            })
+                                            .map((cat, i) => {
                                             const hasSub = cat.subcategories?.length > 0;
                                             return (
                                                 <li key={cat.id} className="relative group">
@@ -184,12 +243,14 @@ export default function MarketingNavbar() {
                     {/* Right: Actions */}
                     <div className="flex items-center space-x-4 flex-shrink-0">
                         {/* Marketing Orders Link */}
+                        {isDashboardVisible('marketer') && (
                         <Link
                             to="/marketing?tab=orders"
                             className="text-blue-100 hover:text-white font-medium text-sm hidden sm:block transition-colors"
                         >
                             My Orders
                         </Link>
+                        )}
 
                         {/* Exit Button */}
                         <button
@@ -235,7 +296,9 @@ export default function MarketingNavbar() {
                 </div>
 
                 {/* Mobile Search Bar (visible only on small screens) */}
-                <div className="md:hidden pb-3">
+                {!isDashboardRoute && !isDetailRoute && (
+                    <div className="md:hidden pb-2.5">
+
                     <div className="relative flex w-full text-gray-900">
                         <input
                             type="text"
@@ -252,8 +315,10 @@ export default function MarketingNavbar() {
                             <FaSearch />
                         </button>
                     </div>
-                </div>
+                    </div>
+                )}
             </div>
         </nav>
+
     );
 }

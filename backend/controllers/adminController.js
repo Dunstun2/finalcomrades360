@@ -116,15 +116,23 @@ const buildInventoryOverview = (products, fastFoods) => {
 // Get inventory overview with stock levels
 const getInventoryOverview = async (req, res) => {
   try {
+    const isSeller = req.user.role === 'seller';
+    const sellerId = req.user.id;
+
+    const productWhere = isSeller ? { sellerId } : {};
+    const fastFoodWhere = isSeller ? { vendor: sellerId } : {};
+
     const [productRows, fastFoodRows] = await Promise.all([
       Product.findAll({
-        attributes: ['id', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt'],
+        where: productWhere,
+        attributes: ['id', 'name', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt', 'approved', 'reviewStatus', 'isActive', 'sellerId'],
         include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'businessName'] }],
         order: [['stock', 'ASC']]
       }),
       FastFood.findAll({
-        attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus'],
-        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'businessName'] }],
+        where: fastFoodWhere,
+        attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus', 'vendor'],
+        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'] }],
         order: [['createdAt', 'DESC']]
       })
     ]);
@@ -153,6 +161,12 @@ const getInventoryItems = async (req, res) => {
     const sortOrder = String(req.query.sortOrder || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
     const stockStatus = req.query.stockStatus || 'all';
 
+    const isSeller = req.user.role === 'seller';
+    const sellerId = req.user.id;
+
+    const itemType = req.query.itemType || 'all'; // all, product, fastfood
+    const offset = (page - 1) * limit;
+
     const searchCondition = search
       ? {
         [Op.or]: [
@@ -162,71 +176,79 @@ const getInventoryItems = async (req, res) => {
       }
       : {};
 
-    const productWhere = { ...searchCondition };
-    if (stockStatus === 'inStock') {
-      productWhere[Op.and] = [...(productWhere[Op.and] || []), sequelize.where(col('stock'), Op.gt, sequelize.fn('COALESCE', col('lowStockThreshold'), 5))];
-    } else if (stockStatus === 'lowStock') {
-      productWhere[Op.and] = [
-        ...(productWhere[Op.and] || []),
-        sequelize.where(col('stock'), Op.gt, 0),
-        sequelize.where(col('stock'), Op.lte, sequelize.fn('COALESCE', col('lowStockThreshold'), 5))
-      ];
-    } else if (stockStatus === 'outOfStock') {
-      productWhere.stock = 0;
+    let items = [];
+    let totalItems = 0;
+
+    if (itemType === 'product' || itemType === 'all') {
+      const productWhere = { ...searchCondition };
+      if (isSeller) productWhere.sellerId = sellerId;
+
+      if (stockStatus === 'inStock') {
+        productWhere[Op.and] = [...(productWhere[Op.and] || []), sequelize.where(col('stock'), Op.gt, sequelize.fn('COALESCE', col('lowStockThreshold'), 5))];
+      } else if (stockStatus === 'lowStock') {
+        productWhere[Op.and] = [
+          ...(productWhere[Op.and] || []),
+          sequelize.where(col('stock'), Op.gt, 0),
+          sequelize.where(col('stock'), Op.lte, sequelize.fn('COALESCE', col('lowStockThreshold'), 5))
+        ];
+      } else if (stockStatus === 'outOfStock') {
+        productWhere.stock = 0;
+      }
+
+      if (stockStatus !== 'untracked') {
+        const { rows, count } = await Product.findAndCountAll({
+          where: productWhere,
+          attributes: ['id', 'name', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt', 'approved', 'reviewStatus', 'isActive', 'sellerId'],
+          include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }],
+          order: [[sortBy === 'stock' ? 'stock' : sortBy === 'dateAdded' ? 'createdAt' : 'name', sortOrder]],
+          limit: itemType === 'all' ? undefined : limit,
+          offset: itemType === 'all' ? undefined : offset
+        });
+        items = rows.map(normalizeInventoryProductItem);
+        totalItems = count;
+      }
     }
 
-    const fastFoodWhere = { ...searchCondition };
-    const includeFastFood = stockStatus === 'all' || stockStatus === 'untracked';
+    if ((itemType === 'fastfood' || itemType === 'all') && (stockStatus === 'all' || stockStatus === 'untracked')) {
+      const fastFoodWhere = { ...searchCondition };
+      if (isSeller) fastFoodWhere.vendor = sellerId;
 
-    const [productRows, fastFoodRows] = await Promise.all([
-      stockStatus === 'untracked'
-        ? []
-        : Product.findAll({
-          where: productWhere,
-          attributes: ['id', 'name', 'stock', 'lowStockThreshold', 'coverImage', 'galleryImages', 'createdAt', 'approved', 'reviewStatus', 'isActive'],
-          include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }]
-        }),
-      includeFastFood
-        ? FastFood.findAll({
-          where: fastFoodWhere,
-          attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus'],
-          include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }]
-        })
-        : []
-    ]);
-
-    const normalizedProducts = productRows.map(normalizeInventoryProductItem);
-    const normalizedFastFoods = fastFoodRows.map(normalizeInventoryFastFoodItem);
-
-    const mergedItems = [...normalizedProducts, ...normalizedFastFoods].sort((left, right) => {
-      if (sortBy === 'stock') {
-        const leftStock = left.stockTracked ? Number(left.stock || 0) : Number.MAX_SAFE_INTEGER;
-        const rightStock = right.stockTracked ? Number(right.stock || 0) : Number.MAX_SAFE_INTEGER;
-        return sortOrder === 'desc' ? rightStock - leftStock : leftStock - rightStock;
+      const { rows, count } = await FastFood.findAndCountAll({
+        where: fastFoodWhere,
+        attributes: ['id', 'name', 'mainImage', 'galleryImages', 'createdAt', 'isActive', 'isAvailable', 'approved', 'reviewStatus', 'vendor'],
+        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'email', 'phone', 'role', 'businessName'], required: false }],
+        order: [[sortBy === 'dateAdded' ? 'createdAt' : 'name', sortOrder]],
+        limit: itemType === 'all' ? undefined : limit,
+        offset: itemType === 'all' ? undefined : offset
+      });
+      const normalizedFastFoods = rows.map(normalizeInventoryFastFoodItem);
+      
+      if (itemType === 'all') {
+        items = [...items, ...normalizedFastFoods].sort((left, right) => {
+          if (sortBy === 'stock') {
+            const leftStock = left.stockTracked ? Number(left.stock || 0) : Number.MAX_SAFE_INTEGER;
+            const rightStock = right.stockTracked ? Number(right.stock || 0) : Number.MAX_SAFE_INTEGER;
+            return sortOrder === 'desc' ? rightStock - leftStock : leftStock - rightStock;
+          }
+          if (sortBy === 'dateAdded') {
+            return (new Date(right.createdAt) - new Date(left.createdAt)) * (sortOrder === 'desc' ? 1 : -1);
+          }
+          return left.name.localeCompare(right.name) * (sortOrder === 'desc' ? -1 : 1);
+        });
+        totalItems += count;
+        items = items.slice(offset, offset + limit);
+      } else {
+        items = normalizedFastFoods;
+        totalItems = count;
       }
-
-      if (sortBy === 'dateAdded') {
-        const leftDate = new Date(left.createdAt || 0).getTime();
-        const rightDate = new Date(right.createdAt || 0).getTime();
-        return sortOrder === 'desc' ? rightDate - leftDate : leftDate - rightDate;
-      }
-
-      const leftName = String(left.name || '').toLowerCase();
-      const rightName = String(right.name || '').toLowerCase();
-      return sortOrder === 'desc'
-        ? rightName.localeCompare(leftName)
-        : leftName.localeCompare(rightName);
-    });
-
-    const offset = (page - 1) * limit;
-    const paginatedItems = mergedItems.slice(offset, offset + limit);
+    }
 
     res.json({
-      items: paginatedItems,
+      items,
       pagination: {
         currentPage: page,
-        totalPages: Math.max(1, Math.ceil(mergedItems.length / limit)),
-        totalItems: mergedItems.length,
+        totalPages: Math.max(1, Math.ceil(totalItems / limit)),
+        totalItems,
         itemsPerPage: limit
       }
     });
@@ -238,13 +260,20 @@ const getInventoryItems = async (req, res) => {
 // Get low stock alerts
 const getLowStockAlerts = async (req, res) => {
   try {
+    const isSeller = req.user.role === 'seller';
+    const sellerId = req.user.id;
+
+    const where = {
+      [Op.or]: [
+        { stock: { [Op.lte]: col('lowStockThreshold') } },
+        { stock: 0 }
+      ]
+    };
+
+    if (isSeller) where.sellerId = sellerId;
+
     const alerts = await Product.findAll({
-      where: {
-        [Op.or]: [
-          { stock: { [Op.lte]: col('lowStockThreshold') } },
-          { stock: 0 }
-        ]
-      },
+      where,
       include: [{ model: User, as: 'seller', attributes: ['name', 'email', 'phone', 'businessName'] }],
       order: [['stock', 'ASC']]
     });
@@ -262,6 +291,14 @@ const updateStockLevels = async (req, res) => {
 
     const product = await Product.findByPk(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    // Authorization check: Seller can only update their own products
+    const isSeller = req.user.role === 'seller';
+    const isAdmin = ['admin', 'superadmin', 'super_admin'].includes(req.user.role);
+
+    if (isSeller && product.sellerId !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to update this product inventory' });
+    }
 
     if (stock !== undefined) product.stock = parseInt(stock);
     if (lowStockThreshold !== undefined) product.lowStockThreshold = parseInt(lowStockThreshold);
@@ -1641,7 +1678,8 @@ const getRevenueAnalytics = async (req, res) => {
           include: [
             { model: Product, attributes: ['id', 'basePrice', 'name'] },
             { model: FastFood, attributes: ['id', 'basePrice', 'name'] },
-            { model: Service, attributes: ['id', 'basePrice', 'title'] }
+            { model: Service, attributes: ['id', 'basePrice', 'title'] },
+            { model: User, as: 'seller', attributes: ['id', 'name', 'role'] }
           ]
         },
         { model: Commission, attributes: ['commissionAmount'] },
@@ -1654,6 +1692,31 @@ const getRevenueAnalytics = async (req, res) => {
     let totalMarketerRevenue = 0;
     let totalDeliveryRevenue = 0; // Platform share
     let totalAgentRevenue = 0;
+
+    // Aggregate withdrawal fees from completed withdrawal transactions
+    const { Transaction } = require('../models');
+    const withdrawalTxRows = await Transaction.findAll({
+      where: { type: 'debit', status: 'completed' },
+      include: [{ model: User, as: 'user', attributes: ['id', 'name', 'role', 'phone'] }],
+      order: [['createdAt', 'DESC']]
+    });
+    const totalWithdrawalFees = withdrawalTxRows.reduce((sum, t) => sum + parseFloat(t.fee || 0), 0);
+    const withdrawalTransactions = withdrawalTxRows.map(t => {
+      let meta = {};
+      try { meta = t.metadata ? (typeof t.metadata === 'string' ? JSON.parse(t.metadata) : t.metadata) : {}; } catch {}
+      return {
+        id: t.id,
+        userName: t.user?.name || 'Unknown',
+        userRole: t.user?.role || '—',
+        userPhone: t.user?.phone || '—',
+        amount: parseFloat(t.amount || 0),
+        fee: parseFloat(t.fee || 0),
+        netAmount: parseFloat(meta.netAmountToPay || (t.amount - t.fee) || 0),
+        paymentMethod: meta.method || '—',
+        paymentReference: meta.payoutReference || meta.paymentReference || '—',
+        createdAt: t.createdAt
+      };
+    });
 
     const formattedOrders = orders.map(order => {
       let orderMarkup = 0;
@@ -1705,13 +1768,98 @@ const getRevenueAnalytics = async (req, res) => {
         itemSaleRevenue: totalItemSaleRevenue,
         marketerRevenue: totalMarketerRevenue,
         deliveryRevenue: totalDeliveryRevenue,
-        agentRevenue: totalAgentRevenue
+        agentRevenue: totalAgentRevenue,
+        withdrawalFeeRevenue: totalWithdrawalFees
       },
-      orders: formattedOrders
+      orders: formattedOrders,
+      withdrawalTransactions
     });
   } catch (error) {
     console.error('Error fetching revenue analytics:', error);
     res.status(500).json({ message: 'Error fetching revenue analytics', error: error.message });
+  }
+};
+
+// =====================
+// Platform Wallet Logic
+// =====================
+const getPlatformWalletDetails = async (req, res) => {
+  try {
+    const { PlatformWallet, PlatformTransaction } = require('../models');
+    
+    // Find or create the main platform wallet
+    const [wallet, created] = await PlatformWallet.findOrCreate({
+      where: { id: 1 },
+      defaults: { balance: 0, totalEarned: 0, totalWithdrawn: 0 }
+    });
+
+    const transactions = await PlatformTransaction.findAll({
+      where: { walletId: wallet.id },
+      order: [['createdAt', 'DESC']],
+      limit: 100 // pagination could be added later
+    });
+
+    res.json({
+      wallet,
+      transactions
+    });
+  } catch (error) {
+    console.error('Error fetching platform wallet:', error);
+    res.status(500).json({ message: 'Error fetching platform wallet data', error: error.message });
+  }
+};
+
+const withdrawPlatformFunds = async (req, res) => {
+  try {
+    // Only super_admin can actually withdraw
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Only Super Admin can withdraw platform funds' });
+    }
+
+    const { amount, destination, reference, notes } = req.body;
+    
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: 'Valid amount is required' });
+    }
+    if (!destination || !reference) {
+      return res.status(400).json({ message: 'Destination and Reference are required' });
+    }
+
+    const { PlatformWallet, PlatformTransaction, sequelize } = require('../models');
+    
+    const result = await sequelize.transaction(async (t) => {
+      const wallet = await PlatformWallet.findByPk(1, { transaction: t, lock: true });
+      if (!wallet) {
+        throw new Error('Platform wallet not found');
+      }
+
+      if (parseFloat(wallet.balance) < parseFloat(amount)) {
+        throw new Error('Insufficient platform funds');
+      }
+
+      // Update wallet 
+      wallet.balance = parseFloat(wallet.balance) - parseFloat(amount);
+      wallet.totalWithdrawn = parseFloat(wallet.totalWithdrawn) + parseFloat(amount);
+      await wallet.save({ transaction: t });
+
+      // Create transaction record
+      const tx = await PlatformTransaction.create({
+        walletId: wallet.id,
+        amount: parseFloat(amount),
+        type: 'debit',
+        sourceType: 'platform_withdrawal',
+        referenceId: reference,
+        description: `Withdrawal to ${destination}`,
+        metadata: { destination, notes, requestedBy: req.user.email }
+      }, { transaction: t });
+
+      return { wallet, tx };
+    });
+
+    res.json({ message: 'Platform funds withdrawn successfully', data: result });
+  } catch (error) {
+    console.error('Error withdrawing platform funds:', error);
+    res.status(500).json({ message: error.message || 'Error processing platform withdrawal' });
   }
 };
 
@@ -1773,6 +1921,8 @@ module.exports = {
   deleteUser,
   getSearchAnalytics,
   verifyAdminPassword,
-  getRevenueAnalytics
+  getRevenueAnalytics,
+  getPlatformWalletDetails,
+  withdrawPlatformFunds
 };
 

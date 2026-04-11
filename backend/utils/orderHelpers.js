@@ -263,10 +263,51 @@ async function validateRoutingSelection(strategy, order, warehouseId = null, pic
   };
 }
 
+/**
+ * Standard includes for order socket updates to ensure UI has routing details
+ */
+const ORDER_SOCKET_INCLUDES = [
+  { model: Warehouse, as: 'DestinationWarehouse' },
+  { model: PickupStation, as: 'DestinationPickStation' },
+  { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint' },
+  { model: User, as: 'seller', attributes: ['id', 'name', 'businessName', 'businessAddress'] },
+  { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }
+];
+
+/**
+ * Format order data for socket emissions (fat payload)
+ * Includes routing destinations for UI sync
+ */
+function formatOrderSocketData(order) {
+  if (!order) return null;
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    adminRoutingStrategy: order.adminRoutingStrategy,
+    destinationWarehouseId: order.destinationWarehouseId,
+    destinationPickStationId: order.destinationPickStationId,
+    destinationFastFoodPickupPointId: order.destinationFastFoodPickupPointId,
+    DestinationWarehouse: order.DestinationWarehouse,
+    DestinationPickStation: order.DestinationPickStation,
+    DestinationFastFoodPickupPoint: order.DestinationFastFoodPickupPoint,
+    shippingType: order.shippingType,
+    updatedAt: order.updatedAt,
+    paymentConfirmed: order.paymentConfirmed,
+    sellerConfirmed: order.sellerConfirmed,
+    sellerHandoverConfirmed: order.sellerHandoverConfirmed,
+    adminRoutingNotes: order.adminRoutingNotes,
+    deliveryMethod: order.deliveryMethod,
+    destinationSet: true // Hint for UI that destination is populated
+  };
+}
+
 module.exports = {
   analyzeOrderComposition,
   getOrderSellerIds,
   isUserSellerForOrder,
   getDestinationDetails,
-  validateRoutingSelection
+  validateRoutingSelection,
+  ORDER_SOCKET_INCLUDES,
+  formatOrderSocketData
 };

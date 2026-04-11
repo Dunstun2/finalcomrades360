@@ -212,7 +212,11 @@ const testConnection = async () => {
               agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
               adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
               phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
+              passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
               withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+            },
+            channels: {
+              passwordReset: { whatsapp: false, sms: true, email: true, in_app: false }
             }
           })
         },

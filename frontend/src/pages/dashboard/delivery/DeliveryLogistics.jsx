@@ -50,7 +50,7 @@ const getStatusInfo = (status) => {
             return { label: 'Ready for Pickup', color: 'yellow', bg: 'bg-yellow-100', icon: <FaClock className="text-yellow-600" /> };
         case 'processing':
             return { label: 'Processing', color: 'yellow', bg: 'bg-yellow-100', icon: <FaClipboardCheck className="text-yellow-600" /> };
-        case 'out_for_delivery':
+        case 'in_transit':
         case 'in_transit':
             return { label: 'In Transit', color: 'blue', bg: 'bg-blue-100', icon: <FaTruck className="text-blue-600" /> };
         case 'en_route_to_warehouse':

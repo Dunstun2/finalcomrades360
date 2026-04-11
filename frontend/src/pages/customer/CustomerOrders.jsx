@@ -37,10 +37,11 @@ const computeOrderTotals = (order) => {
 
 const hasActiveFinalCustomerTask = (order) => {
   const tasks = Array.isArray(order?.deliveryTasks) ? order.deliveryTasks : [];
-  return tasks.some((task) =>
-    ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType) &&
-    task.status === 'in_progress'
-  );
+  return tasks.some((task) => {
+    const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
+    const isToStation = order?.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
+    return (isToCustomer || isToStation) && task.status === 'in_progress';
+  });
 };
 
 export default function CustomerOrders() {
@@ -91,7 +92,7 @@ export default function CustomerOrders() {
 
   // ─── Simplified customer-facing status ──────────────────────────────────────
   const getCustomerStatus = (order) => {
-    const actualStatus = order.status;
+    const actualStatus = (order.status || '').toLowerCase();
     const finalCustomerTaskActive = hasActiveFinalCustomerTask(order);
 
     const isFastFood = (order.OrderItems || []).every(i => i.itemType === 'fastfood') ||
@@ -119,12 +120,15 @@ export default function CustomerOrders() {
     }
 
     // Terminal / error statuses
-    if (['delivered', 'completed', 'Delivered'].includes(actualStatus)) {
+    if (['delivered', 'completed'].includes(actualStatus)) {
       return { label: 'Delivered', icon: FaCheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-100', step: 4 };
     }
-    // In-transit check: always show "In Transit" for these statuses, regardless of order type.
-    // Also show it when an active final-leg delivery task exists.
-    if (['in_transit', 'out_for_delivery'].includes(actualStatus) || finalCustomerTaskActive) {
+    
+    // In-transit check: show "In Transit" ONLY if moving to customer
+    const isTerminalLeg = finalCustomerTaskActive || ['in_transit'].includes(actualStatus) || 
+                          (['in_transit', 'shipped'].includes(actualStatus) && finalCustomerTaskActive);
+                          
+    if (isTerminalLeg) {
       return { label: 'In Transit', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-100', step: 3 };
     }
 
@@ -140,25 +144,31 @@ export default function CustomerOrders() {
       return { label: 'Order Placed', icon: FaClock, color: 'text-yellow-600', bg: 'bg-yellow-100', step: 1 };
     }
 
-    // Fast food
-    if (isFastFood) {
-      if (['seller_confirmed', 'super_admin_confirmed', 'Processing'].includes(actualStatus)) {
+    // Processing states
+    if (['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(actualStatus)) {
         return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
-      }
     }
 
-    // Pick station: customer collection
-    if (actualStatus === 'ready_for_pickup' && isPickStation) {
-      return { label: 'Ready for Pickup', icon: FaMapMarkerAlt, color: 'text-sky-600', bg: 'bg-sky-100', step: 3 };
-    }
-
-    // Warehouse Logistics: Show as 'Shipped' to the customer when it hits the warehouse nodes
-    // Also include 'ready_for_pickup' if it's NOT a pick station order (meaning it's waiting for home delivery agent dispatch)
-    if (['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'Shipped'].includes(actualStatus)) {
+    // Logistics nodes before final leg: show as Shipped on customer side
+    if (
+      ['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'shipped'].includes(actualStatus) ||
+      (['in_transit'].includes(actualStatus) && !isTerminalLeg)
+    ) {
       return { label: 'Shipped', icon: FaTruck, color: 'text-purple-600', bg: 'bg-purple-100', step: 2 };
     }
 
-    // Everything else (Processing)
+
+    // Pick station: customer collection
+    if (actualStatus === 'ready_for_pickup') {
+      if (isPickStation) {
+        return { label: 'Shipped', icon: FaTruck, color: 'text-purple-600', bg: 'bg-purple-100', step: 3 };
+      } else {
+        // Awaiting home delivery driver assignment at warehouse
+        return { label: 'Shipped', icon: FaTruck, color: 'text-purple-600', bg: 'bg-purple-100', step: 2 };
+      }
+    }
+
+    // Default Fallback
     return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
   };
 
@@ -166,7 +176,7 @@ export default function CustomerOrders() {
   const filterOptions = [
     { key: 'all', label: 'All Orders', statuses: null },
     { key: 'pending', label: 'Pending', statuses: ['order_placed'] },
-    { key: 'processing', label: 'Processing', statuses: ['seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'in_transit', 'out_for_delivery', 'Processing', 'Shipped'] },
+    { key: 'processing', label: 'Processing', statuses: ['seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup', 'in_transit', 'in_transit', 'Processing', 'Shipped'] },
     { key: 'delivered', label: 'Delivered', statuses: ['delivered', 'completed', 'Delivered'] },
     { key: 'cancelled', label: 'Cancelled', statuses: ['cancelled', 'failed', 'returned'] },
     { key: 'returning', label: 'Returning', statuses: ['return_in_progress'] },
@@ -244,6 +254,9 @@ export default function CustomerOrders() {
               orderNumber: order.checkoutOrderNumber || order.orderNumber,
               createdAt: order.createdAt,
               status: order.status,
+              paymentMethod: order.paymentMethod,
+              paymentType: order.paymentType,
+              paymentConfirmed: Boolean(order.paymentConfirmed),
               total: 0,
               orders: []
             };
@@ -263,7 +276,7 @@ export default function CustomerOrders() {
           } else {
             // In a group, if ANY package is still active, the group is still active.
             // Terminal states (delivered/completed) should only be the group state if EVERY package is terminal.
-            const priority = ['out_for_delivery', 'in_transit', 'ready_for_pickup', 'at_warehouse', 'received_at_warehouse', 'en_route_to_warehouse', 'processing', 'seller_confirmed', 'order_placed', 'delivered', 'completed'];
+            const priority = ['in_transit', 'in_transit', 'ready_for_pickup', 'at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'processing', 'seller_confirmed', 'order_placed', 'delivered', 'completed'];
             const activeStatuses = uniqueStatuses.filter(s => s !== 'cancelled' && s !== 'failed');
             if (activeStatuses.length > 0) {
               group.status = priority.find(p => activeStatuses.includes(p)) || activeStatuses[0];
@@ -271,6 +284,12 @@ export default function CustomerOrders() {
               group.status = uniqueStatuses[0]; // All cancelled/failed
             }
           }
+
+          const hasCodDelivered = group.orders.some((o) =>
+            o.paymentType === 'cash_on_delivery' &&
+            ['delivered', 'completed'].includes(String(o.status || '').toLowerCase())
+          );
+          group.paymentConfirmed = group.orders.every((o) => Boolean(o.paymentConfirmed)) || hasCodDelivered;
         } else {
           standalone.push({ ...order, isGroup: false });
         }
@@ -384,14 +403,15 @@ export default function CustomerOrders() {
     navigate(`/customer/orders/${order.id}/update-address`);
   };
 
-  if (loading) {
+  // Removed full-page blocking loader for immediate UI shell accessibility
+  /* if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         <span className="ml-2 text-gray-600">Loading orders...</span>
       </div>
     );
-  }
+  } */
 
   // Filter orders based on selected filter
   const filteredOrders = filter === 'all'
@@ -423,13 +443,18 @@ export default function CustomerOrders() {
       </div>
 
 
-      {filteredOrders.length === 0 ? (
-        <div className="card p-8 text-center">
-          <FaBox className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+      {loading && orders.length === 0 ? (
+        <div className="card p-12 text-center bg-white/50 border-dashed border-2 border-gray-100">
+          <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 font-black animate-pulse uppercase tracking-widest text-[10px] sm:text-xs">Connecting to logistics...</p>
+        </div>
+      ) : filteredOrders.length === 0 ? (
+        <div className="card p-8 text-center bg-white shadow-sm border border-gray-100">
+          <FaBox className="mx-auto h-16 w-16 text-gray-200 mb-4" />
+          <h3 className="text-lg font-black text-gray-900 mb-2 uppercase tracking-tight">
             {filter === 'all' ? 'No orders yet' : `No ${filterOptions.find(opt => opt.key === filter)?.label.toLowerCase()}`}
           </h3>
-          <p className="text-gray-600">
+          <p className="text-gray-500 text-sm font-medium">
             {filter === 'all'
               ? 'When you place your first order, it will appear here.'
               : `No orders match the selected filter.`
@@ -456,11 +481,8 @@ export default function CustomerOrders() {
                           <button className="text-sm sm:text-base font-black text-blue-900 group-hover:text-blue-600 transition-colors uppercase tracking-tight">
                             Order #{order.orderNumber}
                           </button>
-                          {order.isGroup && (
-                            <span className="text-[8px] sm:text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-black uppercase">Multi-Pkg</span>
-                          )}
                           {/* Track Order button for eligible statuses */}
-                          {['in_transit', 'out_for_delivery', 'processing', 'shipped', 'ready_for_pickup', 'Processing', 'Shipped'].includes(order.status) && (
+                          {['in_transit', 'in_transit', 'processing', 'shipped', 'ready_for_pickup', 'at_pick_station', 'en_route_to_pick_station', 'at_warehouse', 'at_warehouse', 'Processing', 'Shipped'].includes(order.status) && (
                             <button
                               className="ml-2 px-2 py-1 text-[10px] sm:text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors uppercase tracking-wider"
                               onClick={e => {
@@ -502,7 +524,10 @@ export default function CustomerOrders() {
                         <div className="flex flex-wrap items-center gap-2">
                           {/* Handover Confirmation Call to Action(s) */}
                           {(order.isGroup ? order.orders : [order])
-                            .filter(subOrder => ['in_transit', 'out_for_delivery', 'ready_for_pickup'].includes(subOrder.status) || hasActiveFinalCustomerTask(subOrder))
+                            .filter(subOrder => {
+                              const s = (subOrder.status || '').toLowerCase();
+                              return ['in_transit', 'in_transit', 'shipped', 'ready_for_pickup', 'at_pick_station', 'en_route_to_pick_station', 'at_warehouse', 'at_warehouse'].includes(s) || hasActiveFinalCustomerTask(subOrder);
+                            })
                             .map((activeSubOrder, index) => {
                               const isStationPickup = activeSubOrder.deliveryMethod === 'pick_station' && activeSubOrder.status === 'ready_for_pickup' && !hasActiveFinalCustomerTask(activeSubOrder);
                               return (
@@ -674,12 +699,26 @@ export default function CustomerOrders() {
                               <span className="text-gray-400 font-medium">Method</span>
                               <span className="font-black text-gray-900 uppercase">{order.paymentMethod}</span>
                             </div>
+                            {(() => {
+                              const paymentSettled = order.isGroup
+                                ? order.orders.every((o) => Boolean(o.paymentConfirmed)) ||
+                                  order.orders.some((o) =>
+                                    o.paymentType === 'cash_on_delivery' &&
+                                    ['delivered', 'completed'].includes(String(o.status || '').toLowerCase())
+                                  )
+                                : Boolean(order.paymentConfirmed) ||
+                                  (order.paymentType === 'cash_on_delivery' &&
+                                    ['delivered', 'completed'].includes(String(order.status || '').toLowerCase()));
+
+                              return (
                             <div className="flex justify-between items-center pt-1 border-t border-gray-100">
                               <span className="text-gray-400 font-medium">Status</span>
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${order.paymentConfirmed ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
-                                {order.paymentConfirmed ? 'Paid' : 'Pending'}
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${paymentSettled ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
+                                {paymentSettled ? 'Paid' : 'Pending'}
                               </span>
                             </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>

@@ -37,7 +37,7 @@ const getStatusInfo = (status) => {
     switch (status) {
         case 'ready_for_pickup':
             return { label: 'Ready for Pickup', color: 'yellow', bg: 'bg-yellow-100', icon: <FaClock className="text-yellow-600" /> };
-        case 'out_for_delivery':
+        case 'in_transit':
         case 'in_transit':
             return { label: 'In Transit', color: 'blue', bg: 'bg-blue-100', icon: <FaTruck className="text-blue-600" /> };
         case 'en_route_to_warehouse':
@@ -64,7 +64,9 @@ const DeliveryWallet = () => {
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('mpesa');
-    const [paymentDetails, setPaymentDetails] = useState('');
+    const [mpesaNumber, setMpesaNumber] = useState('');
+    const [bankName, setBankName] = useState('');
+    const [accountNumber, setAccountNumber] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
     const showToast = (message, type = 'success') => {
@@ -120,23 +122,44 @@ const DeliveryWallet = () => {
             showToast('Please enter a valid amount.', 'error');
             return;
         }
-
         if (amount > walletData.balance) {
             showToast('Insufficient balance.', 'error');
             return;
         }
+        const minPayout = walletData.minPayout || 0;
+        if (minPayout > 0 && amount < minPayout) {
+            showToast(`Minimum withdrawal amount is KES ${minPayout}.`, 'error');
+            return;
+        }
+        if (paymentMethod === 'mpesa' && !mpesaNumber) {
+            showToast('Please enter your M-Pesa number.', 'error');
+            return;
+        }
+        if (paymentMethod === 'bank' && (!bankName || !accountNumber)) {
+            showToast('Please enter your bank name and account number.', 'error');
+            return;
+        }
+
+        // Build structured payment details for admin visibility
+        const paymentMeta = paymentMethod === 'mpesa'
+            ? { method: 'mpesa', mpesaNumber }
+            : { method: 'bank', bankName, accountNumber };
 
         setSubmitting(true);
         try {
             const res = await api.post('/delivery/wallet/withdraw', { 
                 amount,
                 paymentMethod,
-                paymentDetails
+                paymentDetails: paymentMethod === 'mpesa' ? mpesaNumber : `${bankName} / ${accountNumber}`,
+                paymentMeta
             });
             showToast(res.data.message || 'Withdrawal request submitted successfully!');
             setShowWithdrawModal(false);
             setWithdrawAmount('');
-            fetchAll(false); // Refresh data
+            setMpesaNumber('');
+            setBankName('');
+            setAccountNumber('');
+            fetchAll(false);
         } catch (err) {
             console.error('Withdrawal failed:', err);
             showToast(err.response?.data?.error || 'Failed to submit withdrawal request.', 'error');
@@ -352,9 +375,9 @@ const DeliveryWallet = () => {
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 text-white relative">
                             <button
                                 onClick={() => setShowWithdrawModal(false)}
-                                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                                className="absolute top-2 right-2 p-3 bg-red-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-red-700 transition-all z-50"
                             >
-                                <FaTimes />
+                                X
                             </button>
                             <FaWallet className="text-4xl mb-4 opacity-50" />
                             <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-0">Request Payout</h3>
@@ -381,11 +404,24 @@ const DeliveryWallet = () => {
                                                 onChange={(e) => setWithdrawAmount(e.target.value)}
                                                 placeholder="0.00"
                                                 required
-                                                min="1"
+                                                min={walletData.minPayout || 1}
                                                 max={walletData.balance}
-                                                className="w-full pl-14 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-xl font-black focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono"
+                                                className={`w-full pl-14 pr-4 py-4 bg-gray-50 border rounded-2xl text-xl font-black focus:outline-none focus:ring-4 transition-all font-mono ${
+                                                    withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) < (walletData.minPayout || 0)
+                                                        ? 'border-red-400 focus:ring-red-500/10 focus:border-red-500'
+                                                        : 'border-gray-200 focus:ring-blue-500/10 focus:border-blue-500'
+                                                }`}
                                             />
                                         </div>
+                                        {walletData.minPayout > 0 && (
+                                            <p className={`text-[11px] font-bold mt-2 ${
+                                                withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) < walletData.minPayout
+                                                    ? 'text-red-500'
+                                                    : 'text-gray-400'
+                                            }`}>
+                                                Minimum withdrawal: {formatPrice(walletData.minPayout)}
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="grid grid-cols-1 gap-4">
@@ -393,27 +429,59 @@ const DeliveryWallet = () => {
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 font-inter">Payment Method</label>
                                             <select
                                                 value={paymentMethod}
-                                                onChange={(e) => setPaymentMethod(e.target.value)}
+                                                onChange={(e) => {
+                                                    setPaymentMethod(e.target.value);
+                                                    setMpesaNumber('');
+                                                    setBankName('');
+                                                    setAccountNumber('');
+                                                }}
                                                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all"
                                             >
                                                 <option value="mpesa">M-Pesa</option>
                                                 <option value="bank">Bank Transfer</option>
-                                                <option value="cash">Cash Pickup</option>
                                             </select>
                                         </div>
 
-                                        <div>
-                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
-                                                {paymentMethod === 'mpesa' ? 'M-Pesa Number' : 'Details'}
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={paymentDetails}
-                                                onChange={(e) => setPaymentDetails(e.target.value)}
-                                                placeholder={paymentMethod === 'mpesa' ? 'e.g. 2547XXXXXXXX' : 'Enter account info'}
-                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all font-mono"
-                                            />
-                                        </div>
+                                        {paymentMethod === 'mpesa' && (
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">M-Pesa Number</label>
+                                                <input
+                                                    type="tel"
+                                                    value={mpesaNumber}
+                                                    onChange={(e) => setMpesaNumber(e.target.value)}
+                                                    placeholder="e.g. 2547XXXXXXXX"
+                                                    required
+                                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all font-mono"
+                                                />
+                                            </div>
+                                        )}
+
+                                        {paymentMethod === 'bank' && (
+                                            <>
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Bank Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={bankName}
+                                                        onChange={(e) => setBankName(e.target.value)}
+                                                        placeholder="e.g. Equity Bank, KCB, Co-op"
+                                                        required
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Account Number</label>
+                                                    <input
+                                                        type="text"
+                                                        value={accountNumber}
+                                                        onChange={(e) => setAccountNumber(e.target.value)}
+                                                        placeholder="Enter your bank account number"
+                                                        required
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all font-mono"
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
 
                                     <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex items-start gap-4">

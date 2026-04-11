@@ -170,7 +170,7 @@ const AdminServicesApproval = () => {
                         {service.images.map((image, index) => (
                           <img
                             key={index}
-                            src={`http://localhost:5000${image.imageUrl}`}
+                            src={resolveImageUrl(image.imageUrl)}
                             alt={`Service image ${index + 1}`}
                             className="h-20 w-20 object-cover rounded border"
                           />

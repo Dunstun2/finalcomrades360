@@ -9,11 +9,11 @@ import { fastFoodService } from '../services/fastFoodService';
 import { formatPrice } from '../utils/currency';
 import { recursiveParse, ensureArray } from '../utils/parsingUtils';
 
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function FastFoodCard({
   item,
-  navigate,
+  navigate: navigateProp,
   renderActions,
   onView,
   clickable = true,
@@ -24,6 +24,8 @@ export default function FastFoodCard({
   imageHeight = '',
   hideTitle = false
 }) {
+  const navigateHook = useNavigate();
+  const navigate = navigateProp || navigateHook;
   const { addToCart, cart } = useCart();
   const { user } = useAuth();
   const isMarketing = localStorage.getItem('marketing_mode') === 'true';
@@ -35,12 +37,12 @@ export default function FastFoodCard({
   const availability = fastFoodService.getAvailabilityStatus(item);
   const isOpen = availability.state === 'OPEN';
 
-  const handleView = (e) => {
+  const handleView = (e, extraState = {}) => {
     e?.stopPropagation?.();
     e?.preventDefault?.();
 
     if (onView) onView(item);
-    else if (navigate) navigate(`/fastfood/${item.id}`, { state: { from: location.pathname } });
+    else if (navigate) navigate(`/fastfood/${item.id}`, { state: { from: location.pathname, ...extraState } });
   };
 
   const checkCartConflicts = () => {
@@ -86,43 +88,8 @@ export default function FastFoodCard({
       return;
     }
 
-    const variants = ensureArray(item.sizeVariants);
-    const firstVariant = variants.length > 0 ? (variants.find(v => Number(v.stock ?? 1) > 0) || variants[0]) : null;
-
-    // Check if item is already in the cart
-    const alreadyInCart = cart?.items?.some(
-      (cartItem) =>
-        (cartItem.itemType === 'fastfood' || !!cartItem.fastFoodId) &&
-        Number(cartItem.fastFoodId) === Number(item.id)
-    );
-
-    if (!alreadyInCart) {
-      try {
-        if (firstVariant) {
-          const vId = firstVariant.id || firstVariant.name || firstVariant.size || '';
-          await addToCart(item.id, 1, {
-            type: 'fastfood',
-            fastFood: item,
-            variantId: vId,
-            selectedVariant: firstVariant
-          });
-        } else {
-          await addToCart(item.id, 1, { type: 'fastfood', fastFood: item });
-        }
-        toast({
-          title: 'Added to Cart',
-          description: `${item.name} has been added to your fastfood cart`,
-          variant: 'success'
-        });
-      } catch (error) {
-        toast({
-          title: 'Cart Error',
-          description: 'Failed to add to cart. Please try again.',
-          variant: 'destructive'
-        });
-      }
-    }
-    handleView(e);
+    // Redirect to details with autoAdd flag
+    handleView(e, { autoAdd: true });
   };
 
   const handleAddToCart = handleBuyNow;
@@ -194,12 +161,12 @@ export default function FastFoodCard({
 
   return (
     <div
-      className={`flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col border border-gray-100 ${!isOpen ? 'opacity-90' : ''} ${cardBase} ${isBannerCard ? 'h-full min-h-0' : ''} sm:max-w-[420px]`}
+      className={`flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col border border-gray-100 ${!isOpen ? 'opacity-90' : ''} ${cardBase} ${isBannerCard ? 'h-full min-h-0' : ''}`}
       onClick={clickable ? handleView : undefined}
       style={isBannerCard ? { display: 'flex', flexDirection: 'column', height: '100%' } : {}}
     >
       <div
-        className={`relative overflow-hidden bg-gray-100 ${isBannerCard ? 'flex-grow-2 min-h-0' : imageHeight || 'h-28 sm:h-36'}`}
+        className={`relative overflow-hidden bg-gray-100 ${isBannerCard ? 'flex-grow-2 min-h-0' : imageHeight || 'h-28 sm:h-40 md:h-48'}`}
         style={isBannerCard ? { flexBasis: '66.666%' } : {}}
       >
         <img
@@ -284,15 +251,15 @@ export default function FastFoodCard({
       >
         {!hideTitle && (
           <h3
-            className="px-2 sm:px-3 font-display font-bold text-gray-900 mb-1 leading-tight tracking-tight group-hover:text-blue-600 transition-colors text-base sm:text-lg truncate whitespace-nowrap"
+            className="px-2 sm:px-3 font-display font-semibold text-gray-900 mb-1 leading-tight tracking-tight group-hover:text-blue-600 transition-colors text-sm sm:text-base truncate whitespace-nowrap"
             title={item.name}
           >
             {item.name}
           </h3>
         )}
 
-        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-2 gap-y-0 items-baseline">
-          <span className={`font-sans text-lg font-black ${isOpen ? 'text-gray-900' : 'text-gray-500'}`}>
+        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
+          <span className={`font-sans text-sm sm:text-base font-black ${isOpen ? 'text-gray-900' : 'text-gray-500'}`}>
             {formatPrice(finalPrice)}
           </span>
           {hasDiscount ? (

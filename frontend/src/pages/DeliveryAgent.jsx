@@ -70,50 +70,21 @@ export default function DeliveryAgent({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const updateStatus = async (orderId, status) => {
-    resetAlerts();
-    try {
-      // Add tracking update when status changes
-      const trackingData = {
-        status,
-        message: `Order status updated to ${status}`,
-        location: null // Could be enhanced to include current location
-      };
-
-      await api.post(`/orders/${orderId}/tracking`, trackingData);
-      await api.patch(`/delivery/orders/${orderId}/status`, { status });
-
-      setSuccess(`Order ${orderId} marked as ${status}`);
-      // refresh current tab
-      if (activeTab === 'assigned') {
-        loadOrders(statusFilter || undefined, meta.page, meta.pageSize);
-      } else {
-        loadOrders('delivered', meta.page, meta.pageSize);
-      }
-    } catch (e) {
-      setError(e.response?.data?.error || 'Failed to update status');
-    }
-  };
 
   const assignedOrders = useMemo(() => orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled'), [orders]);
   const historyOrders = useMemo(() => orders.filter(o => o.status === 'delivered' || o.status === 'cancelled'), [orders]);
 
   const renderActions = (o) => (
-    <div className="flex gap-2">
-      {o.status !== 'processing' && o.status !== 'delivered' && o.status !== 'cancelled' && (
-        <button className="btn" onClick={() => updateStatus(o.id, 'processing')}>Processing</button>
-      )}
-      {o.status !== 'shipped' && o.status !== 'delivered' && o.status !== 'cancelled' && (
-        <button className="btn" onClick={() => updateStatus(o.id, 'shipped')}>Shipped</button>
-      )}
-      {o.status !== 'delivered' && (
-        <button
-          className={`btn ${o.paymentConfirmed ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
-          disabled={!o.paymentConfirmed}
-          title={o.paymentConfirmed ? 'Mark as delivered' : 'Payment not confirmed'}
-          onClick={() => updateStatus(o.id, 'delivered')}
-        >Delivered</button>
-      )}
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-100">
+        ⚠️ Manual status updates are disabled here for security.
+      </p>
+      <a 
+        href="/delivery/orders" 
+        className="btn bg-blue-600 text-white text-center py-2 rounded-lg hover:bg-blue-700 transition-colors"
+      >
+        Go to Delivery Dashboard
+      </a>
     </div>
   );
 

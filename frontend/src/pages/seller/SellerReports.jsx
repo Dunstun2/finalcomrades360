@@ -2,10 +2,10 @@ import React from 'react'
 
 export default function SellerReports(){
   return (
-    <div className="p-4 space-y-5">
-      <h2 className="text-xl font-semibold">Reports</h2>
+    <div className="p-0 sm:p-6 space-y-6 w-full">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">Reports</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-2 gap-3">
         <div className="card p-4">
           <div className="font-medium mb-2">Sales Trends</div>
           <div className="text-sm text-gray-600 mb-3">Last 7 / 30 days</div>

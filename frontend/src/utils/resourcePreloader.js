@@ -21,7 +21,7 @@ class ResourcePreloader {
 
   // Initialize preloading on page load
   async initialize() {
-    console.log('[ResourcePreloader] Initializing...');
+
     
     // Preload critical resources immediately
     await this.preloadCriticalResources();
@@ -38,7 +38,7 @@ class ResourcePreloader {
 
   // Preload critical resources for instant rendering
   async preloadCriticalResources() {
-    console.log('[ResourcePreloader] Preloading critical resources...');
+
     
     const criticalPromises = [
       // Critical CSS
@@ -56,7 +56,7 @@ class ResourcePreloader {
 
     try {
       await Promise.allSettled(criticalPromises);
-      console.log('[ResourcePreloader] Critical resources preloaded');
+
     } catch (error) {
       console.warn('[ResourcePreloader] Some critical resources failed to preload:', error);
     }
@@ -64,7 +64,7 @@ class ResourcePreloader {
 
   // Preload homepage data for instant display
   async preloadHomepageData() {
-    console.log('[ResourcePreloader] Preloading homepage data...');
+
     
     try {
       // Preload ultra-fast endpoints
@@ -80,7 +80,7 @@ class ResourcePreloader {
       // Log results
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
-          console.log(`[ResourcePreloader] ✅ Preloaded: ${['homepage', 'batch', 'categories', 'hero-promotions'][index]}`);
+
         } else {
           console.warn(`[ResourcePreloader] ❌ Failed to preload: ${['homepage', 'batch', 'categories', 'hero-promotions'][index]}`);
         }
@@ -121,7 +121,7 @@ class ResourcePreloader {
       link.href = href;
       link.as = 'style';
       link.onload = () => {
-        console.log(`[ResourcePreloader] ✅ CSS preloaded: ${href}`);
+
         resolve();
       };
       link.onerror = () => {
@@ -140,7 +140,7 @@ class ResourcePreloader {
       link.href = src;
       link.as = 'script';
       link.onload = () => {
-        console.log(`[ResourcePreloader] ✅ Script preloaded: ${src}`);
+
         resolve();
       };
       link.onerror = () => {
@@ -159,7 +159,7 @@ class ResourcePreloader {
       link.href = href;
       link.as = type;
       link.onload = () => {
-        console.log(`[ResourcePreloader] ✅ Resource preloaded: ${href}`);
+
         resolve();
       };
       link.onerror = () => {
@@ -175,7 +175,7 @@ class ResourcePreloader {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        console.log(`[ResourcePreloader] ✅ Image preloaded: ${src}`);
+
         resolve();
       };
       img.onerror = () => {
@@ -189,7 +189,7 @@ class ResourcePreloader {
   // Setup intersection observer for lazy preloading
   setupLazyPreloading() {
     if (!('IntersectionObserver' in window)) {
-      console.log('[ResourcePreloader] IntersectionObserver not supported, skipping lazy preloading');
+
       return;
     }
 
@@ -216,7 +216,7 @@ class ResourcePreloader {
       observer.observe(element);
     });
 
-    console.log('[ResourcePreloader] Lazy preloading setup complete');
+
   }
 
   // Setup connection-based preloading
@@ -226,19 +226,19 @@ class ResourcePreloader {
       
       // Adjust preloading strategy based on connection
       if (connection.effectiveType === '4g') {
-        console.log('[ResourcePreloader] Fast connection detected, aggressive preloading enabled');
+
         this.aggressivePreload();
       } else if (connection.effectiveType === '3g') {
-        console.log('[ResourcePreloader] Medium connection detected, moderate preloading enabled');
+
         this.moderatePreload();
       } else {
-        console.log('[ResourcePreloader] Slow connection detected, minimal preloading enabled');
+
         this.minimalPreload();
       }
 
       // Listen for connection changes
       connection.addEventListener('change', () => {
-        console.log('[ResourcePreloader] Connection changed to:', connection.effectiveType);
+
         this.adjustPreloadingStrategy(connection.effectiveType);
       });
     }
@@ -246,7 +246,7 @@ class ResourcePreloader {
 
   // Aggressive preloading for fast connections
   async aggressivePreload() {
-    console.log('[ResourcePreloader] Starting aggressive preloading...');
+
     
     const additionalResources = [
       '/api/services',
@@ -262,7 +262,7 @@ class ResourcePreloader {
 
     try {
       await Promise.allSettled(preloadPromises);
-      console.log('[ResourcePreloader] Aggressive preloading complete');
+
     } catch (error) {
       console.warn('[ResourcePreloader] Some aggressive preloading failed:', error);
     }
@@ -270,7 +270,7 @@ class ResourcePreloader {
 
   // Moderate preloading for medium connections
   async moderatePreload() {
-    console.log('[ResourcePreloader] Starting moderate preloading...');
+
     
     const essentialResources = [
       '/api/services',
@@ -283,7 +283,7 @@ class ResourcePreloader {
 
     try {
       await Promise.allSettled(preloadPromises);
-      console.log('[ResourcePreloader] Moderate preloading complete');
+
     } catch (error) {
       console.warn('[ResourcePreloader] Some moderate preloading failed:', error);
     }
@@ -291,12 +291,12 @@ class ResourcePreloader {
 
   // Minimal preloading for slow connections
   async minimalPreload() {
-    console.log('[ResourcePreloader] Starting minimal preloading...');
+
     
     // Only preload most essential resources
     try {
       await this.preloadAPI('/api/services');
-      console.log('[ResourcePreloader] Minimal preloading complete');
+
     } catch (error) {
       console.warn('[ResourcePreloader] Minimal preloading failed:', error);
     }
@@ -338,7 +338,7 @@ class ResourcePreloader {
       ttl: 5 * 60 * 1000 // 5 minutes
     });
     
-    console.log(`[ResourcePreloader] Cached API response: ${endpoint}`);
+
   }
 
   // Get cached response
@@ -359,7 +359,7 @@ class ResourcePreloader {
 
   // Preload images for categories and products
   async preloadProductImages(products) {
-    console.log('[ResourcePreloader] Preloading product images...');
+
     
     const imageUrls = products
       .map(product => product.coverImage || (product.images && product.images[0]))
@@ -370,7 +370,7 @@ class ResourcePreloader {
     
     try {
       await Promise.allSettled(imagePromises);
-      console.log(`[ResourcePreloader] Preloaded ${imageUrls.length} product images`);
+
     } catch (error) {
       console.warn('[ResourcePreloader] Some product images failed to preload:', error);
     }
@@ -382,7 +382,7 @@ class ResourcePreloader {
     if (this.responseCache) {
       this.responseCache.clear();
     }
-    console.log('[ResourcePreloader] Cleared preloaded resources');
+
   }
 
   // Get preloading statistics

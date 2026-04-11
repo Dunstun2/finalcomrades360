@@ -544,14 +544,14 @@ export default function ProductDetails() {
   const ogDescription = product.shortDescription || product.description || 'Shop on Comrades360.';
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-2 md:pt-4">
+    <div className="min-h-screen bg-gray-50 pt-0 md:pt-4">
       <Helmet>
         <title>{pageTitle}</title>
         <meta name="description" content={ogDescription} />
       </Helmet>
 
       <div className="mx-auto px-0 md:px-4 lg:px-8 pt-0 pb-3 md:py-8 max-w-7xl lg:max-w-[95vw] xl:max-w-full">
-        <button onClick={handleBack} className="flex items-center text-gray-600 hover:text-blue-600 mb-2 md:mb-6 transition-colors group">
+        <button onClick={handleBack} className="flex items-center text-gray-600 hover:text-blue-600 mb-1 md:mb-6 transition-colors group">
           <ArrowLeft className="h-5 w-5 mr-2 group-hover:-translate-x-1 transition-transform" />
           {(() => {
             const fromPath = location.state?.from;

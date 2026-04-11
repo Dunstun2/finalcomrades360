@@ -66,6 +66,11 @@ export const DELIVERY_TYPE_CONFIG = {
 
 // Delivery task status configuration
 export const TASK_STATUS_CONFIG = {
+    'requested': {
+        label: 'Request Sent',
+        color: 'bg-orange-100 text-orange-800',
+        icon: '🤚'
+    },
     'assigned': {
         label: 'Assigned',
         color: 'bg-yellow-100 text-yellow-800',
@@ -116,7 +121,11 @@ export const DeliveryTaskBadge = ({ task }) => {
         return <span className="text-xs text-gray-400 italic">No task</span>;
     }
 
-    const config = TASK_STATUS_CONFIG[task.status] || TASK_STATUS_CONFIG.assigned;
+    const config = TASK_STATUS_CONFIG[task.status] || {
+        label: task.status,
+        color: 'bg-gray-100 text-gray-800',
+        icon: '❓'
+    };
 
     return (
         <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${config.color}`}>

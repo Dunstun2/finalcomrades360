@@ -10,8 +10,8 @@ const fs = require('fs');
 // Load environment variables
 dotenv.config();
 
-// Initialize OTP services (including WhatsApp Free Client)
-require('./utils/messageService');
+// WhatsApp service will be initialized after server start
+let messageService;
 
 // Initialize Express app with timeout configuration
 const app = express();
@@ -119,23 +119,95 @@ const { testConnection } = require('./database/database');
 
 // Global Maintenance Mode Middleware
 app.use(async (req, res, next) => {
-  // Allow critical paths even in maintenance
-  const allowList = ['/api/auth/login', '/api/auth/me', '/api/admin', '/api/config', '/api/platform/config'];
-  const isAllowed = allowList.some(path => req.path.startsWith(path));
+  // Only enforce maintenance for API calls — let the SPA index.html load normally
+  // The frontend handles redirects to /maintenance based on API errors.
+  if (!req.path.startsWith('/api')) return next();
 
+  // Always allow critical/admin/auth paths
+  const allowList = [
+    '/api/auth/login', 
+    '/api/auth/me', 
+    '/api/admin', 
+    '/api/config', 
+    '/api/platform',
+    '/api/profile/dashboard-password' // Allow admins to unlock dashboard security
+  ];
+  const isAllowed = allowList.some(p => req.path.startsWith(p));
   if (isAllowed) return next();
 
   try {
+    // Admin / Super-Admin JWT bypass — they can use the system even during maintenance
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const jwt = require('jsonwebtoken');
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        const adminRoles = ['admin', 'super_admin', 'superadmin'];
+        const userRole = decoded.role || '';
+        const userRoles = Array.isArray(decoded.roles) ? decoded.roles : [];
+        if (adminRoles.includes(userRole) || userRoles.some(r => adminRoles.includes(r))) {
+          return next(); // Admin passes through
+        }
+      } catch (_) {
+        // invalid/expired token — fall through to maintenance check
+      }
+    }
+
     const { PlatformConfig } = require('./models');
     const config = await PlatformConfig.findOne({ where: { key: 'maintenance_settings' } });
     if (config) {
       const settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+      
+      // 1. GLOBAL Check
       if (settings.enabled) {
         return res.status(503).json({ 
           success: false, 
           maintenance: true,
           message: settings.message || 'System is currently under maintenance. Please try again later.' 
         });
+      }
+
+      // 2. GRANULAR Check (for non-admins)
+      if (settings.dashboards || settings.sections) {
+        const path = req.path;
+        let block = null;
+
+        // Dashboard Mapping
+        if (path.startsWith('/api/admin')) block = settings.dashboards?.admin;
+        else if (path.startsWith('/api/seller')) block = settings.dashboards?.seller;
+        else if (path.startsWith('/api/marketing')) block = settings.dashboards?.marketer;
+        else if (path.startsWith('/api/delivery')) block = settings.dashboards?.delivery;
+        else if (path.startsWith('/api/station') || path.startsWith('/api/pickup-station') || path.startsWith('/api/warehouse')) block = settings.dashboards?.station;
+        else if (path.startsWith('/api/ops')) block = settings.dashboards?.ops;
+        else if (path.startsWith('/api/logistics')) block = settings.dashboards?.logistics;
+        else if (path.startsWith('/api/finance')) block = settings.dashboards?.finance;
+        else if (path.startsWith('/api/service-provider')) block = settings.dashboards?.provider;
+        
+        // Public Section Mapping
+        else if (path.startsWith('/api/products')) block = settings.sections?.products;
+        else if (path.startsWith('/api/services')) block = settings.sections?.services;
+        else if (path.startsWith('/api/fastfood')) block = settings.sections?.fastfood;
+
+        if (block?.enabled) {
+          // If it's a public section, return 404 to hide it "silently"
+          const isSection = path.startsWith('/api/products') || path.startsWith('/api/services') || path.startsWith('/api/fastfood');
+          
+          if (isSection) {
+            return res.status(404).json({
+              success: false,
+              message: 'Section not available'
+            });
+          }
+
+          // Dashboards still return 503 for the proper redirect
+          return res.status(503).json({
+            success: false,
+            maintenance: true,
+            granular: true,
+            message: block.message || 'This section is currently under maintenance.'
+          });
+        }
       }
     }
   } catch (err) {
@@ -226,20 +298,21 @@ const staticPath = fs.existsSync(productionPath) ? productionPath : developmentP
 console.log(`[server] Serving static files from: ${staticPath}`);
 app.use(express.static(staticPath));
 
-// SPA Fallback - Serve index.html for non-API routes
+// SPA Fallback - Always serve index.html for non-API routes.
+// Maintenance enforcement happens at two levels:
+//   1. API middleware (above) — blocks /api/* calls with 503 for non-admins
+//   2. React frontend — interceptors and startup check redirect non-admins to /maintenance
+// We do NOT serve a maintenance HTML page here because:
+//   a) Browsers never send Authorization headers during page navigation (can't detect admin)
+//   b) Serving raw HTML breaks Vite's lazy-loaded module imports
 app.get('*', (req, res, next) => {
   if (req.url.startsWith('/api') || req.url.startsWith('/uploads')) {
     return next();
   }
-
-  const indexPath = path.join(staticPath, 'index.html');
-  res.sendFile(indexPath, (err) => {
-    if (err) {
-      // If index.html is missing or other error, let the 404 handler deal with it
-      next();
-    }
-  });
+  res.sendFile(path.join(staticPath, 'index.html'), err => err && next());
 });
+
+
 
 // Initialize SQLite performance tuning
 const { sequelize } = require('./database/database'); // Verified
@@ -307,7 +380,7 @@ const { Server } = require('socket.io');
 const { setIO } = require('./realtime/socket');
 
 // Start server after database connection
-const DEFAULT_PORT = process.env.PORT || 5001;
+const DEFAULT_PORT = process.env.PORT || 5004;
 
 async function startServer() {
   try {
@@ -325,13 +398,7 @@ async function startServer() {
     server.timeout = 60000;
     server.keepAliveTimeout = 65000; // Keep connection alive for 65 seconds
 
-    // Initialize scheduled tasks (Cron jobs)
-    const { initScheduledTasks } = require('./cron/scheduledTasks');
-    try {
-      initScheduledTasks();
-      // Start the auto-handover background worker
-      runAutoHandoverWorker();
-    } catch (e) { console.error('Cron/Worker Init Failed:', e.message); }
+    // Heavy initializations moved to server.listen callback below
 
     // Initialize Socket.IO with CORS
     const io = new Server(server, {
@@ -388,6 +455,22 @@ async function startServer() {
     // Start the server
     server.listen(DEFAULT_PORT, () => {
       console.log(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+      
+      // DEFERRED INITIALIZATION: Start heavy services after the port is open
+      setImmediate(async () => {
+        try {
+          console.log('🔄 Initializing deferred services (WhatsApp, Workers, Cron)...');
+          // Initialize OTP services (including WhatsApp Free Client)
+          require('./utils/messageService');
+          
+          const { initScheduledTasks } = require('./cron/scheduledTasks');
+          initScheduledTasks();
+          runAutoHandoverWorker();
+          console.log('✨ All background services initialized.');
+        } catch (deferredErr) {
+          console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
+        }
+      });
     });
 
     // Handle server errors

@@ -1,5 +1,5 @@
 const { sequelize } = require('../database/database');
-const { Product, User, Wallet, Transaction, Order, OrderItem, Commission, DeliveryAgentProfile, Cart, FastFood, Service, DeliveryTask, DeliveryCharge, Warehouse, PickupStation, FastFoodPickupPoint, PlatformConfig, Notification } = require('../models');
+const { Product, User, Wallet, Transaction, Order, OrderItem, Commission, DeliveryAgentProfile, Cart, FastFood, Service, DeliveryTask, DeliveryCharge, Warehouse, PickupStation, FastFoodPickupPoint, PlatformConfig, Notification, HandoverCode } = require('../models');
 
 const { calculateCommission: createCommissionRecords } = require('./commissionController');
 const { isValidTransition, getValidTransitionsForOrder, autoCreateDeliveryTask } = require('./orderTransitionController');
@@ -7,9 +7,10 @@ const { calculateItemCommission } = require('../utils/commissionUtils');
 const { sendEmail } = require('../utils/mailer');
 const { sendSms } = require('../utils/sms');
 const { 
-  notifyCustomerOrderPlaced, 
-  notifyCustomerOutForDelivery, 
-  notifyCustomerReadyForPickupStation 
+  notifyCustomerReadyForPickupStation,
+  notifyCustomerSellerConfirmed,
+  notifyCustomerOrderCancelled,
+  notifyCustomerOrderPlaced
 } = require('../utils/notificationHelpers');
 const { Op } = require('sequelize');
 const bcrypt = require('bcryptjs');
@@ -326,6 +327,14 @@ const ALLOWED_TRANSITIONS = {
 const FASTFOOD_DIRECT_DELIVERY_TYPE = 'seller_to_customer';
 const FASTFOOD_PICKUP_POINT_DELIVERY_TYPE = 'seller_to_pickup_station';
 const FASTFOOD_DIRECT_DISALLOWED_STATUSES = new Set(['en_route_to_warehouse', 'at_warehouse', 'ready_for_pickup']);
+const HUB_STAGE_ORDER_STATUSES = new Set(['at_warehouse']);
+const WAREHOUSE_INBOUND_DELIVERY_TYPES = new Set(['seller_to_warehouse', 'customer_to_warehouse', 'pickup_station_to_warehouse']);
+const ORDER_STATS_CACHE_TTL_MS = 20000;
+let orderStatsCache = { value: null, computedAt: 0 };
+
+const isWarehouseReentryAssignment = (orderStatus, deliveryType) => {
+  return HUB_STAGE_ORDER_STATUSES.has(orderStatus) && WAREHOUSE_INBOUND_DELIVERY_TYPES.has(deliveryType);
+};
 
 const resolveFastFoodRoutePolicy = (orderItems = []) => {
   const hasFastFoodItems = (orderItems || []).some((item) => item && item.fastFoodId);
@@ -589,10 +598,10 @@ const createOrderFromCart = async (req, res) => {
     let superAdminConfirmedAt = null;
 
     if (isFastFoodOnly) {
-      // Fastfood orders start at 'order_placed' and follow custom status flow
-      orderStatus = 'order_placed';
-      superAdminConfirmed = false;
-      superAdminConfirmedAt = null;
+      // Fastfood orders are auto-confirmed by the system to bypass manual admin approval
+      orderStatus = 'super_admin_confirmed';
+      superAdminConfirmed = true;
+      superAdminConfirmedAt = new Date();
       adminRoutingStrategy = deliveryMethod === 'pick_station' ? 'fastfood_pickup_point' : 'direct_delivery';
       if (deliveryMethod === 'pick_station') {
         destinationFastFoodPickupPointId = pickStationId ? Number(pickStationId) : null;
@@ -652,6 +661,17 @@ const createOrderFromCart = async (req, res) => {
     }
 
     console.log('🚀 Step 5: Creating single unified Order in database...');
+
+    let secondaryReferralCode = null;
+    try {
+      const buyerUser = await User.findByPk(effectiveUserId, { attributes: ['referredByReferralCode'], transaction: t });
+      if (buyerUser && buyerUser.referredByReferralCode) {
+        secondaryReferralCode = buyerUser.referredByReferralCode;
+      }
+    } catch (err) {
+      console.warn('Could not fetch buyer secondary referral code:', err.message);
+    }
+
     const order = await Order.create({
       userId: effectiveUserId,
       marketerId: effectiveMarketerId,
@@ -675,7 +695,8 @@ const createOrderFromCart = async (req, res) => {
       total: 0, // Will update after item loop
       trackingNumber,
       estimatedDelivery,
-      referralCode: effectiveReferralCode || null,
+      primaryReferralCode: effectiveReferralCode || null,
+      secondaryReferralCode: secondaryReferralCode || null,
       trackingUpdates: JSON.stringify([{
         status: orderStatus,
         message: isFastFoodOnly ? 'Order placed and automatically routed' : (paymentConfirmed ? 'Order placed and paid' : 'Order placed successfully'),
@@ -750,7 +771,9 @@ const createOrderFromCart = async (req, res) => {
 
       await OrderItem.create({
         orderId: order.id,
-        productId: cartItem.productId || product.id,
+        productId: cartItem.type === 'product' ? (cartItem.productId || product.id) : null,
+        fastFoodId: cartItem.type === 'fastfood' ? (cartItem.fastFoodId || product.id) : null,
+        serviceId: cartItem.type === 'service' ? (cartItem.serviceId || product.id) : null,
         quantity: cartItem.quantity,
         price,
         total: itemQtyTotal,
@@ -760,8 +783,6 @@ const createOrderFromCart = async (req, res) => {
         variantId: cartItem.variantId || null,
         comboId: cartItem.comboId || null,
         itemType: cartItem.type || 'product',
-        fastFoodId: cartItem.type === 'fastfood' ? product.id : null,
-        serviceId: cartItem.type === 'service' ? product.id : null,
         itemLabel,
         name: product.name || 'Unknown Item'
       }, { transaction: t });
@@ -830,7 +851,8 @@ const createOrderFromCart = async (req, res) => {
           earnings,
           `Sale Earning for Order #${orderNumber} (Pending Clearance)`,
           order.id,
-          t
+          t,
+          'seller'
         );
       }
     }
@@ -887,58 +909,80 @@ const createOrderFromCart = async (req, res) => {
     await t.commit();
     console.log('✅ Backend: Order creation completed successfully');
 
-    // Step 12: Real-time notifications via Socket.IO
-    try {
-      const { getIO } = require('../realtime/socket');
-      const io = getIO();
-      if (io) {
-        // Notify each seller involved in the order
-        for (const sellerId of uniqueSellers) {
-          io.to(`user:${sellerId}`).emit('orderNotification', {
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            message: 'New order received - please confirm',
-            type: 'new_order'
-          });
+    // Step 12: Background Notifications (Real-time and External)
+    // We send the response to the user immediately and process notifications in the background
+    setImmediate(async () => {
+      logNotify(`\n🧵 [Background Task] Starting notifications for order ${order.orderNumber}...`);
+      try {
+        const { getIO } = require('../realtime/socket');
+        const io = getIO();
+        if (io) {
+          logNotify(`📡 [Real-time] Emitting socket updates to ${uniqueSellers.length} sellers...`);
+          // Notify each seller involved in the order
+          for (const sellerId of uniqueSellers) {
+            io.to(`user:${sellerId}`).emit('orderNotification', {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              message: 'New order received - please confirm',
+              type: 'new_order'
+            });
+            
+            if (isFastFoodOnly) {
+              io.to(`user:${sellerId}`).emit('orderStatusUpdate', {
+                orderId: order.id,
+                status: 'super_admin_confirmed',
+                orderNumber: order.orderNumber,
+                adminRoutingStrategy: adminRoutingStrategy
+              });
+            }
+          }
+  
+          if (!isFastFoodOnly) {
+            // Notify super admins
+            logNotify(`📡 [Real-time] Notifying super admins...`);
+            const superAdmins = await User.findAll({ where: { role: 'super_admin' } });
+            for (const admin of superAdmins) {
+              io.to(`user:${admin.id}`).emit('orderNotification', {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                message: 'New order requires approval',
+              });
+            }
+          }
+        }
+
+        // Customer Notifications (WhatsApp/SMS/Email)
+        try {
+          const userId = order.userId;
+          logNotify(`👤 [Customer Notif] Resolution Strategy: UserID=${userId || 'GUEST'}`);
           
-          if (isFastFoodOnly) {
-            io.to(`user:${sellerId}`).emit('orderStatusUpdate', {
-              orderId: order.id,
-              status: 'super_admin_confirmed',
-              orderNumber: order.orderNumber,
-              adminRoutingStrategy: adminRoutingStrategy
-            });
+          let customer = null;
+          if (userId) {
+              customer = await User.findByPk(userId);
+              if (customer) logNotify(`👤 [Customer Notif] Found user record for ${customer.name}`);
           }
-        }
 
-        if (!isFastFoodOnly) {
-          // Notify super admins
-          const superAdmins = await User.findAll({ where: { role: 'super_admin' } });
-          for (const admin of superAdmins) {
-            io.to(`user:${admin.id}`).emit('orderNotification', {
-              orderId: order.id,
-              orderNumber: order.orderNumber,
-              message: 'New order requires approval',
-            });
-          }
-        }
-      }
-    } catch (socketError) {
-      console.warn('Failed to send real-time notifications:', socketError);
-    }
+          logNotify(`📝 [Customer Notif] Mapping ${cartItems.length} items for notification body...`);
+          // Safer item name resolution for different product types
+          const itemNames = cartItems.map(item => {
+            const name = item.product?.name || item.name || 'Item';
+            const price = Number(item.price || item.product?.discountPrice || item.product?.displayPrice || 0);
+            return `${item.quantity}x ${name} - KES ${price.toLocaleString()}`;
+          }).join('\n');
 
-    // Step 12: Customer Notifications (WhatsApp)
-    try {
-      // Find the user to get their phone number (order.user is not populated from create)
-      const customer = await User.findByPk(order.userId);
-      if (customer) {
-        const itemNames = cartItems.map(item => `${item.quantity}x ${item.product?.name || 'Item'} - KES ${item.price?.toLocaleString()}`).join('\n');
-        await notifyCustomerOrderPlaced(order, customer, cartItems.length, itemNames);
-        console.log(`✅ WhatsApp notification sent for order ${order.orderNumber}`);
+          // Pass the order and customer (even if null) to the helper which handles fallbacks
+          await notifyCustomerOrderPlaced(order, customer, cartItems.length, itemNames);
+          
+        } catch (innerError) {
+          logNotify(`⚠️ [Customer Notif] Inner failure: ${innerError.message}`);
+          console.warn('⚠️ [Customer Notif] Detailed background notification error:', innerError.message);
+        }
+      } catch (bgError) {
+        logNotify(`⚠️ [Background Task] Fatal error: ${bgError.message}`);
+        console.warn('⚠️ [Background Task] Fatal notification error:', bgError.message);
       }
-    } catch (notifErr) {
-      console.warn('WhatsApp Order Placed notification failed:', notifErr.message);
-    }
+      logNotify(`🏁 [Background Task] Completed for order ${order.orderNumber}\n`);
+    });
 
     // Step 13: Return unified order response
     res.status(201).json({
@@ -1051,6 +1095,25 @@ const myOrders = async (req, res) => {
     }
 
     const orderIds = orders.map(o => o.id);
+    const checkoutGroupIds = [...new Set(orders.map((o) => o.checkoutGroupId).filter(Boolean))];
+
+    // Reconcile payment state from Payment records to avoid stale Order.paymentConfirmed flags.
+    const { Payment } = require('../models');
+    const paymentWhere = {
+      status: 'completed',
+      [Op.or]: [{ orderId: { [Op.in]: orderIds } }]
+    };
+    if (checkoutGroupIds.length > 0) {
+      paymentWhere[Op.or].push({ checkoutGroupId: { [Op.in]: checkoutGroupIds } });
+    }
+
+    const completedPayments = await Payment.findAll({
+      where: paymentWhere,
+      attributes: ['orderId', 'checkoutGroupId']
+    });
+
+    const paidOrderIds = new Set(completedPayments.map((p) => p.orderId).filter(Boolean));
+    const paidCheckoutGroupIds = new Set(completedPayments.map((p) => p.checkoutGroupId).filter(Boolean));
 
     // 2. Fetch OrderItems in a separate query to avoid massive join cartesian product
     const orderItems = await OrderItem.findAll({
@@ -1081,6 +1144,16 @@ const myOrders = async (req, res) => {
     const rows = orders.map(order => {
       const plain = order.get({ plain: true });
       plain.OrderItems = itemsByOrderId[order.id] || [];
+
+      const codDelivered =
+        plain.paymentType === 'cash_on_delivery' &&
+        ['delivered', 'completed'].includes(String(plain.status || '').toLowerCase());
+
+      const paymentCompleted =
+        paidOrderIds.has(plain.id) ||
+        (plain.checkoutGroupId && paidCheckoutGroupIds.has(plain.checkoutGroupId));
+
+      plain.paymentConfirmed = Boolean(plain.paymentConfirmed || codDelivered || paymentCompleted);
       return plain;
     });
 
@@ -1180,7 +1253,13 @@ const listAllOrders = async (req, res) => {
     const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeStr, 10)));
     const offset = (page - 1) * pageSize;
 
-    const where = {};
+    let where = {};
+
+    // Exclude returns from standard order list unless specifically requested
+    // (but even then, we want to separate them now)
+    if (!req.query.status && !req.query.workflowFilter) {
+        where.status = { [Op.notIn]: ['returned', 'return_in_progress'] };
+    }
     if (status) {
       if (status.includes(',')) {
         where.status = { [Op.in]: status.split(',') };
@@ -1195,7 +1274,7 @@ const listAllOrders = async (req, res) => {
         new: ['order_placed'],
         awaiting_collection: ['seller_confirmed', 'super_admin_confirmed'],
         en_route_to_warehouse: ['en_route_to_warehouse'],
-        at_warehouse: ['at_warehouse', 'received_at_warehouse'],
+        at_warehouse: ['at_warehouse', 'at_warehouse'],
         dispatch_ready: ['ready_for_pickup'],
         last_mile: ['in_transit'],
         completed: ['delivered', 'completed'],
@@ -1226,125 +1305,150 @@ const listAllOrders = async (req, res) => {
       }
 
       where[Op.or] = searchConditions;
-      
+
       // If searching, we relax all other filters to allow "Global search"
       delete where.status;
       delete where.createdAt;
     }
 
-    // Hiding fast food orders from admin's pending queue must be done either via a join on OrderItems 
+    // Hiding fast food orders from admin's pending queue must be done either via a join on OrderItems
     // or handled on frontend. Removing this block since Order.orderCategory column does not exist and crashes DB.
 
     console.log('[listAllOrders] req.query:', JSON.stringify(req.query));
     console.log('[listAllOrders] Final Where:', JSON.stringify(where));
 
-    try {
-      const { rows, count } = await Order.findAndCountAll({
-      where,
-      subQuery: false,
-      order: [['createdAt', 'DESC'], ['id', 'DESC']],
-      limit: pageSize,
-      offset,
-      attributes: { exclude: ['communicationLog', 'trackingUpdates', 'deliveryReview', 'deliveryNotes', 'cancelReason', 'addressDetails'] },
-      include: [
-        {
-          model: OrderItem,
-          as: 'OrderItems',
-          include: [
-            { model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] },
-            {
-              model: Product,
-              required: false,
-              attributes: ['id', 'name', 'deliveryFee', 'coverImage', 'sellerId', 'basePrice', 'displayPrice', 'discountPrice'],
-              include: [{ model: User, as: 'seller', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] }]
-            },
-            {
-              model: FastFood,
-              required: false,
-              attributes: ['id', 'name', 'deliveryFee', 'mainImage', 'vendor', 'ingredients', 'allergens', 'basePrice', 'displayPrice'],
-              include: [{ model: User, as: 'vendorDetail', required: false, attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty'] }]
-            }
-          ]
-        },
-        { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
-        { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
-        // Admin routing destinations
-        { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone', 'lat', 'lng'] },
-        { model: PickupStation, as: 'DestinationPickStation', attributes: ['id', 'name', 'location', 'contactPhone', 'lat', 'lng'] },
-        { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint', attributes: ['id', 'name', 'address', 'contactPhone', 'deliveryFee', 'isActive'] },
-        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessName'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessLandmark', 'businessPhone', 'businessTown', 'businessCounty', 'businessName'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'phone', 'businessPhone', 'businessName'] },
-        {
-          model: DeliveryTask,
-          as: 'deliveryTasks',
-          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] }]
-        }
-      ],
-      order: [
-        ['createdAt', 'DESC'],
-        ['id', 'DESC'],
-        [{ model: DeliveryTask, as: 'deliveryTasks' }, 'createdAt', 'DESC']
-      ],
-    });
+    const includeUserForSearch = q ? [{ model: User, as: 'user', attributes: [] }] : [];
 
-    // Calculate global stats for the dashboard summary cards and workflow tabs
-    // This ensures counts are consistent even when filtered/paginated
-    const [
-      totalAll,
-      totalNew,
-      totalAwaitingCollection,
-      totalEnRouteToWarehouse,
-      totalAtWarehouse,
-      totalDispatchReady,
-      totalLastMile,
-      totalCompletedWorkflow,
-      totalFailedReturned,
-      totalPendingStatus,
-      totalProcessingStatus,
-      totalDeliveredStatus,
-      totalCompletedStatus,
-      totalCancelledStatus,
-      totalReturnedStatus
-    ] = await Promise.all([
-      Order.count(),
-      // Workflow Stages
-      Order.count({ where: { status: 'order_placed' } }),
-      Order.count({ where: { status: { [Op.in]: ['seller_confirmed', 'super_admin_confirmed'] } } }),
-      Order.count({ where: { status: 'en_route_to_warehouse' } }),
-      Order.count({ where: { status: { [Op.in]: ['at_warehouse', 'received_at_warehouse'] } } }),
-      Order.count({ where: { status: 'ready_for_pickup' } }),
-      Order.count({ where: { status: 'in_transit' } }),
-      Order.count({ where: { status: { [Op.in]: ['delivered', 'completed'] } } }),
-      Order.count({ where: { status: { [Op.in]: ['failed', 'returned', 'cancelled'] } } }),
-      // Legacy Status Groups (for summary cards)
-      Order.count({ where: { status: { [Op.in]: ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'received_at_warehouse'] } } }),
-      Order.count({ where: { status: { [Op.in]: ['ready_for_pickup', 'in_transit'] } } }),
-      Order.count({ where: { status: 'delivered' } }),
-      Order.count({ where: { status: 'completed' } }),
-      Order.count({ where: { status: 'cancelled' } }),
-      Order.count({ where: { status: 'returned' } })
+    try {
+    const shouldComputeStats = page === 1
+      && !status
+      && (!workflowFilter || workflowFilter === 'all')
+      && !q
+      && !from
+      && !to;
+
+    const canUseCachedStats = shouldComputeStats
+      && orderStatsCache.value
+      && (Date.now() - orderStatsCache.computedAt) < ORDER_STATS_CACHE_TTL_MS;
+
+    // Step 1: Run ID fetch and Stats fetch in parallel
+    const [idResult, statusCounts] = await Promise.all([
+      // Fetch only IDs for pagination first (this is much faster in SQLite)
+      Order.findAndCountAll({
+        where,
+        include: includeUserForSearch,
+        limit: pageSize,
+        offset,
+        distinct: true,
+        attributes: ['id'],
+        order: [['createdAt', 'DESC'], ['id', 'DESC']]
+      }),
+      // Only fetch stats when useful and not already cached.
+      canUseCachedStats
+        ? Promise.resolve(orderStatsCache.value)
+        : shouldComputeStats
+          ? Order.findAll({
+              attributes: ['status', [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+              group: ['status'],
+              raw: true
+            })
+          : Promise.resolve(null)
     ]);
 
-    const stats = {
-      all: totalAll,
-      // Workflow (Prefixed with wf_ to avoid collision with status counts)
-      wf_new: totalNew,
-      wf_awaiting_collection: totalAwaitingCollection,
-      wf_en_route_to_warehouse: totalEnRouteToWarehouse,
-      wf_at_warehouse: totalAtWarehouse,
-      wf_dispatch_ready: totalDispatchReady,
-      wf_last_mile: totalLastMile,
-      wf_completed: totalCompletedWorkflow,
-      wf_failed_returned: totalFailedReturned,
-      // Status Groups (Legacy cards)
-      pending: totalPendingStatus,
-      processing: totalProcessingStatus,
-      delivered: totalDeliveredStatus,
-      completed: totalCompletedStatus,
-      cancelled: totalCancelledStatus,
-      returned: totalReturnedStatus
-    };
+    const { rows: idRows, count } = idResult;
+    let rows = [];
+
+    if (idRows.length > 0) {
+      const orderIds = idRows.map(o => o.id);
+
+      // Step 2: Fetch full details for the specific IDs found
+      rows = await Order.findAll({
+        where: { id: { [Op.in]: orderIds } },
+        attributes: { exclude: ['communicationLog', 'trackingUpdates', 'deliveryReview', 'deliveryNotes', 'cancelReason', 'addressDetails'] },
+        include: [
+          { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'landmark', 'contactPhone'] },
+          { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'contactPhone'] },
+          { model: Warehouse, as: 'DestinationWarehouse', attributes: ['id', 'name', 'address'] },
+          { model: PickupStation, as: 'DestinationPickStation', attributes: ['id', 'name', 'location'] },
+          { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint', attributes: ['id', 'name', 'address'] },
+          { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
+          { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessAddress', 'businessName'] },
+          { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }
+        ],
+        order: [['createdAt', 'DESC'], ['id', 'DESC']]
+      });
+
+      // Step 3: Fetch items and tasks for these specific orders
+      const [orderItems, deliveryTasks] = await Promise.all([
+        OrderItem.findAll({
+          where: { orderId: { [Op.in]: orderIds } },
+          attributes: ['id', 'orderId', 'total', 'commissionAmount', 'quantity', 'price', 'basePrice', 'itemType']
+        }),
+        DeliveryTask.findAll({
+          where: { orderId: { [Op.in]: orderIds } },
+          attributes: ['id', 'orderId', 'status', 'assignedAt', 'deliveryAgentId', 'createdAt'],
+          include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }],
+          order: [['createdAt', 'DESC']]
+        })
+      ]);
+
+      const itemsByOrderId = orderItems.reduce((acc, item) => {
+        if (!acc[item.orderId]) acc[item.orderId] = [];
+        acc[item.orderId].push(item);
+        return acc;
+      }, {});
+
+      const tasksByOrderId = deliveryTasks.reduce((acc, task) => {
+        if (!acc[task.orderId]) acc[task.orderId] = [];
+        acc[task.orderId].push(task);
+        return acc;
+      }, {});
+
+      rows = rows.map(order => {
+        const plain = order.get ? order.get({ plain: true }) : order;
+        plain.OrderItems = itemsByOrderId[plain.id] || [];
+        plain.deliveryTasks = tasksByOrderId[plain.id] || [];
+        return plain;
+      });
+    }
+
+    // Step 4: Process stats
+    let stats = null;
+    if (Array.isArray(statusCounts)) {
+        const countMap = statusCounts.reduce((acc, curr) => {
+          acc[curr.status] = parseInt(curr.count, 10);
+          return acc;
+        }, {});
+
+        const getSum = (statuses) => statuses.reduce((sum, s) => sum + (countMap[s] || 0), 0);
+
+        stats = {
+          all: Object.keys(countMap)
+            .filter(s => !['returned', 'return_in_progress'].includes(s))
+            .reduce((sum, s) => sum + (countMap[s] || 0), 0),
+          wf_new: getSum(['order_placed']),
+          wf_awaiting_collection: getSum(['seller_confirmed', 'super_admin_confirmed']),
+          wf_en_route_to_warehouse: getSum(['en_route_to_warehouse']),
+          wf_at_warehouse: getSum(['at_warehouse', 'at_warehouse']),
+          wf_dispatch_ready: getSum(['ready_for_pickup']),
+          wf_last_mile: getSum(['in_transit']),
+          wf_completed: getSum(['delivered', 'completed']),
+          wf_failed_returned: getSum(['failed', 'returned', 'cancelled']),
+          pending: getSum(['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'at_warehouse']),
+          processing: getSum(['ready_for_pickup', 'in_transit']),
+          delivered: getSum(['delivered']),
+          completed: getSum(['completed']),
+          cancelled: getSum(['cancelled']),
+          returned: getSum(['returned'])
+        };
+
+        if (shouldComputeStats) {
+          orderStatsCache = {
+            value: statusCounts,
+            computedAt: Date.now()
+          };
+        }
+    }
 
     res.set('X-Total-Count', count);
     res.set('X-Page', page);
@@ -1376,7 +1480,7 @@ const updateOrderStatus = async (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
-  if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+  if (['at_warehouse', 'at_warehouse'].includes(status)) {
     return res.status(400).json({ error: 'Status "At Warehouse" must be confirmed via handover code entry to ensure proper logistics tracking.' });
   }
   const order = await Order.findByPk(orderId, {
@@ -1418,15 +1522,16 @@ const updateOrderStatus = async (req, res) => {
   const createdDeliveryTask = await autoCreateDeliveryTask(order, prevStatus, status);
   
   const updates = { status };
-  if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
-    updates.warehouseArrivalDate = new Date();
+  if (['at_warehouse', 'at_warehouse', 'at_pick_station', 'ready_for_pickup'].includes(status)) {
+    updates.warehouseArrivalDate = (status === 'at_warehouse' || status === 'at_warehouse') ? new Date() : order.warehouseArrivalDate;
     updates.deliveryAgentId = null; // Clear agent so new one can be assigned for next leg
-
+    updates.deliveryType = null; // Clear previous routing leg so admin must re-assign in modal
+    
     // Mark any active delivery task for this order as completed
     const { DeliveryTask } = require('../models');
     await DeliveryTask.update(
-      { status: 'completed', actualDeliveryDate: new Date() },
-      { where: { orderId: order.id, status: ['accepted', 'in_progress'] } }
+      { status: 'completed', completedAt: new Date() },
+      { where: { orderId: order.id, status: { [Op.in]: ['assigned', 'accepted', 'arrived_at_pickup', 'in_progress'] } } }
     );
   }
   
@@ -1560,6 +1665,13 @@ const assignDeliveryAgent = async (req, res) => {
       await t.rollback();
       return res.status(404).json({ error: 'Order not found' });
     }
+
+    // Enforcement: Seller must confirm before assignment
+    if (!order.sellerConfirmed) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Cannot assign delivery agent: Waiting for seller to confirm the order.' });
+    }
+
     const routePolicy = await getOrderRoutePolicy(order.id, t);
 
 
@@ -1603,13 +1715,13 @@ const assignDeliveryAgent = async (req, res) => {
 
 
     // Safety Check: Lock re-assignment if already accepted or started
-    // EXCEPTION: For hub-arrived orders (at_warehouse, received_at_warehouse), old tasks from the previous
+    // EXCEPTION: For hub-arrived orders (at_warehouse, at_warehouse), old tasks from the previous
     // leg are stale. We auto-complete them so the next leg can be assigned.
-    const isAtHub = ['at_warehouse', 'received_at_warehouse'].includes(order.status);
+    const isAtHub = ['at_warehouse', 'at_warehouse'].includes(order.status);
     const activeTask = await DeliveryTask.findOne({
       where: {
         orderId: order.id,
-        status: { [Op.in]: ['accepted', 'in_progress'] }
+        status: { [Op.in]: ['accepted', 'in_progress', 'arrived_at_pickup'] }
       },
       transaction: t
     });
@@ -1657,10 +1769,11 @@ const assignDeliveryAgent = async (req, res) => {
     }
 
     // Auto-detect next leg if not provided
+    const routeViaPickStation = !!(order.destinationPickStationId || order.pickupStationId);
     if (!deliveryType && !routePolicy.isFastFoodOnlyOrder) {
-      if (order.status === 'at_warehouse' || order.status === 'received_at_warehouse') {
+      if (order.status === 'at_warehouse' || order.status === 'at_warehouse') {
         // Warehouse -> Customer OR Warehouse -> Pickup Station
-        if (order.deliveryMethod === 'pick_station') {
+        if (order.deliveryMethod === 'pick_station' || routeViaPickStation) {
           dType = 'warehouse_to_pickup_station';
         } else {
           dType = 'warehouse_to_customer';
@@ -1673,6 +1786,21 @@ const assignDeliveryAgent = async (req, res) => {
     if (!dType) {
       dType = FASTFOOD_DIRECT_DELIVERY_TYPE;
     }
+
+    if (isWarehouseReentryAssignment(order.status, dType)) {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'Invalid route for this order stage. This order is already at warehouse. Use warehouse_to_customer or warehouse_to_pickup_station for the next leg.'
+      });
+    }
+
+    if (routeViaPickStation && dType === 'warehouse_to_customer') {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'This route requires pickup station handover first. Assign warehouse_to_pickup_station, then pickup_station_to_customer.'
+      });
+    }
+
     const updates = {
       deliveryAgentId: deliveryAgentId,
       deliveryType: dType,
@@ -1872,7 +2000,8 @@ const assignDeliveryAgent = async (req, res) => {
         agentEarnings,
         `Delivery Earning for Order #${order.orderNumber} (${dType})`,
         order.id,
-        t
+        t,
+        'delivery_agent'
       );
     }
 
@@ -2023,54 +2152,151 @@ const unassignDeliveryAgent = async (req, res) => {
   }
 };
 
+/**
+ * PUBLIC order tracking by tracking number or order number (no auth required).
+ * Exposes only safe, customer-facing fields.
+ */
+const publicTrackOrder = async (req, res) => {
+  try {
+    const { trackingNumber } = req.params;
+    if (!trackingNumber) return res.status(400).json({ error: 'Tracking / order number is required' });
+
+    const { Op } = require('sequelize');
+    const include = [
+      { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone'] },
+      { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
+      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
+    ];
+
+    const order = await Order.findOne({
+      where: {
+        [Op.or]: [
+          { trackingNumber },
+          { orderNumber: trackingNumber },
+          { checkoutOrderNumber: trackingNumber }
+        ]
+      },
+      include
+    });
+
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    let trackingUpdates = [];
+    try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) {}
+    trackingUpdates.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    const agentPhone = order.deliveryAgent?.phone || order.deliveryAgent?.businessPhone || null;
+
+    const payload = {
+      orderNumber: order.orderNumber || order.checkoutOrderNumber,
+      trackingNumber: order.trackingNumber,
+      status: order.status,
+      estimatedDelivery: order.estimatedDelivery || null,
+      actualDelivery: order.actualDelivery || null,
+      trackingUpdates,
+      deliveryAgent: order.deliveryAgent ? {
+        name: order.deliveryAgent.name,
+        phone: agentPhone
+      } : null,
+      pickup: order.Warehouse ? {
+        name: order.Warehouse.name,
+        address: order.Warehouse.address,
+        lat: order.Warehouse.lat,
+        lng: order.Warehouse.lng
+      } : null,
+      destination: order.PickupStation ? {
+        name: order.PickupStation.name,
+        address: order.PickupStation.location,
+        lat: order.PickupStation.lat,
+        lng: order.PickupStation.lng
+      } : {
+        address: order.deliveryAddress || null
+      }
+    };
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('Error in publicTrackOrder:', error);
+    return res.status(500).json({ error: 'Failed to get tracking info' });
+  }
+};
+
 const getOrderTracking = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const id = parseInt(orderId, 10);
-    if (Number.isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid order id' });
+    const isGroup = orderId && String(orderId).includes('group');
+    let orders = [];
+
+    const include = [
+      { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] },
+      { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLat', 'businessLng', 'businessTown', 'businessName'] },
+      { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
+      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
+    ];
+
+    if (isGroup) {
+      const gId = orderId.replace('group-', '');
+      orders = await Order.findAll({
+        where: {
+          [Op.or]: [
+            { checkoutGroupId: gId },
+            { checkoutOrderNumber: gId }
+          ]
+        },
+        include
+      });
+    } else {
+      const id = parseInt(orderId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid order id' });
+      }
+      const order = await Order.findByPk(id, { include });
+      if (order) orders = [order];
     }
 
-    // Load order with expanded associations
-    const order = await Order.findByPk(id, {
-      include: [
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'businessName'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLat', 'businessLng', 'businessTown', 'businessName'] },
-        { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
-        { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
-      ]
-    });
-
-    if (!order) {
+    if (orders.length === 0) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Authorization: allow owner, delivery agent, seller, or admins
+    const firstOrder = orders[0];
     const requester = req.user || {};
-    const isOwner = requester.id === order.userId;
-    const isDeliveryAgent = requester.id && requester.id === order.deliveryAgentId;
-    const isSeller = requester.id && requester.id === order.sellerId;
     const isAdminRole = ['admin', 'super_admin'].includes(String(requester.role || '').toLowerCase());
-    if (!isOwner && !isDeliveryAgent && !isSeller && !isAdminRole) {
+
+    // Authorization: allow owner, delivery agent, seller, or admins
+    // For groups, we check if user owns/manages ANY of the orders
+    const isAuthorized = orders.some(o => 
+      requester.id === o.userId || 
+      (requester.id && requester.id === o.deliveryAgentId) || 
+      (requester.id && requester.id === o.sellerId) || 
+      isAdminRole
+    );
+
+    if (!isAuthorized) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // Parse tracking updates
-    let trackingUpdates = [];
-    try {
-      trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : [];
-      if (!Array.isArray(trackingUpdates)) trackingUpdates = [];
-    } catch (_) {
-      trackingUpdates = [];
-    }
+    // Merge and sort tracking updates from all orders in the group
+    let mergedUpdates = [];
+    orders.forEach(o => {
+      try {
+        const updates = o.trackingUpdates ? JSON.parse(o.trackingUpdates) : [];
+        if (Array.isArray(updates)) {
+          mergedUpdates = [...mergedUpdates, ...updates];
+        }
+      } catch (_) { }
+    });
 
-    // Fetch live agent location from active delivery task
+    // Sort by timestamp descending
+    mergedUpdates.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Fetch live agent location from first order's active delivery task (proxy for group location)
     let agencyLocation = null;
-    if (order.deliveryAgentId) {
+    const activeOrder = orders.find(o => o.deliveryAgentId) || firstOrder;
+    if (activeOrder.deliveryAgentId) {
       const activeTask = await DeliveryTask.findOne({
         where: {
-          orderId: order.id,
-          deliveryAgentId: order.deliveryAgentId,
+          orderId: activeOrder.id,
+          deliveryAgentId: activeOrder.deliveryAgentId,
           status: { [Op.notIn]: ['delivered', 'cancelled', 'failed'] }
         },
         order: [['createdAt', 'DESC']]
@@ -2084,55 +2310,58 @@ const getOrderTracking = async (req, res) => {
       }
     }
 
-    // Check for pending handover codes
+    // Check for pending handover codes for ANY order in the group
     const handoverCode = await HandoverCode.findOne({
       where: {
-        orderId: order.id,
+        orderId: orders.map(o => o.id),
         handoverType: 'agent_to_customer',
         status: 'pending'
       }
     });
 
     const payload = {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      status: order.status,
+      orderId: isGroup ? orderId : firstOrder.id,
+      orderNumber: isGroup ? (firstOrder.checkoutOrderNumber || firstOrder.orderNumber) : firstOrder.orderNumber,
+      status: firstOrder.status,
       handoverCode: !!handoverCode,
-      trackingNumber: order.trackingNumber || null,
-      estimatedDelivery: order.estimatedDelivery || null,
-      actualDelivery: order.actualDelivery || null,
-      deliveryNotes: order.deliveryNotes || null,
-      deliveryAttempts: order.deliveryAttempts || 0,
-      lastDeliveryAttempt: order.lastDeliveryAttempt || null,
-      trackingUpdates,
-      deliveryAgent: order.deliveryAgent ? {
-        id: order.deliveryAgent.id,
-        name: order.deliveryAgent.name,
-        email: order.deliveryAgent.email,
+      trackingNumber: firstOrder.trackingNumber || null,
+      estimatedDelivery: firstOrder.estimatedDelivery || null,
+      actualDelivery: firstOrder.actualDelivery || null,
+      deliveryNotes: firstOrder.deliveryNotes || null,
+      deliveryAttempts: firstOrder.deliveryAttempts || 0,
+      lastDeliveryAttempt: firstOrder.lastDeliveryAttempt || null,
+      trackingUpdates: mergedUpdates,
+      deliveryAgent: activeOrder.deliveryAgent ? {
+        id: activeOrder.deliveryAgent.id,
+        name: activeOrder.deliveryAgent.name,
+        email: activeOrder.deliveryAgent.email,
+        phone: activeOrder.deliveryAgent.phone || activeOrder.deliveryAgent.businessPhone,
         location: agencyLocation
       } : null,
-      pickup: {
-        lat: order.seller?.businessLat || null,
-        lng: order.seller?.businessLng || null,
-        name: order.seller?.name || 'Seller',
-        address: order.seller?.businessAddress || null
-      },
-      destination: {
-        lat: order.deliveryLat || null,
-        lng: order.deliveryLng || null,
-        address: order.deliveryAddress
+      pickup: activeOrder.Warehouse ? {
+        name: activeOrder.Warehouse.name,
+        address: activeOrder.Warehouse.address,
+        lat: activeOrder.Warehouse.lat,
+        lng: activeOrder.Warehouse.lng
+      } : (activeOrder.seller ? {
+        name: activeOrder.seller.businessName,
+        address: activeOrder.seller.businessAddress,
+        lat: activeOrder.seller.businessLat,
+        lng: activeOrder.seller.businessLng
+      } : null),
+      destination: activeOrder.PickupStation ? {
+        name: activeOrder.PickupStation.name,
+        address: activeOrder.PickupStation.location,
+        lat: activeOrder.PickupStation.lat,
+        lng: activeOrder.PickupStation.lng
+      } : {
+        lat: activeOrder.deliveryLat || null,
+        lng: activeOrder.deliveryLng || null,
+        address: activeOrder.deliveryAddress
       },
       pois: {
-        warehouse: order.Warehouse ? {
-          name: order.Warehouse.name,
-          lat: order.Warehouse.lat,
-          lng: order.Warehouse.lng
-        } : null,
-        pickupStation: order.PickupStation ? {
-          name: order.PickupStation.name,
-          lat: order.PickupStation.lat,
-          lng: order.PickupStation.lng
-        } : null
+        warehouse: activeOrder.Warehouse,
+        pickupStation: activeOrder.PickupStation
       }
     };
 
@@ -2337,7 +2566,7 @@ const confirmWarehouseArrival = async (req, res) => {
       const pendingSiblingsCount = await Order.count({
         where: {
           checkoutGroupId: order.checkoutGroupId,
-          status: { [Op.notIn]: ['at_warehouse', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed'] },
+          status: { [Op.notIn]: ['at_warehouse', 'at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed'] },
           id: { [Op.ne]: order.id }
         }
       });
@@ -2383,7 +2612,7 @@ const bulkUpdateOrderStatus = async (req, res) => {
       return res.status(400).json({ error: 'orderIds (array) and status are required' });
     }
 
-    if (['at_warehouse', 'received_at_warehouse'].includes(status)) {
+    if (['at_warehouse', 'at_warehouse'].includes(status)) {
       return res.status(400).json({ error: 'Status "At Warehouse" must be confirmed via handover code entry.' });
     }
 
@@ -2475,7 +2704,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       const activeTask = await DeliveryTask.findOne({
         where: {
           orderId: order.id,
-          status: { [Op.in]: ['accepted', 'in_progress'] }
+          status: { [Op.in]: ['accepted', 'in_progress', 'arrived_at_pickup'] }
         },
         transaction: t
       });
@@ -2508,6 +2737,15 @@ const bulkAssignDeliveryAgent = async (req, res) => {
         dType = FASTFOOD_DIRECT_DELIVERY_TYPE;
       }
 
+      if (isWarehouseReentryAssignment(order.status, dType)) {
+        results.push({
+          orderId: order.id,
+          status: 'skipped',
+          reason: 'Order is already at warehouse. Next leg must be warehouse_to_customer or warehouse_to_pickup_station.'
+        });
+        continue;
+      }
+
       // Update order
       const updates = {
         deliveryAgentId: deliveryAgentId,
@@ -2527,7 +2765,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       updates.deliveryFee = finalFee;
 
       // Special handling for warehouse arrival logic (if somehow triggered internally)
-      if (['at_warehouse', 'received_at_warehouse'].includes(order.status || updates.status)) {
+      if (['at_warehouse', 'at_warehouse'].includes(order.status || updates.status)) {
         updates.warehouseArrivalDate = new Date();
         updates.deliveryAgentId = null; // Reset for next leg assignment
 
@@ -2535,7 +2773,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
         const { DeliveryTask } = require('../models');
         await DeliveryTask.update(
           { status: 'completed', actualDeliveryDate: new Date() },
-          { where: { orderId: order.id, status: ['accepted', 'in_progress'] } },
+          { where: { orderId: order.id, status: { [Op.in]: ['accepted', 'in_progress', 'arrived_at_pickup'] } } },
           { transaction: t }
         );
       }
@@ -2669,7 +2907,8 @@ const bulkAssignDeliveryAgent = async (req, res) => {
           earnings,
           `Delivery Earning for Order #${order.orderNumber} (${dType})`,
           order.id,
-          t
+          t,
+          'delivery_agent'
         );
       }
 
@@ -2765,6 +3004,7 @@ const sellerConfirmOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
     const { warehouseId, pickupStationId, submissionDeadline, shippingType, message: logMessage } = req.body;
+    const { formatOrderSocketData, ORDER_SOCKET_INCLUDES } = require('../utils/orderHelpers');
 
     const order = await Order.findByPk(orderId, {
       include: [{ model: OrderItem, as: 'OrderItems', include: [{ model: Product, attributes: ['id', 'sellerId'] }, { model: FastFood, attributes: ['id', 'vendor'] }] }]
@@ -2839,6 +3079,13 @@ const sellerConfirmOrder = async (req, res) => {
 
     await order.update(updates);
 
+    // Notify customer
+    try {
+      await notifyCustomerSellerConfirmed(order, req.user);
+    } catch (notifyErr) {
+      console.warn('[sellerConfirmOrder] Notification failed:', notifyErr);
+    }
+
     // Sync destination across group if this is the first one picking a destination
     if (!routePolicy.isFastFoodOnlyOrder && (warehouseId || pickupStationId) && order.checkoutGroupId) {
       console.log(`📦 [sellerConfirmOrder] Syncing destination (W: ${warehouseId}, P: ${pickupStationId}) for group ${order.checkoutGroupId}`);
@@ -2870,20 +3117,13 @@ const sellerConfirmOrder = async (req, res) => {
     });
     await order.update({ trackingUpdates: JSON.stringify(trackingUpdates) });
 
-    const updatedOrder = await Order.findByPk(orderId);
+    const updatedOrder = await Order.findByPk(orderId, { include: ORDER_SOCKET_INCLUDES });
 
     // Real-time status update via Socket.IO
     const { getIO } = require('../realtime/socket');
     const io = getIO();
     if (io) {
-      const updatePayload = {
-        orderId: order.id,
-        status: statusVal,
-        orderNumber: order.orderNumber,
-        warehouseId: order.warehouseId,
-        pickupStationId: order.pickupStationId,
-        shippingType: order.shippingType
-      };
+      const updatePayload = formatOrderSocketData(updatedOrder);
 
       // Notify owner, seller, and admins
       io.to(`user:${order.userId}`).emit('orderStatusUpdate', updatePayload);
@@ -2894,18 +3134,11 @@ const sellerConfirmOrder = async (req, res) => {
       if (order.checkoutGroupId) {
         const siblings = await Order.findAll({
           where: { checkoutGroupId: order.checkoutGroupId, id: { [Op.ne]: order.id } },
-          attributes: ['id', 'userId', 'sellerId', 'orderNumber', 'warehouseId', 'pickupStationId', 'shippingType', 'status']
+          include: ORDER_SOCKET_INCLUDES
         });
 
         for (const sib of siblings) {
-          const sibPayload = {
-            orderId: sib.id,
-            status: sib.status,
-            orderNumber: sib.orderNumber,
-            warehouseId: sib.warehouseId,
-            pickupStationId: sib.pickupStationId,
-            shippingType: sib.shippingType
-          };
+          const sibPayload = formatOrderSocketData(sib);
           io.to(`user:${sib.userId}`).emit('orderStatusUpdate', sibPayload);
           if (sib.sellerId) io.to(`user:${sib.sellerId}`).emit('orderStatusUpdate', sibPayload);
           io.to('admin').emit('orderStatusUpdate', sibPayload);
@@ -3008,7 +3241,9 @@ const superAdminConfirmOrder = async (req, res) => {
     const {
       analyzeOrderComposition,
       validateRoutingSelection,
-      getOrderSellerIds
+      getOrderSellerIds,
+      formatOrderSocketData,
+      ORDER_SOCKET_INCLUDES
     } = require('../utils/orderHelpers');
 
     // Analyze order composition
@@ -3050,23 +3285,34 @@ const superAdminConfirmOrder = async (req, res) => {
 
     if (shippingType) updates.shippingType = shippingType;
 
-    // Add routing fields if provided
+    // Add routing fields and sync deliveryType if provided
     if (effectiveRoutingStrategy) {
       updates.adminRoutingStrategy = effectiveRoutingStrategy;
 
-      if (effectiveRoutingStrategy === 'warehouse' && destinationWarehouseId) {
-        updates.destinationWarehouseId = destinationWarehouseId;
-        updates.destinationPickStationId = null;
-        updates.destinationFastFoodPickupPointId = null;
-      } else if (effectiveRoutingStrategy === 'pick_station' && destinationPickStationId) {
-        updates.destinationPickStationId = destinationPickStationId;
-        updates.destinationWarehouseId = null;
-        updates.destinationFastFoodPickupPointId = null;
-      } else if (effectiveRoutingStrategy === 'fastfood_pickup_point' && destinationFastFoodPickupPointId) {
-        updates.destinationFastFoodPickupPointId = destinationFastFoodPickupPointId;
-        updates.destinationWarehouseId = null;
-        updates.destinationPickStationId = null;
+      // Ensure deliveryType is synced with the routing strategy's first leg
+      if (effectiveRoutingStrategy === 'warehouse') {
+        updates.deliveryType = 'seller_to_warehouse';
+        if (destinationWarehouseId) {
+          updates.destinationWarehouseId = destinationWarehouseId;
+          updates.destinationPickStationId = null;
+          updates.destinationFastFoodPickupPointId = null;
+        }
+      } else if (effectiveRoutingStrategy === 'pick_station') {
+        updates.deliveryType = 'seller_to_pickup_station';
+        if (destinationPickStationId) {
+          updates.destinationPickStationId = destinationPickStationId;
+          updates.destinationWarehouseId = null;
+          updates.destinationFastFoodPickupPointId = null;
+        }
+      } else if (effectiveRoutingStrategy === 'fastfood_pickup_point') {
+        updates.deliveryType = 'seller_to_pickup_station'; // Fastfood moves to pickup station first
+        if (destinationFastFoodPickupPointId) {
+          updates.destinationFastFoodPickupPointId = destinationFastFoodPickupPointId;
+          updates.destinationWarehouseId = null;
+          updates.destinationPickStationId = null;
+        }
       } else if (effectiveRoutingStrategy === 'direct_delivery') {
+        updates.deliveryType = 'seller_to_customer';
         updates.destinationWarehouseId = null;
         updates.destinationPickStationId = null;
         updates.destinationFastFoodPickupPointId = null;
@@ -3099,10 +3345,7 @@ const superAdminConfirmOrder = async (req, res) => {
       include: [
         { model: OrderItem, as: 'OrderItems' },
         { model: User, as: 'user', attributes: ['id', 'name', 'email', 'businessName'] },
-        { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'businessName'] },
-        { model: Warehouse, as: 'DestinationWarehouse' },
-        { model: PickupStation, as: 'DestinationPickStation' },
-        { model: FastFoodPickupPoint, as: 'DestinationFastFoodPickupPoint' }
+        ...ORDER_SOCKET_INCLUDES
       ]
     });
 
@@ -3110,34 +3353,19 @@ const superAdminConfirmOrder = async (req, res) => {
     const { getIO } = require('../realtime/socket');
     const io = getIO();
     if (io) {
-      const status = 'super_admin_confirmed';
       const sellerIds = await getOrderSellerIds(orderId);
+      const socketPayload = formatOrderSocketData(updatedOrder);
 
       // Notify customer
-      io.to(`user:${updatedOrder.userId}`).emit('orderStatusUpdate', {
-        orderId: updatedOrder.id,
-        status,
-        orderNumber: updatedOrder.orderNumber,
-        adminRoutingStrategy: updatedOrder.adminRoutingStrategy
-      });
+      io.to(`user:${updatedOrder.userId}`).emit('orderStatusUpdate', socketPayload);
 
       // Notify all sellers
       sellerIds.forEach(sellerId => {
-        io.to(`user:${sellerId}`).emit('orderStatusUpdate', {
-          orderId: updatedOrder.id,
-          status,
-          orderNumber: updatedOrder.orderNumber,
-          adminRoutingStrategy: updatedOrder.adminRoutingStrategy,
-          destinationSet: true
-        });
+        io.to(`user:${sellerId}`).emit('orderStatusUpdate', socketPayload);
       });
 
       // Notify admin room
-      io.to('admin').emit('orderStatusUpdate', {
-        orderId: updatedOrder.id,
-        status,
-        orderNumber: updatedOrder.orderNumber
-      });
+      io.to('admin').emit('orderStatusUpdate', socketPayload);
     }
 
     res.json({
@@ -3586,7 +3814,7 @@ const cancelOrder = async (req, res) => {
         return res.status(400).json({ error: `Order ${order.orderNumber} is already ${order.status}` });
       }
 
-      const inTransitStatuses = ['in_transit', 'out_for_delivery', 'shipped', 'transit', 'ready_for_pickup'];
+      const inTransitStatuses = ['in_transit', 'in_transit', 'shipped', 'transit', 'ready_for_pickup'];
       if (inTransitStatuses.includes(order.status)) {
         await t.rollback();
         return res.status(400).json({ error: `Cannot cancel order ${order.orderNumber} while it is ${order.status}` });
@@ -3678,6 +3906,20 @@ const cancelOrder = async (req, res) => {
     }
 
     await t.commit();
+
+    // Notify customer after successful cancellation
+    try {
+      for (const order of orders) {
+        // Reload order with user info for notification
+        const fullOrder = await Order.findByPk(order.id, { include: [{ model: User, as: 'user' }] });
+        if (fullOrder) {
+          await notifyCustomerOrderCancelled(fullOrder, reason);
+        }
+      }
+    } catch (notifyErr) {
+      console.warn('[cancelOrder] Notification failed:', notifyErr.message);
+    }
+    
     res.json({ success: true, message: isGroup ? 'Checkout group cancelled successfully' : 'Order cancelled successfully' });
 
   } catch (error) {
@@ -4046,6 +4288,7 @@ module.exports = {
   updateOrderAddress,
   addTrackingUpdate,
   getOrderTracking,
+  publicTrackOrder,
   sellerConfirmOrder,
   superAdminConfirmOrder,
   sendOrderMessage,

@@ -64,7 +64,15 @@ const HeroSettingsConfig = () => {
                             ...c,
                             schedule: c.schedule || { startDate: '', endDate: '', startTime: '', endTime: '', days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }
                         }));
-                        setConfig({ ...loadedConfig, campaigns: migratedCampaigns });
+                        // Ensure automation defaults exist even if DB config lacks them
+                        const automation = {
+                            enableBreakfast: true,
+                            enableLateNight: false,
+                            enableBestSellers: true,
+                            stockRescueMode: false,
+                            ...(loadedConfig.automation || {})
+                        };
+                        setConfig({ ...loadedConfig, campaigns: migratedCampaigns, automation });
                     }
                 }
 

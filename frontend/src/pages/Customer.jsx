@@ -41,6 +41,8 @@ export default function Customer() {
 
   const menuItems = [
     { to: "/customer", label: "Overview", icon: "🏠", end: true },
+    { to: "/customer/orders", label: "My Orders", icon: "📦" },
+    { to: "/customer/returns", label: "My Returns", icon: "🔄" },
     { to: "/customer/wishlist", label: "Wishlist", icon: "❤️" },
     { to: "/customer/wallet", label: "Wallet", icon: "💰" },
     { to: "/customer/applications", label: "Applications", icon: "📄" },

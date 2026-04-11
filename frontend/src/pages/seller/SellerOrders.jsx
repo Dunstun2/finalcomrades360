@@ -9,6 +9,7 @@ import LogisticsDestination from '../../components/delivery/LogisticsDestination
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils'
 import HandoverCodeWidget from '../../components/delivery/HandoverCodeWidget'
 
+import { buildOrderLifecycleSteps } from '../../utils/orderLifecycle';
 export default function SellerOrders() {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -52,10 +53,14 @@ export default function SellerOrders() {
   const PENDING_STATUSES = [
     'order_placed', 'seller_confirmed', 'en_route_to_warehouse',
     'at_warehouse', 'ready_for_pickup', 'in_transit',
-    'processing', 'received_at_warehouse', 'super_admin_confirmed'
+    'processing', 'super_admin_confirmed'
   ]
-  const COMPLETED_STATUSES = ['delivered', 'failed', 'cancelled', 'returned']
+  const COMPLETED_STATUSES = ['delivered', 'failed', 'cancelled']
   const FINALIZED_STATUSES = ['completed']
+  const RETURN_STATUSES = [
+    'return_approved', 'return_at_pick_station', 'return_in_transit', 
+    'return_at_warehouse', 'returned', 'return_rejected'
+  ]
 
   // Filtered rows are now fetched directly from server based on activeTab
   const filteredRows = rows;
@@ -94,9 +99,10 @@ export default function SellerOrders() {
 
         // Map activeTab to status parameter
         let statuses = '';
-        if (activeTab === 'pending') statuses = PENDING_STATUSES.join(',');
-        else if (activeTab === 'completed') statuses = COMPLETED_STATUSES.join(',');
-        else if (activeTab === 'finalized') statuses = FINALIZED_STATUSES.join(',');
+        if (activeTab === 'pending') statuses = [...new Set(PENDING_STATUSES)].join(',');
+        else if (activeTab === 'completed') statuses = [...new Set(COMPLETED_STATUSES)].join(',');
+        else if (activeTab === 'finalized') statuses = [...new Set(FINALIZED_STATUSES)].join(',');
+        else if (activeTab === 'returns') statuses = [...new Set(RETURN_STATUSES)].join(',');
 
         const url = `/sellers/orders?status=${statuses}&page=${currentPage}&pageSize=${pageSize}`;
         const res = await Promise.race([api.get(url), timeout(30000)]);
@@ -196,12 +202,12 @@ export default function SellerOrders() {
   // Sync modal local state with selectedOrder's logistics data (handles group consolidation sync)
   useEffect(() => {
     if (selectedOrder) {
-      if (selectedOrder.warehouseId) {
-        setSelectedWarehouseId(selectedOrder.warehouseId);
+      if (selectedOrder.destinationWarehouseId || selectedOrder.warehouseId) {
+        setSelectedWarehouseId(selectedOrder.destinationWarehouseId || selectedOrder.warehouseId);
         setDestinationType('warehouse');
       }
-      if (selectedOrder.pickupStationId) {
-        setSelectedPickupStationId(selectedOrder.pickupStationId);
+      if (selectedOrder.destinationPickStationId || selectedOrder.pickupStationId) {
+        setSelectedPickupStationId(selectedOrder.destinationPickStationId || selectedOrder.pickupStationId);
         setDestinationType('pickup_station');
       }
       if (selectedOrder.shippingType) {
@@ -358,7 +364,6 @@ export default function SellerOrders() {
       'seller_confirmed': 'bg-blue-100 text-blue-800 border border-blue-200',
       'en_route_to_warehouse': 'bg-indigo-100 text-indigo-800 border border-indigo-200',
       'at_warehouse': 'bg-teal-100 text-teal-800 border border-teal-200',
-      'received_at_warehouse': 'bg-teal-100 text-teal-800 border border-teal-200',
       'super_admin_confirmed': 'bg-emerald-100 text-emerald-800 border border-emerald-200',
       'processing': 'bg-purple-100 text-purple-800 border border-purple-200',
       'ready_for_pickup': 'bg-sky-100 text-sky-800 border border-sky-200',
@@ -367,14 +372,20 @@ export default function SellerOrders() {
       'completed': 'bg-green-600 text-white shadow-sm',
       'failed': 'bg-red-600 text-white shadow-sm',
       'cancelled': 'bg-red-100 text-red-800 border border-red-200',
-      'returned': 'bg-gray-100 text-gray-800 border border-gray-200'
+      'returned': 'bg-teal-600 text-white shadow-sm',
+      'return_approved': 'bg-pink-100 text-pink-800 border border-pink-200',
+      'return_at_pick_station': 'bg-pink-100 text-pink-800 border border-pink-200',
+      'return_in_transit': 'bg-pink-100 text-pink-800 border border-pink-200',
+      'return_at_warehouse': 'bg-pink-100 text-pink-800 border border-pink-200',
+      'return_rejected': 'bg-gray-100 text-gray-800 border border-gray-200'
     }
     return statusColors[status] || 'bg-gray-100 text-gray-800'
   }
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-semibold mb-4">My Sales Management</h1>
+    <div className="w-full h-full flex flex-col">
+      <div className="p-0 sm:p-6 flex flex-col flex-1">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight mb-6">My Sales Management</h1>
 
       {/* Tabs */}
       <div className="flex space-x-4 mb-6 border-b border-gray-200">
@@ -396,27 +407,47 @@ export default function SellerOrders() {
         >
           Finalized Sales
         </button>
+        <button
+          onClick={() => handleTabChange('returns')}
+          className={`pb-2 px-1 text-sm font-bold transition-all ${activeTab === 'returns' ? 'border-b-2 border-pink-600 text-pink-600' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Returns
+        </button>
       </div>
 
-      {loading ? (
-        <div className="text-gray-600">Loading...</div>
-      ) : filteredRows.length === 0 ? (
-        <div className="card p-4 text-gray-600">No {activeTab} sales found.</div>
-      ) : (
-        <div className="card p-0 overflow-x-auto">
+      <div className="card p-0 min-h-[400px]">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-gray-700">
+            <tr>
+              <th className="text-left p-3">Order #</th>
+              <th className="text-left p-3">Status</th>
+              <th className="text-right p-3">Items</th>
+              <th className="text-right p-3">Total (KES)</th>
+              <th className="text-left p-3">Date</th>
+              <th className="text-left p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && rows.length === 0 ? (
               <tr>
-                <th className="text-left p-3">Order #</th>
-
-                <th className="text-left p-3">Status</th>
-                <th className="text-right p-3">Items</th>
-                <th className="text-right p-3">Total (KES)</th>
-                <th className="text-left p-3">Date</th>
-                <th className="text-left p-3">Actions</th>
+                <td colSpan="6" className="p-12 text-center text-gray-500">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+                    <span className="text-xs font-bold animate-pulse text-blue-600 uppercase tracking-widest">Loading Sales...</span>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="p-12 text-center text-gray-500 font-medium italic">
+                  No {activeTab} sales found.
+                </td>
+              </tr>
+            ) : (
+              <></>
+            )}
               {filteredRows.map(o => {
                 const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
                 return (
@@ -594,7 +625,101 @@ export default function SellerOrders() {
             </tbody>
           </table>
         </div>
-      )}
+
+        {/* Mobile Grid View */}
+        <div className="md:hidden p-2">
+          {loading && rows.length === 0 ? (
+            <div className="p-12 text-center text-gray-500">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+                <span className="text-[10px] font-bold animate-pulse text-blue-600 uppercase tracking-widest">Loading Sales...</span>
+              </div>
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="p-12 text-center text-gray-500 font-medium italic text-sm">
+              No {activeTab} sales found.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {filteredRows.map(o => {
+                const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
+                return (
+                  <div key={o.id} className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex flex-col relative active:scale-[0.98] transition-all">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[11px] font-black text-gray-900">#{o.orderNumber}</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase ${getStatusBadge(o.status)}`}>
+                        {o.status.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+
+                    <div className="flex-1 mb-3">
+                      <div className="flex items-baseline gap-1 mb-1">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase">Total:</span>
+                        <span className="text-xs font-black text-blue-600">KES {o.sellerTotal}</span>
+                      </div>
+                      <div className="text-[9px] text-gray-400 font-bold uppercase">
+                        {new Date(o.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+
+                    {/* Actions Grid */}
+                    <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-gray-50">
+                      {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
+                        <button
+                          onClick={() => {
+                            setSelectedOrder(o)
+                            if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
+                              setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(o.destinationWarehouseId);
+                            } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
+                              setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(o.destinationPickStationId);
+                            } else if (directDeliveryOrder) {
+                              setShippingType('collected_from_seller');
+                            }
+                            const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
+                            setShowConfirmModal(true);
+                          }}
+                          className="w-full py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-sm"
+                        >
+                          Confirm Order
+                        </button>
+                      )}
+
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
+                          }}
+                          className="flex-1 py-1.5 bg-blue-50 text-blue-600 text-[9px] font-black uppercase rounded-lg border border-blue-100"
+                        >
+                          Chat
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedOrder(o); setShowDetailsModal(true);
+                          }}
+                          className="flex-1 py-1.5 bg-gray-50 text-gray-600 text-[9px] font-black uppercase rounded-lg border border-gray-100"
+                        >
+                          Details
+                        </button>
+                      </div>
+
+                      {/* Specialized Action (Handover/Dispatch) */}
+                      {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
+                        <button
+                          onClick={() => { setSelectedOrder(o); setShowDispatchModal(true); }}
+                          className="w-full py-1.5 bg-indigo-600 text-white text-[9px] font-black uppercase rounded-lg"
+                        >
+                          Dispatch
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Pagination Controls */}
       {meta.totalPages > 1 && (
@@ -902,7 +1027,6 @@ export default function SellerOrders() {
           </div>
         </div>
       )}
-      {/* Order Details Modal */}
       {showDetailsModal && selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -1014,20 +1138,7 @@ export default function SellerOrders() {
                   Status Lifecycle
                 </h4>
                 {(() => {
-                  const fastFoodOnly = isFastFoodOnlyOrder(selectedOrder);
-                  const hideWarehouseStep = selectedOrder.adminRoutingStrategy === 'direct_delivery' || fastFoodOnly;
-                  const lifecycleSteps = [
-                    { label: 'Placed', status: 'order_placed', done: true },
-                    { label: 'Admin Confirmed', status: 'super_admin_confirmed', done: selectedOrder.superAdminConfirmed },
-                    { label: 'Seller Confirmed', status: 'seller_confirmed', done: selectedOrder.sellerConfirmed },
-                    { label: 'At Warehouse', status: 'at_warehouse', done: !!selectedOrder.warehouseArrivalDate },
-                    { label: 'In Transit', status: 'in_transit', done: ['in_transit', 'delivered', 'completed'].includes(selectedOrder.status) },
-                    { label: 'Delivered', status: 'delivered', done: ['delivered', 'completed'].includes(selectedOrder.status) },
-                    { label: 'Complete', status: 'completed', done: selectedOrder.status === 'completed' }
-                  ];
-                  const steps = hideWarehouseStep
-                    ? lifecycleSteps.filter((step) => step.status !== 'at_warehouse')
-                    : lifecycleSteps;
+                  const steps = buildOrderLifecycleSteps(selectedOrder);
 
                   return (
                     <div className="flex flex-wrap gap-4 items-start justify-between relative before:absolute before:h-0.5 before:bg-gray-100 before:top-4 before:left-0 before:right-0 before:-z-10">
@@ -1068,8 +1179,8 @@ export default function SellerOrders() {
                         <p className="text-[10px] font-bold text-blue-600 uppercase">
                           Leg: {(() => {
                             const type = task.deliveryType;
-                            const routing = o.adminRoutingStrategy;
-                            const oStatus = o.status;
+                            const routing = selectedOrder.adminRoutingStrategy;
+                            const oStatus = selectedOrder.status;
 
                             if (type === 'seller_to_warehouse') return 'Leg 1: Seller to Warehouse';
                             if (type === 'warehouse_to_customer') return 'Leg 2: Warehouse to Customer';
@@ -1081,7 +1192,7 @@ export default function SellerOrders() {
                             // Context fallback
                             if (routing === 'warehouse') {
                                 if (['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse'].includes(oStatus)) return 'Leg 1: Seller to Warehouse';
-                                if (['at_warehouse', 'received_at_warehouse'].includes(oStatus)) return 'Leg 2: Warehouse to Customer';
+                                if (['at_warehouse', 'at_warehouse'].includes(oStatus)) return 'Leg 2: Warehouse to Customer';
                             }
 
                             return type?.replace(/_/g, ' ').toUpperCase() || 'DELIVERY LEG';
@@ -1194,6 +1305,7 @@ export default function SellerOrders() {
           }
         }}
       />
+      </div>
     </div>
   )
 }

@@ -3,6 +3,36 @@ import axios from 'axios';
 // Backend API base URL - relative path for production, key for Vite proxy in development
 const API_BASE = '/api';
 
+/**
+ * Returns true if the currently logged-in user has an admin or superadmin role.
+ * Admins bypass maintenance mode entirely on the frontend — they can browse all pages.
+ */
+const isAdminUser = () => {
+  try {
+    const adminRoles = ['admin', 'super_admin', 'superadmin'];
+    
+    // 1. Check stored user object in localStorage
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      const user = JSON.parse(stored);
+      // Check primary role
+      if (user?.role && adminRoles.includes(user.role)) return true;
+      // Check roles array
+      const roles = Array.isArray(user?.roles) ? user.roles : [];
+      if (roles.some(r => adminRoles.includes(r))) return true;
+    }
+
+    // 2. Check current path as fallback (for dashboard-login page before secondary auth is verified)
+    // This ensures that even before the backend knows the user is an admin, the frontend
+    // doesn't redirect them away from the login page.
+    const adminPaths = ['/dashboard', '/dashboard-login', '/maintenance', '/login'];
+    if (adminPaths.some(p => window.location.pathname.startsWith(p))) return true;
+  } catch (_) {
+    // Fail silent, assume not admin
+  }
+  return false;
+};
+
 const api = axios.create({
   baseURL: API_BASE,
   headers: {
@@ -99,6 +129,18 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       console.log(`[api] Interceptor caught ${error.response.status} error for URL: ${error.config?.url}`, JSON.stringify(error.response.data));
+      if (error.response.status === 503 && error.response.data?.maintenance) {
+        // System is in maintenance mode
+        // Admins (by role or by being on a dashboard path) always bypass
+        if (!isAdminUser() && window.location.pathname !== '/maintenance') {
+          const msg = error.response.data?.message;
+          if (msg) sessionStorage.setItem('maintenance_message', msg);
+          // Store return path for automatic re-entry
+          sessionStorage.setItem('maintenance_return_path', window.location.pathname + window.location.search);
+          window.location.href = '/maintenance';
+        }
+        return Promise.reject(error);
+      }
       if (error.response.status === 401) {
         // Don't redirect for password verification endpoint
         if (error.config?.url?.includes('/auth/verify-password')) {
@@ -113,7 +155,8 @@ api.interceptors.response.use(
         const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
         if (window.location.pathname !== loginPath) {
           window.location.href = loginPath;
-        }      } else if (error.response.status === 403) {
+        }
+      } else if (error.response.status === 403) {
         // Handle 403 Forbidden errors
         const errorMessage = error.response.data?.message || 'You do not have permission to perform this action';
         console.error('Forbidden:', errorMessage);
@@ -184,13 +227,23 @@ productsClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
+      if (error.response.status === 503 && error.response.data?.maintenance) {
+        if (!isAdminUser()) {
+          const msg = error.response.data?.message;
+          if (msg) sessionStorage.setItem('maintenance_message', msg);
+          sessionStorage.setItem('maintenance_return_path', window.location.pathname + window.location.search);
+          window.location.href = '/maintenance';
+        }
+        return Promise.reject(error);
+      }
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
         if (window.location.pathname !== loginPath) {
           window.location.href = loginPath;
-        }      }
+        }
+      }
     }
     return Promise.reject(error);
   }
@@ -223,13 +276,23 @@ adminClient.interceptors.response.use(
   },
   (error) => {
     if (error.response) {
+      if (error.response.status === 503 && error.response.data?.maintenance) {
+        if (!isAdminUser()) {
+          const msg = error.response.data?.message;
+          if (msg) sessionStorage.setItem('maintenance_message', msg);
+          sessionStorage.setItem('maintenance_return_path', window.location.pathname + window.location.search);
+          window.location.href = '/maintenance';
+        }
+        return Promise.reject(error);
+      }
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         const loginPath = window.location.pathname.startsWith('/station') ? '/station/login' : '/login';
         if (window.location.pathname !== loginPath) {
           window.location.href = loginPath;
-        }      } else if (error.response.status === 403) {
+        }
+      } else if (error.response.status === 403) {
         const errorMessage = error.response.data?.message || 'You do not have permission to perform this action';
         console.error('Forbidden:', errorMessage);
       }
@@ -489,7 +552,9 @@ export const adminApi = {
   rejectPendingEmail: (userId) => adminClient.post(`/users/${userId}/reject-email`),
   approvePendingPhone: (userId) => adminClient.post(`/users/${userId}/approve-phone`),
   rejectPendingPhone: (userId) => adminClient.post(`/users/${userId}/reject-phone`),
-  getRevenueAnalytics: () => adminClient.get('/analytics/revenue')
+  getRevenueAnalytics: () => adminClient.get('/analytics/revenue'),
+  getPlatformWalletDetails: () => adminClient.get('/finance/platform-wallet'),
+  withdrawPlatformFunds: (data) => adminClient.post('/finance/platform-wallet/withdraw', data)
 };
 
 export default api;

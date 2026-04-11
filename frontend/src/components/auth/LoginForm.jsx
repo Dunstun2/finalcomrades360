@@ -3,9 +3,10 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatKenyanPhoneInput } from '../../utils/validation'
 import SystemFeedbackModal from '../ui/SystemFeedbackModal'
+import { GoogleLogin } from '@react-oauth/google'
 
 export default function LoginForm({ onSuccess, isModal = false, initialMode = 'user', lockMode = false }) {
-    const { login } = useAuth()
+    const { login, googleLogin } = useAuth()
     const navigate = useNavigate();
     const location = useLocation();
     const [form, setForm] = useState({ identifier: '', password: '' })
@@ -113,6 +114,23 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
         }
     }
 
+    const handleGoogleSuccess = async (credentialResponse) => {
+        try {
+            setLoading(true);
+            const user = await googleLogin(credentialResponse.credential);
+            
+            if (onSuccess) {
+                onSuccess(user, { hasFastFood: false });
+            } else {
+                navigate('/');
+            }
+        } catch (err) {
+            setError(err.message || 'Google Login failed.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div>
             {!isModal && !lockMode && (
@@ -154,6 +172,7 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
                         required
                     />
                 </div>
+
                 <div className="flex justify-center w-full mt-6">
                     <button
                         type="submit"
@@ -164,6 +183,29 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
                     </button>
                 </div>
             </form>
+
+            {loginMode === 'user' && (
+                <>
+                    <div className="relative my-6">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-200"></div>
+                        </div>
+                        <div className="relative flex justify-center text-sm">
+                            <span className="px-2 bg-white text-gray-500 font-medium">Or sign in with Google</span>
+                        </div>
+                    </div>
+
+                    <div className="mb-6 flex justify-center">
+                        <GoogleLogin
+                            onSuccess={handleGoogleSuccess}
+                            onError={() => setError('Google Authentication Failed.')}
+                            theme="filled_blue"
+                            shape="pill"
+                            text="continue_with"
+                        />
+                    </div>
+                </>
+            )}
 
             <div className="mt-6 text-center">
                 <p className="text-gray-600">

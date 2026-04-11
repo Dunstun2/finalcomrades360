@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   FaTruck,
   FaMapMarkedAlt,
@@ -12,7 +12,9 @@ import {
   FaMotorcycle,
   FaStore,
   FaComments,
-  FaLocationArrow
+  FaLocationArrow,
+  FaSearch,
+  FaMobileAlt
 } from 'react-icons/fa';
 import { useOutletContext } from 'react-router-dom';
 import api from '../../../services/api';
@@ -45,12 +47,57 @@ const DeliveryAgentOrders = () => {
   const [autoGenerateCodeOrderId, setAutoGenerateCodeOrderId] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [showHandoverModal, setShowHandoverModal] = useState(false);
+  const [isBulkHandover, setIsBulkHandover] = useState(false);
 
   const [agentSharePercent, setAgentSharePercent] = useState(70);
   const [blockingReason, setBlockingReason] = useState(null);
   const [missingFields, setMissingFields] = useState([]);
   const [visibleCount, setVisibleCount] = useState(20);
   const [activeTab, setActiveTab] = useState('in_progress'); // 'in_progress', 'completed', 'cancelled'
+  
+  // Deterministic color generation for grouping
+  const getRouteColor = (pickup, destination) => {
+    if (!pickup || !destination) return '#CBD5E1'; // Slate-300
+    const str = `${pickup}-${destination}`;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = Math.abs(hash % 360);
+    return `hsl(${h}, 70%, 45%)`;
+  };
+
+  const getEffectiveDeliveryType = (order) => {
+    const task = getLatestTask(order);
+    const taskType = task?.deliveryType;
+    const orderType = order.deliveryType;
+    const status = order.status;
+    const routing = order.adminRoutingStrategy;
+    
+    // Core correction: if it's an early stage but task says Leg 2+, override to Leg 1
+    const isEarlyStage = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'assigned', 'accepted', 'arrived_at_pickup', 'request_pending', 'requested', 'processing', 'awaiting_delivery_assignment', 'in_transit'].includes(status);
+    if (isEarlyStage && routing === 'warehouse') return 'seller_to_warehouse';
+    if (isEarlyStage && (routing === 'pick_station' || routing === 'fastfood_pickup_point')) return 'seller_to_pickup_station';
+    if (isEarlyStage && routing === 'direct_delivery') return 'seller_to_customer';
+
+    return taskType || orderType || 'seller_to_warehouse';
+  };
+
+  const getPickupLabel = (order) => {
+    const type = getEffectiveDeliveryType(order);
+    if (type?.startsWith('warehouse')) return order.Warehouse?.name || 'Warehouse';
+    if (type?.startsWith('pickup_station')) return order.PickupStation?.name || 'Station';
+    return order.seller?.businessName || order.seller?.name || 'Seller';
+  };
+
+  const getDestinationLabel = (order) => {
+    const type = getEffectiveDeliveryType(order);
+    if (type?.endsWith('warehouse')) return order.DestinationWarehouse?.name || 'Warehouse';
+    if (type?.endsWith('pickup_station')) return (order.DestinationPickStation?.name || order.PickupStation?.name || 'Station');
+    return 'Customer';
+  };
+  const [searchQuery, setSearchQuery] = useState('');
   const activeTabRef = React.useRef('in_progress'); // Ref to avoid stale closures in polling
   
   // Real-time context from DeliveryAgentDashboard Shell
@@ -59,10 +106,35 @@ const DeliveryAgentOrders = () => {
   const isPollingRef = React.useRef(false);
   const failureCountRef = React.useRef(0);
   const intervalRef = React.useRef(null);
+  const locationPushRef = useRef(null);
+  const latestLocRef = useRef(null);
+
+  // Silently push GPS location to backend every 15s when an active task exists
+  const startLocationPush = () => {
+    if (locationPushRef.current) return; // already running
+    if (!('geolocation' in navigator) || window._geoDenied) return;
+
+    navigator.geolocation.watchPosition(
+      (pos) => { latestLocRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      (err) => { if (err.code === 1) window._geoDenied = true; },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+
+    locationPushRef.current = setInterval(async () => {
+      const loc = latestLocRef.current;
+      if (!loc) return;
+      try { await api.patch('/delivery/profile/location', loc); } catch (_) {}
+    }, 15000);
+  };
+
+  const stopLocationPush = () => {
+    if (locationPushRef.current) { clearInterval(locationPushRef.current); locationPushRef.current = null; }
+  };
 
   useEffect(() => {
     loadMyDeliveries();
     loadFinanceConfig();
+    return () => stopLocationPush();
   }, []); // Initial load
 
   // React to socket updates — use activeTabRef to avoid stale closure
@@ -72,28 +144,19 @@ const DeliveryAgentOrders = () => {
     }
   }, [lastUpdate]);
 
+  // Removed aggressive 30s polling; relying entirely on real-time sockets context (lastUpdate).
+
+  // Start/stop GPS push based on whether there are in-progress orders
   useEffect(() => {
-    intervalRef.current = setInterval(async () => {
-      if (isPollingRef.current) return;
-      isPollingRef.current = true;
-      try {
-        await loadMyDeliveries(false, activeTabRef.current); // Always poll for current tab
-        failureCountRef.current = 0;
-      } catch (_) {
-        failureCountRef.current += 1;
-        if (failureCountRef.current >= 10) {
-          clearInterval(intervalRef.current);
-          console.warn('[Orders] Too many consecutive failures — stopped auto-refresh');
-        }
-      } finally {
-        isPollingRef.current = false;
-      }
-    }, 30000);
+    const hasActiveTask = orders.some(o => {
+      const task = getLatestTask(o);
+      return task && ['assigned', 'in_progress', 'arrived_at_pickup'].includes(task.status);
+    });
+    if (hasActiveTask) startLocationPush();
+    else stopLocationPush();
+  }, [orders]);
 
-    return () => clearInterval(intervalRef.current);
-  }, []);
-
-  const loadFinanceConfig = async () => {
+  const loadFinanceConfig = useCallback(async () => {
     try {
       const res = await api.get('/finance/config');
       if (res.data?.agentShare != null) {
@@ -102,9 +165,9 @@ const DeliveryAgentOrders = () => {
     } catch (err) {
       console.warn('Failed to load agent share config, using fallback');
     }
-  };
+  }, []);
 
-  const loadMyDeliveries = async (showLoading = true, tab = activeTab) => {
+  const loadMyDeliveries = useCallback(async (showLoading = true, tab = activeTab) => {
     try {
       if (showLoading) setLoading(true);
       
@@ -126,7 +189,7 @@ const DeliveryAgentOrders = () => {
     } finally {
       if (showLoading) setLoading(false);
     }
-  };
+  }, [activeTab]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -157,6 +220,32 @@ const DeliveryAgentOrders = () => {
     }
   };
 
+  const handleBulkHandover = () => {
+    if (selectedOrders.length < 2) return;
+    
+    // Check if they all belong to the same route for bulk processing
+    const firstOrder = orders.find(o => o.id === selectedOrders[0]);
+    if (!firstOrder) return;
+
+    const p1 = getPickupLabel(firstOrder);
+    const d1 = getDestinationLabel(firstOrder);
+    
+    const mismatched = selectedOrders.some(id => {
+      const o = orders.find(ord => ord.id === id);
+      return getPickupLabel(o) !== p1 || getDestinationLabel(o) !== d1;
+    });
+
+    if (mismatched) {
+      alert('Bulk Handover is only available for orders with the SAME pickup and destination points. Please refine your selection.');
+      return;
+    }
+
+    // Set the representative order for the handover UI
+    setSelectedOrder(firstOrder);
+    setIsBulkHandover(true); 
+    setShowHandoverModal(true); 
+  };
+
   const handlePaymentVerified = () => {
     if (selectedOrder?.id) {
       const paidOrderId = selectedOrder.id;
@@ -167,6 +256,37 @@ const DeliveryAgentOrders = () => {
     setShowPaymentModal(false);
     alert('Payment confirmed. Delivery code is now generated for customer confirmation.');
     loadMyDeliveries(false);
+  };
+
+  const handleHandoverConfirmed = useCallback(() => {
+    alert('Handover confirmed!');
+    loadMyDeliveries();
+  }, [loadMyDeliveries]);
+
+  const handleDropoffHandoverConfirmed = useCallback(() => {
+    setAutoGenerateCodeOrderId(null);
+    loadMyDeliveries();
+  }, [loadMyDeliveries]);
+  
+  const handleQuickPush = async (order) => {
+    if (!order.customerPhone) {
+      alert('Customer phone number missing for M-Pesa Push');
+      return;
+    }
+    try {
+      const res = await api.post('/payments/mpesa/initiate', {
+        orderId: order.id,
+        phoneNumber: order.customerPhone,
+        amount: order.total
+      });
+      if (res.data.success) {
+        alert(`M-Pesa Push sent to ${order.customerPhone}. Waiting for confirmation...`);
+        setSelectedOrder(order);
+        setShowPaymentModal(true);
+      }
+    } catch (err) {
+      alert('Push failed: ' + (err.response?.data?.message || err.message));
+    }
   };
 
   const handleAcceptTask = async (taskId) => {
@@ -265,7 +385,16 @@ const DeliveryAgentOrders = () => {
         if (!task) continue;
         const taskId = task.id;
 
-        if (targetAction === 'arrived') {
+        if (targetAction === 'accept') {
+          if (task.status === 'assigned') {
+            await api.post(`/delivery/tasks/${taskId}/accept`);
+          }
+        } else if (targetAction === 'reject') {
+          if (task.status === 'assigned') {
+             // For bulk rejection, we use a default reason or could prompt
+             await api.post(`/delivery/tasks/${taskId}/reject`, { reason: 'Bulk rejection by agent' });
+          }
+        } else if (targetAction === 'arrived') {
           if (task.status === 'accepted') {
             await api.post(`/delivery/tasks/${taskId}/mark-arrived`);
           }
@@ -306,7 +435,20 @@ const DeliveryAgentOrders = () => {
             </p>
           </div>
 
-          <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto">
+          <div className="w-full md:flex-1 md:max-w-md px-0 md:px-4 mt-4 md:mt-0">
+            <div className="relative">
+              <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search order # or tracking #..."
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto mt-4 md:mt-0">
             <button
               onClick={() => handleTabChange('in_progress')}
               className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'in_progress' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
@@ -349,27 +491,69 @@ const DeliveryAgentOrders = () => {
               </div>
 
               <div className="flex flex-wrap gap-2 justify-center">
-                <button
-                  onClick={() => handleBulkStatusChange('arrived')}
-                  disabled={bulkProcessing}
-                  className="px-4 py-2 bg-indigo-500/30 hover:bg-indigo-500/50 text-white border border-indigo-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-                >
-                  <FaMapMarkedAlt className="h-3 w-3" /> Mark Arrived
-                </button>
-                <button
-                  onClick={() => handleBulkStatusChange('collected')}
-                  disabled={bulkProcessing}
-                  className="px-4 py-2 bg-green-500/30 hover:bg-green-500/50 text-white border border-green-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-                >
-                  <FaBox className="h-3 w-3" /> Confirm Collected
-                </button>
-                <button
-                  onClick={() => alert('Final delivery requires customer code confirmation per order.')}
-                  disabled={bulkProcessing}
-                  className="px-4 py-2 bg-blue-500/30 hover:bg-blue-500/50 text-white border border-blue-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-                >
-                  <FaCheckCircle className="h-3 w-3" /> Delivery via Code
-                </button>
+                {(() => {
+                  const selTasks = selectedOrders.map(id => {
+                    const o = orders.find(ord => ord.id === id);
+                    return o ? getLatestTask(o) : null;
+                  });
+                  const hasAssigned = selTasks.some(t => t?.status === 'assigned');
+                  const hasAccepted = selTasks.some(t => t?.status === 'accepted');
+                  const hasArrived = selTasks.some(t => t?.status === 'arrived_at_pickup');
+                  
+                  return (
+                    <>
+                      {hasAssigned && (
+                        <>
+                          <button
+                            onClick={() => handleBulkStatusChange('accept')}
+                            disabled={bulkProcessing}
+                            className="px-4 py-2 bg-emerald-500/30 hover:bg-emerald-500/50 text-white border border-emerald-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                          >
+                            <FaClipboardCheck className="h-3 w-3" /> Accept All
+                          </button>
+                          <button
+                            onClick={() => handleBulkStatusChange('reject')}
+                            disabled={bulkProcessing}
+                            className="px-4 py-2 bg-red-500/30 hover:bg-red-500/50 text-white border border-red-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                          >
+                            <FaExclamationCircle className="h-3 w-3" /> Reject All
+                          </button>
+                        </>
+                      )}
+                      
+                      {hasAccepted && (
+                        <button
+                          onClick={() => handleBulkStatusChange('arrived')}
+                          disabled={bulkProcessing}
+                          className="px-4 py-2 bg-indigo-500/30 hover:bg-indigo-500/50 text-white border border-indigo-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                        >
+                          <FaMapMarkedAlt className="h-3 w-3" /> Mark Arrived
+                        </button>
+                      )}
+
+                      {hasArrived && (
+                         <button
+                          onClick={() => handleBulkStatusChange('collected')}
+                          disabled={bulkProcessing}
+                          className="px-4 py-2 bg-green-500/30 hover:bg-green-500/50 text-white border border-green-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                        >
+                          <FaBox className="h-3 w-3" /> Confirm Collected
+                        </button>
+                      )}
+
+                      {(hasArrived || selTasks.some(t => t?.status === 'in_progress')) && selectedOrders.length >= 2 && (
+                         <button
+                          onClick={() => handleBulkHandover()}
+                          disabled={bulkProcessing}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg"
+                        >
+                          <FaCheckCircle className="h-3 w-3" /> Bulk Handover ({selectedOrders.length})
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+                
                 <button
                   onClick={() => setSelectedOrders([])}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
@@ -412,216 +596,160 @@ const DeliveryAgentOrders = () => {
             <div className="text-center py-12 text-gray-500">
               <FaTruck className="mx-auto h-12 w-12 text-gray-300 mb-3" />
               <p>
-                {activeTab === 'in_progress' ? 'No active assignments found.' : 
-                 activeTab === 'completed' ? 'No completed deliveries found.' : 
+                {searchQuery
+                 ? 'No assignments match your search.'
+                 : activeTab === 'in_progress' ? 'No active assignments found.' :
+                 activeTab === 'completed' ? 'No completed deliveries found.' :
                  'No cancelled or failed assignments.'}
               </p>
             </div>
           ) : (
-            <div className="grid gap-4">
-              {orders.slice(0, visibleCount).map((order) => (
-                <DeliveryTaskConsole
-                  key={order.id}
-                  order={order}
-                  agentSharePercent={agentSharePercent}
-                  isExpanded={expandedOrderId === order.id}
-                  onToggleExpand={() => toggleExpand(order.id)}
-                  checkbox={
-                    <input
-                      type="checkbox"
-                      checked={selectedOrders.includes(order.id)}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        handleSelectOrder(order.id);
-                      }}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
-                    />
-                  }
-                >
-                  {(() => {
-                    const task = getLatestTask(order);
-                    if (!task) return null;
+            <div className="grid gap-8">
+              {(() => {
+                const filtered = orders.filter(o => !searchQuery || 
+                  (o.orderNumber && o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase())) || 
+                  (o.trackingNumber && o.trackingNumber.toLowerCase().includes(searchQuery.toLowerCase()))
+                );
 
-                    return (
-                  <div className="flex gap-2 w-full justify-end flex-wrap">
-                    {/* Chat Button */}
-                    {['accepted', 'out_for_delivery', 'arrived_at_pickup', 'in_progress'].includes(task.status) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setChatOrder(order);
-                          setShowChatModal(true);
-                        }}
-                        className="px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm flex items-center gap-2"
-                      >
-                        <FaComments /> Chat with Admin
-                      </button>
-                    )}
+                // Group by Route
+                const groups = {};
+                filtered.forEach(order => {
+                  const pickup = getPickupLabel(order);
+                  const destination = getDestinationLabel(order);
+                  const key = `${pickup} → ${destination}`;
+                  if (!groups[key]) groups[key] = { items: [], color: getRouteColor(pickup, destination), pickup, destination };
+                  groups[key].items.push(order);
+                });
 
-                    {/* Step 1: Accept/Reject */}
-                    {task.status === 'assigned' ? (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleAcceptTask(task.id); }}
-                          className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow-sm"
-                        >
-                          Accept Assignment
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRejectTask(task.id); }}
-                          className="px-4 py-2 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 border border-red-200 shadow-sm"
-                        >
-                          Reject
-                        </button>
+                return Object.entries(groups).map(([routeKey, group]) => (
+                  <div key={routeKey} className="space-y-4">
+                    <div className="flex items-center justify-between gap-3 px-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: group.color }}></div>
+                        <h4 className="text-[11px] font-black uppercase tracking-[0.15em] text-gray-500">
+                          Route: <span className="text-gray-900">{routeKey}</span>
+                          <span className="ml-2 text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full lowercase font-bold tracking-normal">
+                            {group.items.length} shipment{group.items.length !== 1 ? 's' : ''}
+                          </span>
+                        </h4>
                       </div>
-                    ) : (
-                      <>
-                        {/* Step 2: Arrived */}
-                        {task.status === 'accepted' && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleMarkArrived(task.id); }}
-                            className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2"
-                          >
-                            <FaMapMarkedAlt /> Arrived at Pickup
-                          </button>
-                        )}
-
-                        {/* Step 3: Collect — agent enters code given by seller or hub */}
-                        {['accepted', 'arrived_at_pickup'].includes(task.status) && (() => {
-                          let collectHandoverType = 'seller_to_agent';
-                          let pickupLat = order.seller?.businessLat || order.seller?.lat;
-                          let pickupLng = order.seller?.businessLng || order.seller?.lng;
-                          
-                          if (task.deliveryType && task.deliveryType.startsWith('warehouse')) {
-                            collectHandoverType = 'warehouse_to_agent';
-                            const wh = order.Warehouse || order.DestinationWarehouse; // Fallbacks
-                            pickupLat = wh?.lat || pickupLat;
-                            pickupLng = wh?.lng || pickupLng;
-                          } else if (task.deliveryType && task.deliveryType.startsWith('pickup_station')) {
-                            collectHandoverType = 'station_to_agent';
-                            const ps = order.PickupStation || order.DestinationPickStation;
-                            pickupLat = ps?.lat || pickupLat;
-                            pickupLng = ps?.lng || pickupLng;
+                      <button 
+                        onClick={() => {
+                          const allIds = group.items.map(o => o.id);
+                          const allSelected = allIds.every(id => selectedOrders.includes(id));
+                          if (allSelected) {
+                            setSelectedOrders(prev => prev.filter(id => !allIds.includes(id)));
+                          } else {
+                            setSelectedOrders(prev => [...new Set([...prev, ...allIds])]);
                           }
+                        }}
+                        className="text-[10px] font-black uppercase text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 transition-all"
+                      >
+                        {group.items.every(o => selectedOrders.includes(o.id)) ? 'Deselect Group' : 'Select Group'}
+                      </button>
+                    </div>
 
-                          return (
-                            <div className="w-full mt-2 space-y-2">
-                              {pickupLat && pickupLng && (
-                                <a
-                                  href={`https://www.google.com/maps/dir/?api=1&destination=${pickupLat},${pickupLng}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm"
-                                >
-                                  <FaLocationArrow /> Navigate to Pickup
-                                </a>
+                    <div className="grid gap-4">
+                      {group.items.slice(0, visibleCount).map((order) => {
+                         const task = getLatestTask(order);
+                         if (!task) return null;
+                         
+                         const effectiveType = getEffectiveDeliveryType(order);
+                         
+                         let collectHandoverType = 'seller_to_agent';
+                         if (effectiveType?.startsWith('warehouse')) collectHandoverType = 'warehouse_to_agent';
+                         else if (effectiveType?.startsWith('pickup_station')) collectHandoverType = 'station_to_agent';
+
+                         let dropoffHandoverType = 'agent_to_customer';
+                         let isCustomerDropoff = true;
+                         if (effectiveType?.endsWith('_to_warehouse')) { dropoffHandoverType = 'agent_to_warehouse'; isCustomerDropoff = false; }
+                         else if (effectiveType?.endsWith('_to_station')) { dropoffHandoverType = 'agent_to_station'; isCustomerDropoff = false; }
+
+                         return (
+                        <DeliveryTaskConsole
+                          key={order.id}
+                          order={order}
+                          agentSharePercent={agentSharePercent}
+                          isExpanded={expandedOrderId === order.id}
+                          onToggleExpand={() => toggleExpand(order.id)}
+                          groupColor={group.color}
+                          isSelected={selectedOrders.includes(order.id)}
+                          checkbox={
+                            <input
+                              type="checkbox"
+                              checked={selectedOrders.includes(order.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleSelectOrder(order.id);
+                              }}
+                              style={{ accentColor: group.color }}
+                              className="w-4 h-4 rounded border-gray-300 transition-all cursor-pointer"
+                            />
+                          }
+                        >
+                           <div className="flex gap-2 w-full justify-end flex-wrap">
+                              {/* Chat */}
+                              {['accepted', 'in_transit', 'arrived_at_pickup', 'in_progress'].includes(task.status) && (
+                                <button onClick={(e) => { e.stopPropagation(); setChatOrder(order); setShowChatModal(true); }} className="px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 flex items-center gap-2">
+                                  <FaComments /> Chat
+                                </button>
                               )}
-                              {task.status === 'arrived_at_pickup' && (
-                                <HandoverCodeWidget
-                                  mode="receiver"
-                                  handoverType={collectHandoverType}
-                                  orderId={order.id}
-                                  taskId={task.id}
-                                  onConfirmed={() => {
-                                    alert('Handover confirmed! Order is now in your collection.');
-                                    loadMyDeliveries();
-                                  }}
-                                />
+                              
+                              {/* Accept/Reject */}
+                              {task.status === 'assigned' ? (
+                                <div className="flex gap-2">
+                                  <button onClick={(e) => { e.stopPropagation(); handleAcceptTask(task.id); }} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700">Accept</button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleRejectTask(task.id); }} className="px-4 py-2 bg-red-100 text-red-700 text-xs font-bold rounded-lg">Reject</button>
+                                </div>
+                              ) : (
+                                <>
+                                  {task.status === 'accepted' && (
+                                    <button onClick={(e) => { e.stopPropagation(); handleMarkArrived(task.id); }} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg flex items-center gap-2">
+                                      <FaMapMarkedAlt /> Arrived
+                                    </button>
+                                  )}
+
+                                  {/* Pickup Flow */}
+                                  {['accepted', 'arrived_at_pickup'].includes(task.status) && (
+                                    <div className="w-full mt-2">
+                                      {task.status === 'arrived_at_pickup' && (
+                                        <HandoverCodeWidget mode="receiver" handoverType={collectHandoverType} orderId={order.id} taskId={task.id} onConfirmed={handleHandoverConfirmed} />
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Dropoff Flow */}
+                                  {task.status === 'in_progress' && (
+                                    <div className="w-full mt-2">
+                                       <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                          {isCustomerDropoff && order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed ? (
+                                             <div className="flex flex-col gap-2">
+                                                <p className="text-xs text-amber-700 font-bold bg-amber-50 rounded-lg px-3 py-1">💰 Payment required</p>
+                                                <div className="flex gap-2">
+                                                   <button onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }} className="flex-1 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg">Verify Payment</button>
+                                                   <button onClick={(e) => { e.stopPropagation(); handleQuickPush(order); }} className="flex-1 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2"><FaMobileAlt /> Push M-Pesa</button>
+                                                </div>
+                                             </div>
+                                          ) : (
+                                             <HandoverCodeWidget mode="giver" handoverType={dropoffHandoverType} orderId={order.id} taskId={task.id} buttonLabel={isCustomerDropoff ? "Mark Delivered" : "Dispatch"} autoGenerate={autoGenerateCodeOrderId === order.id} onConfirmed={handleDropoffHandoverConfirmed} />
+                                          )}
+                                       </div>
+                                    </div>
+                                  )}
+                                </>
                               )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Step 4: Drop-off — agent generates code for the final destination */}
-                        {(() => {
-                           if (task.status !== 'in_progress') return null;
-
-                           let dropoffHandoverType = 'agent_to_customer';
-                           let isCustomerDropoff = true;
-
-                           if (task.deliveryType && task.deliveryType.endsWith('_to_warehouse')) {
-                             dropoffHandoverType = 'agent_to_warehouse';
-                             isCustomerDropoff = false;
-                           } else if (task.deliveryType && (task.deliveryType.endsWith('_to_pickup_station') || task.deliveryType.endsWith('_to_station'))) {
-                             dropoffHandoverType = 'agent_to_station';
-                             isCustomerDropoff = false;
-                           } else if (task.deliveryType && task.deliveryType.endsWith('_to_customer')) {
-                             dropoffHandoverType = 'agent_to_customer';
-                             isCustomerDropoff = true;
-                           } else if (order.deliveryMethod === 'pick_station') {
-                             // Fallback
-                             dropoffHandoverType = 'agent_to_station';
-                             isCustomerDropoff = false;
-                           }
-
-                           return (
-                             <div className="flex flex-col gap-3 w-full mt-2">
-                               <div className="flex gap-2">
-                                 <a
-                                   href={`https://www.google.com/maps/dir/?api=1&destination=${order.deliveryLat || 0},${order.deliveryLng || 0}`}
-                                   target="_blank"
-                                   rel="noopener noreferrer"
-                                   className="px-4 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-100 border border-blue-200 shadow-sm flex items-center gap-2"
-                                 >
-                                   <FaLocationArrow /> Navigate to Dropoff
-                                 </a>
-                                 <button
-                                   onClick={(e) => { e.stopPropagation(); handleStatusUpdate(order.id, 'failed'); }}
-                                   className="px-4 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-lg hover:bg-red-100 border border-red-100 shadow-sm"
-                                 >
-                                   Failed
-                                 </button>
-                               </div>
-
-                               <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                                 <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2 px-1">
-                                    {isCustomerDropoff ? 'Customer Delivery Confirmation' : 'Hub Drop-off Confirmation'}
-                                 </p>
-                                 {isCustomerDropoff && order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed ? (
-                                   <div className="flex flex-col gap-2">
-                                     <p className="text-xs text-amber-700 font-bold bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
-                                       💰 Payment required before delivery
-                                     </p>
-                                     <button
-                                       onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }}
-                                       className="px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 active:scale-95 transition-all"
-                                     >
-                                       Confirm Payment First
-                                     </button>
-                                   </div>
-                                 ) : (
-                                   <HandoverCodeWidget
-                                     mode="giver"
-                                     handoverType={dropoffHandoverType}
-                                     orderId={order.id}
-                                     taskId={task.id}
-                                     buttonLabel={isCustomerDropoff ? "Mark Delivered" : "Dispatch"}
-                                     autoGenerate={autoGenerateCodeOrderId === order.id}
-                                     onConfirmed={() => {
-                                       setAutoGenerateCodeOrderId(null);
-                                       loadMyDeliveries();
-                                     }}
-                                   />
-                                 )}
-                               </div>
-                             </div>
-                           );
-                        })()}
-                      </>
-                    )}
+                           </div>
+                        </DeliveryTaskConsole>
+                      )})}
+                    </div>
                   </div>
-                    );
-                  })()}
-                </DeliveryTaskConsole>
-              ))}
+                ));
+              })()}
 
               {/* Load More */}
               {orders.length > visibleCount && (
                 <div className="text-center pt-6">
-                  <button
-                    onClick={() => setVisibleCount(c => c + 20)}
-                    className="px-6 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-sm rounded-xl border border-blue-200 transition-all flex items-center gap-2 mx-auto"
-                  >
+                  <button onClick={() => setVisibleCount(c => c + 20)} className="px-6 py-2.5 bg-blue-50 text-blue-700 font-bold text-sm rounded-xl border border-blue-200">
                     Load More ({orders.length - visibleCount} remaining)
                   </button>
                 </div>
@@ -666,6 +794,45 @@ const DeliveryAgentOrders = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add the Bulk Handover Modal/Widget Container */}
+      {showHandoverModal && selectedOrder && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+                  <div className="p-4 bg-blue-600 text-white flex justify-between items-center">
+                      <h3 className="font-black uppercase tracking-widest text-sm">Bulk Handover ({selectedOrders.length} Orders)</h3>
+                      <button onClick={() => setShowHandoverModal(false)} className="text-xl font-bold">&times;</button>
+                  </div>
+                  <div className="p-6">
+                      <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Route</p>
+                          <p className="text-xs font-bold text-gray-800">{getPickupLabel(selectedOrder)} → {getDestinationLabel(selectedOrder)}</p>
+                      </div>
+                      <HandoverCodeWidget
+                          mode={getLatestTask(selectedOrder)?.status === 'arrived_at_pickup' ? 'receiver' : 'giver'}
+                          handoverType={(() => {
+                              const task = getLatestTask(selectedOrder);
+                              if (task?.status === 'arrived_at_pickup') {
+                                  if (task.deliveryType?.startsWith('warehouse')) return 'warehouse_to_agent';
+                                  if (task.deliveryType?.startsWith('pickup_station')) return 'station_to_agent';
+                                  return 'seller_to_agent';
+                              }
+                              if (task?.deliveryType?.endsWith('_to_warehouse')) return 'agent_to_warehouse';
+                              if (task?.deliveryType?.endsWith('_to_station')) return 'agent_to_station';
+                              return 'agent_to_customer';
+                          })()}
+                          orderIds={selectedOrders}
+                          onConfirmed={() => {
+                              alert('Bulk Handover Successful!');
+                              setShowHandoverModal(false);
+                              setSelectedOrders([]);
+                              loadMyDeliveries();
+                          }}
+                      />
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

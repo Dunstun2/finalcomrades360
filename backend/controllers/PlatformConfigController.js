@@ -1,4 +1,5 @@
 const { PlatformConfig } = require('../models');
+const { emitRealtimeUpdate } = require('../utils/realtimeEmitter');
 
 exports.getConfig = async (req, res) => {
     try {
@@ -14,24 +15,58 @@ exports.getConfig = async (req, res) => {
             whatsapp_config: { 
                 method: 'local',
                 templates: {
-                    orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
-                    orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
-                    orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
+                    orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`,
+                    sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,
+                    orderInTransit: `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\nPlease stay reachable for a smooth delivery!`,
+                    orderReadyPickup: `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\nSee you soon at Comrades360!`,
                     orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',
                     agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.',
                     agentTaskAssigned: 'You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}',
                     agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
                     adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
+                    orderCancelled: `Order Notification: Cancellation ❌\n\nHello {name}, we regret to inform you that order #{orderNumber} has been cancelled.\n\nCancellation Details:\nReason: {reason}\n\nWe apologize for the inconvenience and hope to serve you again soon.`,
                     phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
+                    passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
                     withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+                },
+                channels: {
+                    passwordReset: { whatsapp: false, sms: true, email: true, in_app: false }
                 }
             },
-            finance_settings: { referralSplit: { primary: 0.6, secondary: 0.4 }, minPayout: { seller: 1000, marketer: 500, delivery_agent: 200, station_manager: 500, warehouse_manager: 1000, service_provider: 500 } },
-            logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0 },
+            finance_settings: { 
+                referralSplit: { primary: 0.6, secondary: 0.4 }, 
+                minPayout: { seller: 1000, marketer: 500, delivery_agent: 200, station_manager: 500, warehouse_manager: 1000, service_provider: 500 },
+                withdrawalTiers: [
+                    { min: 0, max: 1000, fee: 30 },
+                    { min: 1001, max: 5000, fee: 50 },
+                    { min: 5001, max: 10000, fee: 100 },
+                    { min: 10001, max: 1000000, fee: 150 }
+                ]
+            },
+            logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0, autoApproveRequests: false },
             security_settings: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
             notification_settings: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
             seo_settings: { title: 'Comrades360', description: 'Student Marketplace', keywords: 'university, marketplace', socialLinks: { facebook: '', instagram: '', twitter: '' } },
-            maintenance_settings: { enabled: false, message: 'System is currently under maintenance.' },
+            maintenance_settings: { 
+                enabled: false, 
+                message: 'System is currently under maintenance.',
+                dashboards: {
+                    admin: { enabled: false, message: 'Admin dashboard is maintenance.' },
+                    seller: { enabled: false, message: 'Seller portal is maintenance.' },
+                    marketer: { enabled: false, message: 'Marketer hub is maintenance.' },
+                    delivery: { enabled: false, message: 'Delivery app is maintenance.' },
+                    station: { enabled: false, message: 'Station management is maintenance.' },
+                    ops: { enabled: false, message: 'Operations dashboard is maintenance.' },
+                    logistics: { enabled: false, message: 'Logistics dashboard is maintenance.' },
+                    finance: { enabled: false, message: 'Finance dashboard is maintenance.' },
+                    provider: { enabled: false, message: 'Service provider portal is maintenance.' }
+                },
+                sections: {
+                    products: { enabled: false, hideFromPublic: true },
+                    services: { enabled: false, hideFromPublic: true },
+                    fastfood: { enabled: false, hideFromPublic: true }
+                }
+            },
             system_env: { server: { port: 4000, nodeEnv: 'development', baseUrl: 'http://localhost:4000', apiUrl: '/api' }, app: { frontendUrl: 'http://localhost:3000', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } }
         };
 
@@ -104,9 +139,39 @@ exports.updateConfig = async (req, res) => {
             await config.save();
         }
 
+        // Broadcast maintenance updates via WebSockets
+        if (key === 'maintenance_settings') {
+            console.log('[PlatformConfigController] Broadcasting maintenance update...');
+            emitRealtimeUpdate('maintenance', { 
+                action: 'update',
+                key: 'maintenance_settings',
+                settings: value 
+            });
+        }
+
         res.json({ success: true, message: 'Settings updated successfully', data: value });
     } catch (error) {
         console.error('Update Config Error:', error);
         res.status(500).json({ success: false, message: 'Failed to update config' });
+    }
+};
+
+const { getWhatsAppStatus, restartWhatsApp } = require('../utils/messageService');
+
+exports.getWhatsAppStatus = async (req, res) => {
+    try {
+        const status = getWhatsAppStatus();
+        res.json({ success: true, ...status });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to fetch WhatsApp status' });
+    }
+};
+
+exports.handleRestartWhatsApp = async (req, res) => {
+    try {
+        await restartWhatsApp();
+        res.json({ success: true, message: 'WhatsApp restart initiated' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to restart WhatsApp' });
     }
 };

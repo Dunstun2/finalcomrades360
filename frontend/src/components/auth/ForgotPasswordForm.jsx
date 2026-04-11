@@ -21,8 +21,14 @@ export default function ForgotPasswordForm({ isModal = false }) {
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        const e = q.get('email')
-        if (e) setEmail(e)
+        // Always open with a clean form state.
+        setStep('request')
+        setEmail('')
+        setToken('')
+        setNewPassword('')
+        setConfirmPassword('')
+        setMessage('')
+        setError('')
     }, [q])
 
     const handleRequest = async (e) => {
@@ -32,7 +38,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
         setLoading(true)
         try {
             await api.post('/password-reset/request', { email })
-            setMessage('If that email exists, a reset code has been sent. Check your inbox or phone.')
+            setMessage('If that account exists, a reset code has been sent to your email and phone.')
             setStep('confirm')
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to request password reset')
@@ -89,6 +95,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
                         <input
                             type="text"
                             value={email}
+                            autoComplete="off"
                             onInput={(e) => {
                                 // If input contains only digits and plus, treat as potential phone and format
                                 if (/^[\d+]+$/.test(e.target.value)) {
@@ -114,6 +121,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
                         <input
                             type="text"
                             value={token}
+                            autoComplete="off"
                             onChange={(e) => setToken(e.target.value)}
                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             placeholder="Enter 6-digit code"
@@ -126,6 +134,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
                         <input
                             type="password"
                             value={newPassword}
+                            autoComplete="new-password"
                             onChange={(e) => setNewPassword(e.target.value)}
                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             required
@@ -136,6 +145,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
                         <input
                             type="password"
                             value={confirmPassword}
+                            autoComplete="new-password"
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             required

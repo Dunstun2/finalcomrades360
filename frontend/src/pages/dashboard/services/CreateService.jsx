@@ -48,7 +48,7 @@ const CreateService = () => {
   }
 
   return (
-    <div className="container mx-auto p-4">
+    <div className="w-full p-4">
       <div className="mb-6">
         <Button
           variant="outline"

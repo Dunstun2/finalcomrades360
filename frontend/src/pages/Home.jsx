@@ -110,6 +110,39 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
     return 2; // mobile
   }, []);
 
+  // Maintenance Visibility Logic
+  const [maintenance, setMaintenance] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('maintenance_settings') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      const data = e.detail || (e.key === 'maintenance_settings' ? JSON.parse(e.newValue || '{}') : null);
+      if (data) setMaintenance(data);
+    };
+    window.addEventListener('maintenance-settings-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('maintenance-settings-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const isAdmin = useMemo(() => {
+    const adminRoles = ['admin', 'super_admin', 'superadmin'];
+    return adminRoles.includes(user?.role) || user?.roles?.some(r => adminRoles.includes(r));
+  }, [user]);
+
+  const isSectionVisible = (sectionKey) => {
+    if (isAdmin) return true;
+    const settings = maintenance.sections?.[sectionKey];
+    return !settings?.enabled;
+  };
+
   // Track which categories are currently initializing
   const [initializingCategories, setInitializingCategories] = useState(new Set());
   const observerSentinel = useRef(null);
@@ -609,8 +642,16 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
     const initialFastFood = filteredFastFood.slice(0, initialDisplayLimit);
     setFastFoodData(initialFastFood);
 
-    // 4. Set Hero Promotions — only keep those with embedded products ready
-    const validPromos = (heroPromotions || []).filter(p => Array.isArray(p.products) && p.products.length > 0);
+    // 4. Set Hero Promotions — allow those with marketing-eligible products OR those with a custom banner image
+    const validPromos = (heroPromotions || []).filter(p => {
+      // If we're in marketing mode, the backend already filters p.products 
+      // but we apply additional safety check here for consistency.
+      const products = p.products || [];
+      const hasValidItems = products.length > 0;
+      const isSystemBanner = p.isSystem || p.isDefault || (p.customImageUrl && p.customImageUrl.length > 0);
+      
+      return hasValidItems || isSystemBanner;
+    });
     setHeroPromotions(validPromos);
 
 
@@ -946,31 +987,85 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
         {/* Quick Navigation Buttons */}
         <div className="mb-6 flex items-center justify-center">
           <div className="flex flex-row gap-2 w-full max-w-xl">
-            <a href="/products" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-              <span className="text-base sm:text-xl mr-1">🛒</span>
-              <span>Products</span>
-            </a>
-            <a href="/fastfood" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-orange-400 to-amber-500 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-              <span className="text-base sm:text-xl mr-1">🍔</span>
-              <span>Fastfood</span>
-            </a>
-            <a href="/services" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-purple-500 to-violet-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-              <span className="text-base sm:text-xl mr-1">🛠️</span>
-              <span>Services</span>
-            </a>
+            {isSectionVisible('products') && (
+              <a href="/products" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
+                <span className="text-base sm:text-xl mr-1">🛒</span>
+                <span>Products</span>
+              </a>
+            )}
+            {isSectionVisible('fastfood') && (
+              <a href="/fastfood" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-orange-400 to-amber-500 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
+                <span className="text-base sm:text-xl mr-1">🍔</span>
+                <span>Fastfood</span>
+              </a>
+            )}
+            {isSectionVisible('services') && (
+              <a href="/services" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-purple-500 to-violet-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
+                <span className="text-base sm:text-xl mr-1">🛠️</span>
+                <span>Services</span>
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Single Category Section Display Area */}
+        {/* Product Category Filter Navigation */}
+        {isSectionVisible('products') && (
+          <div className="bg-white border rounded-lg shadow-sm mb-6 mt-4">
+            <div className="px-4 py-4">
+              <div className="flex items-center justify-end mb-2">
+                {selectedCategoryId !== 'all' && (
+                  <button
+                    onClick={() => toggleCategorySelection({ id: 'all' })}
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center font-medium"
+                  >
+                    Show All
+                  </button>
+                )}
+              </div>
+
+              <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide">
+                {/* All Products Button */}
+                <button
+                  onClick={() => toggleCategorySelection({ id: 'all' })}
+                  className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedCategoryId === 'all'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                    }`}
+                >
+                  All Products
+                </button>
+
+                {/* Category Buttons */}
+                {allCategories.map(category => (
+                  <button
+                    key={category.id}
+                    onClick={() => toggleCategorySelection(category)}
+                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedCategoryId === category.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                      }`}
+                  >
+                    <span className="mr-2">{category.emoji || '📦'}</span>
+                    {category.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Single Category Section Display Area stack */}
+        {isSectionVisible('products') && (
         <div className="space-y-4">
           <div className="space-y-4">
             {renderCategorySection(selectedCategoryId)}
           </div>
         </div>
+        )}
       </div>
 
       {/* Services Section */}
-      {(!loading && !loadingServices && services.length === 0 && !selectedServiceSubcategory) ? null : (
+      {isSectionVisible('services') && ((!loading && !loadingServices && services.length === 0 && !selectedServiceSubcategory) ? null : (
       <div className="w-full px-0 md:px-4 sm:py-4 py-2">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -1102,13 +1197,15 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
           </div>
         )}
       </div>
-      )}
+      ))}
 
       {/* Fast Food Section */}
-      <FastFoodSection 
-        initialData={fastFoodData} 
-        initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
-      />
+      {isSectionVisible('fastfood') && (
+        <FastFoodSection 
+          initialData={fastFoodData} 
+          initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
+        />
+      )}
 
       {/* Spacer to push footer to bottom */}
       <div className="flex-grow"></div>
@@ -1116,11 +1213,7 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
       {/* Footer */}
       <Footer />
 
-      {/* Development Debug Banner - remove after verification */}
-      <div className="fixed bottom-0 left-0 right-0 bg-black/90 text-[white] text-[9px] py-1 px-4 flex flex-wrap justify-between z-[9999] pointer-events-none border-t border-white/20">
-        <span>V15-DEBUG</span>
-        <span>L:{loading ? 'Y' : 'N'} | S:{services.length} | HM:{hasMoreServices ? 'Y' : 'N'} | B:{homeBatchData ? 'Y' : 'N'} | T:{homeBatchData?.pagination?.totalServices || '?' }</span>
-      </div>
+
     </div >
   );
 }

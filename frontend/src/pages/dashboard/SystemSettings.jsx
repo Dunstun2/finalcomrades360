@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../services/api';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState({
@@ -11,26 +12,89 @@ export default function SystemSettings() {
     whatsapp_config: { 
       method: 'local',
       templates: {
-        orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
-        orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
-        orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
+        orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`,
+        sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,
+        orderInTransit: `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\nPlease stay reachable for a smooth delivery!`,
+        orderReadyPickup: `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\nSee you soon at Comrades360!`,
         orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',
+        orderCancelled: `Order Notification: Cancellation ❌\n\nHello {name}, we regret to inform you that order #{orderNumber} has been cancelled.\n\nCancellation Details:\nReason: {reason}\n\nWe apologize for the inconvenience and hope to serve you again soon.`,
         agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.',
         agentTaskAssigned: 'You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}',
         agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
         adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
         phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
-        withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+        passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
+        withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰',
+        withdrawalSuccessEmailSubject: 'Withdrawal Processed',
+        withdrawalSuccessEmailBody: 'Hi {name}, your withdrawal of {amount} has been processed successfully. It should reflect in your account shortly.',
+        WELCOME_MARKETER_CREATED: 'Hello {name}, your account has been created by {marketerName}. Your temporary password is: {tempPassword}. Please login at {loginUrl} and change your password immediately.'
       }
     },
-    finance_settings: { referralSplit: { primary: 0.6, secondary: 0.4 }, minPayout: { seller: 1000, marketer: 500, delivery_agent: 200, station_manager: 500, warehouse_manager: 1000, service_provider: 500 } },
+    finance_settings: { 
+      referralSplit: { primary: 0.6, secondary: 0.4 }, 
+      minPayout: { seller: 1000, marketer: 500, delivery_agent: 200, station_manager: 500, warehouse_manager: 1000, service_provider: 500 },
+      withdrawalTiers: [] 
+    },
     logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0, fastfoodTaskExpiryMinutes: 5, productTaskExpiryMinutes: 30, stuckDeliveryHours: 3 },
     seo_settings: { title: 'Comrades360', description: 'Student Marketplace', keywords: 'university, marketplace', socialLinks: { facebook: '', instagram: '', twitter: '' } },
-    maintenance_settings: { enabled: false, message: 'System is currently under maintenance.' },
+    maintenance_settings: { 
+      enabled: false, 
+      message: 'System is currently under maintenance.',
+      dashboards: {
+        admin: { enabled: false, message: 'Admin dashboard is under maintenance.' },
+        seller: { enabled: false, message: 'Seller portal is under maintenance.' },
+        marketer: { enabled: false, message: 'Marketer hub is under maintenance.' },
+        delivery: { enabled: false, message: 'Delivery system is under maintenance.' },
+        station: { enabled: false, message: 'Station operations are under maintenance.' },
+        ops: { enabled: false, message: 'Operations dashboard is under maintenance.' },
+        logistics: { enabled: false, message: 'Logistics dashboard is under maintenance.' },
+        finance: { enabled: false, message: 'Finance dashboard is under maintenance.' },
+        provider: { enabled: false, message: 'Provider portal is under maintenance.' }
+      },
+      sections: {
+        products: { enabled: false },
+        services: { enabled: false },
+        fastfood: { enabled: false }
+      }
+    },
     security: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
     notifications: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
     system_env: { server: { port: 4000, nodeEnv: 'development', baseUrl: 'http://localhost:4000', apiUrl: '/api' }, app: { frontendUrl: 'http://localhost:3000', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } }
   });
+
+  const [whatsappStatus, setWhatsappStatus] = useState({ isReady: false, status: 'initializing', qr: null });
+  const [isRestarting, setIsRestarting] = useState(false);
+
+  useEffect(() => {
+    fetchWhatsAppStatus();
+    const interval = setInterval(() => {
+      fetchWhatsAppStatus();
+    }, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchWhatsAppStatus = async () => {
+    try {
+      const { data } = await api.get('/platform/whatsapp/status');
+      setWhatsappStatus(data);
+    } catch (err) {
+      console.error('Failed to fetch WhatsApp status');
+    }
+  };
+
+  const handleRestartWhatsApp = async () => {
+    if (!window.confirm('Are you sure you want to restart the WhatsApp service? This will disconnect current sessions.')) return;
+    setIsRestarting(true);
+    try {
+      await api.post('/platform/whatsapp/restart');
+      setTimeout(fetchWhatsAppStatus, 2000);
+    } catch (err) {
+      alert('Failed to restart WhatsApp service');
+    } finally {
+      setIsRestarting(false);
+    }
+  };
+
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
@@ -80,8 +144,13 @@ export default function SystemSettings() {
             // Special deep merge for whatsapp_config.templates and finance_settings.minPayout
             if (stateKey === 'whatsapp_config' && incomingData.templates) {
               next[stateKey] = { ...prev[stateKey], ...incomingData, templates: { ...prev[stateKey].templates, ...incomingData.templates } };
-            } else if (stateKey === 'finance_settings' && incomingData.minPayout) {
-              next[stateKey] = { ...prev[stateKey], ...incomingData, minPayout: { ...prev[stateKey].minPayout, ...incomingData.minPayout } };
+            } else if (stateKey === 'finance_settings') {
+              next[stateKey] = { 
+                ...prev[stateKey], 
+                ...incomingData, 
+                minPayout: { ...(prev[stateKey].minPayout || {}), ...(incomingData.minPayout || {}) },
+                withdrawalTiers: incomingData.withdrawalTiers || prev[stateKey].withdrawalTiers || []
+              };
             } else {
               next[stateKey] = { ...prev[stateKey], ...incomingData };
             }
@@ -124,6 +193,13 @@ export default function SystemSettings() {
       const dbKey = keyMap[section];
       await api.post(`/admin/config/${dbKey}`, { value: data });
       
+      // Real-time synchronization for maintenance settings
+      if (section === 'maintenance_settings') {
+        localStorage.setItem('maintenance_settings', JSON.stringify(data));
+        // Note: Manual dispatch removed. Updates now flow through WebSockets
+        // to ensure all users (not just current tab) see changes instantly.
+      }
+
       setSettings(prev => ({ ...prev, [section]: data }));
       setSuccess(`${section.replace(/_/g, ' ').toUpperCase()} updated successfully`);
     } catch (e) {
@@ -143,6 +219,19 @@ export default function SystemSettings() {
     { id: 'security', name: 'Security', icon: '🔒' },
     { id: 'environment', name: 'Environment', icon: '🌐' }
   ];
+
+  const updateTemplateChannels = (templateKey, channels) => {
+    setSettings((prev) => ({
+      ...prev,
+      whatsapp_config: {
+        ...prev.whatsapp_config,
+        channels: {
+          ...(prev.whatsapp_config.channels || {}),
+          [templateKey]: channels
+        }
+      }
+    }));
+  };
 
   if (fetching) {
     return <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
@@ -202,7 +291,7 @@ export default function SystemSettings() {
               <hr className="border-gray-100" />
 
               <section>
-                <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2">🚨 Maintenance Mode</h3>
+                <h3 className="text-lg font-bold text-red-600 mb-4 flex items-center gap-2">🚨 Maintenance Mode (Global)</h3>
                 <div className="p-4 bg-red-50 rounded-xl border border-red-100">
                   <div className="flex items-center gap-4 mb-4">
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -215,6 +304,100 @@ export default function SystemSettings() {
                   <textarea className="w-full border-red-200 rounded-xl p-3 focus:ring-2 focus:ring-red-500 outline-none h-24" value={settings.maintenance_settings.message} onChange={(e) => setSettings(p => ({...p, maintenance_settings: {...p.maintenance_settings, message: e.target.value}}))} />
                   <SaveButton onClick={() => updateSettings('maintenance_settings', settings.maintenance_settings)} loading={loading} variant="red" />
                 </div>
+              </section>
+
+              <hr className="border-gray-100" />
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">🛠️ Granular Maintenance Controls</h3>
+                <p className="text-sm text-gray-500 mb-6 font-medium">Take specific dashboards or public sections offline without affecting the entire platform.</p>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Dashboard Toggles */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest border-b pb-2">User Dashboards</h4>
+                    {Object.entries(settings.maintenance_settings.dashboards || {}).map(([key, config]) => (
+                      <div key={key} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{
+                            key === 'admin' ? '🔒' : key === 'seller' ? '🏪' : key === 'marketer' ? '📢' : 
+                            key === 'delivery' ? '🛵' : key === 'station' ? '📦' : key === 'ops' ? '⚙️' : 
+                            key === 'logistics' ? '🚚' : key === 'finance' ? '💰' : '🛠️'
+                          }</span>
+                          <span className="text-sm font-bold text-gray-700 capitalize">{key} Dashboard</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded ${config.enabled ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                            {config.enabled ? 'OFFLINE' : 'ONLINE'}
+                          </span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              className="sr-only peer" 
+                              checked={config.enabled} 
+                              onChange={(e) => {
+                                const newDashboards = { ...settings.maintenance_settings.dashboards };
+                                newDashboards[key] = { ...config, enabled: e.target.checked };
+                                setSettings(p => ({
+                                  ...p, 
+                                  maintenance_settings: {
+                                    ...p.maintenance_settings, 
+                                    dashboards: newDashboards
+                                  }
+                                }));
+                              }} 
+                            />
+                            <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Public Section Toggles */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest border-b pb-2">Public Sections</h4>
+                    {Object.entries(settings.maintenance_settings.sections || {}).map(([key, config]) => (
+                      <div key={key} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{
+                            key === 'products' ? '🛒' : key === 'services' ? '🛠️' : '🍔'
+                          }</span>
+                          <span className="text-sm font-bold text-gray-700 capitalize">{key} Section</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded ${config.enabled ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                            {config.enabled ? 'OFFLINE' : 'ONLINE'}
+                          </span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              className="sr-only peer" 
+                              checked={config.enabled} 
+                              onChange={(e) => {
+                                const newSections = { ...settings.maintenance_settings.sections };
+                                newSections[key] = { ...config, enabled: e.target.checked };
+                                setSettings(p => ({
+                                  ...p, 
+                                  maintenance_settings: {
+                                    ...p.maintenance_settings, 
+                                    sections: newSections
+                                  }
+                                }));
+                              }} 
+                            />
+                            <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    <div className="mt-6 bg-orange-50 p-4 rounded-xl border border-orange-100 italic text-xs text-orange-800">
+                      💡 Hiding a section will remove it from the homepage and navigation menus for non-admin users.
+                    </div>
+                  </div>
+                </div>
+                <SaveButton onClick={() => updateSettings('maintenance_settings', settings.maintenance_settings)} loading={loading} />
               </section>
 
               <hr className="border-gray-100" />
@@ -281,7 +464,7 @@ export default function SystemSettings() {
               <section>
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">💬 Payment Notifications</h3>
                 <div className="max-w-xl">
-                  <TemplateInput label="Order Received Template" templateKey="orderPlaced" value={settings.whatsapp_config.templates?.orderPlaced} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderPlaced: v}} }))} />
+                  <TemplateInput label="Order Received Template" templateKey="orderPlaced" value={settings.whatsapp_config.templates?.orderPlaced} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderPlaced: v}} }))} channels={settings.whatsapp_config.channels?.orderPlaced || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderPlaced', ch)} />
                   <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {orderNumber}, {total}"}</p>
                 </div>
                 <SaveButton onClick={() => updateSettings('whatsapp_config', settings.whatsapp_config)} loading={loading} />
@@ -316,6 +499,65 @@ export default function SystemSettings() {
                     </select>
                   </div>
                 </div>
+                <div className="mt-6 border border-gray-100 rounded-2xl overflow-hidden bg-white shadow-sm">
+                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-800">WhatsApp Connection Status</h4>
+                      <p className="text-[11px] text-gray-500 uppercase font-bold tracking-tighter mt-0.5">Local Open-Source Gateway</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        whatsappStatus.status === 'ready' ? 'bg-green-100 text-green-700' :
+                        whatsappStatus.status === 'qr_ready' ? 'bg-orange-100 text-orange-700' :
+                        whatsappStatus.status === 'initializing' ? 'bg-blue-100 text-blue-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {whatsappStatus.status.replace('_', ' ')}
+                      </span>
+                      <button 
+                        onClick={handleRestartWhatsApp}
+                        disabled={isRestarting}
+                        className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded-lg font-bold transition-all border border-red-100 disabled:opacity-50"
+                      >
+                        {isRestarting ? 'Restarting...' : 'Restart Service'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="p-8 flex flex-col items-center justify-center text-center">
+                    {whatsappStatus.status === 'ready' ? (
+                      <div className="py-10">
+                        <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-green-100">
+                          <span className="text-3xl">✅</span>
+                        </div>
+                        <h5 className="font-bold text-gray-800 text-lg">System Connected</h5>
+                        <p className="text-sm text-gray-500 max-w-xs mx-auto">Your WhatsApp service is live and authenticated. Notifications are being dispatched normally.</p>
+                      </div>
+                    ) : whatsappStatus.status === 'qr_ready' && whatsappStatus.qr ? (
+                      <div className="space-y-4">
+                        <div className="bg-white p-6 rounded-3xl border-4 border-blue-50 shadow-inner flex items-center justify-center">
+                          <QRCodeSVG 
+                            value={whatsappStatus.qr} 
+                            size={256}
+                            level="M"
+                            includeMargin={true}
+                          />
+                        </div>
+                        <div>
+                          <h5 className="font-bold text-gray-800">Scan QR to Connect</h5>
+                          <p className="text-sm text-gray-500 max-w-xs mx-auto">Open WhatsApp on your phone {'>'} Linked Devices {'>'} Link a Device. Scan the code above to start the service.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-10">
+                        <div className="animate-spin w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-6"></div>
+                        <h5 className="font-bold text-gray-800">Starting WhatsApp Engine...</h5>
+                        <p className="text-sm text-gray-500 max-w-xs mx-auto">The system is performing a cold-start of the messaging browser. This usually takes 15-30 seconds. The QR code will appear here automatically.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="mt-8 bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3 text-xs text-blue-800">
                   <span className="text-lg">💡</span>
                   <div>
@@ -323,6 +565,24 @@ export default function SystemSettings() {
                     <p>Gateway credentials are used for all automated communications. Message templates are now conveniently managed within their respective tabs (Payments, Finance, Logistics, etc.) for better context.</p>
                   </div>
                 </div>
+
+                <hr className="my-8 border-gray-100" />
+
+                <section>
+                  <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">📢 Customer & Marketing Notifications</h3>
+                  <div className="max-w-xl">
+                    <TemplateInput 
+                      label="Welcome (Marketer Created) Template" 
+                      templateKey="WELCOME_MARKETER_CREATED" 
+                      value={settings.whatsapp_config.templates?.WELCOME_MARKETER_CREATED} 
+                      onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, WELCOME_MARKETER_CREATED: v}} }))} 
+                      channels={settings.whatsapp_config.channels?.WELCOME_MARKETER_CREATED || { whatsapp: true, sms: true, email: true, in_app: true }} 
+                      onChannelChange={(ch) => updateTemplateChannels('WELCOME_MARKETER_CREATED', ch)} 
+                    />
+                    <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {marketerName}, {tempPassword}, {loginUrl}"}</p>
+                  </div>
+                </section>
+                
                 <SaveButton onClick={() => updateSettings('whatsapp_config', settings.whatsapp_config)} loading={loading} />
               </section>
 
@@ -335,10 +595,12 @@ export default function SystemSettings() {
                 <div className="space-y-4">
                   {[
                     { label: 'Order Received', key: 'orderPlaced', tab: 'payment', icon: '💳' },
+                    { label: 'Welcome (Marketer Created)', key: 'WELCOME_MARKETER_CREATED', tab: 'messaging', icon: '📢' },
                     { label: 'Withdrawal Status', key: 'withdrawalStatus', tab: 'finance', icon: '💰' },
                     { label: 'In Transit', key: 'orderInTransit', tab: 'logistics', icon: '🚚' },
                     { label: 'Ready for Pickup', key: 'orderReadyPickup', tab: 'logistics', icon: '📦' },
                     { label: 'OTP Verification', key: 'phoneVerification', tab: 'security', icon: '🔒' },
+                    { label: 'Password Reset', key: 'passwordReset', tab: 'security', icon: '🔐' },
                   ].map(item => (
                     <div key={item.key} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -367,10 +629,12 @@ export default function SystemSettings() {
                 <div className="space-y-4">
                   {[
                     { label: 'Order Received', key: 'orderPlaced', tab: 'payment', icon: '💳' },
+                    { label: 'Welcome (Marketer Created)', key: 'WELCOME_MARKETER_CREATED', tab: 'messaging', icon: '📢' },
                     { label: 'Withdrawal Status', key: 'withdrawalStatus', tab: 'finance', icon: '💰' },
                     { label: 'In Transit', key: 'orderInTransit', tab: 'logistics', icon: '🚚' },
                     { label: 'Ready for Pickup', key: 'orderReadyPickup', tab: 'logistics', icon: '📦' },
                     { label: 'OTP Verification', key: 'phoneVerification', tab: 'security', icon: '🔒' },
+                    { label: 'Password Reset', key: 'passwordReset', tab: 'security', icon: '🔐' },
                   ].map(item => (
                     <div key={item.key} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -437,9 +701,108 @@ export default function SystemSettings() {
               <hr className="border-gray-100" />
 
               <section>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-800">📊 Withdrawal Fee Tiers</h3>
+                    <p className="text-sm text-gray-500 font-medium">Define transaction fees based on the user's requested withdrawal amount.</p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const newTiers = [...(settings.finance_settings.withdrawalTiers || [])];
+                      const lastMax = newTiers.length > 0 ? newTiers[newTiers.length - 1].max : 0;
+                      newTiers.push({ min: lastMax + 1, max: lastMax + 5000, fee: 50 });
+                      setSettings(p => ({ ...p, finance_settings: { ...p.finance_settings, withdrawalTiers: newTiers } }));
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-100 transition-all border border-blue-100"
+                  >
+                    <span>+</span> Add Tier
+                  </button>
+                </div>
+
+                <div className="overflow-hidden border border-gray-100 rounded-3xl">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Min Amount (KES)</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Max Amount (KES)</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Fee (KES)</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {(settings.finance_settings.withdrawalTiers || []).map((tier, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-3 py-2">
+                            <input 
+                              type="number" 
+                              className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                              value={tier.min} 
+                              onChange={(e) => {
+                                const newTiers = [...settings.finance_settings.withdrawalTiers];
+                                newTiers[idx].min = Number(e.target.value);
+                                setSettings(p => ({ ...p, finance_settings: { ...p.finance_settings, withdrawalTiers: newTiers } }));
+                              }}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input 
+                              type="number" 
+                              className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                              value={tier.max} 
+                              onChange={(e) => {
+                                const newTiers = [...settings.finance_settings.withdrawalTiers];
+                                newTiers[idx].max = Number(e.target.value);
+                                setSettings(p => ({ ...p, finance_settings: { ...p.finance_settings, withdrawalTiers: newTiers } }));
+                              }}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input 
+                              type="number" 
+                              className="w-full bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-sm font-black text-blue-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                              value={tier.fee} 
+                              onChange={(e) => {
+                                const newTiers = [...settings.finance_settings.withdrawalTiers];
+                                newTiers[idx].fee = Number(e.target.value);
+                                setSettings(p => ({ ...p, finance_settings: { ...p.finance_settings, withdrawalTiers: newTiers } }));
+                              }}
+                            />
+                          </td>
+                          <td className="px-6 py-2 text-right">
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newTiers = settings.finance_settings.withdrawalTiers.filter((_, i) => i !== idx);
+                                setSettings(p => ({ ...p, finance_settings: { ...p.finance_settings, withdrawalTiers: newTiers } }));
+                              }}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                              title="Delete Tier"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(settings.finance_settings.withdrawalTiers || []).length === 0 && (
+                    <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-2">
+                      <span className="text-2xl">📊</span>
+                      <p className="text-xs font-bold uppercase tracking-widest">No fee tiers defined. Platform will charge 0 fee.</p>
+                    </div>
+                  )}
+                </div>
+                <p className="mt-4 text-[10px] text-gray-400 italic">💡 The system finds the tier that matches the withdrawal amount. If no tier is matched, it falls back to the fee of the highest defined tier.</p>
+                <SaveButton onClick={() => updateSettings('finance_settings', settings.finance_settings)} loading={loading} />
+              </section>
+
+              <hr className="border-gray-100" />
+
+              <section>
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">💬 Financial Notifications</h3>
                 <div className="max-w-xl">
-                  <TemplateInput label="Withdrawal Processed Template" templateKey="withdrawalStatus" value={settings.whatsapp_config.templates?.withdrawalStatus} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, withdrawalStatus: v}} }))} />
+                  <TemplateInput label="Withdrawal Processed Template" templateKey="withdrawalStatus" value={settings.whatsapp_config.templates?.withdrawalStatus} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, withdrawalStatus: v}} }))} channels={settings.whatsapp_config.channels?.withdrawalStatus || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('withdrawalStatus', ch)} />
                   <p className="mt-2 text-xs text-blue-600">Placeholders: {"{amount}"}</p>
                 </div>
                 <SaveButton onClick={() => updateSettings('whatsapp_config', settings.whatsapp_config)} loading={loading} />
@@ -492,18 +855,20 @@ export default function SystemSettings() {
                   <div>
                     <h5 className="font-bold text-xs text-blue-600 uppercase mb-3 text-[10px] tracking-widest">Customer Updates</h5>
                     <div className="space-y-4">
-                      <TemplateInput label="Out for Delivery" value={settings.whatsapp_config.templates?.orderInTransit} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderInTransit: v}} }))} />
-                      <TemplateInput label="Ready for Pickup" value={settings.whatsapp_config.templates?.orderReadyPickup} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderReadyPickup: v}} }))} />
-                      <TemplateInput label="Delivery Success" value={settings.whatsapp_config.templates?.orderDelivered} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderDelivered: v}} }))} />
-                      <TemplateInput label="Agent Arrived" value={settings.whatsapp_config.templates?.agentArrived} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentArrived: v}} }))} />
+                      <TemplateInput label="Seller Confirmed" value={settings.whatsapp_config.templates?.sellerConfirmed} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, sellerConfirmed: v}} }))} templateKey="sellerConfirmed" channels={settings.whatsapp_config.channels?.sellerConfirmed || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('sellerConfirmed', ch)} />
+                      <TemplateInput label="Out for Delivery" value={settings.whatsapp_config.templates?.orderInTransit} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderInTransit: v}} }))} templateKey="orderInTransit" channels={settings.whatsapp_config.channels?.orderInTransit || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderInTransit', ch)} />
+                      <TemplateInput label="Ready for Pickup" value={settings.whatsapp_config.templates?.orderReadyPickup} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderReadyPickup: v}} }))} templateKey="orderReadyPickup" channels={settings.whatsapp_config.channels?.orderReadyPickup || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderReadyPickup', ch)} />
+                      <TemplateInput label="Delivery Success" value={settings.whatsapp_config.templates?.orderDelivered} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderDelivered: v}} }))} templateKey="orderDelivered" channels={settings.whatsapp_config.channels?.orderDelivered || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderDelivered', ch)} />
+                      <TemplateInput label="Order Cancelled" value={settings.whatsapp_config.templates?.orderCancelled} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderCancelled: v}} }))} templateKey="orderCancelled" channels={settings.whatsapp_config.channels?.orderCancelled || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderCancelled', ch)} />
+                      <TemplateInput label="Agent Arrived" value={settings.whatsapp_config.templates?.agentArrived} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentArrived: v}} }))} templateKey="agentArrived" channels={settings.whatsapp_config.channels?.agentArrived || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('agentArrived', ch)} />
                     </div>
                   </div>
                   <div>
                     <h5 className="font-bold text-xs text-orange-600 uppercase mb-3 text-[10px] tracking-widest">Agent & Admin Updates</h5>
                     <div className="space-y-4">
-                      <TemplateInput label="Task Assigned" value={settings.whatsapp_config.templates?.agentTaskAssigned} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentTaskAssigned: v}} }))} />
-                      <TemplateInput label="Task Reassigned" value={settings.whatsapp_config.templates?.agentTaskReassigned} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentTaskReassigned: v}} }))} />
-                      <TemplateInput label="Task Rejected (to Admin)" value={settings.whatsapp_config.templates?.adminTaskRejected} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, adminTaskRejected: v}} }))} />
+                      <TemplateInput label="Task Assigned" value={settings.whatsapp_config.templates?.agentTaskAssigned} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentTaskAssigned: v}} }))} templateKey="agentTaskAssigned" channels={settings.whatsapp_config.channels?.agentTaskAssigned || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('agentTaskAssigned', ch)} />
+                      <TemplateInput label="Task Reassigned" value={settings.whatsapp_config.templates?.agentTaskReassigned} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, agentTaskReassigned: v}} }))} templateKey="agentTaskReassigned" channels={settings.whatsapp_config.channels?.agentTaskReassigned || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('agentTaskReassigned', ch)} />
+                      <TemplateInput label="Task Rejected (to Admin)" value={settings.whatsapp_config.templates?.adminTaskRejected} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, adminTaskRejected: v}} }))} templateKey="adminTaskRejected" channels={settings.whatsapp_config.channels?.adminTaskRejected || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('adminTaskRejected', ch)} />
                     </div>
                   </div>
                 </div>
@@ -531,8 +896,11 @@ export default function SystemSettings() {
               <section>
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">💬 Security Notifications</h3>
                 <div className="max-w-xl">
-                  <TemplateInput label="OTP Verification Template" templateKey="phoneVerification" value={settings.whatsapp_config.templates?.phoneVerification} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, phoneVerification: v}} }))} />
+                  <TemplateInput label="OTP Verification Template" templateKey="phoneVerification" value={settings.whatsapp_config.templates?.phoneVerification} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, phoneVerification: v}} }))} channels={settings.whatsapp_config.channels?.phoneVerification || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('phoneVerification', ch)} />
                   <p className="mt-2 text-xs text-blue-600">Placeholders: {"{otp}"}</p>
+                  <div className="mt-4" />
+                  <TemplateInput label="Password Reset Code Template" templateKey="passwordReset" value={settings.whatsapp_config.templates?.passwordReset} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, passwordReset: v}} }))} channels={settings.whatsapp_config.channels?.passwordReset || { whatsapp: false, sms: true, email: true, in_app: false }} onChannelChange={(ch) => updateTemplateChannels('passwordReset', ch)} />
+                  <p className="mt-2 text-xs text-blue-600">Placeholders: {"{otp}, {code}, {token}, {minutes}"}</p>
                 </div>
                 <SaveButton onClick={() => updateSettings('whatsapp_config', settings.whatsapp_config)} loading={loading} />
               </section>
@@ -598,18 +966,22 @@ const FormInput = ({ label, value, onChange, type = "text", className = "", plac
   </div>
 );
 
-const TemplateInput = ({ label, value, onChange, templateKey }) => {
+const TemplateInput = ({ label, value, onChange, templateKey, channels, onChannelChange }) => {
   const defaults = {
-    orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
-    orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
-    orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
-    orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',
-    agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.',
+    orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`,
+    sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,
+    orderInTransit: `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\nPlease stay reachable for a smooth delivery!`,
+    orderReadyPickup: `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\nSee you soon at Comrades360!`,
+    orderDelivered: `Order Delivered Successfully! ✅\n\nHello {name}, your order #{orderNumber} has been delivered. Enjoy your purchase!\n\nThank you for choosing Comrades360!`,
+    orderCancelled: `Order Notification: Cancellation ❌\n\nHello {name}, we regret to inform you that order #{orderNumber} has been cancelled.\n\nCancellation Details:\nReason: {reason}\n\nWe apologize for the inconvenience and hope to serve you again soon.`,
+    agentArrived: 'Your delivery agent {agentName} has arrived at your location! 📍 Please meet them to collect order #{orderNumber}.\nAgent Phone: {phone}',
     agentTaskAssigned: 'You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}',
     agentTaskReassigned: 'A delivery task for order #{orderNumber} has been reassigned to you.',
     adminTaskRejected: 'Delivery agent {agentName} rejected task for order #{orderNumber}. Reason: {reason}',
     phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
-    withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+    passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
+    withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰',
+    WELCOME_MARKETER_CREATED: 'Hello {name}, your account has been created by {marketerName}. Your temporary password is: {tempPassword}. Please login at {loginUrl} and change your password immediately.'
   };
 
   return (
@@ -629,11 +1001,29 @@ const TemplateInput = ({ label, value, onChange, templateKey }) => {
         onChange={(e) => onChange(e.target.value)}
         placeholder="Type message template..."
       />
+
       <div className="flex flex-wrap gap-2 mt-1">
-        {['{name}', '{orderNumber}', '{total}', '{agentName}', '{stationName}', '{otp}', '{amount}'].map(tag => (
+        {['{name}', '{orderNumber}', '{total}', '{itemsList}', '{paymentMethod}', '{deliveryMethod}', '{deliveryLocation}', '{deliveryAddress}', '{sellerName}', '{agentName}', '{agentPhone}', '{stationName}', '{stationLocation}', '{stationPhone}', '{otp}', '{amount}', '{reason}', '{marketerName}', '{tempPassword}', '{loginUrl}'].map(tag => (
           <span key={tag} className="text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 cursor-pointer hover:text-blue-600 hover:border-blue-200" onClick={() => onChange((value || '') + ' ' + tag)}>{tag}</span>
         ))}
       </div>
+      {channels && onChannelChange && (
+        <div className="flex flex-wrap gap-4 mt-3 mb-1 border-t border-gray-100 pt-3">
+          <span className="text-[10px] font-bold text-blue-600 uppercase tracking-tighter w-full block">Send via:</span>
+          {['whatsapp', 'sms', 'email', 'in_app'].map(ch => (
+            <label key={ch} className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={channels[ch] !== false} 
+                onChange={(e) => onChannelChange({ ...channels, [ch]: e.target.checked })}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3 w-3"
+              />
+              {ch.replace('_', '-').toUpperCase()}
+            </label>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 };

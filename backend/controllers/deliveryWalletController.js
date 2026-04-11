@@ -19,7 +19,7 @@ const getDeliveryWallet = async (req, res) => {
 
         // Get transactions with order details and associated delivery tasks
         const transactions = await Transaction.findAll({
-            where: { userId },
+            where: { userId, walletType: 'delivery_agent' },
             include: [
                 {
                     model: Order,
@@ -42,11 +42,22 @@ const getDeliveryWallet = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
+        // Get min payout threshold for delivery agents
+        let minPayout = 200; // default
+        try {
+            const financeSettings = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+            if (financeSettings) {
+                const dbConfig = typeof financeSettings.value === 'string' ? JSON.parse(financeSettings.value) : financeSettings.value;
+                minPayout = (dbConfig.minPayout || {})['delivery_agent'] || 200;
+            }
+        } catch (e) { /* use default */ }
+
         res.json({
             balance: wallet.balance || 0,
             pendingBalance: wallet.pendingBalance || 0,
             successBalance: wallet.successBalance || 0,
             autoPayoutEnabled,
+            minPayout,
             transactions: transactions.map(tx => {
                 const txData = {
                     id: tx.id,
@@ -131,13 +142,9 @@ const getDeliveryWallet = async (req, res) => {
 const withdraw = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { amount, paymentMethod, paymentDetails } = req.body;
+        const { amount, paymentMethod, paymentDetails, paymentMeta } = req.body;
 
-        // DEBUG
-        const fs = require('fs');
-        const path = require('path');
-        const logMsg = `[deliveryWalletController] ${new Date().toISOString()} Withdraw Hit: User=${userId}, Amount=${amount}\n`;
-        fs.appendFileSync(path.join(__dirname, '../error.log'), logMsg);
+        const { calculateWithdrawalFee } = require('../utils/walletHelpers');
 
         if (!amount || amount <= 0) {
             return res.status(400).json({ error: 'Invalid withdrawal amount' });
@@ -148,43 +155,55 @@ const withdraw = async (req, res) => {
             return res.status(400).json({ error: 'Insufficient balance' });
         }
 
-        // Check min payout threshold
+        // Get finance settings for threshold and tiered fees
+        let financeSettings = {};
         try {
-            const financeSettings = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
-            if (financeSettings) {
-                const dbConfig = typeof financeSettings.value === 'string' ? JSON.parse(financeSettings.value) : financeSettings.value;
-                const thresholds = dbConfig.minPayout || {};
-                const minAmount = thresholds['delivery_agent'] || 150; // Default 150 if not set
+            const configRecord = await PlatformConfig.findOne({ where: { key: 'finance_settings' } });
+            if (configRecord) financeSettings = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+        } catch (e) { console.error('Error parsing finance settings:', e); }
 
-                if (amount < minAmount) {
-                    return res.status(400).json({ error: `Minimum withdrawal amount for delivery agents is KES ${minAmount}` });
-                }
-            }
-        } catch (err) {
-            console.warn('[deliveryWallet] Could not check payout threshold:', err.message);
+        // Check min payout threshold
+        const thresholds = financeSettings.minPayout || {};
+        const minAmount = thresholds['delivery_agent'] || 200;
+
+        if (amount < minAmount) {
+            return res.status(400).json({ error: `Minimum withdrawal amount for delivery agents is KES ${minAmount}` });
         }
 
-        // Subtract from balance and create pending debit
+        // Calculate Fee
+        const fee = calculateWithdrawalFee(amount, financeSettings);
+        const netAmount = Math.max(0, amount - fee);
+
+        // Subtract full amount from balance (lock the funds)
         await wallet.update({
             balance: wallet.balance - amount
         });
 
+        // Build metadata: merge structured paymentMeta from frontend
+        const metaObj = {
+            method: paymentMethod || 'mpesa',
+            details: paymentDetails || req.user.phone,
+            agentName: req.user.name,
+            agentRole: req.user.role,
+            requestedAmount: amount,
+            withdrawalFee: fee,
+            netAmountToPay: netAmount,
+            ...(paymentMeta || {})
+        };
+
         await Transaction.create({
             userId,
-            amount,
+            amount, // record full amount as the debit
             type: 'debit',
             status: 'pending',
-            description: `Withdrawal Request (${paymentMethod || 'M-Pesa'})`,
-            note: `Delivery Agent requested payout of KES ${amount} to ${paymentDetails || req.user.phone || 'registered number'}.`,
-            metadata: JSON.stringify({
-                method: paymentMethod || 'mpesa',
-                details: paymentDetails || req.user.phone,
-                agentName: req.user.name,
-                agentRole: req.user.role
-            })
+            description: `Withdrawal Request (${paymentMethod === 'bank' ? 'Bank Transfer' : 'M-Pesa'})`,
+            note: `Agent requested KES ${amount}. Fee: KES ${fee}. Net to Pay: KES ${netAmount}.`,
+            metadata: JSON.stringify(metaObj),
+            fee: fee,
+            walletType: 'delivery_agent'
         });
 
-        res.json({ success: true, message: 'Withdrawal request submitted successfully' });
+        res.json({ success: true, message: 'Withdrawal request submitted successfully', netAmount, fee });
     } catch (error) {
         console.error('Error processing delivery withdrawal:', error);
         res.status(500).json({ error: 'Failed to process withdrawal request' });

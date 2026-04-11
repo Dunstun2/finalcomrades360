@@ -5,22 +5,55 @@ const { User, Referral, Order, LoginHistory, Warehouse, PickupStation, Otp } = r
 const { generateUniqueReferralCode } = require('../utils/referralUtils');
 const { Op } = require('sequelize');
 const geoip = require('geoip-lite');
+const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(); // Audience verified in method
 
 const { isValidEmail, normalizeKenyanPhone } = require('../middleware/validators');
 const { sendEmail } = require('../utils/mailer');
 
+const { sendSms } = require('../utils/sms');
+
+// Helper to strip placeholders so frontend forms show empty fields
+const sanitizeUserPayload = (userData) => {
+  const u = { ...userData };
+  let originalEmail = u.email;
+
+  if (u.email && u.email.startsWith('noemail_')) u.email = '';
+  if (u.phone && u.phone.startsWith('nophone_')) u.phone = '';
+
+  if (u.name) {
+    if (/^User\d{0,4}$/.test(u.name)) {
+      u.name = '';
+    } else if (originalEmail && typeof originalEmail === 'string') {
+      const prefix = originalEmail.split('@')[0];
+      if (u.name === prefix) u.name = '';
+    }
+  }
+  return u;
+};
+
 const register = async (req, res) => {
   console.log('[authController] Registration attempt:', req.body);
-  const { name, email, phone, password, referralCode, referredByReferralCode, county, town, estate, houseNumber } = req.body;
-  if (!name || !email || !phone || !password) {
-    console.log('[authController] Missing fields:', { name: !!name, email: !!email, phone: !!phone, password: !!password });
-    return res.status(400).json({ message: 'Please provide all required fields.' });
+  const { name, email, phone, password, referralCode, referredByReferralCode, isMarketerRegistration } = req.body;
+
+  // Require at least one of email or phone
+  if (!email && !phone) {
+    return res.status(400).json({ message: 'Please provide either an email address or a phone number.' });
   }
 
-  // Normalize phone number
-  const normalizedPhone = normalizeKenyanPhone(phone);
-  if (!normalizedPhone) {
-    return res.status(400).json({ message: 'Invalid phone number format. Please use a valid Kenyan number.' });
+  // Password is required for normal registration, but can be auto-generated for marketer registration
+  if (!password && !isMarketerRegistration) {
+    return res.status(400).json({ message: 'Password is required.' });
+  }
+
+  // Normalize phone if provided
+  let normalizedPhone = null;
+  if (phone) {
+    normalizedPhone = normalizeKenyanPhone(phone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ message: 'Invalid phone number format. Please use a valid Kenyan number.' });
+    }
   }
 
   // Support both referralCode and referredByReferralCode (legacy vs new)
@@ -30,70 +63,91 @@ const register = async (req, res) => {
     // Automatic Attribution Logic: If no referral code provided, check for previous marketing orders
     if (!finalReferralCode) {
       console.log('[authController] No referral code provided, checking for previous marketing orders...');
-      const attributionOrder = await Order.findOne({
-        where: {
-          isMarketingOrder: true,
-          [Op.or]: [
-            { customerEmail: email },
-            { customerPhone: phone }
-          ]
-        },
-        order: [['createdAt', 'ASC']]
-      });
-
-      if (attributionOrder && attributionOrder.primaryReferralCode) {
-        console.log('[authController] Attribution found! Crediting first marketer:', attributionOrder.primaryReferralCode);
-        finalReferralCode = attributionOrder.primaryReferralCode;
+      const orConditions = [];
+      if (email) orConditions.push({ customerEmail: email });
+      if (normalizedPhone) orConditions.push({ customerPhone: phone });
+      if (orConditions.length > 0) {
+        const attributionOrder = await Order.findOne({
+          where: { isMarketingOrder: true, [Op.or]: orConditions },
+          order: [['createdAt', 'ASC']]
+        });
+        if (attributionOrder?.primaryReferralCode) {
+          console.log('[authController] Attribution found! Crediting first marketer:', attributionOrder.primaryReferralCode);
+          finalReferralCode = attributionOrder.primaryReferralCode;
+        }
       }
     }
 
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(409).json({ message: 'User with this email already exists.' });
+    // Secure isMarketerRegistration: Only honor if request is authenticated by a marketer/admin
+    let validatedIsMarketerRegistration = false;
+    if (isMarketerRegistration && req.user) {
+      const userRole = String(req.user.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(r => String(r).toLowerCase().replace(/[^a-z0-9]/g, '')) : [userRole];
+      if (userRole === 'marketer' || userRole === 'admin' || userRole === 'superadmin' || 
+          userRoles.includes('marketer') || userRoles.includes('admin') || userRoles.includes('superadmin')) {
+        validatedIsMarketerRegistration = true;
+      }
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Check if user already exists
+    const existingCriteria = [];
+    if (email) existingCriteria.push({ email });
+    if (normalizedPhone) existingCriteria.push({ phone: normalizedPhone });
+    const existingUser = await User.findOne({ where: { [Op.or]: existingCriteria } });
+    if (existingUser) {
+      const message = validatedIsMarketerRegistration 
+        ? `Customer "${existingUser.name}" is already registered in our system.`
+        : 'An account with this email or phone already exists.';
+      return res.status(409).json({ message });
+    }
+
+    if (!validatedIsMarketerRegistration) {
+      const { otp } = req.body;
+      if (!otp) {
+        return res.status(400).json({ message: 'OTP is required to complete registration.' });
+      }
+
+      // Validate the OTP — look up by email or phone
+      const otpWhere = email ? { email, otp } : { phone: normalizedPhone, otp };
+      const validOtp = await Otp.findOne({ where: otpWhere });
+      if (!validOtp) {
+        return res.status(400).json({ message: 'Invalid OTP. Please check the code and try again.' });
+      }
+      if (new Date() > validOtp.expiresAt) {
+        await validOtp.destroy();
+        return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+      }
+      // Delete the used OTP
+      await validOtp.destroy();
+    }
+
+    // Auto-generate a placeholder name if not provided
+    const displayName = name?.trim() || (email ? email.split('@')[0] : `User${normalizedPhone?.slice(-4) || ''}`);
+
     const publicId = uuidv4();
+    // SQLite has NOT NULL on email & phone — use unique placeholders when one isn't provided
+    const emailValue = email || `noemail_${publicId}@placeholder.local`;
+    const phoneValue = normalizedPhone || `nophone_${publicId}`;
+
+    // Generate necessary credentials and codes
+    const tempPassword = password || crypto.randomBytes(4).toString('hex');
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
     const userReferralCode = await generateUniqueReferralCode();
 
-    console.log('[authController] Creating user with data:', {
-      name, email, phone, publicId, referralCode: userReferralCode, referredBy: finalReferralCode, address: { county, town, estate, houseNumber }
-    });
-
-    const { otp } = req.body;
-    if (!otp) {
-      return res.status(400).json({ message: 'OTP is required to complete registration.' });
-    }
-
-    // Validate the OTP
-    const validOtp = await Otp.findOne({ where: { email, otp } });
-    if (!validOtp) {
-      return res.status(400).json({ message: 'Invalid OTP. Please check the code and try again.' });
-    }
-    if (new Date() > validOtp.expiresAt) {
-      await validOtp.destroy();
-      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
-    }
-
-    // OTP is valid. Create the User!
+    // Create the User!
     const newUser = await User.create({
-      name,
-      email,
-      phone: normalizedPhone,
+      name: displayName,
+      email: emailValue,
+      phone: phoneValue,
       password: hashedPassword,
       publicId,
       referralCode: userReferralCode,
       referredByReferralCode: finalReferralCode || null,
       roles: [],
-      county,
-      town,
-      estate,
-      houseNumber,
-      emailVerified: true // Automatically verified
+      emailVerified: !!email,
+      phoneVerified: !!normalizedPhone,
+      mustChangePassword: validatedIsMarketerRegistration ? true : false
     });
-
-    // Delete the used OTP
-    await validOtp.destroy();
 
     // If user was referred by someone
     if (finalReferralCode) {
@@ -107,20 +161,29 @@ const register = async (req, res) => {
       }
     }
 
+    // If marketer registration, send notification with credentials
+    if (validatedIsMarketerRegistration) {
+      try {
+        const { notifyCustomerMarketerCreated } = require('../utils/notificationHelpers');
+        const marketerName = req.user?.name || 'A Marketer';
+        await notifyCustomerMarketerCreated(newUser.id, tempPassword, email || normalizedPhone, marketerName);
+      } catch (notifErr) {
+        console.error('[authController] Failed to send welcome notification:', notifErr.message);
+      }
+    }
+
     // Auto-login after registration
     const token = jwt.sign(
-      { id: newUser.id, role: newUser.role, email: newUser.email },
+      { id: newUser.id, role: newUser.role, roles: newUser.roles, email: newUser.email },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '1d' }
     );
 
-    const cleanUser = newUser.toJSON();
+    const cleanUser = sanitizeUserPayload(newUser.toJSON());
     delete cleanUser.password;
 
     res.status(201).json({
       success: true,
-      message: 'Account created and verified successfully.',
-      token,
       user: cleanUser
     });
   } catch (error) {
@@ -193,8 +256,9 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if email is verified
-    if (!user.emailVerified) {
+    // Check if email is verified (skip if placeholder)
+    const isPlaceholderEmail = user.email && user.email.startsWith('noemail_');
+    if (!user.emailVerified && !isPlaceholderEmail) {
       console.log('[authController] Email not verified, returning 403 with needsVerification flag');
       return res.status(403).json({
         success: false,
@@ -255,6 +319,7 @@ const login = async (req, res) => {
       {
         id: user.id,
         role: user.role,
+        roles: user.roles || [],
         email: user.email
       },
       process.env.JWT_SECRET || 'your-secret-key',
@@ -292,20 +357,25 @@ const login = async (req, res) => {
     }
 
     console.log('[authController] Step 9: Preparing clean response...');
-    const cleanUser = user.toJSON();
-    delete cleanUser.password;
-    delete cleanUser.resetToken;
-    delete cleanUser.resetTokenExpiry;
-    delete cleanUser.emailVerificationToken;
-    delete cleanUser.emailChangeToken;
-    delete cleanUser.phoneOtp;
+    const rawUser = user.toJSON();
+    delete rawUser.password;
+    delete rawUser.resetToken;
+    delete rawUser.resetTokenExpiry;
+    delete rawUser.emailVerificationToken;
+    delete rawUser.emailChangeToken;
+    delete rawUser.phoneOtp;
+    
+    const cleanUser = sanitizeUserPayload(rawUser);
 
     console.log('[authController] Login Success return 200');
     return res.status(200).json({
       success: true,
       message: 'Login successful.',
       token,
-      user: cleanUser
+      user: {
+        ...cleanUser,
+        mustChangePassword: user.mustChangePassword
+      }
     });
 
   } catch (error) {
@@ -460,7 +530,11 @@ const me = (req, res) => {
     delete userData.password;
     delete userData.emailChangeToken;
     delete userData.phoneOtp;
-    res.status(200).json(userData);
+    
+    // Use the sanitizer!
+    const cleanUser = sanitizeUserPayload(userData);
+    
+    res.status(200).json(cleanUser);
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching profile.', error: error.message });
   }
@@ -539,40 +613,162 @@ const parseUA = (userAgent) => {
 
 // Send Registration OTP before account creation
 const sendRegistrationOtp = async (req, res) => {
-  const { email } = req.body;
-  
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Email is required.' });
+  const { email, phone } = req.body;
+
+  if (!email && !phone) {
+    return res.status(400).json({ success: false, message: 'An email address or phone number is required.' });
   }
-  
+
+  const normalizedPhone = phone ? normalizeKenyanPhone(phone) : null;
+  if (phone && !normalizedPhone) {
+    return res.status(400).json({ success: false, message: 'Invalid phone number format.' });
+  }
+
   try {
-    // Check if a fully verified user already exists with this email
-    const existingUser = await User.findOne({ where: { email } });
+    // Check if a user already exists with this contact
+    const whereClause = email ? { email } : { phone: normalizedPhone };
+    const existingUser = await User.findOne({ where: whereClause });
     if (existingUser) {
-      return res.status(409).json({ success: false, message: 'User with this email already exists.' });
+      return res.status(409).json({ success: false, message: 'An account with this detail already exists.' });
     }
 
     // Generate 6-digit OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + (Number(process.env.OTP_EXPIRY_MINUTES) || 10) * 60 * 1000);
 
-    // Clear any existing OTPs for this email to prevent spam and ensure the latest is used
-    await Otp.destroy({ where: { email } });
+    // Clear any existing OTPs for this contact
+    if (email) await Otp.destroy({ where: { email } });
+    if (normalizedPhone) await Otp.destroy({ where: { phone: normalizedPhone } });
 
-    // Save to the Otp table
-    await Otp.create({ email, otp, expiresAt });
+    // Save OTP record (email or phone)
+    await Otp.create({ email: email || null, phone: normalizedPhone || null, otp, expiresAt });
 
-    // Send the email (Non-blocking)
-    sendEmail(
-      email,
-      'Your Comrades360 Registration Verification Code',
-      `Welcome to Comrades360!\n\nYour registration verification code is:\n\n  ${otp}\n\nThis code expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.\n\nIf you did not request this, please ignore this email.\n\n— Comrades360 Team`
-    ).catch(err => console.error('[authController] Background sendEmail error:', err));
-
-    return res.json({ success: true, message: 'Verification code has been sent to your email.' });
+    if (email) {
+      // Send via email (Non-blocking)
+      sendEmail(
+        email,
+        'Your Comrades360 Registration Verification Code',
+        `Welcome to Comrades360!\n\nYour registration verification code is:\n\n  ${otp}\n\nThis code expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.\n\nIf you did not request this, please ignore this email.\n\n— Comrades360 Team`
+      ).catch(err => console.error('[authController] Background sendEmail error:', err));
+      return res.json({ success: true, message: 'Verification code has been sent to your email.', method: 'email' });
+    } else {
+      // Send via SMS (Non-blocking)
+      sendSms(
+        normalizedPhone, 
+        `Your Comrades360 registration code is: ${otp}. Expires in ${process.env.OTP_EXPIRY_MINUTES || 10} mins.`
+      ).catch(err => console.error('[authController] Background SMS error:', err));
+      return res.json({ success: true, message: 'Verification code has been sent to your phone via SMS.', method: 'sms' });
+    }
   } catch (error) {
     console.error('[authController] sendRegistrationOtp error:', error);
     return res.status(500).json({ success: false, message: 'Server error while sending OTP.' });
+  }
+};
+// Google OAuth handler
+const googleAuth = async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, message: 'No Google token provided.' });
+
+  try {
+    const clients = [process.env.GOOGLE_CLIENT_ID, process.env.VITE_GOOGLE_CLIENT_ID].filter(Boolean);
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: clients
+    });
+    
+    const payload = ticket.getPayload();
+    const { email, name, picture } = payload;
+    if (!email) return res.status(400).json({ success: false, message: 'No email found in Google token.' });
+    
+    // Look up user
+    let user = await User.findOne({ where: { email } });
+    
+    if (user) {
+      if (!user.profileImage && picture) user.profileImage = picture;
+      if (!user.emailVerified) user.emailVerified = true;
+      user.lastLogin = new Date();
+      await user.save();
+    } else {
+      const password = crypto.randomBytes(16).toString('hex') + 'A1!'; // Secure random password matching constraints
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const newReferralCode = await generateUniqueReferralCode();
+      const placeholderPhone = `nophone_${uuidv4()}`;
+      
+      const genPublic = async () => {
+         const y = new Date().getFullYear();
+         const seq = `${Math.floor(Math.random() * 1e6)}`.padStart(6, "0");
+         return `C360-${y}-${seq}`;
+      };
+
+      user = await User.create({
+        name,
+        email,
+        phone: placeholderPhone,
+        password: hashedPassword,
+        publicId: await genPublic(),
+        referralCode: newReferralCode,
+        role: 'customer',
+        emailVerified: true,
+        profileImage: picture || null
+      });
+    }
+
+    const jwtToken = jwt.sign(
+      { id: user.id, role: user.role, roles: user.roles || [], email: user.email },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
+    
+    try {
+      const ipAddress = req.ip || req.connection.remoteAddress;
+      const userAgent = req.headers['user-agent'] || 'Unknown';
+      await LoginHistory.create({
+        userId: user.id, ipAddress, browser: 'GoogleLogin', os: 'Unknown', device: 'Unknown', location: 'Unknown', status: 'success'
+      });
+    } catch (e) {}
+
+    const rawUser = user.toJSON();
+    delete rawUser.password;
+    delete rawUser.resetToken;
+    delete rawUser.emailVerificationToken;
+    delete rawUser.emailChangeToken;
+    delete rawUser.phoneOtp;
+
+    res.status(200).json({
+      success: true,
+      message: 'Authentication successful.',
+      token: jwtToken,
+      user: sanitizeUserPayload(rawUser)
+    });
+
+  } catch (error) {
+    console.error('[Google Auth Error]', error);
+    res.status(401).json({ success: false, message: 'Invalid or expired Google token.' });
+  }
+};
+
+const forceChangePassword = async (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+  }
+
+  try {
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await user.update({
+      password: hashedPassword,
+      mustChangePassword: false
+    });
+
+    res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (error) {
+    console.error('[authController] Force password change error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
 
@@ -583,5 +779,6 @@ module.exports = {
   me,
   verifyPassword,
   sendRegistrationOtp,
+  googleAuth,
+  forceChangePassword
 };
-

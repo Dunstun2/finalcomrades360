@@ -896,21 +896,24 @@ function Checkout() {
                         <img
                           src={
                             resolveImageUrl(
-                              item.itemType === 'fastfood' || item.type === 'fastfood'
+                              item.itemImage || (item.itemType === 'fastfood' || item.type === 'fastfood'
                                 ? (item.fastFood?.mainImage || item.product?.mainImage)
-                                : (item.product?.coverImage || item.product?.images?.[0] || item.service?.images?.[0]?.url || item.service?.coverImage),
+                                : (item.product?.coverImage || item.product?.images?.[0] || item.service?.images?.[0]?.url || item.service?.coverImage)),
                               fileBase
                             )
                           }
-                          alt={item.product?.name || item.fastFood?.name || item.name}
+                          alt={item.itemName || item.product?.name || item.fastFood?.name || item.name}
                           className="w-full h-full object-cover"
                           onError={(e) => { e.currentTarget.src = '/placeholder.jpg'; }}
                         />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-medium text-gray-900 text-xs">
-                          {item.product?.name || item.fastFood?.name || item.service?.title || item.name || 'Unnamed Item'}
+                        <h3 className="font-bold text-gray-900 text-[11px] sm:text-xs leading-tight mb-0.5">
+                          {item.itemName || item.product?.name || item.fastFood?.name || item.service?.title || item.name || 'Unnamed Item'}
                         </h3>
+                        <p className="text-[9px] text-gray-500 mb-1">
+                          Seller: <span className="font-semibold text-gray-700">{item.sellerBusinessName || 'Direct Seller'}</span>
+                        </p>
                         {/* Display variant/combo names for all items */}
                         {(variantName || comboName || item.variantName) && (
                           <div className="flex flex-wrap gap-1 mt-0.5">

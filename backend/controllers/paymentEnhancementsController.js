@@ -497,7 +497,8 @@ const processRefund = async (req, res) => {
         description: `Refund for Order #${refund.orderId}`,
         status: 'completed',
         referenceType: 'refund',
-        referenceId: refund.id
+        referenceId: refund.id,
+        walletType: 'customer'
       }, { transaction });
 
       await refund.update({

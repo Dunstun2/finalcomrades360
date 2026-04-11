@@ -136,8 +136,30 @@ const MpesaManualInstructions = ({ amount, orderId = '', onScreenshotUpload, req
             <ol className="list-decimal pl-4 space-y-1">
               <li>Open M-Pesa on your phone.</li>
               <li>Select Lipa na M-Pesa -&gt; Paybill.</li>
-              <li>Enter Business Number <strong>{config.paybill}</strong>.</li>
-              <li>Enter Account Number <strong>{config.accountNumber}</strong>.</li>
+              <li className="flex items-center gap-2 flex-wrap">
+                <span>Enter Business Number <strong>{config.paybill}</strong>.</span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(config.paybill, 'paybill_step')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${copiedField === 'paybill_step' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+                  title="Copy Business Number"
+                >
+                  {copiedField === 'paybill_step' ? <FaCheck size={10} /> : <FaCopy size={10} />}
+                  {copiedField === 'paybill_step' ? 'Copied' : 'Copy'}
+                </button>
+              </li>
+              <li className="flex items-center gap-2 flex-wrap">
+                <span>Enter Account Number <strong>{config.accountNumber}</strong>.</span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(config.accountNumber, 'account_step')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${copiedField === 'account_step' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+                  title="Copy Account Number"
+                >
+                  {copiedField === 'account_step' ? <FaCheck size={10} /> : <FaCopy size={10} />}
+                  {copiedField === 'account_step' ? 'Copied' : 'Copy'}
+                </button>
+              </li>
               <li>Enter Amount {amount ? <strong>KES {amount.toLocaleString()}</strong> : ''}.</li>
               <li>Enter M-Pesa PIN and confirm.</li>
             </ol>

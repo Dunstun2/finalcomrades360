@@ -52,7 +52,7 @@ const DeliverySupport = () => {
                 <FaHeadset className="absolute right-4 bottom-[-10px] text-blue-500 opacity-30 h-40 w-40" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                 {/* Contact Cards */}
                 <div className="bg-white p-6 rounded-lg shadow text-center hover:shadow-md transition-shadow">
                     <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">

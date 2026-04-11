@@ -193,11 +193,11 @@ const serviceApi = {
   // Get pending services for admin approval
   getPendingServices: async () => {
     try {
-      const response = await api.get('/services/pending');
-      return response.data;
+        const response = await api.get('/services/pending');
+        return response.data;
     } catch (error) {
-      console.error('Error fetching pending services:', error);
-      throw error;
+        console.error('Error fetching pending services:', error);
+        throw error;
     }
   },
 
@@ -220,6 +220,17 @@ const serviceApi = {
     } catch (error) {
       console.error('Error suspending service:', error);
       throw error;
+    }
+  },
+
+  // Withdraw funds
+  withdrawFunds: async (amount) => {
+    try {
+        const response = await api.post('/wallet/withdraw', { amount });
+        return response.data;
+    } catch (error) {
+        console.error('Error in withdrawFunds API:', error);
+        throw error;
     }
   },
 };

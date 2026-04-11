@@ -2,38 +2,48 @@ const Joi = require('joi');
 
 // User validation schemas
 const registerSchema = Joi.object({
-  name: Joi.string().trim().min(3).max(50).custom((value, helpers) => {
-    if (value.split(/\s+/).length < 2) {
-      return helpers.message('Please provide at least two names (First and Last Name)');
-    }
-    return value;
-  }).required().messages({
-    'string.empty': 'Name is required',
-    'string.min': 'Name must be at least 3 characters',
-    'string.max': 'Name cannot exceed 50 characters'
+  isMarketerRegistration: Joi.boolean().optional(),
+  name: Joi.string().trim().min(2).max(50).optional(),
+  email: Joi.string().allow('', null).empty(['', null]).email().optional().messages({
+    'string.email': 'Please provide a valid email address'
   }),
-  email: Joi.string().email().required().messages({
-    'string.email': 'Please provide a valid email address',
-    'string.empty': 'Email is required'
+  phone: Joi.string().allow('', null).empty(['', null]).pattern(/^(\+254|0)[17]\d{8}$/).optional().messages({
+    'string.pattern.base': 'Please provide a valid Kenyan phone number'
   }),
-  phone: Joi.string().pattern(/^(\+254|0)[17]\d{8}$/).required().messages({
-    'string.pattern.base': 'Please provide a valid Kenyan phone number',
-    'string.empty': 'Phone number is required'
-  }),
-  password: Joi.string().min(6).required().messages({
-    'string.min': 'Password must be at least 6 characters',
-    'string.empty': 'Password is required'
-  }),
-  otp: Joi.string().length(6).required().messages({
-    'string.length': 'OTP must be exactly 6 digits',
-    'string.empty': 'OTP is required'
-  })
+  password: Joi.string()
+    .when(Joi.ref('isMarketerRegistration'), {
+      is: true,
+      then: Joi.optional().allow('', null),
+      otherwise: Joi.string()
+        .min(8)
+        .pattern(/[A-Z]/, 'uppercase')
+        .pattern(/[^A-Za-z0-9]/, 'special character')
+        .required()
+    }).messages({
+      'string.min': 'Password must be at least 8 characters',
+      'string.empty': 'Password is required',
+      'string.pattern.name': 'Password must contain at least one {{#name}}'
+    }),
+  otp: Joi.string()
+    .when(Joi.ref('isMarketerRegistration'), {
+      is: true,
+      then: Joi.optional().allow('', null),
+      otherwise: Joi.string().length(6).required()
+    }).messages({
+      'string.length': 'OTP must be exactly 6 digits',
+      'string.empty': 'OTP is required'
+    }),
+  referralCode: Joi.string().allow('', null).optional(),
+  referredByReferralCode: Joi.string().allow('', null).optional()
 });
 
 const sendOtpSchema = Joi.object({
-  email: Joi.string().email().required().messages({
-    'string.email': 'Please provide a valid email address',
-    'string.empty': 'Email is required'
+  // Accept email OR phone to send an OTP
+  email: Joi.string().email().optional().messages({
+    'string.email': 'Please provide a valid email address'
+  }),
+  phone: Joi.string().pattern(/^(\+254|0)[17]\d{8}$/).optional().messages({
+    'string.pattern.base': 'Please provide a valid Kenyan phone number'
   })
 });
 

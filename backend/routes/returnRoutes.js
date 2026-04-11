@@ -6,7 +6,11 @@ const {
     adminListReturns,
     adminApproveReturn,
     adminRejectReturn,
+    unassignReturnAgent,
     assignReturnAgent,
+    assignReturnAgentLeg,
+    createWarehouseToSellerTask,
+    getReturnLogistics,
     confirmReturnReceipt,
     processReturnRefund,
     completeReturn
@@ -26,6 +30,10 @@ router.get('/admin/all', auth, checkRole(['admin', 'super_admin', 'superadmin'])
 router.post('/:returnId/approve', auth, checkRole(['admin', 'super_admin']), adminApproveReturn);
 router.post('/:returnId/reject', auth, checkRole(['admin', 'super_admin']), adminRejectReturn);
 router.post('/:returnId/assign-agent', auth, checkRole(['admin', 'super_admin']), assignReturnAgent);
+router.post('/:returnId/unassign-agent', auth, checkRole(['admin', 'super_admin']), unassignReturnAgent);
+router.post('/:returnId/assign-agent-leg', auth, checkRole(['admin', 'super_admin']), assignReturnAgentLeg);
+router.post('/:returnId/create-warehouse-to-seller-task', auth, checkRole(['admin', 'super_admin']), createWarehouseToSellerTask);
+router.get('/:returnId/logistics', auth, checkRole(['admin', 'super_admin']), getReturnLogistics);
 router.post('/:returnId/confirm-receipt', auth, checkRole(['admin', 'super_admin']), confirmReturnReceipt);
 router.post('/:returnId/refund', auth, checkRole(['admin', 'super_admin']), processReturnRefund);
 router.post('/:returnId/complete', auth, checkRole(['admin', 'super_admin']), completeReturn);

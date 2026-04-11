@@ -12,6 +12,16 @@ module.exports = (sequelize, DataTypes) => {
       },
       set(v) { this.setDataValue('productIds', JSON.stringify(v || [])) }
     },
+    fastFoodIds: {
+      type: DataTypes.TEXT, // JSON array of fastfood item IDs
+      allowNull: true,
+      get() {
+        const raw = this.getDataValue('fastFoodIds')
+        try { return JSON.parse(raw || '[]') } catch { return [] }
+      },
+      set(v) { this.setDataValue('fastFoodIds', JSON.stringify(v || [])) }
+    },
+    promoType: { type: DataTypes.STRING, allowNull: false, defaultValue: 'product' }, // 'product' or 'fastfood'
     status: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending_payment' }, // pending_payment, under_review, approved, scheduled, active, rejected, cancelled, expired
     paymentStatus: { type: DataTypes.STRING, allowNull: false, defaultValue: 'unpaid' }, // unpaid, paid, refunded
     amount: { type: DataTypes.REAL, allowNull: false, defaultValue: 0 },

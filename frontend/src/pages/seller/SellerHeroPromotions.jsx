@@ -10,6 +10,8 @@ export default function SellerHeroPromotions() {
   const [submitting, setSubmitting] = useState(false)
   const [mine, setMine] = useState([])
   const [message, setMessage] = useState('')
+  const [promoTitle, setPromoTitle] = useState('')
+  const [promoSubtitle, setPromoSubtitle] = useState('')
   const [uploadingId, setUploadingId] = useState(null)
   const [paymentProofUrl, setPaymentProofUrl] = useState('')
   const [proofUploading, setProofUploading] = useState(false)
@@ -117,11 +119,13 @@ export default function SellerHeroPromotions() {
 
   const submit = async () => {
     if (selected.length === 0) { setMessage('Select at least one product'); return }
+    if (!promoTitle.trim()) { setMessage('Please provide a preferred banner heading.'); return }
+    if (!promoSubtitle.trim()) { setMessage('Please provide a preferred subheading.'); return }
     if (!paymentProofUrl) { setMessage('Please upload payment proof before submitting.'); return }
     setSubmitting(true)
     setMessage('')
     try {
-      const { data } = await api.post('/hero-promotions/apply', { productIds: selected, durationDays, slotsCount })
+      const { data } = await api.post('/hero-promotions/apply', { productIds: selected, durationDays, slotsCount, title: promoTitle, subtitle: promoSubtitle })
       const appId = data?.promotion?.id
       if (appId && paymentProofUrl) {
         try { await api.post(`/hero-promotions/${appId}/payment-proof`, { paymentProofUrl }) } catch (_) { }
@@ -129,6 +133,8 @@ export default function SellerHeroPromotions() {
       setMessage(`Application submitted. Amount due: KES ${data?.promotion?.amount || estAmount}. Status: ${data?.promotion?.status}. Payment proof attached.`)
       setSelected([])
       setPaymentProofUrl('')
+      setPromoTitle('')
+      setPromoSubtitle('')
       api.get('/hero-promotions/mine').then(r => setMine(r.data?.items || [])).catch(() => { })
     } catch (e) {
       setMessage(e?.response?.data?.error || 'Failed to submit')
@@ -147,13 +153,13 @@ export default function SellerHeroPromotions() {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-0 sm:p-4">
       <h2 className="text-lg font-semibold mb-3">Apply for Hero Banner Promotion</h2>
       <div className="card p-4 mb-6">
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <div className="font-medium mb-2">Select Products</div>
-            <div className="max-h-64 overflow-auto border rounded">
+            <div className="max-h-64 overflow-auto border rounded mb-4">
               {products.map(p => (
                 <label key={p.id} className="flex items-center gap-2 p-2 border-b">
                   <input type="checkbox" checked={selected.includes(p.id)} onChange={() => onToggle(p.id)} />
@@ -161,6 +167,18 @@ export default function SellerHeroPromotions() {
                 </label>
               ))}
               {products.length === 0 && <div className="p-3 text-sm text-gray-500">No products yet.</div>}
+            </div>
+            
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Banner Heading <span className="text-red-500">*</span></label>
+                <input type="text" className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. FLASH SALE - ELECTRONICS" value={promoTitle} onChange={e => setPromoTitle(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Subheading <span className="text-red-500">*</span></label>
+                <input type="text" className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. Get up to 50% off amazing gadgets!" value={promoSubtitle} onChange={e => setPromoSubtitle(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">Our marketing team will review these for quality before publishing.</p>
+              </div>
             </div>
           </div>
           <div>
@@ -229,7 +247,7 @@ export default function SellerHeroPromotions() {
         return (
           <>
             <h4 className="text-sm font-semibold mb-1">Current</h4>
-            <div className="grid gap-3 mb-5">
+            <div className="grid grid-cols-2 gap-3 mb-5">
               {current.map(m => (
                 <div key={m.id} className="card p-3">
                   <div className="text-sm">ID: {m.id}</div>
@@ -265,7 +283,7 @@ export default function SellerHeroPromotions() {
             </div>
 
             <h4 className="text-sm font-semibold mb-1">History</h4>
-            <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {history.map(m => (
                 <div key={m.id} className="card p-3">
                   <div className="text-sm">ID: {m.id}</div>

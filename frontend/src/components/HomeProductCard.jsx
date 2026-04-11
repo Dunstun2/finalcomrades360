@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,14 +20,19 @@ function HomeProductCard({
   onView,
   onAddToCart,
   user,
-  navigate,
+  navigate: navigateProp,
   renderActions,
   statusBadge,
   contentClassName = '',
   className // Added className prop
 }) {
+  const navigateHook = useNavigate();
+  const navigate = navigateProp || navigateHook;
   const isMarketing = localStorage.getItem('marketing_mode') === 'true';
-  const { cart, addToCart, removeFromCart, refresh } = useCart();
+  const { cart, addToCart, removeFromCart, refresh, addingToCart } = useCart();
+
+
+  const isAdding = addingToCart && addingToCart.has(Number(product.id));
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { user: authUser } = useAuth();
   const { toast } = useToast();
@@ -62,12 +67,7 @@ function HomeProductCard({
 
   const { getVersionedUrl, refreshImages } = useImageVersion(imageUrls, product.id);
   const getVariantId = (v) => {
-    const finalId = unifiedGetVariantId(v);
-    console.log('[HomeProductCard] getVariantId debug:', { 
-      input: v, 
-      final: finalId 
-    });
-    return finalId;
+    return unifiedGetVariantId(v);
   };
 
   const productImageUrl = useMemo(() => {
@@ -80,6 +80,7 @@ function HomeProductCard({
       e.stopPropagation();
       e.preventDefault();
     }
+    if (isAdding) return;
 
     // Use current isInCart status from props
     const wasInCart = isInCart;
@@ -187,8 +188,11 @@ function HomeProductCard({
       if (onView) {
         onView(product);
       } else {
-        // Fallback to direct navigation if onView is not provided
-        navigate(`/product/${product.id}`, { state: { from: window.location.pathname } });
+        // Route fast food items to their dedicated detail page
+        const path = isFastFood
+          ? `/fastfood/${product.id}`
+          : `/product/${product.id}`;
+        navigate(path, { state: { from: window.location.pathname } });
       }
     } catch (error) {
       console.error('Navigation error:', error);
@@ -255,7 +259,7 @@ function HomeProductCard({
     : `w-full ${className || ''}`;
 
   return (
-    <div data-testid="product-card" className={`group flex-shrink-0 bg-white rounded-lg shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200 border border-gray-100 ${cardBase} sm:max-w-[420px]`}>
+    <div data-testid="product-card" className={`group flex-shrink-0 bg-white rounded-lg shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200 border border-gray-100 ${cardBase}`}>
       <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
         <img
           src={productImageUrl}
@@ -341,16 +345,16 @@ function HomeProductCard({
           <div className="flex items-center border-t border-gray-100 gap-1">
             <button
               onClick={handleAddToCart}
-              disabled={product.stock <= 0}
+              disabled={product.stock <= 0 || isAdding}
               className={`flex-1 min-w-0 px-1 py-1.5 sm:py-2 rounded font-bold transition-colors text-[10px] sm:text-xs truncate
-                ${product.stock <= 0
+                ${(product.stock <= 0 || isAdding)
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : isInCart
                   ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
                   : 'bg-orange-600 text-white hover:bg-orange-700'
                 }`}
             >
-              {product.stock <= 0 ? 'Out of Stock' : isInCart ? 'Remove' : (
+              {product.stock <= 0 ? 'Out of Stock' : isAdding ? 'Adding...' : isInCart ? 'Remove' : (
                 <>
                   <span className="sm:hidden">+ Cart</span>
                   <span className="hidden sm:inline">Add to Cart</span>

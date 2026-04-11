@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
+import { FaChevronLeft, FaChevronRight } from 'react-icons/fa'
 import api from '../../services/api'
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import DeleteConfirmationModal from '../../components/modals/DeleteConfirmationModal';
@@ -30,6 +31,17 @@ const withTimeout = (promise, ms, label) =>
 export default function SellerOverview() {
   const { user } = useAuth()
   const location = useLocation()
+  const scrollRef = useRef(null)
+
+  const scroll = (direction) => {
+    if (scrollRef.current) {
+      const scrollAmount = 200;
+      scrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
   
   // Secondary check for profile completeness
   if (user && !isSellerProfileComplete(user)) {
@@ -220,11 +232,11 @@ export default function SellerOverview() {
   });
 
   return (
-    <div className="p-4 dashboard-container">
+    <div className="w-full p-0 sm:p-6">
       {/* Page Header with Navigation Buttons */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Seller Overview</h1>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white md:p-4 rounded-xl md:border md:border-gray-100 md:shadow-sm">
+        <div className="hidden md:block">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">Seller Overview</h1>
           <p className="text-sm text-gray-500">Manage your business performance and orders.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -239,7 +251,7 @@ export default function SellerOverview() {
           )}
           <Link
             to="/"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:bg-gray-50 transition-all border border-gray-200"
+            className="hidden md:inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:bg-gray-50 transition-all border border-gray-200"
           >
             <span>🏠</span>
             <span>Exit Home</span>
@@ -247,46 +259,76 @@ export default function SellerOverview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-        <button className={`card text-left transition-all ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'today' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'today' ? '' : 'today')}>
+      <div className="relative group/kpi">
+        {/* Mobile Scroll Arrows */}
+        <button 
+          onClick={() => scroll('left')}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white/90 shadow-md rounded-full p-2 text-blue-600 md:hidden opacity-0 group-hover/kpi:opacity-100 transition-opacity"
+          aria-label="Scroll Left"
+        >
+          <FaChevronLeft size={14} />
+        </button>
+        <button 
+          onClick={() => scroll('right')}
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white/90 shadow-md rounded-full p-2 text-blue-600 md:hidden opacity-100 md:opacity-0 group-hover/kpi:opacity-100 transition-opacity"
+          aria-label="Scroll Right"
+        >
+          <FaChevronRight size={14} />
+        </button>
+
+        <div className="absolute right-0 top-0 bottom-4 w-12 bg-gradient-to-l from-[#F8FAFC] to-transparent pointer-events-none z-10 md:hidden" />
+        
+        <div 
+          ref={scrollRef}
+          className="flex flex-nowrap overflow-x-auto gap-3 pb-4 mb-2 no-scrollbar snap-x md:grid md:grid-cols-6 md:gap-4 md:mb-6 md:pb-0 scroll-smooth"
+        >
+        <button className={`card text-left transition-all min-w-[140px] flex-shrink-0 snap-start ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'today' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'today' ? '' : 'today')}>
           <div className="text-sm text-gray-500">Today Earnings (Base)</div>
           <div className="text-xl font-bold">
             {kpisLoading ? <span className="text-gray-400 animate-pulse">...</span> : `KES ${formatKES(displayKpis.todaySales)}`}
           </div>
         </button>
 
-        <button className={`card text-left transition-all ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'pendingOrders' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'pendingOrders' ? '' : 'pendingOrders')}>
+        <button className={`card text-left transition-all min-w-[140px] flex-shrink-0 snap-start ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'pendingOrders' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'pendingOrders' ? '' : 'pendingOrders')}>
           <div className="text-sm text-gray-500">Pending Orders</div>
           <div className="text-xl font-bold">
             {kpisLoading ? <span className="text-gray-400 animate-pulse">...</span> : displayKpis.pendingOrders}
           </div>
         </button>
 
-        <button className={`card text-left transition-all ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'lowStock' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'lowStock' ? '' : 'lowStock')}>
+        <button className={`card text-left transition-all min-w-[140px] flex-shrink-0 snap-start ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'lowStock' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'lowStock' ? '' : 'lowStock')}>
           <div className="text-sm text-gray-500">Low Stock</div>
           <div className="text-xl font-bold">
             {kpisLoading ? <span className="text-gray-400 animate-pulse">...</span> : displayKpis.lowStock}
           </div>
         </button>
 
-        <button className={`card text-left transition-all ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'rejected' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'rejected' ? '' : 'rejected')}>
+        <button className={`card text-left transition-all min-w-[140px] flex-shrink-0 snap-start ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'rejected' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'rejected' ? '' : 'rejected')}>
           <div className="text-sm text-gray-500">Total Rejected</div>
           <div className="text-xl font-bold">
             {kpisLoading ? <span className="text-gray-400 animate-pulse">...</span> : displayKpis.rejected}
           </div>
         </button>
 
-        <button className={`card text-left transition-all ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'awaiting' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'awaiting' ? '' : 'awaiting')}>
+        <button className={`card text-left transition-all min-w-[140px] flex-shrink-0 snap-start ${kpisLoading ? 'opacity-50 grayscale' : ''} ${activeFilter === 'awaiting' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setActiveFilter(activeFilter === 'awaiting' ? '' : 'awaiting')}>
           <div className="text-sm text-gray-500">Awaiting Approval</div>
           <div className="text-xl font-bold">
             {kpisLoading ? <span className="text-gray-400 animate-pulse">...</span> : displayKpis.awaitingApproval}
           </div>
         </button>
       </div>
+    </div>
 
       {/* Filtered details panel */}
       {activeFilter && (
-        <div className="card p-4 mb-6">
+        <div className="card p-4 mb-6 relative">
+          <button 
+            onClick={() => setActiveFilter('')}
+            className="absolute top-2 right-2 p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors z-10"
+            title="Close Details"
+          >
+            <span className="text-xl font-bold">×</span>
+          </button>
           {activeFilter === 'today' && (
             <div>
               <div className="text-lg font-semibold mb-2">Today’s Paid Orders</div>
@@ -477,7 +519,7 @@ export default function SellerOverview() {
       {/* PRODUCTS SECTION */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Your Products</h2>
+          <h2 className="text-xl font-bold text-gray-800 hidden md:block">Your Products</h2>
           <div className="flex gap-2">
             <Link to="/seller/products/add" className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors shadow-sm">
               + Add Product
@@ -497,10 +539,10 @@ export default function SellerOverview() {
             No approved products yet.
           </div>
         ) : (
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
             {products.slice(0, 6).map(p => (
-              <div key={p.id} className="group w-[210px] min-w-[210px] max-w-[210px] flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 border border-gray-100 flex flex-col overflow-hidden">
-                <div className="relative h-48 overflow-hidden bg-gray-100">
+              <div key={p.id} className="group w-full bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 border border-gray-100 flex flex-col overflow-hidden">
+                <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
                   <img
                     src={resolveImageUrl((p.images || [])[0])}
                     alt={p.name}
@@ -529,13 +571,13 @@ export default function SellerOverview() {
                   </div>
                 </div>
 
-                <div className="p-3 flex flex-col flex-grow">
+                <div className="flex flex-col flex-grow">
                   <h3 className="font-medium text-gray-900 mb-1 line-clamp-2 text-sm h-10 leading-tight">
                     {p.name}
                   </h3>
 
-                  <div className="mb-3 flex flex-col items-start gap-1">
-                    <div className="text-blue-600 font-bold text-sm">KES {formatKES(p.basePrice || 0)}</div>
+                  <div className="px-2 sm:px-3 mb-3 flex flex-col items-start gap-1">
+                    <div className="text-blue-600 font-bold text-sm sm:text-base">KES {formatKES(p.basePrice || 0)}</div>
                   </div>
 
                   <div className="mt-auto flex gap-2 pt-2 border-t border-gray-50">
@@ -571,7 +613,7 @@ export default function SellerOverview() {
       {/* FAST FOOD SECTION */}
       <div className="mb-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Your Fast Food Items</h2>
+          <h2 className="text-xl font-bold text-gray-800 hidden md:block">Your Fast Food Items</h2>
           <Link to="/seller/fast-food/new" className="text-sm text-orange-600 hover:text-orange-800 font-medium">
             + Create Item
           </Link>
@@ -586,10 +628,10 @@ export default function SellerOverview() {
             No fast food items yet.
           </div>
         ) : (
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2 sm:gap-4">
             {fastFoods.filter(f => f && f.id).slice(0, 6).map(f => (
-              <div key={f.id} className="group w-[210px] min-w-[210px] max-w-[210px] flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 border border-gray-100 flex flex-col overflow-hidden">
-                <div className="relative h-48 overflow-hidden bg-gray-100">
+              <div key={f.id} className="group w-full bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 border border-gray-100 flex flex-col overflow-hidden">
+                <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
                   <img
                     src={resolveImageUrl(f.mainImage)}
                     alt={f.name}
@@ -617,7 +659,7 @@ export default function SellerOverview() {
                   </div>
                 </div>
 
-                <div className="p-3 flex flex-col flex-grow">
+                <div className="flex flex-col flex-grow">
                   <h3 className="font-medium text-gray-900 mb-1 line-clamp-2 text-sm h-10 leading-tight">
                     {f.name}
                   </h3>
@@ -655,7 +697,7 @@ export default function SellerOverview() {
         )}
       </div>
 
-      <div className="flex gap-3 flex-wrap">
+      <div className="hidden md:flex gap-3 flex-wrap">
         <Link to="/seller/products/add" className="btn btn-primary">Create Retail Product</Link>
         <Link to="/seller/products" className="btn">Manage Products</Link>
         <Link to="/seller/orders" className="btn">My Sales</Link>

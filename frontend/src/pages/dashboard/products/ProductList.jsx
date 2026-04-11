@@ -28,8 +28,8 @@ const ProductList = () => {
     const cover = p?.coverImage;
     if (cover) {
       if (/^https?:\/\//i.test(cover)) return cover;
-      if (/^\//.test(cover)) return `http://localhost:5000${cover}`;
-      return `http://localhost:5000/${cover}`;
+      if (/^\//.test(cover)) return cover;
+      return `/${cover}`;
     }
 
     // Priority 2: Use existing thumbnail/images logic
@@ -39,12 +39,12 @@ const ProductList = () => {
     const first = imgs[0];
     if (first) {
       if (/^https?:\/\//i.test(first)) return first;
-      if (/^\//.test(first)) return `http://localhost:5000${first}`;
-      return `http://localhost:5000/${first}`;
+      if (/^\//.test(first)) return first;
+      return `/${first}`;
     }
     if (t) {
-      if (/^\//.test(t)) return `http://localhost:5000${t}`;
-      return `http://localhost:5000/${t}`;
+      if (/^\//.test(t)) return t;
+      return `/${t}`;
     }
     return FALLBACK_IMG;
   };
@@ -287,7 +287,7 @@ const ProductList = () => {
       </div>
 
       {/* Products Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full flex justify-center items-center h-32">
             <Loader2 className="h-8 w-8 animate-spin" />

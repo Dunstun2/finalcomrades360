@@ -134,6 +134,34 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const googleLogin = async (googleToken) => {
+    try {
+      const response = await api.post('/auth/google', { token: googleToken });
+      const { token, user } = response.data;
+
+      localStorage.setItem('token', token);
+
+      const sessionUser = {
+        ...user,
+        role: user.role || 'customer',
+        roles: user.roles || [user.role || 'customer']
+      };
+
+      setUser(sessionUser);
+      localStorage.setItem('user', JSON.stringify(sessionUser));
+      joinUserRoom(sessionUser.id);
+
+      setVerificationRequired(false);
+      setVerificationMessage('');
+
+      return user;
+    } catch (error) {
+      console.error('[AuthContext] Google Login failed:', error.message);
+      setError(error.message);
+      throw error;
+    }
+  };
+
   // setSession — used by OTP verification flow to log in without calling /auth/login again
   const setSession = useCallback((token, userData) => {
     localStorage.setItem('token', token);
@@ -224,7 +252,8 @@ export const AuthProvider = ({ children }) => {
     updateUser,
     retryAuth,
     setSession,
-  }), [user, loading, error, verificationRequired, verificationMessage, login, logout, updateUser, retryAuth, setSession]);
+    googleLogin,
+  }), [user, loading, error, verificationRequired, verificationMessage, login, logout, updateUser, retryAuth, setSession, googleLogin]);
 
   return (
     <AuthContext.Provider value={value}>

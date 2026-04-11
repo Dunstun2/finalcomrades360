@@ -9,7 +9,11 @@ module.exports = (sequelize, DataTypes) => {
     },
     email: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: true  // now nullable — either email or phone
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true  // for SMS-based OTPs
     },
     otp: {
       type: DataTypes.STRING,

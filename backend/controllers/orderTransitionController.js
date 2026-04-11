@@ -1,4 +1,11 @@
 const { Order, OrderItem, DeliveryTask, Warehouse, PickupStation, User, FastFoodPickupPoint, PlatformConfig, DeliveryCharge } = require('../models');
+const { 
+  notifyCustomerReadyForPickupStation,
+  notifyCustomerOrderCancelled,
+  notifyCustomerSellerConfirmed,
+  notifyCustomerOutForDelivery,
+  logNotify
+} = require('../utils/notificationHelpers');
 const { upsertDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
 const { Op } = require('sequelize');
 
@@ -11,7 +18,7 @@ const DELIVERY_TASK_CREATION_STATUSES = new Set([
   'at_pick_station',
   'awaiting_delivery_assignment',
   'processing',
-  'received_at_warehouse',
+  'at_warehouse',
   'ready_for_pickup',
   'in_transit',
 ]);
@@ -23,6 +30,7 @@ const DELIVERY_TASK_CREATION_STATUSES = new Set([
 const VALID_TRANSITIONS = {
   // Direct delivery: seller → customer (skip hubs)
   direct_delivery: {
+    super_admin_confirmed: ['seller_confirmed'],
     seller_confirmed: ['in_transit'],
     in_transit: ['delivered', 'failed'],
     delivered: ['completed'],
@@ -80,12 +88,13 @@ const getValidTransitionsForOrder = (order) => {
   const currentStatus = order.status;
   const routingStrategy = order.adminRoutingStrategy;
   const deliveryMethod = order.deliveryMethod;
+  const routeViaPickStation = !!(order.destinationPickStationId || order.pickupStationId);
   const baseTransitions = VALID_TRANSITIONS[routingStrategy][currentStatus] || [];
 
   if (routingStrategy === 'warehouse' && currentStatus === 'at_warehouse') {
-    return deliveryMethod === 'home_delivery'
-      ? ['awaiting_delivery_assignment']
-      : ['en_route_to_pick_station'];
+    return routeViaPickStation || deliveryMethod === 'pick_station'
+      ? ['en_route_to_pick_station']
+      : ['awaiting_delivery_assignment'];
   }
 
   if ((routingStrategy === 'warehouse' || routingStrategy === 'pick_station') && currentStatus === 'at_pick_station') {
@@ -113,6 +122,7 @@ const isValidTransition = (currentStatus, nextStatus, routingStrategy, deliveryM
 
 const deriveTaskRouteDetails = async (order, status) => {
   const currentStatus = status || order.status;
+  const routeViaPickStation = !!(order.destinationPickStationId || order.pickupStationId);
 
   if (order.adminRoutingStrategy === 'direct_delivery') {
     return {
@@ -123,13 +133,25 @@ const deriveTaskRouteDetails = async (order, status) => {
   }
 
   if (order.adminRoutingStrategy === 'warehouse') {
-    if (['awaiting_delivery_assignment', 'in_transit', 'processing', 'received_at_warehouse'].includes(currentStatus) && order.deliveryMethod === 'home_delivery') {
-      const warehouse = order.destinationWarehouseId ? await Warehouse.findByPk(order.destinationWarehouseId) : null;
-      return {
-        deliveryType: 'warehouse_to_customer',
-        pickupLocation: warehouse?.address || warehouse?.landmark || 'Warehouse Hub',
-        deliveryLocation: order.deliveryAddress,
-      };
+    if (['awaiting_delivery_assignment', 'in_transit', 'processing', 'at_warehouse'].includes(currentStatus)) {
+      if (routeViaPickStation || order.deliveryMethod === 'pick_station') {
+        const warehouse = order.destinationWarehouseId ? await Warehouse.findByPk(order.destinationWarehouseId) : null;
+        const pickStation = order.destinationPickStationId ? await PickupStation.findByPk(order.destinationPickStationId) : null;
+        return {
+          deliveryType: 'warehouse_to_pickup_station',
+          pickupLocation: warehouse?.address || warehouse?.landmark || 'Warehouse Hub',
+          deliveryLocation: pickStation?.location || pickStation?.address || 'Pickup Station',
+        };
+      }
+
+      if (order.deliveryMethod === 'home_delivery') {
+        const warehouse = order.destinationWarehouseId ? await Warehouse.findByPk(order.destinationWarehouseId) : null;
+        return {
+          deliveryType: 'warehouse_to_customer',
+          pickupLocation: warehouse?.address || warehouse?.landmark || 'Warehouse Hub',
+          deliveryLocation: order.deliveryAddress,
+        };
+      }
     }
 
     const warehouse = order.destinationWarehouseId ? await Warehouse.findByPk(order.destinationWarehouseId) : null;
@@ -292,10 +314,12 @@ const transitionOrderStatus = async (req, res) => {
       });
     }
 
+    const { ORDER_SOCKET_INCLUDES, formatOrderSocketData } = require('../utils/orderHelpers');
     const order = await Order.findByPk(orderId, {
       include: [
         { model: User, as: 'seller', attributes: ['businessAddress', 'businessName'] },
         { model: OrderItem, as: 'OrderItems' },
+        ...ORDER_SOCKET_INCLUDES
       ],
     });
 
@@ -317,6 +341,8 @@ const transitionOrderStatus = async (req, res) => {
     if (newStatus === 'awaiting_delivery_assignment') {
       createdTask = await autoCreateDeliveryTask(order, order.status, newStatus);
     }
+
+    const fromStatus = order.status;
 
     // Update order status
     const updatedOrder = await order.update({
@@ -349,23 +375,39 @@ const transitionOrderStatus = async (req, res) => {
     const { getIO } = require('../realtime/socket');
     const io = getIO();
     if (io) {
-      const socketData = {
-        orderId: updatedOrder.id,
-        status: newStatus,
-        orderNumber: updatedOrder.orderNumber,
-        warehouseId: updatedOrder.warehouseId,
-        destinationWarehouseId: updatedOrder.destinationWarehouseId,
-        pickupStationId: updatedOrder.pickupStationId,
-        destinationPickStationId: updatedOrder.destinationPickStationId,
-        adminRoutingStrategy: updatedOrder.adminRoutingStrategy,
-        shippingType: updatedOrder.shippingType,
-        updatedAt: updatedOrder.updatedAt
-      };
-      io.to(`user:${updatedOrder.userId}`).emit('orderStatusUpdate', socketData);
-      io.to('admin').emit('orderStatusUpdate', socketData);
+      const socketPayload = formatOrderSocketData(updatedOrder);
+      io.to(`user:${updatedOrder.userId}`).emit('orderStatusUpdate', socketPayload);
+      io.to('admin').emit('orderStatusUpdate', socketPayload);
       if (updatedOrder.sellerId) {
-        io.to(`user:${updatedOrder.sellerId}`).emit('orderStatusUpdate', socketData);
+        io.to(`user:${updatedOrder.sellerId}`).emit('orderStatusUpdate', socketPayload);
       }
+    }
+
+    // Trigger Notifications for specific transitions
+    try {
+      logNotify(`TRANSITION: ${order.orderNumber} -> ${newStatus}`);
+      if (newStatus === 'ready_for_pickup') {
+          const station = updatedOrder.destinationPickStationId 
+            ? await PickupStation.findByPk(updatedOrder.destinationPickStationId) 
+            : (updatedOrder.destinationFastFoodPickupPointId ? await FastFoodPickupPoint.findByPk(updatedOrder.destinationFastFoodPickupPointId) : null);
+          if (station) await notifyCustomerReadyForPickupStation(updatedOrder, station);
+      } else if (newStatus === 'cancelled') {
+          await notifyCustomerOrderCancelled(updatedOrder, 'Status updated by admin');
+      } else if (newStatus === 'seller_confirmed' && fromStatus === 'order_placed') {
+          const seller = await User.findByPk(updatedOrder.sellerId);
+          await notifyCustomerSellerConfirmed(updatedOrder, seller);
+      } else if (newStatus === 'in_transit') {
+          // Fetch assigned agent if not loaded
+          const agent = updatedOrder.deliveryAgent || await User.findByPk(updatedOrder.deliveryAgentId);
+          if (agent) {
+              await notifyCustomerOutForDelivery(updatedOrder, agent);
+          } else {
+              logNotify(`⚠️ [In Transit] Warning: No agent found for order ${updatedOrder.orderNumber}`);
+          }
+      }
+    } catch (notifyErr) {
+      logNotify(`⚠️ [Transition Notif] Failure: ${notifyErr.message}`);
+      console.warn('[orderTransitionController] Notification failed:', notifyErr.message);
     }
 
     return res.json({

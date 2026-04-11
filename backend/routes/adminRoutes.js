@@ -51,16 +51,20 @@ const {
   deleteUser,
   getSearchAnalytics,
   getRevenueAnalytics,
-  verifyAdminPassword
+  verifyAdminPassword,
+  getPlatformWalletDetails,
+  withdrawPlatformFunds
 } = require('../controllers/adminController');
 
-const { auth, adminOnly, adminOrLogistics, adminOrFinance } = require('../middleware/auth');
+const { auth, adminOnly, adminOrLogistics, adminOrLogisticsOrSeller, adminOrFinance } = require('../middleware/auth');
 const { 
   adminListDeliveryAgents, 
   getAvailableAgentsForOrder, 
   adminGetGlobalMapData,
   adminApproveRequest,
   adminRejectRequest,
+  adminBulkApproveRequests,
+  adminBulkRejectRequests,
   getAdminAgentDetail,
   getAdminAgentHistory,
   toggleAgentActiveStatus
@@ -127,6 +131,8 @@ router.get('/delivery/agents/:agentId/detail', adminOrLogistics, getAdminAgentDe
 router.get('/delivery/agents/:agentId/history', adminOrLogistics, getAdminAgentHistory);
 router.patch('/delivery/agents/:agentId/toggle-status', adminOrLogistics, toggleAgentActiveStatus);
 router.get('/delivery/global-map-data', adminOrLogistics, adminGetGlobalMapData);
+router.post('/delivery/requests/bulk-approve', adminOrLogistics, adminBulkApproveRequests);
+router.post('/delivery/requests/bulk-reject', adminOrLogistics, adminBulkRejectRequests);
 router.post('/delivery/requests/:taskId/approve', adminOrLogistics, adminApproveRequest);
 router.post('/delivery/requests/:taskId/reject', adminOrLogistics, adminRejectRequest);
 
@@ -134,10 +140,10 @@ router.post('/delivery/requests/:taskId/reject', adminOrLogistics, adminRejectRe
 router.get('/analytics/users', adminOnly, getUserAnalytics);
 
 // Advanced inventory management
-router.get('/inventory/overview', adminOrLogistics, getInventoryOverview);
-router.get('/inventory/items', adminOrLogistics, getInventoryItems);
-router.get('/inventory/low-stock-alerts', adminOrLogistics, getLowStockAlerts);
-router.patch('/products/:productId/stock', adminOrLogistics, updateStockLevels);
+router.get('/inventory/overview', adminOrLogisticsOrSeller, getInventoryOverview);
+router.get('/inventory/items', adminOrLogisticsOrSeller, getInventoryItems);
+router.get('/inventory/low-stock-alerts', adminOrLogisticsOrSeller, getLowStockAlerts);
+router.patch('/products/:productId/stock', adminOrLogisticsOrSeller, updateStockLevels);
 router.post('/inventory/bulk-update-stock', adminOrLogistics, bulkUpdateStock);
 
 // Product analytics
@@ -167,6 +173,8 @@ router.patch('/products/:productId/featured', adminOnly, manageFeaturedProducts)
 router.patch('/products/:productId/search-priority', adminOnly, updateSearchPriority);
 router.get('/analytics/search', adminOnly, getSearchAnalytics);
 router.get('/analytics/revenue', adminOrFinance, getRevenueAnalytics);
+router.get('/finance/platform-wallet', adminOrFinance, getPlatformWalletDetails);
+router.post('/finance/platform-wallet/withdraw', adminOnly, withdrawPlatformFunds); // Ensure adminOnly (we will check super_admin in controller)
 router.post('/verify-password', adminOnly, verifyAdminPassword);
 
 module.exports = router;

@@ -1,29 +1,149 @@
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
-const { User, PasswordReset } = require('../models');
+const { User, PasswordReset, PlatformConfig } = require('../models');
 const { sendEmail } = require('../utils/mailer');
-const { sendSms } = require('../utils/sms');
+const { sendMessage } = require('../utils/messageService');
+const { isValidEmail, normalizeKenyanPhone } = require('../middleware/validators');
+
+const DEFAULT_RESET_TEMPLATE = 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.';
+const DEFAULT_RESET_CHANNELS = { email: true, sms: true, whatsapp: false };
+
+const toConfigObject = (value) => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return {};
+  }
+};
+
+const buildResetMessage = (template, token, expiryMinutes) => (
+  String(template || DEFAULT_RESET_TEMPLATE)
+    .replace(/\{otp\}/g, token)
+    .replace(/\{code\}/g, token)
+    .replace(/\{token\}/g, token)
+    .replace(/\{minutes\}/g, String(expiryMinutes))
+);
+
+const loadResetMessagingConfig = async () => {
+  const channels = { ...DEFAULT_RESET_CHANNELS };
+  let template = DEFAULT_RESET_TEMPLATE;
+
+  try {
+    const whatsappConfigRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
+    const whatsappConfig = toConfigObject(whatsappConfigRecord?.value);
+
+    if (whatsappConfig?.templates?.passwordReset) {
+      template = whatsappConfig.templates.passwordReset;
+    }
+
+    const configuredChannels = whatsappConfig?.channels?.passwordReset;
+    if (configuredChannels && typeof configuredChannels === 'object') {
+      ['email', 'sms', 'whatsapp'].forEach((channel) => {
+        if (Object.prototype.hasOwnProperty.call(configuredChannels, channel)) {
+          channels[channel] = configuredChannels[channel] !== false;
+        }
+      });
+    }
+  } catch (configError) {
+    console.warn('[password-reset] Failed to load whatsapp_config:', configError.message);
+  }
+
+  try {
+    const notificationSettingsRecord = await PlatformConfig.findOne({ where: { key: 'notification_settings' } });
+    const notificationSettings = toConfigObject(notificationSettingsRecord?.value);
+
+    if (!Object.prototype.hasOwnProperty.call(channels, 'email') && notificationSettings.emailNotifications === false) {
+      channels.email = false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(channels, 'sms') && notificationSettings.smsNotifications === false) {
+      channels.sms = false;
+    }
+  } catch (configError) {
+    console.warn('[password-reset] Failed to load notification_settings:', configError.message);
+  }
+
+  return { channels, template };
+};
+
+const sendToPhoneCandidates = async (numbers, message, method, userId) => {
+  if (!Array.isArray(numbers) || numbers.length === 0) {
+    console.warn(`[password-reset] No valid phone found for ${method.toUpperCase()} delivery for user ${userId}`);
+    return;
+  }
+
+  let sent = false;
+  for (const phoneNumber of numbers) {
+    try {
+      await sendMessage(phoneNumber, message, method);
+      sent = true;
+      break;
+    } catch (deliveryError) {
+      console.warn(`[password-reset] ${method.toUpperCase()} delivery failed to ${phoneNumber}:`, deliveryError.message);
+    }
+  }
+
+  if (!sent) {
+    console.warn(`[password-reset] ${method.toUpperCase()} delivery failed for all candidate numbers for user ${userId}`);
+  }
+};
 
 const requestPasswordReset = async (req, res) => {
-  const { email } = req.body || {}
+  const { email, phone, identifier } = req.body || {}
   try {
-    if (!email) return res.status(400).json({ message: 'Email is required.' })
-    const user = await User.findOne({ where: { email } })
+    const rawIdentifier = String(identifier || email || phone || '').trim();
+    if (!rawIdentifier) {
+      return res.status(400).json({ message: 'Email or phone is required.' })
+    }
+
+    const looksLikeEmail = isValidEmail(rawIdentifier);
+    const normalizedPhone = looksLikeEmail ? null : normalizeKenyanPhone(rawIdentifier);
+
+    const lookupWhere = looksLikeEmail
+      ? { email: rawIdentifier }
+      : (normalizedPhone ? { phone: normalizedPhone } : { email: rawIdentifier });
+
+    const user = await User.findOne({ where: lookupWhere })
     // To prevent user enumeration, always respond with success, but only create token if user exists
     // Generate 6-digit numeric code
     const token = Math.floor(100000 + Math.random() * 900000).toString()
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+    const expiryMinutes = 60;
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000)
     if (user) {
       await PasswordReset.update({ used: true }, { where: { userId: user.id, used: false } })
       await PasswordReset.create({ userId: user.id, token, expiresAt, used: false })
-      try {
-        await sendEmail(user.email, 'Reset your Comrades360 password', `Your password reset code is: ${token}`)
-        if (user.phone) {
-          await sendSms(user.phone, `Your Comrades360 password reset code is: ${token}`)
+
+      const { channels, template } = await loadResetMessagingConfig();
+      const resetMessage = buildResetMessage(template, token, expiryMinutes);
+
+      if (channels.email !== false && user.email) {
+        try {
+          await sendEmail(user.email, 'Reset your Comrades360 password', resetMessage)
+        } catch (emailError) {
+          console.warn('[password-reset] Email delivery failed:', emailError.message)
         }
-      } catch { }
+      }
+
+      const smsCandidates = [
+        user.phone,
+        user.additionalPhone,
+        looksLikeEmail ? null : rawIdentifier
+      ]
+        .map((p) => normalizeKenyanPhone(p))
+        .filter(Boolean);
+
+      const uniqueSmsNumbers = [...new Set(smsCandidates)];
+
+      if (channels.sms !== false) {
+        await sendToPhoneCandidates(uniqueSmsNumbers, resetMessage, 'sms', user.id);
+      }
+
+      if (channels.whatsapp === true) {
+        await sendToPhoneCandidates(uniqueSmsNumbers, resetMessage, 'whatsapp', user.id);
+      }
     }
-    return res.json({ message: 'If that email exists, a reset code has been sent to your email and phone.' })
+    return res.json({ message: 'If that account exists, a reset code has been sent through enabled channels.' })
   } catch (e) {
     return res.status(500).json({ message: 'Server error requesting password reset.', error: e.message })
   }

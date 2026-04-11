@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { FaMoneyBillWave, FaWallet, FaHistory, FaCheckCircle, FaClock, FaArrowRight, FaStore } from 'react-icons/fa';
+import { FaMoneyBillWave, FaWallet, FaHistory, FaCheckCircle, FaClock, FaArrowRight, FaStore, FaImage, FaPaperclip } from 'react-icons/fa';
 import { formatPrice } from '../../utils/currency';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import WithdrawalModal from '../../components/modals/WithdrawalModal';
 
 const SellerWallet = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'success', or 'paid'
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [walletData, setWalletData] = useState({
     balance: 0,
     pendingBalance: 0,
@@ -51,12 +53,13 @@ const SellerWallet = () => {
   }
 
   return (
-    <div className="p-6 space-y-8 animate-fadeIn">
+    <>
+    <div className="p-0 sm:p-6 space-y-8 animate-fadeIn">
       {/* Header Section */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Seller Wallet</h1>
-          <p className="text-gray-500">Manage your sales earnings and withdrawals</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900 leading-tight">Seller Wallet</h1>
+          <p className="text-sm text-gray-500">Manage your earnings and withdrawals</p>
         </div>
         <div className="hidden md:flex items-center space-x-2 text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-full">
           <FaStore className="text-blue-500" />
@@ -65,9 +68,9 @@ const SellerWallet = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-6">
         {/* Available Balance */}
-        <div className="bg-gradient-to-br from-green-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg overflow-hidden relative">
+        <div className="bg-gradient-to-br from-green-600 to-teal-700 rounded-2xl p-4 md:p-6 text-white shadow-lg overflow-hidden relative col-span-2 md:col-span-1">
           <div className="relative z-10">
             <div className="flex justify-between items-start mb-4">
               <span className="text-green-100 font-medium">Available (Paid)</span>
@@ -76,7 +79,10 @@ const SellerWallet = () => {
               </div>
             </div>
             <div className="text-3xl font-bold mb-4">{formatPrice(walletData.balance)}</div>
-            <button className="bg-white text-green-700 w-full py-2 rounded-xl font-bold text-sm hover:bg-green-50 transition-colors flex items-center justify-center group">
+            <button 
+              onClick={() => setShowWithdrawModal(true)}
+              className="bg-white text-green-700 w-full py-2 rounded-xl font-bold text-sm hover:bg-green-50 transition-colors flex items-center justify-center group"
+            >
               Withdraw
               <FaArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" />
             </button>
@@ -230,6 +236,34 @@ const SellerWallet = () => {
                       ) : (
                         <p className="text-xs text-gray-500 italic">No itemized details available for this record.</p>
                       )}
+
+                      {/* Payout Metadata/Proof */}
+                      {(tx.metadata?.paymentReference || tx.metadata?.payoutProofUrl) && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 bg-blue-50/50 -mx-4 -mb-4 p-4 rounded-b-xl">
+                          <h5 className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                            <FaCheckCircle className="text-xs" /> Official Payout Confirmation
+                          </h5>
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                            {tx.metadata.paymentReference && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <FaPaperclip className="text-blue-400" />
+                                <span className="text-gray-500">Ref:</span>
+                                <span className="font-mono font-bold text-blue-900">{tx.metadata.paymentReference}</span>
+                              </div>
+                            )}
+                            {tx.metadata.payoutProofUrl && (
+                              <a 
+                                href={tx.metadata.payoutProofUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-all shadow-md active:scale-95"
+                              >
+                                <FaImage /> View Proof Receipt
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -243,7 +277,16 @@ const SellerWallet = () => {
           )}
         </div>
       </div>
+
+      <WithdrawalModal 
+        isOpen={showWithdrawModal}
+        onClose={() => setShowWithdrawModal(false)}
+        onSuccess={fetchWalletData}
+        balance={walletData.balance}
+        role="seller"
+      />
     </div>
+    </>
   );
 };
 

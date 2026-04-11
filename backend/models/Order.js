@@ -9,7 +9,7 @@ module.exports = (sequelize, DataTypes) => {
     checkoutGroupId: { type: DataTypes.STRING, allowNull: true }, // Links multiple split orders from one checkout
     checkoutOrderNumber: { type: DataTypes.STRING, allowNull: true }, // Unified order number for the customer
     total: { type: DataTypes.FLOAT, defaultValue: 0 },
-    status: { type: DataTypes.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'received_at_warehouse', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned', 'return_in_progress'), defaultValue: "order_placed" },
+    status: { type: DataTypes.ENUM('order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'awaiting_delivery_assignment', 'processing', 'ready_for_pickup', 'in_transit', 'delivered', 'completed', 'failed', 'cancelled', 'returned', 'return_in_progress'), defaultValue: "order_placed" },
     returnStatus: { type: DataTypes.ENUM('none', 'requested', 'approved', 'rejected', 'partially_returned', 'returned'), defaultValue: 'none' },
     paymentMethod: { type: DataTypes.STRING, allowNull: false },
     paymentType: { type: DataTypes.ENUM('cash_on_delivery', 'prepay'), allowNull: true },
@@ -106,6 +106,7 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['marketerId'] },
       { fields: ['status'] },
       { fields: ['createdAt'] },
+      { fields: ['checkoutOrderNumber'] },
       { fields: ['customerEmail'] },
       { fields: ['customerPhone'] }
     ]
@@ -147,6 +148,15 @@ module.exports = (sequelize, DataTypes) => {
       as: 'batch'
     });
   };
+
+  // Safety Sync: Ensure COD orders reach terminal 'delivered' status with payment confirmation
+  Order.addHook('beforeSave', (order, options) => {
+    if (order.changed('status') && order.status === 'delivered') {
+      if (order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed) {
+        order.paymentConfirmed = true;
+      }
+    }
+  });
 
   return Order;
 };

@@ -165,7 +165,7 @@ export default function PendingApplications() {
     })
     : [];
 
-  const fileBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+  const fileBase = import.meta.env.VITE_API_BASE_URL || '';
 
   return (
     <div className="space-y-6">
@@ -444,7 +444,7 @@ const ReviewApplicationModal = ({ application, onClose, onSubmit, onActionChange
   };
 
   // Build full image URLs
-  const fileBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const fileBase = import.meta.env.VITE_API_URL || '';
   const imageUrls = {
     nationalIdFront: documentFields.nationalIdFront ? `${fileBase}/uploads/${documentFields.nationalIdFront}` : null,
     nationalIdBack: documentFields.nationalIdBack ? `${fileBase}/uploads/${documentFields.nationalIdBack}` : null,

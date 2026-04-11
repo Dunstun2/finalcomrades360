@@ -7,7 +7,7 @@ const PhoneVerification = ({ currentPhone, onVerified }) => {
   const [verificationCode, setVerificationCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1); // 1: Input Phone, 2: Input OTP
-  const [method, setMethod] = useState('sms'); // 'sms' or 'whatsapp'
+  const [method, setMethod] = useState('whatsapp'); // 'sms' or 'whatsapp'
   const [showDndHint, setShowDndHint] = useState(false);
   
   const handleSendOtp = async (e) => {

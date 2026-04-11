@@ -111,7 +111,7 @@ export default function ServiceCard({
     : `w-full ${className || ''}`;
 
   return (
-    <div className={`flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow duration-200 group flex flex-col overflow-hidden ${cardBase} sm:max-w-[420px]`}>
+    <div className={`flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow duration-200 group flex flex-col overflow-hidden ${cardBase}`}>
       {/* Service Image */}
       <div className="relative h-32 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
         <img

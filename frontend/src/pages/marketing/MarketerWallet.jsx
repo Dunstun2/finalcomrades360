@@ -11,7 +11,11 @@ const MarketerWallet = () => {
     const [submitting, setSubmitting] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
     const [withdrawAmount, setWithdrawAmount] = useState('');
-    const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'success', or 'paid'
+    const [paymentMethod, setPaymentMethod] = useState('mpesa');
+    const [mpesaNumber, setMpesaNumber] = useState('');
+    const [bankName, setBankName] = useState('');
+    const [accountNumber, setAccountNumber] = useState('');
+    const [activeTab, setActiveTab] = useState('pending');
     const [walletData, setWalletData] = useState({
         balance: 0,
         pendingBalance: 0,
@@ -43,19 +47,43 @@ const MarketerWallet = () => {
             toast({ title: 'Invalid Amount', description: 'Please enter a valid amount to withdraw.', variant: 'destructive' });
             return;
         }
-
         if (amount > walletData.balance) {
             toast({ title: 'Insufficient Balance', description: 'You cannot withdraw more than your available balance.', variant: 'destructive' });
             return;
         }
+        const minPayout = walletData.minPayout || 0;
+        if (minPayout > 0 && amount < minPayout) {
+            toast({ title: 'Below Minimum', description: `Minimum withdrawal amount is KES ${minPayout}.`, variant: 'destructive' });
+            return;
+        }
+        if (paymentMethod === 'mpesa' && !mpesaNumber) {
+            toast({ title: 'Missing Details', description: 'Please enter your M-Pesa number.', variant: 'destructive' });
+            return;
+        }
+        if (paymentMethod === 'bank' && (!bankName || !accountNumber)) {
+            toast({ title: 'Missing Details', description: 'Please enter your bank name and account number.', variant: 'destructive' });
+            return;
+        }
+
+        const paymentMeta = paymentMethod === 'mpesa'
+            ? { method: 'mpesa', mpesaNumber }
+            : { method: 'bank', bankName, accountNumber };
 
         setSubmitting(true);
         try {
-            await api.post('/marketing/wallet/withdraw', { amount });
+            await api.post('/marketing/wallet/withdraw', {
+                amount,
+                paymentMethod,
+                paymentDetails: paymentMethod === 'mpesa' ? mpesaNumber : `${bankName} / ${accountNumber}`,
+                paymentMeta
+            });
             toast({ title: 'Request Sent', description: `Your withdrawal request for ${formatPrice(amount)} has been submitted for approval.` });
             setShowWithdrawModal(false);
             setWithdrawAmount('');
-            fetchWalletData(); // Refresh data
+            setMpesaNumber('');
+            setBankName('');
+            setAccountNumber('');
+            fetchWalletData();
         } catch (error) {
             console.error('Withdrawal failed:', error);
             toast({ title: 'Error', description: error.response?.data?.message || 'Failed to submit withdrawal request.', variant: 'destructive' });
@@ -243,9 +271,9 @@ const MarketerWallet = () => {
                         <div className="bg-gradient-to-r from-purple-600 to-indigo-700 p-8 text-white relative">
                             <button
                                 onClick={() => setShowWithdrawModal(false)}
-                                className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                                className="absolute top-4 right-4 p-3 bg-red-600 text-white font-bold text-lg rounded-full shadow-lg hover:bg-red-700 transition-all z-[120]"
                             >
-                                <FaTimes />
+                                X
                             </button>
                             <FaWallet className="text-4xl mb-4 opacity-50" />
                             <h3 className="text-2xl font-black uppercase tracking-tight">Request Payout</h3>
@@ -272,17 +300,89 @@ const MarketerWallet = () => {
                                                 onChange={(e) => setWithdrawAmount(e.target.value)}
                                                 placeholder="0.00"
                                                 required
-                                                min="1"
+                                                min={walletData.minPayout || 1}
                                                 max={walletData.balance}
-                                                className="w-full pl-14 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-xl font-black focus:outline-none focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 transition-all font-mono"
+                                                className={`w-full pl-14 pr-4 py-4 bg-gray-50 border rounded-2xl text-xl font-black focus:outline-none focus:ring-4 transition-all font-mono ${
+                                                    withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) < (walletData.minPayout || 0)
+                                                        ? 'border-red-400 focus:ring-red-500/10 focus:border-red-500'
+                                                        : 'border-gray-200 focus:ring-purple-500/10 focus:border-purple-500'
+                                                }`}
                                             />
                                         </div>
+                                        {walletData.minPayout > 0 && (
+                                            <p className={`text-[11px] font-bold mt-2 ${
+                                                withdrawAmount && parseFloat(withdrawAmount) > 0 && parseFloat(withdrawAmount) < walletData.minPayout
+                                                    ? 'text-red-500'
+                                                    : 'text-gray-400'
+                                            }`}>
+                                                Minimum withdrawal: {formatPrice(walletData.minPayout)}
+                                            </p>
+                                        )}
                                     </div>
+
+                                    {/* Payment Method */}
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Payment Method</label>
+                                        <select
+                                            value={paymentMethod}
+                                            onChange={(e) => {
+                                                setPaymentMethod(e.target.value);
+                                                setMpesaNumber('');
+                                                setBankName('');
+                                                setAccountNumber('');
+                                            }}
+                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-purple-500 transition-all"
+                                        >
+                                            <option value="mpesa">M-Pesa</option>
+                                            <option value="bank">Bank Transfer</option>
+                                        </select>
+                                    </div>
+
+                                    {paymentMethod === 'mpesa' && (
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">M-Pesa Number</label>
+                                            <input
+                                                type="tel"
+                                                value={mpesaNumber}
+                                                onChange={(e) => setMpesaNumber(e.target.value)}
+                                                placeholder="e.g. 2547XXXXXXXX"
+                                                required
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-purple-500 transition-all font-mono"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {paymentMethod === 'bank' && (
+                                        <>
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Bank Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={bankName}
+                                                    onChange={(e) => setBankName(e.target.value)}
+                                                    placeholder="e.g. Equity Bank, KCB, Co-op"
+                                                    required
+                                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-purple-500 transition-all"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Account Number</label>
+                                                <input
+                                                    type="text"
+                                                    value={accountNumber}
+                                                    onChange={(e) => setAccountNumber(e.target.value)}
+                                                    placeholder="Enter your bank account number"
+                                                    required
+                                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-purple-500 transition-all font-mono"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
 
                                     <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex items-start gap-4">
                                         <FaExclamationTriangle className="text-orange-500 mt-1 flex-shrink-0" />
                                         <p className="text-[11px] text-orange-800 font-bold leading-relaxed">
-                                            Payouts are processed within 24-48 hours. Please ensure your payment details in "Configure" are up to date.
+                                            Payouts are processed within 24-48 hours after admin approval.
                                         </p>
                                     </div>
 

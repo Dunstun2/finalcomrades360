@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FaBox, FaHistory, FaCheckCircle, FaTimes, FaSearch, FaFilter, FaTruck, FaEye, FaUndo, FaArrowLeft, FaInfoCircle, FaMapMarkerAlt, FaUserPlus, FaMoneyBillWave, FaWarehouse } from 'react-icons/fa';
+import { FaBox, FaHistory, FaCheckCircle, FaTimes, FaSearch, FaTruck, FaEye, FaMapMarkerAlt, FaUserPlus, FaMoneyBillWave, FaWarehouse, FaStore, FaRoute, FaSpinner, FaPlus } from 'react-icons/fa';
 import api from '../../services/api';
 import { formatPrice } from '../../utils/currency';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
@@ -20,17 +20,35 @@ export default function AdminReturnsList() {
     const [refundAmount, setRefundAmount] = useState(0);
     const [submitting, setSubmitting] = useState(false);
     const [drivers, setDrivers] = useState([]);
+    // Per-leg logistics state
+    const [returnLogistics, setReturnLogistics] = useState({}); // { [returnId]: { tasks: [] } }
+    const [assigningLeg, setAssigningLeg] = useState(null); // which leg is being assigned
+    const [selectedLegAgent, setSelectedLegAgent] = useState(''); // agent id for leg assignment
+    const [legSubmitting, setLegSubmitting] = useState(false);
 
     useEffect(() => {
         loadReturns();
         loadDrivers();
-    }, [statusFilter]);
+    }, [statusFilter, searchTerm]); // Reload on search term change
+
+    // Load logistics when a return is opened in the modal
+    useEffect(() => {
+        if (selectedReturn) {
+            loadReturnLogistics(selectedReturn.id);
+        } else {
+            setAssigningLeg(null);
+            setSelectedLegAgent('');
+        }
+    }, [selectedReturn?.id]);
 
     const loadReturns = async () => {
         try {
             setLoading(true);
             const res = await api.get('/returns/admin/all', {
-                params: { status: statusFilter !== 'all' ? statusFilter : undefined }
+                params: { 
+                    status: statusFilter !== 'all' ? statusFilter : undefined,
+                    q: searchTerm || undefined
+                 }
             });
             setReturns(res.data);
         } catch (err) {
@@ -46,6 +64,42 @@ export default function AdminReturnsList() {
             setDrivers(response.data || []);
         } catch (error) {
             console.error('Failed to load drivers:', error);
+        }
+    };
+
+    const loadReturnLogistics = async (returnId) => {
+        try {
+            const res = await api.get(`/returns/${returnId}/logistics`);
+            setReturnLogistics(prev => ({ ...prev, [returnId]: res.data.tasks || [] }));
+        } catch (err) {
+            console.error('Failed to load logistics:', err);
+        }
+    };
+
+    const handleAssignAgentLeg = async (returnId, leg) => {
+        if (!selectedLegAgent) { alert('Please select an agent.'); return; }
+        try {
+            setLegSubmitting(true);
+            await api.post(`/returns/${returnId}/assign-agent-leg`, { leg, deliveryAgentId: selectedLegAgent });
+            await loadReturnLogistics(returnId);
+            setAssigningLeg(null);
+            setSelectedLegAgent('');
+        } catch (err) {
+            alert('Assignment failed: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLegSubmitting(false);
+        }
+    };
+
+    const handleCreateWarehouseToSellerTask = async (returnId) => {
+        try {
+            setLegSubmitting(true);
+            await api.post(`/returns/${returnId}/create-warehouse-to-seller-task`, {});
+            await loadReturnLogistics(returnId);
+        } catch (err) {
+            alert('Failed: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLegSubmitting(false);
         }
     };
 
@@ -92,6 +146,20 @@ export default function AdminReturnsList() {
             setSelectedReturn(null);
         } catch (err) {
             alert('Assignment failed: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleUnassignAgent = async (returnId) => {
+        if (!window.confirm('Are you sure you want to unassign the delivery agent? Any active logistics tasks will be cancelled.')) return;
+        try {
+            setSubmitting(true);
+            await api.post(`/returns/${returnId}/unassign-agent`);
+            alert('Agent unassigned successfully');
+            loadReturns();
+        } catch (err) {
+            alert('Unassignment failed: ' + (err.response?.data?.error || err.message));
         } finally {
             setSubmitting(false);
         }
@@ -261,20 +329,26 @@ export default function AdminReturnsList() {
                                                         <FaMapMarkerAlt className="text-blue-500 h-2.5 w-2.5" />
                                                         {ret.pickupMethod === 'drop_off' ? 'Drop-off' : 'Agent Pickup'}
                                                     </div>
-                                                    {activeTask ? (
-                                                        <div className="flex items-center gap-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 w-fit">
-                                                            <FaTruck className="h-2 w-2" />
-                                                            {activeTask.deliveryAgentId ? `Assigned to ID: ${activeTask.deliveryAgentId}` : 'Awaiting Agent'}
+                                                    
+                                                    {/* Logistics Details */}
+                                                    {ret.pickupMethod === 'drop_off' ? (
+                                                        <div className="text-[9px] font-bold text-gray-500 flex items-center gap-1">
+                                                            <FaWarehouse className="h-2 w-2 text-indigo-400" />
+                                                            Station: {ret.pickupStation?.name || 'Pending'}
                                                         </div>
-                                                    ) : ret.status === 'approved' ? (
-                                                        <button 
-                                                            onClick={() => { setSelectedReturn(ret); setIsAssignModalOpen(true); }}
-                                                            className="flex items-center gap-1 text-[9px] font-black text-indigo-600 hover:text-indigo-700 uppercase tracking-tighter"
-                                                        >
-                                                            <FaUserPlus className="h-2.5 w-2.5" /> Assign Agent
-                                                        </button>
                                                     ) : (
-                                                        <span className="text-[9px] font-bold text-gray-300 italic uppercase">Logistics Pending</span>
+                                                        <div className="text-[9px] font-bold text-gray-500 truncate max-w-[120px]">
+                                                            Addr: {ret.pickupAddress}
+                                                        </div>
+                                                    )}
+
+                                                     {activeTask ? (
+                                                        <div className="flex items-center gap-1.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 w-fit mt-1">
+                                                            <FaTruck className="h-2 w-2" />
+                                                            {activeTask.deliveryAgent ? activeTask.deliveryAgent.name : activeTask.deliveryAgentId ? `Agent ID: ${activeTask.deliveryAgentId}` : 'Awaiting agent'}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold text-gray-300 italic uppercase mt-1">Logistics Pending</span>
                                                     )}
                                                 </div>
                                             </td>
@@ -290,6 +364,36 @@ export default function AdminReturnsList() {
                                                     >
                                                         <FaEye className="h-4 w-4" />
                                                     </button>
+
+                                                    {/* Assignment Actions */}
+                                                    {!activeTask && (ret.status === 'approved' || ret.status === 'at_pick_station') && (
+                                                        <button 
+                                                            onClick={() => { setSelectedReturn(ret); setIsAssignModalOpen(true); }}
+                                                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                                                            title="Assign Agent"
+                                                        >
+                                                            <FaUserPlus className="h-4 w-4" />
+                                                        </button>
+                                                    )}
+
+                                                    {activeTask && (
+                                                        <div className="flex gap-1">
+                                                            <button 
+                                                                onClick={() => { setSelectedReturn(ret); setIsAssignModalOpen(true); }}
+                                                                className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                                                                title="Reassign Agent"
+                                                            >
+                                                                <FaUserPlus className="h-4 w-4 text-blue-500" />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleUnassignAgent(ret.id)}
+                                                                className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                                                title="Cancel Assignment"
+                                                            >
+                                                                <FaTimes className="h-4 w-4" />
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                     
                                                     {ret.status === 'pending' && (
                                                         <div className="flex gap-1">
@@ -342,8 +446,8 @@ export default function AdminReturnsList() {
 
             {/* View Details Sidebar/Modal */}
             {selectedReturn && !isApproveModalOpen && !isRejectModalOpen && !isAssignModalOpen && !isRefundModalOpen && (
-                <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm" onClick={() => setSelectedReturn(null)}>
-                    <div className="w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setSelectedReturn(null)}>
+                    <div className="w-full max-w-2xl bg-white max-h-[90vh] rounded-[32px] shadow-2xl p-6 overflow-y-auto" onClick={e => e.stopPropagation()}>
                         <header className="flex items-center justify-between mb-8 pb-4 border-b">
                             <div>
                                 <h2 className="text-xl font-black text-gray-900 uppercase">Return Details</h2>
@@ -428,10 +532,180 @@ export default function AdminReturnsList() {
                                         <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full uppercase">Customer Preference</span>
                                     </div>
                                     <div className="pl-5.5 border-l-2 border-blue-100 py-1">
-                                        <p className="text-[11px] text-blue-800 font-bold leading-relaxed">{selectedReturn.pickupAddress || 'Items will be dropped at selected station'}</p>
+                                        {selectedReturn.pickupMethod === 'drop_off' ? (
+                                            <div className="space-y-1">
+                                                <p className="text-[11px] text-blue-800 font-black uppercase">Station: {selectedReturn.pickupStation?.name || 'Unknown'}</p>
+                                                <p className="text-[10px] text-blue-600 font-bold italic">{selectedReturn.pickupStation?.location || 'Station address pending'}</p>
+                                                <p className="text-[10px] text-gray-400 font-medium">Items will be dropped at this station by customer.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-1">
+                                                <p className="text-[11px] text-blue-800 font-black uppercase font-bold">Collection Address:</p>
+                                                <p className="text-xs text-blue-900 font-bold italic">{selectedReturn.pickupAddress}</p>
+                                                <p className="text-[10px] text-gray-400 font-medium">Agent will collect items from this location.</p>
+                                            </div>
+                                        )}
                                     </div>
+                                    
+                                    {/* Active Agent Tracking (old single-leg) */}
+                                    {selectedReturn.order?.deliveryTasks?.find(t => t.deliveryType?.includes('to_warehouse') && t.status !== 'completed')?.deliveryAgent && (
+                                        <div className="mt-2 pt-3 border-t border-blue-200 flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+                                                <FaTruck />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Assigned Agent</p>
+                                                <p className="text-xs font-black text-indigo-900 uppercase">{selectedReturn.order.deliveryTasks.find(t => t.deliveryType?.includes('to_warehouse') && t.status !== 'completed').deliveryAgent.name}</p>
+                                                <p className="text-[10px] font-bold text-indigo-500">{selectedReturn.order.deliveryTasks.find(t => t.deliveryType?.includes('to_warehouse') && t.status !== 'completed').deliveryAgent.phone}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </section>
+
+                            {/* ── 3-Leg Return Logistics ── */}
+                            {['approved', 'item_collected', 'item_received', 'completed'].includes(selectedReturn.status) && (() => {
+                                const tasks = returnLogistics[selectedReturn.id] || [];
+                                const getLegTask = (leg) => tasks.find(t => t.deliveryType === leg);
+
+                                const legs = selectedReturn.pickupMethod === 'drop_off'
+                                    ? [
+                                        { key: 'pickup_station_to_warehouse', label: 'Pickup Station → Warehouse', icon: <FaWarehouse className="h-4 w-4" />, color: 'blue', desc: 'Item travels from the pickup station to your warehouse.' },
+                                        { key: 'warehouse_to_seller', label: 'Warehouse → Seller', icon: <FaStore className="h-4 w-4" />, color: 'purple', desc: 'Return item delivered back to the seller.' }
+                                    ]
+                                    : [
+                                        { key: 'customer_to_warehouse', label: 'Customer → Warehouse', icon: <FaTruck className="h-4 w-4" />, color: 'orange', desc: 'Agent collects item from customer and delivers to warehouse.' },
+                                        { key: 'warehouse_to_seller', label: 'Warehouse → Seller', icon: <FaStore className="h-4 w-4" />, color: 'purple', desc: 'Return item delivered back to the seller.' }
+                                    ];
+
+                                const colorMap = {
+                                    orange: { bg: 'bg-orange-50', border: 'border-orange-100', icon: 'bg-orange-100 text-orange-600', badge: 'bg-orange-100 text-orange-700', btn: 'bg-orange-600 hover:bg-orange-700 text-white', title: 'text-orange-900' },
+                                    blue:   { bg: 'bg-blue-50',   border: 'border-blue-100',   icon: 'bg-blue-100 text-blue-600',   badge: 'bg-blue-100 text-blue-700',   btn: 'bg-blue-600 hover:bg-blue-700 text-white',   title: 'text-blue-900' },
+                                    purple: { bg: 'bg-purple-50', border: 'border-purple-100', icon: 'bg-purple-100 text-purple-600', badge: 'bg-purple-100 text-purple-700', btn: 'bg-purple-600 hover:bg-purple-700 text-white', title: 'text-purple-900' }
+                                };
+
+                                return (
+                                    <section>
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-3 flex items-center gap-2">
+                                            <FaRoute className="text-gray-400 h-3 w-3" /> Return Logistics — Agent Assignments
+                                        </label>
+                                        <div className="space-y-3">
+                                            {legs.map(({ key, label, icon, color, desc }) => {
+                                                const task = getLegTask(key);
+                                                const c = colorMap[color];
+                                                const isAssigning = assigningLeg === key;
+                                                const isWarehouseToSeller = key === 'warehouse_to_seller';
+                                                const canCreateW2S = isWarehouseToSeller && !task && selectedReturn.status === 'item_received';
+
+                                                return (
+                                                    <div key={key} className={`p-4 rounded-2xl border ${c.bg} ${c.border}`}>
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`p-2 rounded-xl ${c.icon}`}>{icon}</div>
+                                                                <div>
+                                                                    <p className={`text-[11px] font-black uppercase ${c.title}`}>{label}</p>
+                                                                    <p className="text-[9px] text-gray-400 font-medium">{desc}</p>
+                                                                </div>
+                                                            </div>
+                                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${task ? (task.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : task.deliveryAgentId ? 'bg-indigo-100 text-indigo-700' : 'bg-yellow-100 text-yellow-700') : 'bg-gray-100 text-gray-400'}`}>
+                                                                {task ? (task.status === 'completed' ? '✓ Done' : task.deliveryAgentId ? '● Assigned' : '○ Pending') : '— Not Created'}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Show assigned agent */}
+                                                        {task?.deliveryAgent && (
+                                                            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/60">
+                                                                <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-[10px] font-black">
+                                                                    {task.deliveryAgent.name?.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-gray-800 uppercase">{task.deliveryAgent.name}</p>
+                                                                    <p className="text-[9px] text-gray-500 font-bold">{task.deliveryAgent.phone}</p>
+                                                                </div>
+                                                                {task.status !== 'completed' && (
+                                                                    <button onClick={() => { setAssigningLeg(key); setSelectedLegAgent(''); }} className="ml-auto text-[9px] font-black text-indigo-500 hover:text-indigo-700 uppercase">Reassign</button>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Create warehouse-to-seller task button */}
+                                                        {canCreateW2S && !isAssigning && (
+                                                            <button
+                                                                onClick={() => handleCreateWarehouseToSellerTask(selectedReturn.id)}
+                                                                disabled={legSubmitting}
+                                                                className={`mt-2 w-full py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 ${c.btn} shadow-sm`}
+                                                            >
+                                                                {legSubmitting ? <FaSpinner className="animate-spin h-3 w-3" /> : <FaPlus className="h-3 w-3" />}
+                                                                Create Warehouse → Seller Task
+                                                            </button>
+                                                        )}
+
+                                                        {/* Assign agent button (for tasks without agent, or reassigning) */}
+                                                        {task && !task.deliveryAgent && !isAssigning && task.status !== 'completed' && (
+                                                            <button
+                                                                onClick={() => { setAssigningLeg(key); setSelectedLegAgent(''); }}
+                                                                className={`mt-2 w-full py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 ${c.btn} shadow-sm`}
+                                                            >
+                                                                <FaUserPlus className="h-3 w-3" /> Assign Agent
+                                                            </button>
+                                                        )}
+
+                                                        {/* Agent selection dropdown */}
+                                                        {isAssigning && (
+                                                            <div className="mt-3 space-y-2">
+                                                                <select
+                                                                    value={selectedLegAgent}
+                                                                    onChange={e => setSelectedLegAgent(e.target.value)}
+                                                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-indigo-400 outline-none bg-white"
+                                                                >
+                                                                    <option value="">— Select Agent —</option>
+                                                                    {drivers.map(d => (
+                                                                        <option key={d.id} value={d.id}>
+                                                                            {d.name || d.user?.name} {d.phone || d.user?.phone ? `(${d.phone || d.user?.phone})` : ''}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => handleAssignAgentLeg(selectedReturn.id, key)}
+                                                                        disabled={legSubmitting || !selectedLegAgent}
+                                                                        className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase rounded-xl disabled:opacity-50 flex items-center justify-center gap-1"
+                                                                    >
+                                                                        {legSubmitting ? <FaSpinner className="animate-spin h-3 w-3" /> : null}
+                                                                        Confirm
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setAssigningLeg(null)}
+                                                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-[10px] font-black uppercase rounded-xl"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+
+                                            {/* Seller Info */}
+                                            {selectedReturn.order?.seller && (
+                                                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center">
+                                                        <FaStore className="text-gray-500 h-3.5 w-3.5" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Return Destination — Seller</p>
+                                                        <p className="text-xs font-black text-gray-800 uppercase">{selectedReturn.order.seller.businessName || selectedReturn.order.seller.name}</p>
+                                                        {selectedReturn.order.seller.businessAddress && (
+                                                            <p className="text-[10px] text-gray-400 font-medium">{selectedReturn.order.seller.businessAddress}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>

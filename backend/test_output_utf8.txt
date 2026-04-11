@@ -1,0 +1,130 @@
+﻿
+> backend@1.0.1 test
+> jest --detectOpenHandles --forceExit test/orderStatusTransition.e2e.test.js -t creates DeliveryTask when direct delivery order transitions to seller_confirmed
+
+  console.log
+    ≡ƒÜÇ SERVER STARTING - VERSION: 1774523190737
+
+      at Object.log (server.js:1:9)
+
+  console.log
+    ≡ƒöä [WhatsApp] Initializing Open Source Client...
+
+      at log (utils/messageService.js:10:11)
+
+  console.log
+    [Database] Attempting to load .env from: C:\Users\user\Desktop\comrades360-main\backend\.env
+
+      at Object.log (database/database.js:9:9)
+
+  console.log
+    [Database] Mode: test (Detected via: NODE_ENV)
+
+      at Object.log (database/database.js:17:9)
+
+  console.log
+    [Database] SQLite Storage Path: :memory:
+
+      at Object.log (database/database.js:78:11)
+
+  console.log
+    [warehouseRoutes] Mounting routes...
+
+      at Object.log (routes/warehouseRoutes.js:6:9)
+
+  console.log
+    [pickupStationRoutes] Mounting routes...
+
+      at Object.log (routes/pickupStationRoutes.js:6:9)
+
+  console.log
+    [pickupStationRoutes] Controller keys: [
+      'createPickupStation',
+      'getAllPickupStations',
+      'getPickupStationById',
+      'updatePickupStation',
+      'deletePickupStation',
+      'activatePickupStation',
+      'hardDeletePickupStation'
+    ]
+
+      at Object.log (routes/pickupStationRoutes.js:7:9)
+
+  console.log
+    [stationManagerRoutes] Mounting routes...
+
+      at Object.log (routes/stationManagerRoutes.js:6:9)
+
+  console.log
+    [server] Warehouse routes loaded: function
+
+      at Object.log (server.js:106:9)
+
+  console.log
+    [server] Pickup Station routes loaded: function
+
+      at Object.log (server.js:107:9)
+
+  console.log
+    DEBUG: MPESA_CONSUMER_KEY from env: your_mpesa_consumer_key_here
+
+      at Object.log (scripts/services/mpesaService.js:5:9)
+
+  console.log
+    ΓÜá∩╕Å M-Pesa using placeholder configuration - switching to MOCK MODE
+
+      at log (scripts/services/mpesaService.js:47:13)
+
+  console.log
+    Γ£à Password Reset Routes Mounted
+
+      at Object.log (server.js:182:9)
+
+  console.log
+    [server] Mounting finance routes...
+
+      at Object.log (server.js:188:9)
+
+  console.log
+    Γ£à Delivery Routes Mounted
+
+      at Object.log (server.js:197:9)
+
+  console.log
+    Γ£à Warehouse Routes Mounted
+
+      at Object.log (server.js:198:9)
+
+  console.log
+    Γ£à Pickup Station Routes Mounted
+
+      at Object.log (server.js:199:9)
+
+  console.log
+    Γ£à Payment Routes Mounted
+
+      at Object.log (server.js:200:9)
+
+  console.log
+    [server] Serving static files from: C:\Users\user\Desktop\comrades360-main\backend\public
+
+      at Object.log (server.js:226:9)
+
+  console.warn
+    [Cache] Redis connection timeout, using in-memory cache
+
+    [0m [90m 67 |[39m         setTimeout(() [33m=>[39m {
+     [90m 68 |[39m           [36mif[39m ([33m![39m[36mthis[39m[33m.[39mconnected) {
+    [31m[1m>[22m[39m[90m 69 |[39m             console[33m.[39mwarn([32m'[Cache] Redis connection timeout, using in-memory cache'[39m)[33m;[39m
+     [90m    |[39m                     [31m[1m^[22m[39m
+     [90m 70 |[39m           }
+     [90m 71 |[39m           resolve([36mfalse[39m)[33m;[39m
+     [90m 72 |[39m         }[33m,[39m [35m1000[39m)[33m;[39m[0m
+
+      at Timeout.warn [as _onTimeout] (scripts/services/cacheService.js:69:21)
+
+  console.log
+    ≡ƒöº Running SQLite PRAGMA tuning...
+
+      at log (server.js:249:13)
+

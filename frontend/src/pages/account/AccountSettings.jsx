@@ -52,8 +52,10 @@ const AccountSettings = () => {
   const [verifyEmailStep, setVerifyEmailStep] = useState('status'); // 'status' | 'verify'
   const [verifyPhoneStep, setVerifyPhoneStep] = useState('status'); // 'status' | 'verify'
   const [emailToken, setEmailToken] = useState('');
+  const [newEmailInput, setNewEmailInput] = useState('');
   const [phoneOtp, setPhoneOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Security & Password State
   const [passwordChanging, setPasswordChanging] = useState(false);
@@ -320,13 +322,16 @@ const AccountSettings = () => {
     // Use editForm which contains the modified data
     if (!editForm) return;
 
+    setSaveError('');
     try {
       // Pass editForm explicitly to update profile with new values
       const updatedUser = await userService.updateProfile(editForm);
       toast.success('Profile updated successfully');
 
       // Update local user data with the response from server to ensure sync
-      setUserData(updatedUser);
+      const userToSet = updatedUser.user || updatedUser;
+      setUserData(userToSet);
+      updateUser(userToSet); // Sync global auth context too
       // setEditForm({}); // Keep form populated
 
       // Stay in edit mode but mark as saved (locked)
@@ -342,7 +347,10 @@ const AccountSettings = () => {
       }
 
     } catch (error) {
-      toast.error('Failed to update profile');
+      const backendMessage = error.response?.data?.message || error.response?.data?.error;
+      const finalMsg = backendMessage || 'Failed to update profile';
+      setSaveError(finalMsg);
+      toast.error(finalMsg);
       console.error('Error updating profile:', error);
     }
   };
@@ -375,17 +383,26 @@ const AccountSettings = () => {
   };
 
   // Handle email verification request
-  const handleEmailVerificationRequest = async () => {
-    console.log('handleEmailVerificationRequest called');
-    if (!userData?.email) {
-      console.log('No email found in userData');
+  const handleEmailVerificationRequest = async (e) => {
+    e?.preventDefault();
+    const emailToVerify = newEmailInput || userData?.email;
+    console.log('handleEmailVerificationRequest called for', emailToVerify);
+    if (!emailToVerify) {
+      toast.error('Please enter an email address to verify.');
       return;
     }
+    
+    // Basic email validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailToVerify)) {
+      toast.error('Please enter a valid email address.');
+      return;
+    }
+
     try {
       console.log('Setting isVerifying to true');
       setIsVerifying(true);
-      console.log('Calling userService.requestEmailChange for:', userData.email);
-      const res = await userService.requestEmailChange(userData.email);
+      console.log('Calling userService.requestEmailChange for:', emailToVerify);
+      const res = await userService.requestEmailChange(emailToVerify);
       console.log('userService response:', res);
       toast.success(res.message || 'Verification token sent to your email');
       setVerifyEmailStep('verify');
@@ -439,7 +456,7 @@ const AccountSettings = () => {
     try {
       setIsVerifying(true);
       await userService.requestPhoneOtp(userData.phone);
-      toast.success('Verification code sent to your phone');
+      toast.success('Verification code sent to your phone via WhatsApp');
       setVerifyPhoneStep('verify');
     } catch (error) {
       console.error('Error in phone verification request:', error);
@@ -608,6 +625,7 @@ const AccountSettings = () => {
                   isSaved={isSaved}
                   setIsSaved={setIsSaved}
                   setActiveTab={setActiveTab}
+                  saveError={saveError}
                 />
               )}
               {activeTab === 'contact' && (
@@ -661,18 +679,34 @@ const AccountSettings = () => {
                         {verifyEmailStep === 'status' ? (
                           <div className="space-y-4">
                             {!userData?.emailVerified && (
-                              <button
-                                onClick={handleEmailVerificationRequest}
-                                disabled={isVerifying}
-                                className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group"
-                              >
-                                {isVerifying ? <FaSpinner className="animate-spin" /> : <FaShieldAlt className="transition-transform group-hover:scale-110" />}
-                                Verify Now
-                              </button>
+                              <div className="space-y-4">
+                                {!userData?.email && (
+                                  <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Email Address</label>
+                                    <input
+                                      type="email"
+                                      value={newEmailInput}
+                                      onChange={(e) => setNewEmailInput(e.target.value)}
+                                      placeholder="Enter your email address to link"
+                                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-blue-500 focus:border-blue-500 font-medium"
+                                    />
+                                  </div>
+                                )}
+                                <button
+                                  onClick={handleEmailVerificationRequest}
+                                  disabled={isVerifying || (!userData?.email && !newEmailInput)}
+                                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group disabled:opacity-50"
+                                >
+                                  {isVerifying ? <FaSpinner className="animate-spin" /> : <FaShieldAlt className="transition-transform group-hover:scale-110" />}
+                                  {userData?.email ? 'Verify Now' : 'Send Verification Code'}
+                                </button>
+                              </div>
                             )}
-                            <p className="text-xs text-gray-400 text-center">
-                              Verified emails receive order confirmations and security alerts.
-                            </p>
+                            {userData?.emailVerified ? (
+                              <p className="text-xs text-gray-400 text-center mt-2">
+                                Verified emails receive order confirmations and security alerts.
+                              </p>
+                            ) : null}
                           </div>
                         ) : (
                           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">

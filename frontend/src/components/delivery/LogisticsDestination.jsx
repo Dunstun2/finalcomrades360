@@ -28,44 +28,61 @@ const LogisticsDestination = ({ order, condensed = false }) => {
     let toName = "N/A";
     let toIcon = <FaUser />;
 
-    // Initial leg: Seller to Warehouse
-    const isFirstLeg = ['order_placed', 'seller_confirmed', 'en_route_to_warehouse', 'at_warehouse'].includes(status);
+    // Initial leg: Seller to Warehouse/Station
+    const isEarlyStage = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'en_route_to_warehouse', 'assigned', 'accepted', 'arrived_at_pickup', 'request_pending', 'requested'].includes(status);
+    
+    // Middle stage: Physically at a hub
+    const isAtHub = ['at_warehouse', 'at_warehouse', 'at_pick_station'].includes(status);
 
-    // Second leg: Warehouse to Customer (or Pick Station)
-    const isSecondLeg = ['at_warehouse', 'ready_for_pickup', 'in_transit', 'out_for_delivery', 'delivered', 'completed'].includes(status);
+    // Final leg: Moving toward customer
+    const isFinalLeg = ['ready_for_pickup', 'awaiting_delivery_assignment', 'in_transit', 'in_transit', 'delivered', 'completed'].includes(status);
 
-    // Status-specific overrides
+    // Default determination based on status + routing
+    const routing = order.adminRoutingStrategy;
+    
+    const isFirstLeg = isEarlyStage || (isAtHub && routing === 'warehouse' && status === 'at_warehouse' && !order.warehouseArrivalDate);
+    const isSecondLeg = isAtHub || isFinalLeg;
+
     if (isFirstLeg) {
         fromLabel = "From Seller";
-        fromName = seller?.name || order.sellerName || "Unknown Seller";
+        fromName = seller?.businessName || seller?.name || order.sellerName || "Seller";
         fromIcon = <FaStore className="text-orange-500" />;
 
-        const isCollectionRequest = order.shippingType === 'collected_from_seller';
-        const hasDestination = warehouse?.name || pickStation?.name;
-
-        if (isCollectionRequest && !hasDestination && !order.deliveryAgentId) {
-            toLabel = "To Destination";
-            toName = "Pending Admin Assignment";
-            toIcon = <div className="animate-pulse text-gray-400"><FaMapMarkerAlt /></div>;
-        } else {
-            toLabel = pickStation ? "To Pick Station" : "To Hub/Warehouse";
-            toName = warehouse?.name || pickStation?.name || "Central Warehouse";
-            toIcon = pickStation ? <FaMapMarkerAlt className="text-blue-500" /> : <FaWarehouse className="text-blue-500" />;
-        }
-    }
-
-    if (isSecondLeg && !isFirstLeg || (status === 'at_warehouse' && isSecondLeg)) {
-        fromLabel = pickStation ? "From Pick Station" : "From Hub/Warehouse";
-        fromName = warehouse?.name || pickStation?.name || "Central Warehouse";
-        fromIcon = pickStation ? <FaMapMarkerAlt className="text-blue-500" /> : <FaWarehouse className="text-blue-500" />;
-
-        if (deliveryType === 'pick_station') {
+        if (routing === 'warehouse') {
+            toLabel = "To Hub/Warehouse";
+            toName = warehouse?.name || "Warehouse Hub";
+            toIcon = <FaWarehouse className="text-blue-500" />;
+        } else if (routing === 'pick_station' || routing === 'fastfood_pickup_point') {
             toLabel = "To Pick Station";
-            toName = pickStation?.name || "Pick-up Station";
+            toName = pickStation?.name || order.DestinationPickStation?.name || "Pickup Point";
+            toIcon = <FaStore className="text-blue-500" />;
+        } else {
+            toLabel = "To Customer";
+            toName = order.customerName || customer?.name || "Customer";
+            toIcon = <FaUser className="text-green-500" />;
+        }
+    } else if (isAtHub || isFinalLeg) {
+        if (routing === 'warehouse') {
+            fromLabel = "From Hub/Warehouse";
+            fromName = warehouse?.name || "Warehouse Hub";
+            fromIcon = <FaWarehouse className="text-blue-500" />;
+        } else if (routing === 'pick_station' || routing === 'fastfood_pickup_point') {
+            fromLabel = "From Pick Station";
+            fromName = pickStation?.name || "Pickup Point";
+            fromIcon = <FaStore className="text-blue-500" />;
+        } else {
+            fromLabel = "From Seller";
+            fromName = seller?.businessName || seller?.name || "Seller";
+            fromIcon = <FaStore className="text-orange-500" />;
+        }
+
+        if (order.deliveryMethod === 'pick_station') {
+            toLabel = "To Pick Station";
+            toName = pickStation?.name || order.DestinationPickStation?.name || "Pickup Point";
             toIcon = <FaMapMarkerAlt className="text-green-500" />;
         } else {
             toLabel = "To Customer";
-            toName = order.customerName || customer?.name || order.userName || "Customer";
+            toName = order.customerName || customer?.name || "Customer";
             toIcon = <FaUser className="text-green-500" />;
         }
     }

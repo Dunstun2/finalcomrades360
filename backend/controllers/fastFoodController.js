@@ -69,8 +69,7 @@ const syncApprovedSellerDeliveryFee = async ({ vendorId, deliveryFee, sourceItem
             where: { 
                 itemType: 'fastfood',
                 [Op.or]: [
-                    { fastFoodId: { [Op.in]: sequelize.literal(`(SELECT id FROM FastFoods WHERE vendor = ${vendorId})`) } },
-                    { vendorId: vendorId } // Fallback for some implementations
+                    { fastFoodId: { [Op.in]: sequelize.literal(`(SELECT id FROM FastFoods WHERE vendor = ${vendorId})`) } }
                 ]
             } 
         }
@@ -268,9 +267,19 @@ exports.getFastFoodById = async (req, res) => {
         const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         const isSuperAdmin = userRole === 'superadmin';
         const isPrivileged = userRole === 'admin' || isSuperAdmin;
-        const isOwner = req.user && (req.user.id === fastFood.vendor || req.user.id === fastFood.sellerId);
+        
+        // Fix: Robust type comparison and remove non-existent sellerId field
+        const isOwner = req.user && String(req.user.id) === String(fastFood.vendor);
 
-        const isLive = fastFood.approved && fastFood.isActive && fastFood.isAvailable;
+        // Fix: Align visibility logic with getAllFastFoods (allow status='active' or reviewStatus='approved'/'active')
+        const isLive = (
+            fastFood.approved || 
+            ['approved', 'active'].includes(fastFood.status) || 
+            ['approved', 'active'].includes(fastFood.reviewStatus)
+        ) && fastFood.isActive && fastFood.isAvailable;
+
+        console.log(`[getFastFoodById] ID=${req.params.id}: isLive=${isLive}, approved=${fastFood.approved}, status=${fastFood.status}, reviewStatus=${fastFood.reviewStatus}, isActive=${fastFood.isActive}, isAvailable=${fastFood.isAvailable}`);
+        console.log(`[getFastFoodById] User: isPrivileged=${isPrivileged}, isOwner=${isOwner}`);
 
         if (!isLive && !isPrivileged && !isOwner) {
             return res.status(404).json({ success: false, message: 'Fast food item not found or not currently active' });
@@ -295,7 +304,7 @@ exports.createFastFood = async (req, res) => {
         delete createData.id;
 
         // Parse numeric fields properly
-        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration'].forEach(field => {
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
             if (createData[field] !== undefined && createData[field] !== '' && createData[field] !== null) {
                 createData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(createData[field])) : parseFloat(createData[field]);
             } else if (createData[field] === '' || createData[field] === undefined) {
@@ -425,6 +434,14 @@ exports.createFastFood = async (req, res) => {
                         });
                     }
                     createData.discountPrice = calculatedDiscount;
+                }
+
+                // VALIDATION: Vendor Location (Mandatory for Smart Filtering)
+                if (!createData.vendorLocation || !createData.vendorLat || !createData.vendorLng) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering.'
+                    });
                 }
 
                 // VALIDATION: deliveryFee must be set before approval
@@ -561,12 +578,22 @@ exports.updateFastFood = async (req, res) => {
 
         // Handle file uploads if they exist (processed by multer middleware)
         const updateData = { ...req.body };
+
+        // Never allow direct vendor/owner changes via this route for security.
+        // It must be done via a dedicated transfer endpoint.
+        if (updateData.vendorId) {
+            delete updateData.vendorId;
+        }
+        if (updateData.vendor) {
+            delete updateData.vendor;
+        }
+
         if (updateData.name) {
             updateData.name = normalizeItemName(updateData.name);
         }
 
         // Parse numeric fields properly
-        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration'].forEach(field => {
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
             if (updateData[field] !== undefined && updateData[field] !== '') {
                 updateData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(updateData[field])) : parseFloat(updateData[field]);
             } else if (updateData[field] === '') {

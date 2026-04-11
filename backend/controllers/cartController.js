@@ -242,7 +242,10 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
         as: 'product',
         required: false,
         attributes: ['id', 'name', 'stock', 'approved', 'displayPrice', 'basePrice', 'discountPrice', 'discountPercentage', 'sellerId', 'deliveryFee', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType', 'coverImage', 'variants', 'tags'],
-        include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'role', 'businessName'] }]
+        include: [
+          { model: User, as: 'seller', attributes: ['id', 'name', 'role', 'businessName'] },
+          { model: User, as: 'addedByUser', attributes: ['id', 'name', 'role', 'businessName'] }
+        ]
       },
       {
         model: FastFood,
@@ -255,7 +258,10 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
           'deliveryFee', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType',
           'sizeVariants', 'comboOptions'
         ],
-        include: [{ model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] }]
+        include: [
+          { model: User, as: 'vendorDetail', attributes: ['id', 'name', 'businessName'] },
+          { model: User, as: 'creator', attributes: ['id', 'name', 'businessName'] }
+        ]
       },
       {
         model: Service,
@@ -264,7 +270,8 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
         attributes: ['id', 'title', 'displayPrice', 'basePrice', 'isAvailable', 'marketingEnabled', 'marketingCommission', 'marketingCommissionType', 'deliveryFee', 'userId', 'status'],
         include: [
           { model: ServiceImage, as: 'images', attributes: ['imageUrl'] },
-          { model: User, as: 'provider', attributes: ['id', 'name', 'role', 'businessName'] }
+          { model: User, as: 'provider', attributes: ['id', 'name', 'role', 'businessName'] },
+          { model: User, as: 'creator', attributes: ['id', 'name', 'role', 'businessName'] }
         ]
       }
     ],
@@ -326,9 +333,66 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
       if (resolvedVariantName) item.setDataValue('variantName', resolvedVariantName);
       if (resolvedComboName) item.setDataValue('comboName', resolvedComboName);
 
-      subtotal += Number(item.total || 0);
-
+      // RESOLVE ROBUST ITEM NAME & IMAGE
       const itemDetails = item.itemType === 'fastfood' ? item.fastFood : (item.itemType === 'service' ? item.service : item.product);
+      if (itemDetails) {
+        const itemName = itemDetails.name || itemDetails.title || 'Unknown Item';
+        item.setDataValue('itemName', itemName);
+        
+        let itemImage = null;
+        if (item.itemType === 'fastfood') {
+          itemImage = itemDetails.mainImage || (Array.isArray(itemDetails.galleryImages) ? itemDetails.galleryImages[0] : null);
+        } else if (item.itemType === 'service') {
+          itemImage = itemDetails.coverImage || (Array.isArray(itemDetails.images) ? itemDetails.images[0]?.url : null);
+        } else {
+          itemImage = itemDetails.coverImage || (Array.isArray(itemDetails.images) ? itemDetails.images[0]?.imageUrl : null) || itemDetails.image;
+        }
+        item.setDataValue('itemImage', itemImage);
+      }
+
+      // ── RESOLVE ROBUST SELLER BUSINESS NAME ───────────────────────────────
+      let sellerUser = null;
+      const type = (item.itemType || '').toLowerCase().trim();
+      
+      // Try mapping based on item type first
+      if (type === 'fastfood') {
+        sellerUser = item.fastFood?.vendorDetail;
+      } else if (type === 'service') {
+        sellerUser = item.service?.provider;
+      } else if (type === 'product' || !type) {
+        sellerUser = item.product?.seller;
+      }
+
+      // Exhaustive fallback: if primary mapping failed, try other associations 
+      // (safeguard against data mismatches in itemType)
+      if (!sellerUser) {
+        sellerUser = item.product?.seller || 
+                     item.fastFood?.vendorDetail || 
+                     item.service?.provider ||
+                     item.product?.addedByUser || 
+                     item.fastFood?.creator || 
+                     item.service?.creator;
+      }
+
+      // Priority: 1. Business Name (non-empty), 2. Personal Name, 3. Default
+      const businessName = (sellerUser?.businessName && typeof sellerUser.businessName === 'string') 
+        ? sellerUser.businessName.trim() 
+        : null;
+      
+      const personalName = (sellerUser?.name && typeof sellerUser.name === 'string')
+        ? sellerUser.name.trim()
+        : null;
+
+      const sellerBusinessName = businessName || personalName || 'Direct Seller';
+      
+      // DIAGNOSTIC LOG (to backend console for user monitoring)
+      if (sellerBusinessName === 'Direct Seller') {
+        console.warn(`[CART_ENRICH] Failed to resolve business name for item ${item.id} (Type: ${type}). SellerUser found: ${!!sellerUser}`);
+      }
+
+      item.setDataValue('sellerBusinessName', sellerBusinessName);
+
+      subtotal += Number(item.total || 0);
 
       if (!itemDetails) return;
 
@@ -355,7 +419,7 @@ const getCartDataInternal = async (userId, cartType = 'personal') => {
       } else {
         // Derive unit fee from joined data for robustness
         let unitFee = 0;
-        if (item.itemType === 'service' && item.service) {
+        if (type === 'service' && item.service) {
           unitFee = Number(item.service.deliveryFee || 0);
         } else if (item.product) {
           unitFee = Number(item.product.deliveryFee || 0);

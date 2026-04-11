@@ -567,7 +567,7 @@ export default function RoleApplicationForm() {
                   className={`p-5 border-2 rounded-xl flex items-center justify-center space-x-3 transition-all ${formData.userType === 'non-student' ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold' : 'border-gray-200 text-gray-500 hover:border-blue-300'}`}
                 >
                   <FaUserTie className="text-2xl" />
-                  <span>Professional</span>
+                  <span>Non Student</span>
                 </button>
               </div>
             </div>

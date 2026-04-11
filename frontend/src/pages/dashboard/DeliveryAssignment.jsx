@@ -420,7 +420,8 @@ const DeliveryAssignment = () => {
                                                         (() => {
                                                             const activeTask = getOrderDeliveryTask(order);
                                                             const isLocked = activeTask && ['accepted', 'in_progress'].includes(activeTask.status);
-                                                            const isAwaitingConfirmation = order.status === 'order_placed';
+                                                            // If a driver is already assigned, don't block reassignment even if the order is "order_placed"
+                                                            const isAwaitingConfirmation = order.status === 'order_placed' && !order.deliveryAgentId && !activeTask?.deliveryAgentId;
 
                                                             return (
                                                                 <button

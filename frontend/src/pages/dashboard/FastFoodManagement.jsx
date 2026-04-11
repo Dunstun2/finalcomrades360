@@ -296,31 +296,37 @@ const renderFastFoodTable = (items, {
                         <Edit size={16} />
                       </button>
 
-                      {/* Shop Status Cycle Toggle (availabilityMode) */}
-                      <button
-                        onClick={() => {
-                          const modes = ['AUTO', 'OPEN', 'CLOSED'];
-                          const currentMode = item.availabilityMode || 'AUTO';
-                          const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
-
-                          optimisticUpdate(
-                            item.id,
-                            { availabilityMode: nextMode },
-                            nextMode === 'OPEN' ? 'Shop is now FORCED OPEN' : (nextMode === 'CLOSED' ? 'Shop is now FORCED CLOSED' : 'Shop is now FOLLOWING SCHEDULE'),
-                            'Failed to update availability.',
-                            `Availability: ${nextMode}`
-                          );
-                        }}
-                        className={`p-1.5 rounded-lg transition-all shadow-sm border ${item.availabilityMode === 'OPEN' ? 'text-green-600 bg-green-50 border-green-200' :
-                          item.availabilityMode === 'CLOSED' ? 'text-red-500 bg-red-50 border-red-200' :
-                            'text-blue-500 bg-blue-50 border-blue-200 hover:bg-blue-100'
-                          }`}
-                        title={`Current: ${item.availabilityMode || 'AUTO'}. Click to cycle: AUTO -> OPEN -> CLOSED`}
-                      >
-                        {item.availabilityMode === 'OPEN' ? <Utensils size={16} className="text-green-600 animate-bounce" /> :
-                          item.availabilityMode === 'CLOSED' ? <Ban size={16} className="text-red-500" /> :
-                            <Clock size={16} className="text-blue-500" />}
-                      </button>
+                      {/* Shop Status Toggle Dropdown (availabilityMode) */}
+                      <div className="relative inline-block" title="Select Availability Mode">
+                        <select
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                          value={item.availabilityMode || 'AUTO'}
+                          onChange={(e) => {
+                            const nextMode = e.target.value;
+                            optimisticUpdate(
+                              item.id,
+                              { availabilityMode: nextMode },
+                              nextMode === 'OPEN' ? 'Shop is now FORCED OPEN' : (nextMode === 'CLOSED' ? 'Shop is now FORCED CLOSED' : 'Shop is now FOLLOWING SCHEDULE'),
+                              'Failed to update availability.',
+                              `Availability: ${nextMode}`
+                            );
+                          }}
+                        >
+                          <option value="AUTO">📅 Auto Schedule</option>
+                          <option value="OPEN">🍽️ Force Open</option>
+                          <option value="CLOSED">🚫 Force Closed</option>
+                        </select>
+                        <button
+                          className={`p-1.5 rounded-lg transition-all shadow-sm border pointer-events-none focus:outline-none focus:ring-0 ${item.availabilityMode === 'OPEN' ? 'text-green-600 bg-green-50 border-green-200' :
+                            item.availabilityMode === 'CLOSED' ? 'text-red-500 bg-red-50 border-red-200' :
+                              'text-blue-500 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                            }`}
+                        >
+                          {item.availabilityMode === 'OPEN' ? <Utensils size={16} className="text-green-600 animate-bounce" /> :
+                            item.availabilityMode === 'CLOSED' ? <Ban size={16} className="text-red-500" /> :
+                              <Clock size={16} className="text-blue-500" />}
+                        </button>
+                      </div>
 
                       {/* Visibility Toggle - Restricted to Admin/SuperAdmin */}
                       {isPrivileged && (
@@ -803,6 +809,19 @@ const FastFoodManagement = () => {
     }
     navigate(`${location.pathname}?${newSearchParams.toString()}`);
   };
+
+  useEffect(() => {
+    const querySearch = searchParams.get('search');
+    if (querySearch) {
+      setSearchTerm(querySearch);
+      
+      // Auto-open edit modal if action=edit is passed
+      const action = searchParams.get('action');
+      if (action === 'edit') {
+         // The actual item logic needs the item object. We'll let the user click it from the filtered list.
+      }
+    }
+  }, [location.search]);
 
   // Fetch fast food items
   const fetchFastFoods = async () => {
@@ -1290,13 +1309,7 @@ const FastFoodManagement = () => {
                 </Button>
               )}
 
-              <button
-                onClick={() => navigate('/seller/fast-food/new')}
-                className="flex items-center px-3 py-2 text-xs font-semibold rounded-lg text-white bg-orange-600 hover:bg-orange-700 shadow-sm whitespace-nowrap flex-shrink-0"
-              >
-                <Plus className="mr-1 h-3 w-3" />
-                Hot Meal
-              </button>
+
 
               <button
                 onClick={() => navigate('/dashboard/fastfood/batch-system')}
@@ -1371,41 +1384,41 @@ const FastFoodManagement = () => {
 
               {/* 3-State legend / Helpful Tips - Hide in Review Mode */}
               {activeTab !== 'approve' && (
-                <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-md p-3 mb-4 text-white overflow-hidden relative">
+                <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-md p-2 sm:p-3 mb-4 text-white overflow-hidden relative">
                   <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <Utensils size={80} />
+                    <Utensils size={60} />
                   </div>
                   <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="bg-white/20 p-1 rounded-md"><Sliders size={18} /></span>
-                      <h3 className="text-sm font-bold uppercase tracking-wider">Availability & Shop Control Legend</h3>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="bg-white/20 p-1 rounded-md"><Sliders size={14} /></span>
+                      <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Availability Legend</h3>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="flex items-center gap-3 bg-white/10 p-2.5 rounded-lg border border-white/10">
-                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center border-2 border-white/50 shadow-sm">
-                          <Clock size={16} />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
+                      <div className="flex items-center gap-2 bg-white/10 p-1.5 sm:p-2.5 rounded-lg border border-white/10">
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-blue-500 flex items-center justify-center border border-white/30 shadow-sm">
+                          <Clock size={12} className="sm:w-4 sm:h-4" />
                         </div>
                         <div>
-                          <p className="text-[10px] font-black uppercase">Schedule (AUTO)</p>
-                          <p className="text-[9px] opacity-80 leading-tight">Follows your preset weekly calendar hours.</p>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase">Schedule</p>
+                          <p className="hidden sm:block text-[9px] opacity-80 leading-tight">Follows your weekly calendar.</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 bg-white/10 p-2.5 rounded-lg border border-white/10">
-                        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center border-2 border-white/50 shadow-sm animate-pulse">
-                          <Utensils size={16} />
+                      <div className="flex items-center gap-2 bg-white/10 p-1.5 sm:p-2.5 rounded-lg border border-white/10">
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-green-500 flex items-center justify-center border border-white/30 shadow-sm animate-pulse">
+                          <Utensils size={12} className="sm:w-4 sm:h-4" />
                         </div>
                         <div>
-                          <p className="text-[10px] font-black uppercase text-green-100">Force Open (OPEN)</p>
-                          <p className="text-[9px] opacity-80 leading-tight">Instant open. Ignores schedule. Best for early starts.</p>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase">Open</p>
+                          <p className="hidden sm:block text-[9px] opacity-80 leading-tight">Instant open. Ignores schedule.</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 bg-white/10 p-2.5 rounded-lg border border-white/10">
-                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center border-2 border-white/50 shadow-sm">
-                          <Ban size={16} />
+                      <div className="col-span-2 sm:col-span-1 flex items-center gap-2 bg-white/10 p-1.5 sm:p-2.5 rounded-lg border border-white/10">
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-red-500 flex items-center justify-center border border-white/30 shadow-sm">
+                          <Ban size={12} className="sm:w-4 sm:h-4" />
                         </div>
                         <div>
-                          <p className="text-[10px] font-black uppercase text-red-100">Force Closed (CLOSED)</p>
-                          <p className="text-[9px] opacity-80 leading-tight">Instant close. Ignores schedule. Use if sold out.</p>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase">Closed</p>
+                          <p className="hidden sm:block text-[9px] opacity-80 leading-tight">Instant close. Ignores schedule.</p>
                         </div>
                       </div>
                     </div>
@@ -1416,7 +1429,7 @@ const FastFoodManagement = () => {
 
 
               {/* Action Bar */}
-              <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-gray-100">
+              <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 mb-6 border border-gray-100">
                 <div className="flex flex-col md:flex-row md:items-center gap-4">
                   {/* Search */}
                   <div className="relative flex-1">
@@ -1433,9 +1446,9 @@ const FastFoodManagement = () => {
 
               {/* Stats Cards */}
               {activeTab !== 'approve' && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 mb-6">
                   <div
-                    className="bg-white rounded-lg shadow-sm p-6 cursor-pointer hover:shadow-md transition-shadow"
+                    className="bg-white rounded-xl shadow-sm p-3 sm:p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
                       setSearchTerm('');
                       setStatusFilter('all');
@@ -1444,15 +1457,15 @@ const FastFoodManagement = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Total Items</p>
-                        <p className="text-2xl font-bold text-gray-900">{fastFoods.length}</p>
+                        <p className="text-[10px] sm:text-sm text-gray-600 uppercase font-medium">Total Items</p>
+                        <p className="text-lg sm:text-2xl font-bold text-gray-900">{fastFoods.length}</p>
                       </div>
-                      <Utensils className="text-orange-500 text-2xl h-6 w-6" />
+                      <Utensils className="text-orange-500 h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
                   </div>
 
                   <div
-                    className="bg-white rounded-lg shadow-sm p-6 cursor-pointer hover:shadow-md transition-shadow"
+                    className="bg-white rounded-xl shadow-sm p-3 sm:p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
                       setStatusFilter('active');
                       scrollToList();
@@ -1460,17 +1473,17 @@ const FastFoodManagement = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Active Items</p>
-                        <p className="text-2xl font-bold text-green-600">
+                        <p className="text-[10px] sm:text-sm text-gray-600 uppercase font-medium">Active Items</p>
+                        <p className="text-lg sm:text-2xl font-bold text-green-600">
                           {fastFoods.filter(item => item.isActive).length}
                         </p>
                       </div>
-                      <Eye className="text-green-500 text-2xl h-6 w-6" />
+                      <Eye className="text-green-500 h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
                   </div>
 
                   <div
-                    className="bg-white rounded-lg shadow-sm p-6 cursor-pointer hover:shadow-md transition-shadow"
+                    className="bg-white rounded-xl shadow-sm p-3 sm:p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
                       setStatusFilter('all');
                       scrollToList();
@@ -1478,17 +1491,17 @@ const FastFoodManagement = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Categories</p>
-                        <p className="text-2xl font-bold text-blue-600">
+                        <p className="text-[10px] sm:text-sm text-gray-600 uppercase font-medium">Categories</p>
+                        <p className="text-lg sm:text-2xl font-bold text-blue-600">
                           {new Set(fastFoods.map(item => item.category)).size}
                         </p>
                       </div>
-                      <Search className="text-blue-500 text-2xl h-6 w-6" />
+                      <Search className="text-blue-500 h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
                   </div>
 
                   <div
-                    className="bg-white rounded-lg shadow-sm p-6 cursor-pointer hover:shadow-md transition-shadow"
+                    className="bg-white rounded-xl shadow-sm p-3 sm:p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
                       setStatusFilter('available');
                       scrollToList();
@@ -1496,15 +1509,15 @@ const FastFoodManagement = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Available Now</p>
-                        <p className="text-2xl font-bold text-purple-600">
+                        <p className="text-[10px] sm:text-sm text-gray-600 uppercase font-medium">Available Now</p>
+                        <p className="text-lg sm:text-2xl font-bold text-purple-600">
                           {fastFoods.filter(item => {
                             const availability = fastFoodService.getAvailabilityStatus(item);
                             return availability.isAvailable;
                           }).length}
                         </p>
                       </div>
-                      <Clock className="text-purple-500 text-2xl h-6 w-6" />
+                      <Clock className="text-purple-500 h-5 w-5 sm:h-6 sm:w-6" />
                     </div>
                   </div>
                 </div>
@@ -1596,7 +1609,7 @@ const FastFoodManagement = () => {
           ) : (
             /* FastFood Grid (All, Approve, Approved) */
             <div ref={listRef}>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-gray-800">

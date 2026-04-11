@@ -30,13 +30,18 @@ export default function RealtimeSync() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user?.id) return;
-
+    // Note: We NOT return early if !user?.id anymore, 
+    // because guests also need maintenance updates.
+    
     const socket = getSocket();
-    joinUserRoom(user.id);
 
-    if (['admin', 'superadmin', 'super_admin'].includes(user.role)) {
-      joinAdminRoom();
+    // Only join private rooms if logged in
+    if (user?.id) {
+      joinUserRoom(user.id);
+
+      if (['admin', 'superadmin', 'super_admin'].includes(user.role)) {
+        joinAdminRoom();
+      }
     }
 
     let invalidateTimer = null;
@@ -71,8 +76,15 @@ export default function RealtimeSync() {
 
     const onOrderStatus = relay('orderStatusUpdate', 'orders');
     const onRealtimeUpdate = (payload) => {
-      // Extract scope from payload if available
       const scope = payload?.scope || 'system';
+      
+      // Special Handling for Maintenance Updates
+      if (scope === 'maintenance' && payload.settings) {
+        console.log('[RealtimeSync] Maintenance settings updated via socket:', payload.settings);
+        localStorage.setItem('maintenance_settings', JSON.stringify(payload.settings));
+        window.dispatchEvent(new CustomEvent('maintenance-settings-updated', { detail: payload.settings }));
+      }
+
       relay('realtime:update', scope)(payload);
     };
     const onPaymentStatus = relay('paymentStatusUpdate', 'payments');

@@ -319,8 +319,8 @@ export function CartProvider({ children }) {
     const productData = options.product || {};
     let unitPrice = Number(productData.discountPrice || productData.displayPrice || productData.basePrice || productData.price || 0);
     let selectedVariant = options.selectedVariant || null;
-    let variantId = options.variantId || options.selectedVariant?.id || options.selectedVariant?.name || options.selectedVariant?.size;
-    const comboId = options.comboId || options.selectedCombo?.id || options.selectedCombo?.name;
+    let variantId = options.variantId || (typeof options.selectedVariant === 'string' ? options.selectedVariant : (options.selectedVariant?.id || options.selectedVariant?.name || options.selectedVariant?.size));
+    const comboId = options.comboId || (typeof options.selectedCombo === 'string' ? options.selectedCombo : (options.selectedCombo?.id || options.selectedCombo?.name));
     const batchId = options.batchId || null;
 
     setAddingToCart(prev => new Set(prev).add(productIdNum));
@@ -451,6 +451,22 @@ export function CartProvider({ children }) {
         const defaultVariant = variants.find((v) => Number(v?.stock ?? 1) > 0) || variants[0];
         variantId = getVariantIdentifier(defaultVariant) || null;
         selectedVariant = defaultVariant;
+      }
+    }
+
+    // Auto-pick default variant/combo for fastfood if missing
+    if (itemType === 'fastfood' && !variantId && !comboId) {
+      const variants = parseMaybeJson(productData.sizeVariants, []);
+      const combos = parseMaybeJson(productData.comboOptions, []);
+      
+      if (Array.isArray(variants) && variants.length > 0) {
+        const defaultVariant = variants.find(v => v?.isAvailable !== false) || variants[0];
+        variantId = typeof defaultVariant === 'string' ? defaultVariant : (defaultVariant?.id || defaultVariant?.name || defaultVariant?.size);
+        selectedVariant = defaultVariant;
+      } else if (Array.isArray(combos) && combos.length > 0) {
+        const defaultCombo = combos.find(c => c?.isAvailable !== false) || combos[0];
+        const comboIdInternal = typeof defaultCombo === 'string' ? defaultCombo : (defaultCombo?.id || defaultCombo?.name);
+        return addToCartInternal(productId, quantity, { ...options, comboId: comboIdInternal, selectedCombo: defaultCombo });
       }
     }
 
@@ -628,7 +644,7 @@ export function CartProvider({ children }) {
         const existingSellerId = existingFastFoodItem.fastFood?.vendor || existingFastFoodItem.product?.sellerId || existingFastFoodItem.sellerId;
         
         if (existingSellerId && String(existingSellerId) !== String(sellerId)) {
-          const existingSellerName = existingFastFoodItem.fastFood?.vendorDetail?.name || existingFastFoodItem.product?.seller?.name || existingFastFoodItem.kitchenVendor || 'Another Seller';
+          const existingSellerName = existingFastFoodItem.sellerBusinessName || existingFastFoodItem.fastFood?.vendorDetail?.businessName || existingFastFoodItem.fastFood?.vendorDetail?.name || existingFastFoodItem.product?.seller?.businessName || existingFastFoodItem.product?.seller?.name || existingFastFoodItem.kitchenVendor || 'Another Seller';
           const existingItemId = existingFastFoodItem.fastFoodId || existingFastFoodItem.productId || existingFastFoodItem.id;
           const newItemName = productData.name || 'New Item';
 

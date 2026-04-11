@@ -106,7 +106,7 @@ const DeliveryEarnings = () => {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
                     <div className="flex justify-between items-start">
                         <div>

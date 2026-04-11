@@ -222,19 +222,19 @@ export const useUltraFastHomepage = () => {
   const performanceMetrics = useMemo(() => {
     const now = Date.now();
     const dataAge = dataUpdatedAt ? now - dataUpdatedAt : 0;
-    
+
     return {
-      isOffline: offlineMode,
-      dataSource: offlineMode ? 'cache' : 'api',
-      cacheHit: !isPending && products.length > 0 && currentPage === 1,
-      loadTime: now,
-      productsCount: products.length,
-      hasMore,
-      currentPage,
-      isPending,
-      categoriesCount: categories.length,
-      dataAge: `${dataAge}ms`,
-      responseTime: dataAge > 0 ? 'fast' : 'unknown'
+        isOffline: offlineMode,
+        dataSource: offlineMode ? 'cache' : 'api',
+        cacheHit: !isPending && products.length > 0 && currentPage === 1,
+        loadTime: now,
+        productsCount: products.length,
+        hasMore,
+        currentPage,
+        isPending,
+        categoriesCount: categories.length,
+        dataAge: `${dataAge}ms`,
+        responseTime: dataAge > 0 ? 'fast' : 'unknown'
     };
   }, [offlineMode, isPending, products.length, currentPage, hasMore, categories.length, dataUpdatedAt]);
 

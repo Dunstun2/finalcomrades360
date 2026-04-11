@@ -30,7 +30,8 @@ import {
   FaMapMarkerAlt,
   FaBoxes,
   FaUtensils,
-  FaUndo
+  FaUndo,
+  FaPlus
 } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -119,7 +120,10 @@ const adminMenuItems = [
     icon: <FaBullhorn className="mr-3" />,
     roles: ['admin', 'superadmin', 'super_admin', 'marketer'],
     children: [
-      { name: 'Hero Promotions', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" /> }
+      { name: 'Product Promo Requests', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" /> },
+      { name: 'FastFood Promo Requests', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" /> },
+      { name: 'Create Promotion', path: '/dashboard/marketing/hero-promotions/create', icon: <FaPlus className="mr-2" /> },
+      { name: 'FastFood Banner Config', path: '/dashboard/fastfood/hero-settings', icon: <FaUtensils className="mr-2" /> }
     ]
   },
   {
@@ -193,6 +197,12 @@ const customerMenuItems = [
     name: 'My Orders',
     path: '/customer/orders',
     icon: <FaClipboardList className="mr-3" />,
+    roles: ['customer']
+  },
+  {
+    name: 'My Returns',
+    path: '/customer/returns',
+    icon: <FaUndo className="mr-3" />,
     roles: ['customer']
   },
   {

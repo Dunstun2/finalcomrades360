@@ -43,6 +43,7 @@ const FastFoodForm = ({
   mode = 'create',
   onCancel,
   onSuccess,
+  onEdit,
   isSellerContext: isSellerContextProp = false,
   listMode = false,
   product: initialProduct = null,
@@ -235,8 +236,6 @@ const FastFoodForm = ({
     comboOptions: [],
     kitchenVendor: '',
     vendorLocation: '',
-    vendorLat: '',
-    vendorLng: '',
     // Delivery Configuration
     deliveryFeeType: 'fixed',
     deliveryFee: '',
@@ -561,11 +560,6 @@ const FastFoodForm = ({
 
           if (foodSubcatList.length > 0) {
             setFoodSubcategories(foodSubcatList);
-            setFormData(prev => ({
-              ...prev,
-              category: prev.category || foodSubcatList[0]?.name || '',
-              subcategoryId: prev.subcategoryId || foodSubcatList[0]?.id || ''
-            }));
             setSubcategoriesLoading(false);
             return;
           }
@@ -579,11 +573,6 @@ const FastFoodForm = ({
             console.log('✅ Fetched subcategories via API:', subs.length);
             if (subs.length > 0) {
               setFoodSubcategories(subs);
-              setFormData(prev => ({
-                ...prev,
-                category: prev.category || subs[0]?.name || '',
-                subcategoryId: prev.subcategoryId || subs[0]?.id || ''
-              }));
               setSubcategoriesLoading(false);
               return;
             }
@@ -609,11 +598,6 @@ const FastFoodForm = ({
           if (subs.length > 0) {
             console.log('✅ Fallback: set food subcategories:', subs.length);
             setFoodSubcategories(subs);
-            setFormData(prev => ({
-              ...prev,
-              category: prev.category || subs[0]?.name || '',
-              subcategoryId: prev.subcategoryId || subs[0]?.id || ''
-            }));
             setSubcategoriesLoading(false);
             return;
           }
@@ -638,29 +622,7 @@ const FastFoodForm = ({
   }, [allCategories, loadFoodSubcategories]);
 
 
-  // Auto-detect location on load
-  useEffect(() => {
-    if (!isViewMode && "geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          console.log('📍 Auto-capturing coordinates:', latitude, longitude);
-          setFormData(prev => ({
-            ...prev,
-            vendorLat: latitude,
-            vendorLng: longitude
-          }));
-          // Optional: Notify user
-          // toast({ title: "Location Captured", description: "Coordinates auto-filled." });
-        },
-        (error) => {
-          console.warn('Geolocation auto-detect failed:', error.message);
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-      );
-    }
-  }, [isViewMode]);
-
+  const hasResetNewForm = useRef(false);
   useEffect(() => {
     console.log('🔄 useEffect [id, isEditMode, isViewMode, foodSubcategories] TRIGGERED:', {
       id, isEditMode, isViewMode,
@@ -705,8 +667,8 @@ const FastFoodForm = ({
 
           if (foodSubcategories.length > 0) {
             const matchingSubcat = foodSubcategories.find(s => s.name === item.category);
-            validCategory = matchingSubcat ? item.category : (item.category || foodSubcategories[0]?.name || '');
-            validSubcategoryId = matchingSubcat ? matchingSubcat.id : (item.subcategoryId || foodSubcategories[0]?.id || '');
+            validCategory = matchingSubcat ? item.category : (item.category || '');
+            validSubcategoryId = matchingSubcat ? matchingSubcat.id : (item.subcategoryId || '');
           }
 
           const formDataObject = {
@@ -783,8 +745,6 @@ const FastFoodForm = ({
             dailyLimit: item.dailyLimit || '',
             kitchenVendor: item.kitchenVendor || '',
             vendorLocation: item.vendorLocation || '',
-            vendorLat: item.vendorLat || '',
-            vendorLng: item.vendorLng || '',
             displayPrice: item.displayPrice || '',
             estimatedServings: item.estimatedServings || '1 person',
             dietaryTags: Array.isArray(item.dietaryTags) ? item.dietaryTags : [],
@@ -856,6 +816,16 @@ const FastFoodForm = ({
         }
       };
       fetchItem();
+    } else if (!hasResetNewForm.current) {
+      // Robustly ensure category is empty for new forms on first mount
+      // This overrides any stale drafts matching old default patterns
+      console.log('✨ Fresh Form Detect: Initializing empty category defaults');
+      setFormData(prev => ({ 
+        ...prev, 
+        category: '', 
+        subcategoryId: '' 
+      }));
+      hasResetNewForm.current = true;
     }
   }, [id, isEditMode, isViewMode, initialProduct, navigate, toast, foodSubcategories]);
 
@@ -1684,7 +1654,7 @@ const FastFoodForm = ({
   if (subcategoriesLoading) {
     console.log('FastFoodForm: Showing subcategories loading state');
     return (
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow p-0 sm:p-6">
         <div className="flex items-center mb-6">
           <Button
             variant="ghost"
@@ -1718,7 +1688,7 @@ const FastFoodForm = ({
   console.log('FastFoodForm: Rendering main form');
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-white rounded-lg shadow p-0 sm:p-6 mx-0">
       <div className="flex items-center mb-6">
         <Button
           variant="ghost"
@@ -1823,15 +1793,12 @@ const FastFoodForm = ({
               required
               disabled={isViewMode}
             >
-              {foodSubcategories.length > 0 ? (
-                foodSubcategories.map(cat => (
-                  <option key={cat.id || cat.name} value={cat.name}>
-                    {cat.name}
-                  </option>
-                ))
-              ) : (
-                <option value="">No categories available</option>
-              )}
+              <option value="">Select a category</option>
+              {foodSubcategories.length > 0 && foodSubcategories.map(cat => (
+                <option key={cat.id || cat.name} value={cat.name}>
+                  {cat.name}
+                </option>
+              ))}
             </select>
             <p className="text-xs text-orange-600 mt-2 font-medium flex items-center gap-1">
               <span className="bg-orange-100 p-0.5 rounded-full">ℹ️</span>
@@ -2163,24 +2130,28 @@ const FastFoodForm = ({
 
         <div>
           <Label>Main Image <span className="text-red-500">*</span></Label>
-          <div className="mt-2 flex items-center gap-6">
-            <div className="w-64 h-64 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border-2 border-gray-200">
+          <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+            <div className="w-32 h-32 sm:w-64 sm:h-64 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border-2 border-gray-200 shadow-inner">
               {imagePreview ? (
                 <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
               ) : (
-                <FaUpload className="text-gray-400 text-3xl" />
+                <div className="flex flex-col items-center text-gray-400">
+                  <FaUpload className="text-2xl sm:text-3xl mb-1" />
+                  <span className="text-[10px] uppercase font-bold">No Image</span>
+                </div>
               )}
             </div>
             {!isViewMode && (
               <div className="flex-1">
-                <Input id="mainImage" name="mainImage" type="file" onChange={handleFileChange} accept="image/*" />
-                <p className="text-xs text-gray-500 mt-2">
-                  Upload a high-quality image (JPG, PNG, WEBP). Recommended size: 800x800px.
+                <Input id="mainImage" name="mainImage" type="file" onChange={handleFileChange} accept="image/*" className="h-10 text-xs sm:text-sm" />
+                <p className="text-[10px] sm:text-xs text-orange-600 mt-2 font-medium">
+                  <span className="bg-orange-100 px-1.5 py-0.5 rounded mr-1">💡</span>
+                  JPG, PNG, WEBP (Square 800x800 recommended)
                 </p>
               </div>
             )}
             {isViewMode && (
-              <div className="flex-1 italic text-gray-500 text-sm">
+              <div className="flex-1 italic text-gray-500 text-sm bg-gray-50 p-3 rounded-lg border border-dashed">
                 Image upload disabled in view mode
               </div>
             )}
@@ -2297,10 +2268,10 @@ const FastFoodForm = ({
                               setFormData(prev => ({ ...prev, galleryImages: newExisting }));
                             }
                           }}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md"
                           title="Remove image"
                         >
-                          <FaTimes size={10} />
+                          <FaTimes size={14} />
                         </button>
                       )}
                       {preview.isFile && (
@@ -2476,134 +2447,96 @@ const FastFoodForm = ({
           </p>
           <div className="space-y-3">
             {formData.sizeVariants.length > 0 ? (
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-orange-100">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Size Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Base Price (KES)</th>
-                      {!isSellerContext && (
-                        <>
-                          <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Display Price (KES)</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Discount (%)</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Discount Price (KES)</th>
-                        </>
-                      )}
-                      {isSellerContext && (
-                        <th className="px-4 py-3 text-left text-xs font-bold text-orange-800 uppercase tracking-wider">Discount (%)</th>
-                      )}
+              <div className="space-y-4">
+                {formData.sizeVariants.map((variant, index) => {
+                  const calculateVariantPrice = (v) => {
+                    const base = parseFloat(v.basePrice || v.price || 0);
+                    const display = parseFloat(v.displayPrice || 0);
+                    const discount = parseFloat(v.discountPercentage || 0);
+                    const final = discount > 0 ? display * (1 - discount / 100) : display;
+                    return { base, display, discount, final: final.toFixed(2) };
+                  };
+                  const prices = calculateVariantPrice(variant);
+
+                  return (
+                    <div key={index} className="bg-white rounded-xl p-4 sm:p-5 border-2 border-orange-50 shadow-sm relative group hover:border-orange-200 transition-all">
                       {!isViewMode && (
-                        <th className="px-4 py-3 text-center text-xs font-bold text-orange-800 uppercase tracking-wider" style={{ width: '80px' }}>Action</th>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute -top-4 -right-4 text-red-500 hover:text-white hover:bg-red-500 h-9 w-9 p-0 rounded-full shadow-lg bg-white border border-red-100 z-10 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                          onClick={() => {
+                            const newVariants = formData.sizeVariants.filter((_, i) => i !== index);
+                            setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                          }}
+                        >
+                          <FaTimes size={16} />
+                        </Button>
                       )}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {formData.sizeVariants.map((variant, index) => {
-                      // Inline calculation for variants
-                      const calculateVariantPrice = (v) => {
-                        const base = parseFloat(v.basePrice || v.price || 0);
-                        const display = parseFloat(v.displayPrice || 0);
-                        const discount = parseFloat(v.discountPercentage || 0);
-                        const final = discount > 0 ? display * (1 - discount / 100) : display;
-                        return {
-                          base,
-                          display,
-                          discount,
-                          final: final.toFixed(2)
-                        };
-                      };
 
-                      const prices = calculateVariantPrice(variant);
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-10 gap-4 items-end">
+                        <div className="sm:col-span-2 lg:col-span-3">
+                          <Label className="text-[10px] uppercase font-black text-gray-400 mb-1.5 block tracking-widest">Size Name</Label>
+                          <Input
+                            value={variant.name}
+                            onChange={(e) => {
+                              const newVariants = [...formData.sizeVariants];
+                              newVariants[index].name = e.target.value;
+                              setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                            }}
+                            placeholder="e.g. Small, Large"
+                            disabled={isViewMode}
+                            className="bg-gray-50/50 border-gray-200 focus:ring-orange-500 h-10 font-bold"
+                          />
+                        </div>
 
-                      return (
-                        <tr key={index}>
-                          <td className="px-4 py-2">
-                            <Input
-                              value={variant.name}
-                              onChange={(e) => {
-                                const newVariants = [...formData.sizeVariants];
-                                newVariants[index].name = e.target.value;
-                                setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
-                              }}
-                              placeholder="e.g. Small, Large"
-                              disabled={isViewMode}
-                              className="bg-transparent border-gray-200 focus:ring-orange-500 h-9"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <Input
-                              type="number"
-                              value={variant.basePrice || variant.price}
-                              onChange={(e) => {
-                                const newVariants = [...formData.sizeVariants];
-                                const val = e.target.value;
-                                newVariants[index].basePrice = val;
-                                // For backward compatibility
-                                newVariants[index].price = val;
+                        <div className="lg:col-span-2">
+                          <Label className="text-[10px] uppercase font-black text-orange-600 mb-1.5 block tracking-widest">Base Price (KES)</Label>
+                          <Input
+                            type="number"
+                            value={variant.basePrice || variant.price}
+                            onChange={(e) => {
+                              const newVariants = [...formData.sizeVariants];
+                              const val = e.target.value;
+                              newVariants[index].basePrice = val;
+                              newVariants[index].price = val;
+                              if (isSellerContext) {
+                                const disc = parseFloat(newVariants[index].discountPercentage || 0);
+                                newVariants[index].discountPrice = (parseFloat(val || 0) * (1 - disc / 100)).toFixed(2);
+                              }
+                              setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                            }}
+                            placeholder="0.00"
+                            min="0"
+                            step="0.01"
+                            disabled={isViewMode}
+                            className="bg-orange-50/30 border-orange-100 focus:ring-orange-500 h-10 font-bold"
+                          />
+                        </div>
 
-                                // Auto-calculate final if seller (syncing base to discount, NOT display)
-                                if (isSellerContext) {
+                        {!isSellerContext ? (
+                          <>
+                            <div className="lg:col-span-2">
+                              <Label className="text-[10px] uppercase font-black text-blue-600 mb-1.5 block tracking-widest">Display Price</Label>
+                              <Input
+                                type="number"
+                                value={variant.displayPrice}
+                                onChange={(e) => {
+                                  const newVariants = [...formData.sizeVariants];
+                                  const val = e.target.value;
+                                  newVariants[index].displayPrice = val;
                                   const disc = parseFloat(newVariants[index].discountPercentage || 0);
-                                  // Note: We don't touch displayPrice here anymore, it stays blank for admin
                                   newVariants[index].discountPrice = (parseFloat(val || 0) * (1 - disc / 100)).toFixed(2);
-                                }
-
-                                setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
-                              }}
-                              placeholder="0.00"
-                              min="0"
-                              step="0.01"
-                              disabled={isViewMode}
-                              className="bg-transparent border-gray-200 focus:ring-orange-500 h-9"
-                            />
-                          </td>
-                          {!isSellerContext && (
-                            <>
-                              <td className="px-4 py-2">
-                                <Input
-                                  type="number"
-                                  value={variant.displayPrice}
-                                  onChange={(e) => {
-                                    const newVariants = [...formData.sizeVariants];
-                                    const val = e.target.value;
-                                    newVariants[index].displayPrice = val;
-                                    const disc = parseFloat(newVariants[index].discountPercentage || 0);
-                                    newVariants[index].discountPrice = (parseFloat(val || 0) * (1 - disc / 100)).toFixed(2);
-                                    setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
-                                  }}
-                                  placeholder="0.00"
-                                  min="0"
-                                  step="0.01"
-                                  disabled={isViewMode}
-                                  className="bg-transparent border-blue-200 focus:ring-blue-500 h-9"
-                                />
-                              </td>
-                              <td className="px-4 py-2">
-                                <Input
-                                  type="number"
-                                  value={variant.discountPercentage}
-                                  onChange={(e) => {
-                                    const newVariants = [...formData.sizeVariants];
-                                    const val = e.target.value;
-                                    newVariants[index].discountPercentage = val;
-                                    const disp = parseFloat(newVariants[index].displayPrice || 0);
-                                    newVariants[index].discountPrice = (disp * (1 - parseFloat(val || 0) / 100)).toFixed(2);
-                                    setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
-                                  }}
-                                  placeholder="0"
-                                  min="0"
-                                  max="100"
-                                  disabled={isViewMode}
-                                  className="bg-transparent border-gray-200 focus:ring-orange-500 h-9"
-                                />
-                              </td>
-                              <td className="px-4 py-2 text-blue-800 font-bold">
-                                {variant.discountPrice || prices.final}
-                              </td>
-                            </>
-                          )}
-                          {isSellerContext && (
-                            <td className="px-4 py-2">
+                                  setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                                }}
+                                placeholder="0.00"
+                                disabled={isViewMode}
+                                className="bg-blue-50/30 border-blue-100 focus:ring-blue-500 h-10 font-bold"
+                              />
+                            </div>
+                            <div className="lg:col-span-1">
+                              <Label className="text-[10px] uppercase font-black text-gray-400 mb-1.5 block tracking-widest">Discount %</Label>
                               <Input
                                 type="number"
                                 value={variant.discountPercentage}
@@ -2611,40 +2544,48 @@ const FastFoodForm = ({
                                   const newVariants = [...formData.sizeVariants];
                                   const val = e.target.value;
                                   newVariants[index].discountPercentage = val;
-                                  const base = parseFloat(newVariants[index].basePrice || newVariants[index].price || 0);
-                                  newVariants[index].discountPrice = (base * (1 - parseFloat(val || 0) / 100)).toFixed(2);
+                                  const disp = parseFloat(newVariants[index].displayPrice || 0);
+                                  newVariants[index].discountPrice = (disp * (1 - parseFloat(val || 0) / 100)).toFixed(2);
                                   setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
                                 }}
-                                placeholder="0"
                                 min="0"
                                 max="100"
                                 disabled={isViewMode}
-                                className="bg-transparent border-gray-200 focus:ring-orange-500 h-9"
+                                className="bg-gray-50/50 border-gray-200 h-10 font-bold px-2"
                               />
-                            </td>
-                          )}
-                          {!isViewMode && (
-                            <td className="px-4 py-2 text-center">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0 rounded-full"
-                                onClick={() => {
-                                  const newVariants = formData.sizeVariants.filter((_, i) => i !== index);
-                                  setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
-                                }}
-                                title="Remove Variant"
-                              >
-                                <FaTimes size={14} />
-                              </Button>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </div>
+                            <div className="lg:col-span-2">
+                              <Label className="text-[10px] uppercase font-black text-gray-400 mb-1.5 block tracking-widest">Final Price</Label>
+                              <div className="h-10 flex items-center px-3 bg-gray-100 rounded-lg text-blue-800 font-black border border-gray-200 text-xs sm:text-sm">
+                                KES {variant.discountPrice || prices.final}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="lg:col-span-2">
+                            <Label className="text-[10px] uppercase font-black text-gray-400 mb-1.5 block tracking-widest">Discount %</Label>
+                            <Input
+                              type="number"
+                              value={variant.discountPercentage}
+                              onChange={(e) => {
+                                const newVariants = [...formData.sizeVariants];
+                                const val = e.target.value;
+                                newVariants[index].discountPercentage = val;
+                                const base = parseFloat(newVariants[index].basePrice || newVariants[index].price || 0);
+                                newVariants[index].discountPrice = (base * (1 - parseFloat(val || 0) / 100)).toFixed(2);
+                                setFormData(prev => ({ ...prev, sizeVariants: newVariants }));
+                              }}
+                              min="0"
+                              max="100"
+                              disabled={isViewMode}
+                              className="bg-gray-50/50 border-gray-200 h-10 font-bold"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-6 bg-white rounded-lg border border-dashed border-gray-300">
@@ -2966,49 +2907,6 @@ const FastFoodForm = ({
               <p className="text-xs text-gray-500 mt-1">
                 Specific areas where you can deliver. Separate by commas.
               </p>
-            </div>
-
-            {/* Coordinates for Smart Filtering (Hidden or advanced) */}
-            {/* Coordinates for Smart Filtering (Locked & Auto-filled) */}
-            <div>
-              <Label htmlFor="vendorLat" className="flex items-center gap-1">
-                Latitude <span className="text-[10px] text-gray-400 font-normal">(Auto-Locked)</span>
-              </Label>
-              <div className="relative">
-                <Input
-                  id="vendorLat"
-                  name="vendorLat"
-                  type="number"
-                  step="any"
-                  value={formData.vendorLat}
-                  readOnly
-                  className="bg-gray-100 text-gray-900 font-medium cursor-not-allowed border-gray-200 focus:ring-0"
-                  placeholder="Auto-detecting..."
-                />
-                <div className="absolute right-3 top-2.5 text-xs grayscale opacity-50" title="System Locked">
-                  🔒
-                </div>
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="vendorLng" className="flex items-center gap-1">
-                Longitude <span className="text-[10px] text-gray-400 font-normal">(Auto-Locked)</span>
-              </Label>
-              <div className="relative">
-                <Input
-                  id="vendorLng"
-                  name="vendorLng"
-                  type="number"
-                  step="any"
-                  value={formData.vendorLng}
-                  readOnly
-                  className="bg-gray-100 text-gray-900 font-medium cursor-not-allowed border-gray-200 focus:ring-0"
-                  placeholder="Auto-detecting..."
-                />
-                <div className="absolute right-3 top-2.5 text-xs grayscale opacity-50" title="System Locked">
-                  🔒
-                </div>
-              </div>
             </div>
           </div>
         </div>

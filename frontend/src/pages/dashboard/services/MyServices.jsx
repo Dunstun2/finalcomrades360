@@ -271,7 +271,7 @@ const MyServices = () => {
       </div>
 
       {/* Service Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -310,9 +310,9 @@ const MyServices = () => {
       </div>
 
       {/* Services List */}
-      <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
         {services[activeTab]?.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg border border-dashed border-gray-200">
+          <div className="col-span-full text-center py-12 bg-white rounded-lg border border-dashed border-gray-200">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
               <FaClock className="h-6 w-6 text-gray-400" />
             </div>

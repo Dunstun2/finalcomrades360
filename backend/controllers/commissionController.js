@@ -187,7 +187,8 @@ const calculateCommission = async (orderId, primaryReferralCode = null, secondar
             primaryCommission,
             `Commission Earning for Order #${order.orderNumber} (Pending Clearance)`,
             order.id,
-            transaction
+            transaction,
+            'marketer'
           );
         } else {
           console.log(`    ℹ️ Primary commission already exists for Marketer ${primaryMarketer.id}. Skipping.`);
@@ -231,7 +232,8 @@ const calculateCommission = async (orderId, primaryReferralCode = null, secondar
             secondaryCommission,
             `Commission Earning for Order #${order.orderNumber} (Pending Clearance)`,
             order.id,
-            transaction
+            transaction,
+            'marketer'
           );
         } else {
           console.log(`    ℹ️ Secondary commission already exists for Marketer ${secondaryMarketer.id}. Skipping.`);

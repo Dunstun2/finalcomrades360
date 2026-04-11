@@ -25,7 +25,7 @@ export default function SellerNotifications(){
   }
 
   return (
-    <div className="p-4">
+    <div className="p-0 sm:p-4">
       <h1 className="text-2xl font-semibold mb-4">Notifications</h1>
       {error && <div className="mb-3 p-3 rounded bg-red-100 text-red-700 text-sm">{error}</div>}
       {loading ? (

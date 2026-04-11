@@ -8,7 +8,13 @@ const DashboardLogin = () => {
     const navigate = useNavigate();
     const location = useLocation();
     
-    const [isSetup, setIsSetup] = useState(!user?.dashboardPassword);
+    const [isSetup, setIsSetup] = useState(user && !user?.dashboardPassword);
+
+    useEffect(() => {
+        if (!user) {
+            navigate('/login', { state: { from: location } });
+        }
+    }, [user, navigate, location]);
     const [formData, setFormData] = useState({
         currentPassword: '',
         dashboardPassword: '',

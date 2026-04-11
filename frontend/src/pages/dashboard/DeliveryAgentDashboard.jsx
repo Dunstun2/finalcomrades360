@@ -7,7 +7,7 @@ import {
 } from 'react-icons/fa';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { getSocket } from '../../services/socket';
+import { getSocket, joinUserRoom } from '../../services/socket';
 import { useToast } from '../../components/ui/use-toast';
 
 const DeliveryAgentDashboard = () => {
@@ -25,6 +25,9 @@ const DeliveryAgentDashboard = () => {
     fetchStatus();
 
     const socket = getSocket();
+    if (user?.id) {
+      joinUserRoom(user.id);
+    }
     const handleSync = (data) => {
       console.log('🔔 Delivery agent real-time sync:', data);
       setLastUpdate(Date.now());
@@ -50,17 +53,12 @@ const DeliveryAgentDashboard = () => {
     socket.on('handover:confirmed', handleSync);
     socket.on('new_task_available', handleNewTask);
 
-    const interval = setInterval(() => {
-      fetchStatus();
-    }, 30000);
-
     return () => {
       socket.off('orderStatusUpdate', handleSync);
       socket.off('deliveryRequestUpdate', handleSync);
       socket.off('handover:generated', handleSync);
       socket.off('handover:confirmed', handleSync);
       socket.off('new_task_available', handleNewTask);
-      clearInterval(interval);
     };
   }, []);
 

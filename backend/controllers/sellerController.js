@@ -92,7 +92,7 @@ const getMyKpis = async (req, res) => {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const pendingStatuses = ['order_placed', 'seller_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'received_at_warehouse', 'super_admin_confirmed', 'ready_for_pickup', 'in_transit'];
+    const pendingStatuses = ['order_placed', 'seller_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'at_warehouse', 'super_admin_confirmed', 'ready_for_pickup', 'in_transit'];
     const paidStatuses = ['paid', 'delivered', 'completed'];
 
     // FAST PATH: Use indexed Order.sellerId for direct queries — no OrderItem join needed for KPI counts
@@ -543,7 +543,7 @@ const getOverview = async (req, res) => {
     const previewSize = 6;
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-    const pendingStatuses = ['order_placed', 'seller_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'received_at_warehouse', 'super_admin_confirmed', 'ready_for_pickup', 'in_transit'];
+    const pendingStatuses = ['order_placed', 'seller_confirmed', 'en_route_to_warehouse', 'at_warehouse', 'processing', 'at_warehouse', 'super_admin_confirmed', 'ready_for_pickup', 'in_transit'];
     const paidStatuses = ['paid', 'delivered', 'completed'];
 
     // 1. Find limited order IDs for overview

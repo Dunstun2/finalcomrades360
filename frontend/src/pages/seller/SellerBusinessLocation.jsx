@@ -133,11 +133,11 @@ export default function SellerBusinessLocation() {
     };
 
     if (loading) {
-        return <div className="p-6">Loading...</div>;
+        return <div className="p-0 sm:p-6">Loading...</div>;
     }
 
     return (
-        <div className="p-6">
+        <div className="p-0 sm:p-6">
             <div className="max-w-3xl">
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
