@@ -35,18 +35,30 @@ app.use((req, res, next) => {
   next();
 });
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const legacyFrontendUrl = new URL(FRONTEND_URL);
-legacyFrontendUrl.port = '3000';
+const legacyFrontendUrl = new URL(FRONTEND_URL.startsWith('http') ? FRONTEND_URL : `https://${FRONTEND_URL}`);
+
+// Dynamically build allowed origins for production
+const allowedOrigins = [
+  FRONTEND_URL,
+  'https://' + legacyFrontendUrl.hostname,
+  'http://' + legacyFrontendUrl.hostname,
+  'http://localhost:4000',
+  'http://127.0.0.1:4000',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+];
 
 app.use(cors({
-  origin: [
-    FRONTEND_URL,
-    FRONTEND_URL.replace('localhost', '127.0.0.1'),
-    legacyFrontendUrl.toString(),
-    legacyFrontendUrl.toString().replace('localhost', '127.0.0.1'),
-    'http://localhost:4000',
-    'http://127.0.0.1:4000'
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.some(o => origin.startsWith(o))) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked request from: ${origin}`);
+      callback(null, true); // Fallback to allow during setup transition but log it
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password']

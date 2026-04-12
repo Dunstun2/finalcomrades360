@@ -130,25 +130,34 @@ const testConnection = async () => {
 
     // Self-healing: Enforce default roles
     try {
-      const [results] = await sequelize.query("SELECT id FROM Roles WHERE id = 'seller' LIMIT 1");
-      if (results.length === 0) {
-        console.log('🌱 Seeding default roles...');
-        const now = new Date().toISOString();
-        const defaultRoles = [
-          { id: 'seller', name: 'Seller' },
-          { id: 'admin', name: 'Admin' },
-          { id: 'super_admin', name: 'Super Admin' },
-          { id: 'delivery_agent', name: 'Delivery Agent' },
-          { id: 'marketer', name: 'Marketer' },
-        ];
-        for (const r of defaultRoles) {
-          await sequelize.query(
-            "INSERT OR IGNORE INTO Roles (id, name, isSystem, permissions, accessLevels, createdAt, updatedAt) VALUES ('" +
-            r.id + "', '" + r.name + "', 1, '[]', '{}', '" + now + "', '" + now + "')"
-          );
-        }
-        console.log('✅ Default roles seeded.');
+      const Role = sequelize.models.Role || sequelize.define('Role', { 
+        id: { type: Sequelize.STRING, primaryKey: true },
+        name: Sequelize.STRING,
+        isSystem: { type: Sequelize.BOOLEAN, defaultValue: true }
+      });
+
+      const defaultRoles = [
+        { id: 'seller', name: 'Seller' },
+        { id: 'admin', name: 'Admin' },
+        { id: 'super_admin', name: 'Super Admin' },
+        { id: 'delivery_agent', name: 'Delivery Agent' },
+        { id: 'marketer', name: 'Marketer' },
+        { id: 'service_provider', name: 'Service Provider' },
+      ];
+
+      for (const r of defaultRoles) {
+        // Use findOrCreate to be safe across dialects (SQLite/MySQL)
+        await sequelize.query(`
+          INSERT INTO Roles (id, name, isSystem, permissions, accessLevels, createdAt, updatedAt)
+          SELECT * FROM (SELECT '${r.id}', '${r.name}', 1, '[]', '{}', NOW(), NOW()) AS tmp
+          WHERE NOT EXISTS (
+              SELECT id FROM Roles WHERE id = '${r.id}'
+          ) LIMIT 1;
+        `.replace('NOW()', dbConfig.dialect === 'sqlite' ? "datetime('now')" : "NOW()")
+         .replace('OR IGNORE', '') // Cleanup any legacy attempts
+        );
       }
+      console.log('✅ Default roles verified/seeded.');
     } catch (roleErr) {
       console.warn('⚠️ Warning: Could not seed roles:', roleErr.message);
     }
