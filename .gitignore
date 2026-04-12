@@ -74,3 +74,6 @@ backend/.wwebjs_cache/
 # Package lock (optional - uncomment if you prefer to track it)
 # package-lock.json
 
+# User uploads and production dynamic content
+backend/uploads/
+
