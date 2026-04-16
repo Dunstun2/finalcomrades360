@@ -1,4 +1,4 @@
-console.log('🚀 SERVER STARTING - VERSION: ' + Date.now());
+console.error('🚀 SERVER STARTING - VERSION: ' + Date.now());
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -492,6 +492,7 @@ async function startServer() {
     const { testConnection } = require('./database/database');
     try {
       await testConnection();
+      console.error('✅ Database connected and verified successfully');
     } catch (dbError) {
       console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
       // We continue to allow manual debugging via health checks if possible
@@ -540,7 +541,7 @@ async function startServer() {
     if (!server.listening) {
       try {
         server.listen(DEFAULT_PORT, () => {
-          console.log(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+          console.error(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
           
           // DEFERRED INITIALIZATION: Start heavy services after the port is open
           setImmediate(async () => {

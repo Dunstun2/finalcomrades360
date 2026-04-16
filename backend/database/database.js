@@ -59,7 +59,7 @@ const config = {
     dialect: 'mysql', // Explicitly force mysql for production config
     logging: process.env.SEQUELIZE_LOGGING === 'true' ? console.log : false,
     pool: {
-      max: 5,
+      max: 10,
       min: 0,
       acquire: 60000,
       idle: 20000,
@@ -149,7 +149,7 @@ const testConnection = async () => {
         // Use findOrCreate to be safe across dialects (SQLite/MySQL)
         await sequelize.query(`
           INSERT INTO Roles (id, name, isSystem, permissions, accessLevels, createdAt, updatedAt)
-          SELECT * FROM (SELECT '${r.id}', '${r.name}', 1, '[]', '{}', NOW(), NOW()) AS tmp
+          SELECT * FROM (SELECT '${r.id}' AS rid, '${r.name}' AS rname, 1 AS rsys, '[]' AS rperm, '{}' AS rlvl, NOW() AS rca, NOW() AS rua) AS tmp
           WHERE NOT EXISTS (
               SELECT id FROM Roles WHERE id = '${r.id}'
           ) LIMIT 1;
