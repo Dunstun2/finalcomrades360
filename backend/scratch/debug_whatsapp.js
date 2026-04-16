@@ -1,47 +1,59 @@
-const puppeteer = require('puppeteer');
-const fs = require('fs');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const P = require('pino');
 const path = require('path');
+const fs = require('fs');
 
-async function testLaunch() {
-    console.log('🔍 Starting Puppeteer Diagnostic...');
-    console.log('Environment:', process.env.NODE_ENV);
-    console.log('User:', process.env.USER || 'unknown');
+async function testBaileys() {
+    console.log('🔍 Starting Baileys (No-Browser) Diagnostic...');
     
-    const args = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--single-process',
-        '--no-zygote',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-    ];
-
-    console.log('🚀 Attempting to launch browser with args:', args.join(' '));
+    const sessionDir = path.join(process.cwd(), '.wwebjs_auth/debug_session');
+    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
     try {
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: args
-        });
-        console.log('✅ SUCCESS: Browser launched successfully!');
-        const version = await browser.version();
-        console.log('Browser Version:', version);
-        await browser.close();
-        console.log('👋 Browser closed safely.');
-    } catch (err) {
-        console.error('❌ FAILURE: Browser launch failed.');
-        console.error('Error Name:', err.name);
-        console.error('Error Message:', err.message);
+        console.log('📂 Testing session directory accessibility...');
+        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         
-        // Check for specific missing library errors
-        if (err.message.includes('error while loading shared libraries')) {
-            const missingLib = err.message.split(':').pop().trim();
-            console.error(`💡 MISSING LIBRARY DETECTED: ${missingLib}`);
-            console.error('You need to ask your server administrator to install this library.');
-        } else if (err.message.includes('pthread_create')) {
-            console.error('💡 RESOURCE LIMIT ERROR: Still hitting thread/process limits.');
+        console.log('🌐 Fetching latest WhatsApp version...');
+        const { version } = await fetchLatestBaileysVersion();
+        console.log('Version:', version.join('.'));
+
+        console.log('🚀 Attempting to initialize socket (No browser)...');
+        const sock = makeWASocket({
+            version,
+            auth: state,
+            printQRInTerminal: false,
+            logger: P({ level: 'debug' }) // Enable debug logging for the test
+        });
+
+        sock.ev.on('connection.update', (update) => {
+            const { connection, qr, lastDisconnect } = update;
+            
+            if (qr) {
+                console.log('✅ SUCCESS: QR Code generated via socket!');
+                console.log('QR String Length:', qr.length);
+                process.exit(0);
+            }
+
+            if (connection === 'close') {
+                console.log('❌ Connection closed:', lastDisconnect?.error?.message);
+                process.exit(1);
+            }
+        });
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+            console.error('⌛ TIMEOUT: Engine did not produce a QR code within 30s.');
+            process.exit(1);
+        }, 30000);
+
+    } catch (err) {
+        console.error('❌ FAILURE: Baileys failed to start.');
+        console.error('Error:', err.message);
+        
+        if (err.message.includes('Cannot find module')) {
+            console.error('💡 MISSING DEPENDENCY: You likely missed the "npm install" step.');
         }
     }
 }
 
-testLaunch();
+testBaileys();
