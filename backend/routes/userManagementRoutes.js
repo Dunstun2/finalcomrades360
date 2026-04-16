@@ -597,6 +597,35 @@ router.patch('/users/:userId/verification', auth, adminOnly, async (req, res) =>
   }
 });
 
+// DELETE /api/admin/users/:userId - Delete a single user
+router.delete('/users/:userId', auth, adminOnly, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Protection for super_admin
+    if (user.role === 'super_admin') {
+      return res.status(403).json({ message: 'Cannot delete a super_admin account' });
+    }
+
+    await user.destroy();
+
+    console.log(`Admin ${req.user.id} deleted user ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'User has been deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Server error while deleting user.', error: error.message });
+  }
+});
+
 // POST /api/admin/users/bulk - Bulk operations on users
 router.post('/users/bulk', auth, adminOnly, async (req, res) => {
   try {

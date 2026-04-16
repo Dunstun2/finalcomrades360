@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
-import { FaSync, FaUser, FaUserCheck, FaUserTimes, FaUserShield } from 'react-icons/fa';
+import { FaSync, FaUser, FaUserCheck, FaUserTimes, FaUserShield, FaTrash } from 'react-icons/fa';
 
 const StatCard = ({ icon: Icon, title, value, color, onClick }) => (
   <div 
@@ -83,6 +83,24 @@ export default function UserManagement() {
     } catch (e) {
       console.error('Error updating role:', e);
       setError(e.response?.data?.message || 'Failed to update user role');
+    }
+  };
+
+  const handleDeleteUser = async (userId, userName) => {
+    if (!window.confirm(`Are you sure you want to permanently delete user "${userName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    resetAlerts();
+    try {
+      setLoading(true);
+      await api.delete(`/api/admin/users/${userId}`);
+      setSuccess(`User ${userName} deleted successfully`);
+      loadUsers();
+    } catch (e) {
+      console.error('Error deleting user:', e);
+      setError(e.response?.data?.message || 'Failed to delete user');
+      setLoading(false);
     }
   };
 
@@ -242,18 +260,30 @@ export default function UserManagement() {
                       {user.role || 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <select
-                        className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                        disabled={user.role === 'super_admin'}
-                      >
-                        {roleOptions.map((role) => (
-                          <option key={role} value={role}>
-                            {role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center gap-3">
+                        <select
+                          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                          value={user.role}
+                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                          disabled={user.role === 'super_admin'}
+                        >
+                          {roleOptions.map((role) => (
+                            <option key={role} value={role}>
+                              {role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </option>
+                          ))}
+                        </select>
+
+                        {user.role !== 'super_admin' && (
+                          <button
+                            onClick={() => handleDeleteUser(user.id, user.name)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                            title="Delete User"
+                          >
+                            <FaTrash />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
