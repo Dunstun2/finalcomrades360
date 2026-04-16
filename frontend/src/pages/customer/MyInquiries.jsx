@@ -132,6 +132,7 @@ export default function MyInquiries() {
                 </div>
 
                 {expandedId === inquiry.id && (
+                  <div className="px-5 pb-5">
                       {/* Message History Thread */}
                       <div className="pt-4 space-y-4 border-t border-gray-100 mt-4">
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conversation History</p>
@@ -196,6 +197,7 @@ export default function MyInquiries() {
                           </div>
                         </div>
                       )}
+                  </div>
                 )}
               </div>
             ))}
