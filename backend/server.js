@@ -584,10 +584,8 @@ async function startServer() {
   }
 }
 
-// Always start the server ONLY if run directly (node server.js)
-if (require.main === module) {
-  startServer();
-}
+// Always start the server (Required for Passenger/cPanel)
+startServer();
 
 // Export for cPanel/Passenger or tests
 module.exports = app;
