@@ -1,3 +1,8 @@
+// Polyfill for Node.js v18 and below
+if (!global.crypto) {
+    global.crypto = require('crypto');
+}
+
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 

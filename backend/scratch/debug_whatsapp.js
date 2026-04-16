@@ -1,3 +1,4 @@
+if (!global.crypto) global.crypto = require('crypto');
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const P = require('pino');
 const path = require('path');
