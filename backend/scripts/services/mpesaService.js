@@ -28,29 +28,27 @@ const validateConfig = () => {
   const required = ['consumerKey', 'consumerSecret', 'shortcode', 'passkey'];
   const missing = required.filter(key => !MPESA_CONFIG[key]);
 
-  // Allow placeholder values in development
+  // Allow placeholder values in development/staging
   const hasPlaceholders = required.some(key =>
     MPESA_CONFIG[key] && (
       MPESA_CONFIG[key].includes('your_') ||
-      MPESA_CONFIG[key].includes('_here') ||
-      MPESA_CONFIG[key] === 'your_mpesa_consumer_key_here' ||
-      MPESA_CONFIG[key] === 'your_mpesa_consumer_secret_here' ||
-      MPESA_CONFIG[key] === 'your_mpesa_passkey_here'
+      MPESA_CONFIG[key].includes('_here')
     )
   );
 
-  if (missing.length > 0 && !hasPlaceholders && process.env.MPESA_MOCK_MODE !== 'true') {
-    throw new Error(`Missing required M-Pesa configuration: ${missing.join(', ')}`);
+  // If mock mode is enabled OR keys are missing/placeholders, switch to mock mode silently
+  if (MPESA_CONFIG.mockMode) {
+    console.log('ℹ️ M-Pesa MOCK MODE explicitly enabled via environment variable');
+    return;
   }
 
-  if (hasPlaceholders) {
-    console.log('⚠️ M-Pesa using placeholder configuration - switching to MOCK MODE');
+  if (missing.length > 0 || hasPlaceholders) {
+    console.log('⚠️ M-Pesa keys missing or using placeholder configuration - switching to MOCK MODE');
     MPESA_CONFIG.mockMode = true;
-  } else if (MPESA_CONFIG.mockMode) {
-    console.log('ℹ️ M-Pesa MOCK MODE explicitly enabled via environment variable');
-  } else {
-    console.log('✅ M-Pesa configuration validated successfully');
+    return;
   }
+
+  console.log('✅ M-Pesa configuration validated successfully');
 };
 
 // Initialize configuration validation
