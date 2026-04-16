@@ -8,73 +8,90 @@ let isWhatsAppReady = false;
 let latestQr = null;
 let whatsappStatus = 'initializing'; // initializing, qr_ready, authenticated, ready, disconnected, error
 
-const initWhatsApp = () => {
+const initWhatsApp = async () => {
+  // Guard: skip if WhatsApp is explicitly disabled or Puppeteer can't run
+  if (process.env.WHATSAPP_ENABLED !== 'true') {
+    console.log('ℹ️ [WhatsApp] Disabled via WHATSAPP_ENABLED env var. Skipping initialization.');
+    whatsappStatus = 'disabled';
+    return;
+  }
+
   console.log('🔄 [WhatsApp] Initializing Open Source Client...');
   whatsappStatus = 'initializing';
   latestQr = null;
-  
-  whatsappClient = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: './.wwebjs_auth/session_alt'
-    }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--disable-extensions'
-      ]
-    }
-  });
-
-  whatsappClient.on('qr', (qr) => {
-    console.log('📱 [WhatsApp] SCAN THIS QR CODE WITH YOUR PHONE:');
-    latestQr = qr;
-    whatsappStatus = 'qr_ready';
-    qrcode.generate(qr, { small: true });
-  });
-
-  whatsappClient.on('ready', () => {
-    console.log('✅ [WhatsApp] Client is READY and connected!');
-    isWhatsAppReady = true;
-    whatsappStatus = 'ready';
-    latestQr = null;
-  });
-
-  whatsappClient.on('authenticated', () => {
-    console.log('🔓 [WhatsApp] Authenticated successfully.');
-    whatsappStatus = 'authenticated';
-  });
-
-  whatsappClient.on('auth_failure', (msg) => {
-    console.error('❌ [WhatsApp] Authentication failure:', msg);
-    whatsappStatus = 'error';
-    isWhatsAppReady = false;
-  });
-
-  whatsappClient.on('disconnected', (reason) => {
-    console.log('❌ [WhatsApp] Client disconnected:', reason);
-    isWhatsAppReady = false;
-    whatsappStatus = 'disconnected';
-    // Attempt re-init
-    setTimeout(initWhatsApp, 5000);
-  });
 
   try {
-    whatsappClient.initialize();
+    whatsappClient = new Client({
+      authStrategy: new LocalAuth({
+          dataPath: './.wwebjs_auth/session_alt'
+      }),
+      puppeteer: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-extensions',
+          '--single-process'
+        ]
+      }
+    });
+
+    whatsappClient.on('qr', (qr) => {
+      console.log('📱 [WhatsApp] SCAN THIS QR CODE WITH YOUR PHONE:');
+      latestQr = qr;
+      whatsappStatus = 'qr_ready';
+      qrcode.generate(qr, { small: true });
+    });
+
+    whatsappClient.on('ready', () => {
+      console.log('✅ [WhatsApp] Client is READY and connected!');
+      isWhatsAppReady = true;
+      whatsappStatus = 'ready';
+      latestQr = null;
+    });
+
+    whatsappClient.on('authenticated', () => {
+      console.log('🔓 [WhatsApp] Authenticated successfully.');
+      whatsappStatus = 'authenticated';
+    });
+
+    whatsappClient.on('auth_failure', (msg) => {
+      console.error('❌ [WhatsApp] Authentication failure:', msg);
+      whatsappStatus = 'error';
+      isWhatsAppReady = false;
+    });
+
+    whatsappClient.on('disconnected', (reason) => {
+      console.log('❌ [WhatsApp] Client disconnected:', reason);
+      isWhatsAppReady = false;
+      whatsappStatus = 'disconnected';
+      // Only auto-reconnect if still enabled
+      if (process.env.WHATSAPP_ENABLED === 'true') {
+        setTimeout(initWhatsApp, 15000);
+      }
+    });
+
+    await whatsappClient.initialize();
   } catch (err) {
-    console.error('❌ [WhatsApp] Initialization Failed (Puppeteer conflict?):', err.message);
+    console.error('❌ [WhatsApp] Initialization Failed (Puppeteer unavailable on this server):', err.message);
     whatsappStatus = 'error';
+    isWhatsAppReady = false;
+    whatsappClient = null;
   }
 };
 
-// Start initialization immediately when this module is loaded
-initWhatsApp();
+// Auto-start only if explicitly enabled in environment
+if (process.env.WHATSAPP_ENABLED === 'true') {
+  initWhatsApp();
+} else {
+  console.log('ℹ️ [WhatsApp] Auto-start skipped. Set WHATSAPP_ENABLED=true to enable.');
+  whatsappStatus = 'disabled';
+}
 
 /**
  * Public control functions for UI integration
