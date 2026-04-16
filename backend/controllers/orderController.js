@@ -1,5 +1,5 @@
 const { sequelize } = require('../database/database');
-const { Product, User, Wallet, Transaction, Order, OrderItem, Commission, DeliveryAgentProfile, Cart, FastFood, Service, DeliveryTask, DeliveryCharge, Warehouse, PickupStation, FastFoodPickupPoint, PlatformConfig, Notification, HandoverCode } = require('../models');
+const { Product, User, Wallet, Transaction, Order, OrderItem, Commission, DeliveryAgentProfile, Cart, FastFood, Service, DeliveryTask, DeliveryCharge, Warehouse, PickupStation, FastFoodPickupPoint, PlatformConfig, Notification, HandoverCode, Batch } = require('../models');
 
 const { calculateCommission: createCommissionRecords } = require('./commissionController');
 const { isValidTransition, getValidTransitionsForOrder, autoCreateDeliveryTask } = require('./orderTransitionController');

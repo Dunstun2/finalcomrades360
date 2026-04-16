@@ -444,63 +444,50 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { setIO } = require('./realtime/socket');
 
-// Start server after database connection
+// Initialize HTTP server and Socket.IO outside to ensure singleton status
+const server = createServer(app);
+server.timeout = 60000;
+server.keepAliveTimeout = 65000;
+
 const DEFAULT_PORT = process.env.PORT || 5004;
-let isStarting = false;
+
+// Socket.IO configuration
+const socketAllowedOrigins = [
+  process.env.FRONTEND_URL,
+  'https://' + (new URL(process.env.FRONTEND_URL?.startsWith('http') ? process.env.FRONTEND_URL : `https://${process.env.FRONTEND_URL || 'localhost'}`)).hostname,
+  'http://localhost:4000',
+  'http://127.0.0.1:4000',
+  'http://localhost:3000'
+].filter(Boolean);
+
+const io = new Server(server, {
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin || socketAllowedOrigins.some(o => origin.startsWith(o))) {
+        callback(null, true);
+      } else {
+        console.warn(`[Socket.IO CORS] Blocked: ${origin}`);
+        callback(new Error(`Socket.IO CORS: origin '${origin}' is not allowed.`));
+      }
+    },
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['polling', 'websocket'],
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+setIO(io);
 
 async function startServer() {
   if (global.__serverStarted) {
-    console.log('ℹ️ Server start already in progress (Global), skipping duplicate call.');
+    console.log('ℹ️ Server start already in progress (Global check), skipping duplicate call.');
     return;
   }
   global.__serverStarted = true;
 
   try {
-    // Attempt database connection but don't crash if it fails
-    try {
-      await testConnection();
-    } catch (dbError) {
-      console.error('⚠️ Database connection failed, but starting server anyway:', dbError.message);
-    }
-
-    // Create HTTP server with timeout configuration
-    const server = require('http').createServer(app);
-
-    // Set server timeout to 60 seconds (60000ms)
-    server.timeout = 60000;
-    server.keepAliveTimeout = 65000; // Keep connection alive for 65 seconds
-
-    // Heavy initializations moved to server.listen callback below
-
-    // Initialize Socket.IO with CORS
-    const socketAllowedOrigins = [
-      process.env.FRONTEND_URL,
-      'https://' + (new URL(process.env.FRONTEND_URL?.startsWith('http') ? process.env.FRONTEND_URL : `https://${process.env.FRONTEND_URL || 'localhost'}`)).hostname,
-      'http://localhost:4000',
-      'http://127.0.0.1:4000',
-      'http://localhost:3000'
-    ].filter(Boolean);
-    const io = new Server(server, {
-      cors: {
-        origin: (origin, callback) => {
-          if (!origin || socketAllowedOrigins.some(o => origin.startsWith(o))) {
-            callback(null, true);
-          } else {
-            console.warn(`[Socket.IO CORS] Blocked: ${origin}`);
-            callback(new Error(`Socket.IO CORS: origin '${origin}' is not allowed.`));
-          }
-        },
-        methods: ['GET', 'POST'],
-        credentials: true
-      },
-      transports: ['polling', 'websocket'], // Allow polling fallback for cPanel proxies
-      pingTimeout: 60000,
-      pingInterval: 25000
-    });
-
-    // Set up socket.io instance
-    setIO(io);
-
     // Socket.IO connection handling
     io.on('connection', (socket) => {
       console.log('Client connected:', socket.id);
