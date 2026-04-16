@@ -48,13 +48,7 @@ backend/cache/
 .sequelizerc
 
 # Debug and check scripts (temporary)
-*.js
-!frontend/vite.config.js
-!frontend/postcss.config.js
-!frontend/tailwind.config.js
-!frontend/eslint.config.js
-!backend/server.js
-# ... and other essential configs
+# (Removed global *.js ignore because it blocked backend source files)
 
 # Prevent any random root JS files from polluting github
 /*.js
