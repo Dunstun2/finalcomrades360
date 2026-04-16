@@ -56,16 +56,22 @@ export default function AuthModal() {
     };
 
     const renderContent = () => {
-        switch (modalType) {
-            case 'login':
-                return <LoginForm isModal={true} onSuccess={handleLoginSuccess} />;
-            case 'register':
-                return <RegisterForm isModal={true} onSuccess={() => setModalType('login')} />;
-            case 'forgot-password':
-                return <ForgotPasswordForm isModal={true} />;
-            default:
-                return null;
-        }
+        return (
+            <div key={modalType}>
+                {(() => {
+                    switch (modalType) {
+                        case 'login':
+                            return <LoginForm isModal={true} onSuccess={handleLoginSuccess} />;
+                        case 'register':
+                            return <RegisterForm isModal={true} onSuccess={() => setModalType('login')} />;
+                        case 'forgot-password':
+                            return <ForgotPasswordForm isModal={true} />;
+                        default:
+                            return null;
+                    }
+                })()}
+            </div>
+        );
     };
 
     return (

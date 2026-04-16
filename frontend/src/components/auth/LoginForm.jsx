@@ -198,7 +198,10 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
                     <div className="mb-6 flex justify-center">
                         <GoogleLogin
                             onSuccess={handleGoogleSuccess}
-                            onError={() => setError('Google Authentication Failed.')}
+                            onError={() => {
+                                console.error('[GoogleAuth] Sign-in failed. Current origin:', window.location.origin);
+                                setError('Google Authentication Failed. Check the console for more details.');
+                            }}
                             theme="filled_blue"
                             shape="pill"
                             text="continue_with"
