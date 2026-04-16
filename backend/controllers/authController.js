@@ -674,10 +674,26 @@ const googleAuth = async (req, res) => {
 
   try {
     const clients = [process.env.GOOGLE_CLIENT_ID, process.env.VITE_GOOGLE_CLIENT_ID].filter(Boolean);
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: clients
-    });
+    console.log('[authController] Verifying Google token for clients:', clients);
+    
+    let ticket;
+    try {
+      ticket = await googleClient.verifyIdToken({
+        idToken: token,
+        audience: clients
+      });
+    } catch (verifyError) {
+      console.error('[authController] Google verifyIdToken failed! Details:', {
+        message: verifyError.message,
+        clients,
+        tokenPrefix: token.substring(0, 10) + '...'
+      });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Google verification failed.',
+        error: verifyError.message 
+      });
+    }
     
     const payload = ticket.getPayload();
     const { email, name, picture } = payload;
