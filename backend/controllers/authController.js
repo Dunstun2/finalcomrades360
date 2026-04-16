@@ -13,6 +13,10 @@ const { isValidEmail, normalizeKenyanPhone } = require('../middleware/validators
 const { sendEmail } = require('../utils/mailer');
 
 const { sendSms } = require('../utils/sms');
+const { 
+  notifyCustomerMarketerCreated, 
+  notifyCustomerGoogleSignup 
+} = require('../utils/notificationHelpers');
 
 // Helper to strip placeholders so frontend forms show empty fields
 const sanitizeUserPayload = (userData) => {
@@ -161,13 +165,8 @@ const register = async (req, res) => {
       }
     }
 
-    // If marketer registration, send notification with credentials
     if (validatedIsMarketerRegistration) {
       try {
-        const { 
-  notifyCustomerMarketerCreated, 
-  notifyCustomerGoogleSignup 
-} = require('../utils/notificationHelpers');
         const marketerName = req.user?.name || 'A Marketer';
         await notifyCustomerMarketerCreated(newUser.id, tempPassword, email || normalizedPhone, marketerName);
       } catch (notifErr) {
@@ -683,15 +682,17 @@ const googleAuth = async (req, res) => {
         audience: clients
       });
     } catch (verifyError) {
-      console.error('[authController] Google verifyIdToken failed! Details:', {
-        message: verifyError.message,
+      console.error('[authController] Google verifyIdToken CRITICALLY failed!', {
+        error: verifyError.message,
         clients,
-        tokenPrefix: token.substring(0, 10) + '...'
+        env_client: process.env.GOOGLE_CLIENT_ID,
+        vite_env_client: process.env.VITE_GOOGLE_CLIENT_ID
       });
       return res.status(401).json({ 
         success: false, 
         message: 'Google verification failed.',
-        error: verifyError.message 
+        error: verifyError.message,
+        details: 'The token provided by your browser was rejected by the server.' 
       });
     }
     

@@ -59,7 +59,7 @@ const config = {
     dialect: 'mysql', // Explicitly force mysql for production config
     logging: process.env.SEQUELIZE_LOGGING === 'true' ? console.log : false,
     pool: {
-      max: 10,
+      max: 5,
       min: 0,
       acquire: 60000,
       idle: 20000,
