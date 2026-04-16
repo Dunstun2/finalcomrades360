@@ -13,6 +13,8 @@ export default function SystemSettings() {
     sms_config: { username: '', apiKey: '', provider: 'africastalking' },
     whatsapp_config: { 
       method: 'local',
+      metaAccessToken: '',
+      metaPhoneNumberId: '',
       templates: {
         orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`,
         sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,
@@ -504,6 +506,28 @@ export default function SystemSettings() {
                     </select>
                   </div>
                 </div>
+
+                {settings.whatsapp_config.method === 'cloud' && (
+                  <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 p-6 bg-blue-50/50 rounded-2xl border border-blue-100">
+                    <div className="md:col-span-2">
+                       <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">🔗 Meta Cloud API Credentials</h4>
+                       <p className="text-xs text-blue-600 mb-4">Enter the Access Token and Phone Number ID from your Meta Developer Portal.</p>
+                    </div>
+                    <FormInput 
+                      label="Meta Access Token" 
+                      value={settings.whatsapp_config.metaAccessToken} 
+                      type="password"
+                      placeholder="EAA..."
+                      onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, metaAccessToken: v}}))} 
+                    />
+                    <FormInput 
+                      label="Meta Phone Number ID" 
+                      value={settings.whatsapp_config.metaPhoneNumberId} 
+                      placeholder="1234567890..."
+                      onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, metaPhoneNumberId: v}}))} 
+                    />
+                  </div>
+                )}
                 <div className="mt-6 border border-gray-100 rounded-2xl overflow-hidden bg-white shadow-sm">
                   <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                     <div>
@@ -512,7 +536,7 @@ export default function SystemSettings() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                        whatsappStatus.status === 'ready' ? 'bg-green-100 text-green-700' :
+                        whatsappStatus.status === 'ready' || whatsappStatus.status === 'cloud_active' ? 'bg-green-100 text-green-700' :
                         whatsappStatus.status === 'qr_ready' ? 'bg-orange-100 text-orange-700' :
                         whatsappStatus.status === 'initializing' ? 'bg-blue-100 text-blue-700' :
                         'bg-red-100 text-red-700'
@@ -530,7 +554,26 @@ export default function SystemSettings() {
                   </div>
                   
                   <div className="p-8 flex flex-col items-center justify-center text-center">
-                    {whatsappStatus.status === 'ready' ? (
+                    {settings.whatsapp_config.method === 'cloud' ? (
+                      <div className="py-10">
+                        <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-blue-100">
+                          <span className="text-3xl">☁️</span>
+                        </div>
+                        <h5 className="font-bold text-gray-800 text-lg">Cloud API Active</h5>
+                        <p className="text-sm text-gray-500 max-w-xs mx-auto">Messages are being sent directly via Meta's infrastructure. No QR code or mobile link is required for this method.</p>
+                        <div className="mt-6 flex flex-col gap-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold inline-block mx-auto ${
+                            settings.whatsapp_config.metaAccessToken && settings.whatsapp_config.metaPhoneNumberId 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-red-100 text-red-700'
+                          }`}>
+                            {settings.whatsapp_config.metaAccessToken && settings.whatsapp_config.metaPhoneNumberId 
+                              ? 'Credentials Configured' 
+                              : 'Missing Credentials'}
+                          </span>
+                        </div>
+                      </div>
+                    ) : whatsappStatus.status === 'ready' ? (
                       <div className="py-10">
                         <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-green-100">
                           <span className="text-3xl">✅</span>

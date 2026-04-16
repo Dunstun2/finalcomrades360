@@ -14,6 +14,8 @@ exports.getConfig = async (req, res) => {
             sms_config: { username: '', apiKey: '', provider: 'africastalking' },
             whatsapp_config: { 
                 method: 'local',
+                metaAccessToken: '',
+                metaPhoneNumberId: '',
                 templates: {
                     orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`,
                     sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,

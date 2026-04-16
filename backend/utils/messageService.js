@@ -41,17 +41,19 @@ const initWhatsApp = async () => {
           dataPath: './.wwebjs_auth/session_alt'
       }),
       puppeteer: {
-        headless: true,
+        headless: "new",
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
+          '--single-process',          // Force everything into one thread
+          '--no-zygote',               // Stop multi-process spawning
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
-          '--no-zygote',
           '--disable-gpu',
           '--disable-extensions',
-          '--single-process'
+          '--hide-scrollbars',
+          '--mute-audio'
         ]
       }
     });
