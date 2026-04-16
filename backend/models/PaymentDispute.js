@@ -19,7 +19,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'Orders',
+        model: 'Order',
         key: 'id'
       }
     },
@@ -27,7 +27,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'Users',
+        model: 'User',
         key: 'id'
       },
       comment: 'Customer who raised the dispute'
@@ -61,7 +61,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
-        model: 'Users',
+        model: 'User',
         key: 'id'
       },
       comment: 'Admin assigned to handle the dispute'
@@ -78,7 +78,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
-        model: 'Users',
+        model: 'User',
         key: 'id'
       }
     },

@@ -11,7 +11,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'Products',
+        model: 'Product',
         key: 'id'
       }
     },
@@ -57,7 +57,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
-        model: 'Orders',
+        model: 'Order',
         key: 'id'
       },
       comment: 'Related order if applicable'
@@ -66,7 +66,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
-        model: 'Users',
+        model: 'User',
         key: 'id'
       },
       comment: 'User who triggered the change'
