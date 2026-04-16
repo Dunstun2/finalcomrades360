@@ -1,241 +1,210 @@
+const { 
+    default: makeWASocket, 
+    useMultiFileAuthState, 
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore
+} = require('@whiskeysockets/baileys');
+const P = require('pino');
 const africastalking = require('africastalking');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const { sendWhatsAppCloud } = require('./metaWhatsAppService');
+const fs = require('fs');
+const path = require('path');
 
-// Initialize WhatsApp Client with LocalAuth for session persistence
-let whatsappClient = null;
+// State management
+let sock = null;
 let isWhatsAppReady = false;
 let latestQr = null;
 let whatsappStatus = 'initializing'; // initializing, qr_ready, authenticated, ready, disconnected, error
 
+// Prepare session directory
+const sessionDir = path.join(process.cwd(), '.wwebjs_auth/baileys_session');
+if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+}
+
 const initWhatsApp = async () => {
-  // Fetch config from DB to check method
-  let method = 'local';
-  try {
-    const { PlatformConfig } = require('../models');
-    const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
-    if (configRecord) {
-      const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
-      method = dbConfig.method || 'local';
+    // 1. Fetch config from DB
+    let method = 'local';
+    try {
+        const { PlatformConfig } = require('../models');
+        const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
+        if (configRecord) {
+            const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+            method = dbConfig.method || 'local';
+        }
+    } catch (err) {
+        console.warn('⚠️ [WhatsApp] Could not load config, defaulting to local:', err.message);
     }
-  } catch (err) {
-    console.warn('⚠️ [WhatsApp] Could not load config from DB for init, defaulting to local:', err.message);
-  }
 
-  // Guard: skip if WhatsApp is explicitly disabled, set to cloud, or Puppeteer can't run
-  if (process.env.WHATSAPP_ENABLED !== 'true' || method === 'cloud') {
-    const reason = method === 'cloud' ? 'using Official Meta Cloud API' : 'disabled via WHATSAPP_ENABLED';
-    console.log(`ℹ️ [WhatsApp] Local Engine ${reason}. Skipping initialization.`);
-    whatsappStatus = method === 'cloud' ? 'cloud_active' : 'disabled';
-    return;
-  }
+    // 2. Guard: skip if explicitly disabled or set to cloud
+    if (process.env.WHATSAPP_ENABLED !== 'true' || method === 'cloud') {
+        whatsappStatus = method === 'cloud' ? 'cloud_active' : 'disabled';
+        console.log(`ℹ️ [WhatsApp] Local Engine ${method === 'cloud' ? 'using Cloud API' : 'disabled'}. Skipping.`);
+        return;
+    }
 
-  console.log('🔄 [WhatsApp] Initializing Open Source Client...');
-  whatsappStatus = 'initializing';
-  latestQr = null;
+    console.log('🔄 [WhatsApp] Initializing Baileys (No-Browser Engine)...');
+    whatsappStatus = 'initializing';
+    latestQr = null;
 
-  try {
-    whatsappClient = new Client({
-      authStrategy: new LocalAuth({
-          dataPath: './.wwebjs_auth/session_alt'
-      }),
-      puppeteer: {
-        headless: "new",
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--single-process',          // Force everything into one thread
-          '--no-zygote',               // Stop multi-process spawning
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--disable-gpu',
-          '--disable-extensions',
-          '--hide-scrollbars',
-          '--mute-audio'
-        ]
-      }
-    });
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+        const { version } = await fetchLatestBaileysVersion();
 
-    whatsappClient.on('qr', (qr) => {
-      console.log('📱 [WhatsApp] SCAN THIS QR CODE WITH YOUR PHONE:');
-      latestQr = qr;
-      whatsappStatus = 'qr_ready';
-      qrcode.generate(qr, { small: true });
-    });
+        sock = makeWASocket({
+            version,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
+            },
+            printQRInTerminal: true,
+            logger: P({ level: 'silent' }),
+            browser: ['Comrades360', 'MacOS', '3.0']
+        });
 
-    whatsappClient.on('ready', () => {
-      console.log('✅ [WhatsApp] Client is READY and connected!');
-      isWhatsAppReady = true;
-      whatsappStatus = 'ready';
-      latestQr = null;
-    });
+        // Event: Connection Update (QR and Status)
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            
+            if (qr) {
+                console.log('📱 [WhatsApp] New QR Code generated. Please scan in Admin Dashboard.');
+                latestQr = qr;
+                whatsappStatus = 'qr_ready';
+            }
 
-    whatsappClient.on('authenticated', () => {
-      console.log('🔓 [WhatsApp] Authenticated successfully.');
-      whatsappStatus = 'authenticated';
-    });
+            if (connection === 'connecting') {
+                whatsappStatus = 'initializing';
+            }
 
-    whatsappClient.on('auth_failure', (msg) => {
-      console.error('❌ [WhatsApp] Authentication failure:', msg);
-      whatsappStatus = 'error';
-      isWhatsAppReady = false;
-    });
+            if (connection === 'open') {
+                console.log('✅ [WhatsApp] Baileys Connected & Ready!');
+                isWhatsAppReady = true;
+                whatsappStatus = 'ready';
+                latestQr = null;
+            }
 
-    whatsappClient.on('disconnected', (reason) => {
-      console.log('❌ [WhatsApp] Client disconnected:', reason);
-      isWhatsAppReady = false;
-      whatsappStatus = 'disconnected';
-      // Only auto-reconnect if still enabled
-      if (process.env.WHATSAPP_ENABLED === 'true') {
-        setTimeout(initWhatsApp, 15000);
-      }
-    });
+            if (connection === 'close') {
+                const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                console.log('❌ [WhatsApp] Connection closed. Should reconnect:', shouldReconnect);
+                isWhatsAppReady = false;
+                whatsappStatus = 'disconnected';
+                
+                if (shouldReconnect) {
+                    setTimeout(initWhatsApp, 5000);
+                }
+            }
+        });
 
-    await whatsappClient.initialize();
-  } catch (err) {
-    console.error('❌ [WhatsApp] Initialization Failed (Puppeteer unavailable on this server):', err.message);
-    whatsappStatus = 'error';
-    isWhatsAppReady = false;
-    whatsappClient = null;
-  }
+        // Event: Save Credentials
+        sock.ev.on('creds.update', saveCreds);
+
+    } catch (err) {
+        console.error('❌ [WhatsApp] Baileys Initialization Failed:', err.message);
+        whatsappStatus = 'error';
+        isWhatsAppReady = false;
+        sock = null;
+    }
 };
 
-// Auto-start only if explicitly enabled in environment
+// Auto-start
 if (process.env.WHATSAPP_ENABLED === 'true') {
-  initWhatsApp();
+    initWhatsApp();
 } else {
-  console.log('ℹ️ [WhatsApp] Auto-start skipped. Set WHATSAPP_ENABLED=true to enable.');
-  whatsappStatus = 'disabled';
+    whatsappStatus = 'disabled';
 }
 
 /**
- * Public control functions for UI integration
+ * Public control functions
  */
 const getWhatsAppStatus = () => {
-  return {
-    isReady: isWhatsAppReady,
-    status: whatsappStatus,
-    qr: latestQr
-  };
+    return {
+        isReady: isWhatsAppReady,
+        status: whatsappStatus,
+        qr: latestQr
+    };
 };
 
 const restartWhatsApp = async () => {
-  console.log('🔄 [WhatsApp] Manual restart requested...');
-  try {
-    if (whatsappClient) {
-      await whatsappClient.destroy();
+    console.log('🔄 [WhatsApp] Manual restart requested...');
+    isWhatsAppReady = false;
+    latestQr = null;
+    if (sock) {
+        try { sock.logout(); } catch (e) {}
     }
-  } catch (e) {
-    console.warn('⚠️ [WhatsApp] Error during destroy:', e.message);
-  }
-  initWhatsApp();
-  return { success: true };
+    setTimeout(initWhatsApp, 1000);
+    return { success: true };
 };
 
-/**
- * Send SMS or WhatsApp message
- * @param {string} to - Recipient phone number in E.164 format (+254...)
- * @param {string} message - Content of the message
- * @param {string} method - 'sms' or 'whatsapp'
- */
 const sendMessage = async (to, message, method = 'whatsapp') => {
-  if (method === 'email') {
-    return sendEmail(to, message.subject, message.body);
-  }
-  if (method === 'whatsapp') {
-    // 1. Fetch current config to decide between Local and Cloud
-    try {
-      const { PlatformConfig } = require('../models');
-      const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
-      if (configRecord) {
-        const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
-        
-        if (dbConfig.method === 'cloud') {
-          return sendWhatsAppCloud(to, message, dbConfig);
-        }
-      }
-    } catch (err) {
-      console.warn('⚠️ [WhatsApp] Config lookup failed, falling back to local engine:', err.message);
+    if (method === 'whatsapp') {
+        try {
+            const { PlatformConfig } = require('../models');
+            const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
+            if (configRecord) {
+                const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+                if (dbConfig.method === 'cloud') {
+                    return sendWhatsAppCloud(to, message, dbConfig);
+                }
+            }
+        } catch (err) {}
+        return sendWhatsAppLocal(to, message);
+    } else {
+        return sendSms(to, message);
     }
-
-    // Default to Local Engine
-    return sendWhatsAppLocal(to, message);
-  } else {
-    return sendSms(to, message);
-  }
-};
-
-const sendSms = async (to, message) => {
-  let username = (process.env.AFRICASTALKING_USERNAME || '').trim();
-  let apiKey = (process.env.AFRICASTALKING_API_KEY || '').trim();
-
-  // Try to load from database
-  try {
-    const { PlatformConfig } = require('../models');
-    const configRecord = await PlatformConfig.findOne({ where: { key: 'sms_config' } });
-    if (configRecord) {
-      const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
-      if (dbConfig.username) username = dbConfig.username.trim();
-      if (dbConfig.apiKey) apiKey = dbConfig.apiKey.trim();
-    }
-  } catch (err) {
-    console.warn('⚠️ [SMS] Could not load config from DB, using fallback:', err.message);
-  }
-
-  if (!username || !apiKey) {
-    console.warn('⚠️ [SMS] Credentials missing. Logging to console only.');
-    console.log(`[MOCK SMS] To: ${to}, Message: ${message}`);
-    return { success: true, mock: true };
-  }
-
-
-  const at = africastalking({ username, apiKey });
-  const sms = at.SMS;
-  try {
-    console.log(`[Africatalking SMS] Sending to: ${to}...`);
-    const result = await sms.send({
-      to: [to],
-      message: message,
-      enqueue: true
-    });
-    console.log('✅ [Africatalking SMS] Response:', JSON.stringify(result, null, 2));
-    return { success: true, data: result };
-  } catch (error) {
-    console.error('❌ [Africatalking SMS] Error:', error);
-    throw error;
-  }
 };
 
 const sendWhatsAppLocal = async (to, message) => {
-  if (!isWhatsAppReady) {
-    console.warn('⚠️ [WhatsApp] Client not ready yet. Please ensure you scanned the QR code.');
-    throw new Error('WhatsApp service is initializing. Please try again in a few moments.');
-  }
-
-  try {
-    // Clean phone number (remove spaces, etc)
-    let cleanedPhone = to.replace(/[\s\-\(\)]/g, '');
-    
-    // Ensure 254 format if starting with 07 or 01
-    if (cleanedPhone.startsWith('0')) {
-        cleanedPhone = '254' + cleanedPhone.substring(1);
-    } else if (cleanedPhone.startsWith('+')) {
-        cleanedPhone = cleanedPhone.substring(1);
+    if (!isWhatsAppReady || !sock) {
+        throw new Error('WhatsApp service is not ready. Please scan the QR code first.');
     }
-    
-    // Format number for whatsapp-web.js: 2547XXXXXXXX@c.us
-    const chatId = cleanedPhone + '@c.us';
-    console.log(`[Local WhatsApp] Sending to: ${chatId}...`);
-    
-    const result = await whatsappClient.sendMessage(chatId, message);
-    console.log('✅ [Local WhatsApp] Message sent successfully!');
-    return { success: true, data: result.id };
-  } catch (error) {
-    console.error('❌ [Local WhatsApp] Error:', error.message);
-    throw error;
-  }
+
+    try {
+        let cleanedPhone = to.replace(/[\s\-\(\)\+]/g, '');
+        if (cleanedPhone.startsWith('0')) {
+            cleanedPhone = '254' + cleanedPhone.substring(1);
+        }
+        
+        const jid = `${cleanedPhone}@s.whatsapp.net`;
+        console.log(`[Baileys WhatsApp] Sending to: ${jid}...`);
+        
+        const result = await sock.sendMessage(jid, { text: message });
+        console.log('✅ [Baileys WhatsApp] Message sent successfully!');
+        return { success: true, messageId: result.key.id };
+    } catch (error) {
+        console.error('❌ [Baileys WhatsApp] Error:', error.message);
+        throw error;
+    }
+};
+
+const sendSms = async (to, message) => {
+    let username = (process.env.AFRICASTALKING_USERNAME || '').trim();
+    let apiKey = (process.env.AFRICASTALKING_API_KEY || '').trim();
+
+    try {
+        const { PlatformConfig } = require('../models');
+        const configRecord = await PlatformConfig.findOne({ where: { key: 'sms_config' } });
+        if (configRecord) {
+            const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+            if (dbConfig.username) username = dbConfig.username.trim();
+            if (dbConfig.apiKey) apiKey = dbConfig.apiKey.trim();
+        }
+    } catch (err) {}
+
+    if (!username || !apiKey) {
+        console.log(`[MOCK SMS] To: ${to}, Message: ${message}`);
+        return { success: true, mock: true };
+    }
+
+    const at = africastalking({ username, apiKey });
+    try {
+        const result = await at.SMS.send({ to: [to], message, enqueue: true });
+        console.log('✅ [SMS] Sent:', JSON.stringify(result));
+        return { success: true, data: result };
+    } catch (error) {
+        console.error('❌ [SMS] Error:', error);
+        throw error;
+    }
 };
 
 module.exports = { sendMessage, getWhatsAppStatus, restartWhatsApp };
