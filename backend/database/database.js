@@ -315,12 +315,12 @@ const testConnection = async () => {
 
       for (const cfg of defaultConfigs) {
         const [config] = await sequelize.query(
-          "SELECT key FROM PlatformConfig WHERE key = '" + cfg.key + "' LIMIT 1"
+          "SELECT `key` FROM PlatformConfig WHERE `key` = '" + cfg.key + "' LIMIT 1"
         );
         if (config.length === 0) {
           const now = new Date().toISOString();
           await sequelize.query(
-            "INSERT INTO PlatformConfig (key, value, createdAt, updatedAt) VALUES ('" + 
+            "INSERT INTO PlatformConfig (`key`, value, createdAt, updatedAt) VALUES ('" + 
             cfg.key + "', '" + cfg.value.replace(/'/g, "''") + "', '" + now + "', '" + now + "')"
           );
           console.log(`🌱 Seeded default config: ${cfg.key}`);

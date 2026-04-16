@@ -444,9 +444,15 @@ const { Server } = require('socket.io');
 const { setIO } = require('./realtime/socket');
 
 // Start server after database connection
-const DEFAULT_PORT = process.env.PORT || 5004;
+let isStarting = false;
 
 async function startServer() {
+  if (isStarting) {
+    console.log('ℹ️ Server start already in progress, skipping duplicate call.');
+    return;
+  }
+  isStarting = true;
+
   try {
     // Attempt database connection but don't crash if it fails
     try {
