@@ -590,8 +590,13 @@ async function startServer() {
   }
 }
 
-// Always start the server (Required for Passenger/cPanel)
-startServer();
+// Singleton Startup Protector
+if (global.__serverStarted) {
+  console.log('ℹ️ Module re-entry detected, skipping startup.');
+} else {
+  global.__serverStarted = true;
+  startServer();
+}
 
 // Export for cPanel/Passenger or tests
 module.exports = app;
