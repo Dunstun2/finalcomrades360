@@ -159,11 +159,46 @@ function initializeRoutes(app) {
   app.use('/api/analytics', require('./routes/analyticsRoutes'));
   app.use('/api/inventory', require('./routes/inventoryRoutes'));
   app.use('/api/payment-enhancements', require('./routes/paymentEnhancementsRoutes'));
-  app.use('/api/password-reset', require('./routes/passwordResetRoutes'));
   app.use('/api/handover', require('./routes/handoverRoutes'));
   app.use('/api/images', require('./routes/imageRoutes'));
 
   console.error('✅ 35+ Route modules successfully lazy-loaded.');
+  
+  // FINALIZE: Mount catch-all and 404 handlers AFTER all routes are ready
+  finalizeMiddleware(app);
+}
+
+// Final Middleware Function (Deferred to stay at end of stack)
+function finalizeMiddleware(app) {
+  console.error('ℹ️ Finalizing middleware stack (Catch-all & 404)...');
+  
+  // Health check endpoint (moved here for consistency)
+  app.get('/api/health', (req, res) => {
+    res.status(200).json({
+      status: 'OK',
+      message: 'Server is fully initialized'
+    });
+  });
+
+  // SPA catch-all
+  const staticPath = path.join(__dirname, '../frontend/dist');
+  app.get('*', (req, res, next) => {
+    if (req.url.startsWith('/api') || req.url.startsWith('/uploads')) {
+      return next();
+    }
+    res.sendFile(path.join(staticPath, 'index.html'), err => err && next());
+  });
+
+  // Global 404 handler
+  app.use('*', (req, res) => {
+    res.status(404).json({
+      message: 'Route not found',
+      path: req.originalUrl,
+      help: 'This route was not found among the 35+ lazy-loaded modules.'
+    });
+  });
+  
+  console.error('✨ Server Middleware Finalized.');
 }
 // Initialize database connection
 const { testConnection } = require('./database/database');
@@ -323,12 +358,8 @@ app.use(express.static(staticPath));
 // We do NOT serve a maintenance HTML page here because:
 //   a) Browsers never send Authorization headers during page navigation (can't detect admin)
 //   b) Serving raw HTML breaks Vite's lazy-loaded module imports
-app.get('*', (req, res, next) => {
-  if (req.url.startsWith('/api') || req.url.startsWith('/uploads')) {
-    return next();
-  }
-  res.sendFile(path.join(staticPath, 'index.html'), err => err && next());
-});
+
+// SPA Fallback - Registered later in finalizeMiddleware
 
 
 
@@ -346,14 +377,8 @@ if (sequelize.options.dialect === 'sqlite') {
 }
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'Server is running',
-    version: '1.1.0-payment-fix',
-    timestamp: new Date().toISOString()
-  });
-});
+
+// Health check endpoint - Registered later in finalizeMiddleware
 
 
 // Error handling middleware
@@ -382,13 +407,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    message: 'Route not found',
-    path: req.originalUrl
-  });
-});
+
+// 404 handler - Registered later in finalizeMiddleware
 
 // Using fixed port 5001 for testing caching
 
