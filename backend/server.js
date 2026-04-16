@@ -49,49 +49,41 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again in 15 minutes.' },
   validate: { trustProxy: false } // Acknowledge proxy trust to stop validation warnings
 });
-app.use('/api', (req, res, next) => {
-  console.error(`[ROUTE-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path}, Original: ${req.originalUrl})`);
-  next();
-});
+if (process.env.NODE_ENV === 'development') {
+  app.use('/api', (req, res, next) => {
+    console.error(`[DEV-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path})`);
+    next();
+  });
+}
 
 app.use('/api', globalLimiter); // Apply global rate limit to all API routes
 app.use('/api/auth/login', authLimiter); // Stricter limit on login
 app.use('/api/auth/register', authLimiter); // Stricter limit on register
 
-// CORS Configuration
-app.use(cors({
-  origin: ['http://localhost:4000', 'http://127.0.0.1:4000', process.env.FRONTEND_URL],
-  credentials: true
-}));
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
-// Request Logging Middleware
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const legacyFrontendUrl = new URL(FRONTEND_URL.startsWith('http') ? FRONTEND_URL : `https://${FRONTEND_URL}`);
-
-// Dynamically build allowed origins for production
+// Dynamically build allowed origins
 const allowedOrigins = [
-  FRONTEND_URL,
-  'https://' + legacyFrontendUrl.hostname,
-  'http://' + legacyFrontendUrl.hostname,
-  'http://localhost:4000',
-  'http://127.0.0.1:4000',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000'
-];
+  process.env.FRONTEND_URL,
+  ...(IS_DEV ? [
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+  ] : [])
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
+    // Allow requests with no origin (like mobile apps/curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.some(o => origin.startsWith(o))) {
+    
+    const isAllowed = allowedOrigins.some(o => origin === o || origin.startsWith(o));
+    if (isAllowed) {
       callback(null, true);
     } else {
-      console.warn(`[CORS] Blocked request from: ${origin}`);
-      callback(new Error(`CORS policy: origin '${origin}' is not allowed.`));
+      if (IS_DEV) console.warn(`[CORS] Blocked: ${origin}`);
+      callback(new Error(`CORS policy blockage`));
     }
   },
   credentials: true,
@@ -103,14 +95,13 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Global Request Logger
-app.use((req, res, next) => {
-  console.log(`[server] Incoming Request: ${req.method} ${req.url}`);
-  if (req.url.includes('mark-arrived')) {
-    console.log(`[server] Debug: Hitting mark-arrived route!`);
-  }
-  next();
-});
+// Global Request Logger (Dev Only)
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    console.log(`[server] ${req.method} ${req.url}`);
+    next();
+  });
+}
 
 // Global real-time sync emitter for successful write operations
 const { realtimeSyncMiddleware } = require('./middleware/realtimeSync');
@@ -331,34 +322,31 @@ app.use('/uploads', (req, res, next) => {
 
   next();
 }, express.static(path.join(__dirname, 'uploads')), (req, res) => {
-  // Fallback: serve SVG placeholder for missing upload files (dev-friendly)
-  const placeholderSvg = `<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  if (process.env.NODE_ENV === 'development') {
+    // Fallback: serve SVG placeholder only in development
+    const placeholderSvg = `<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="400" height="400" fill="#f3f4f6"/>
-  <rect x="140" y="120" width="120" height="100" rx="8" fill="#d1d5db"/>
-  <circle cx="200" cy="155" r="20" fill="#9ca3af"/>
-  <path d="M140 220 L175 175 L200 200 L230 165 L260 220 Z" fill="#9ca3af"/>
   <text x="200" y="270" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#9ca3af">No Image</text>
 </svg>`;
-  res.set('Content-Type', 'image/svg+xml');
-  res.set('Cache-Control', 'public, max-age=60');
-  res.send(placeholderSvg);
+    res.set('Content-Type', 'image/svg+xml');
+    return res.send(placeholderSvg);
+  }
+  res.status(404).json({ message: 'Resource not found' });
 });
 
 // Serve Frontend Static Files
-// Priority 1: cPanel public_html
-// Priority 2: Local 'public' folder (Production/Deployment)
-// Priority 3: '../frontend/dist' (Development)
+const isProd = process.env.NODE_ENV === 'production';
 const cpanelPath = path.resolve(__dirname, '../public_html');
 const productionPath = path.join(__dirname, 'public');
 const developmentPath = path.join(__dirname, '../frontend/dist');
+
 let staticPath = developmentPath;
-if (fs.existsSync(cpanelPath) && fs.existsSync(path.join(cpanelPath, 'index.html'))) {
-  staticPath = cpanelPath;
-} else if (fs.existsSync(productionPath)) {
-  staticPath = productionPath;
+if (isProd) {
+  if (fs.existsSync(cpanelPath)) staticPath = cpanelPath;
+  else if (fs.existsSync(productionPath)) staticPath = productionPath;
 }
 
-console.log(`[server] Serving static files from: ${staticPath}`);
+console.log(`[server] Mode: ${process.env.NODE_ENV || 'development'} | Static: ${staticPath}`);
 app.use(express.static(staticPath));
 
 // SPA Fallback - Always serve index.html for non-API routes.
@@ -432,15 +420,16 @@ const server = createServer(app);
 server.timeout = 60000;
 server.keepAliveTimeout = 65000;
 
-const DEFAULT_PORT = process.env.PORT || 5004;
+const DEFAULT_PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 4000);
 
 // Socket.IO configuration
 const socketAllowedOrigins = [
   process.env.FRONTEND_URL,
-  'https://' + (new URL(process.env.FRONTEND_URL?.startsWith('http') ? process.env.FRONTEND_URL : `https://${process.env.FRONTEND_URL || 'localhost'}`)).hostname,
-  'http://localhost:4000',
-  'http://127.0.0.1:4000',
-  'http://localhost:3000'
+  ...(process.env.NODE_ENV !== 'production' ? [
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    'http://localhost:3000'
+  ] : [])
 ].filter(Boolean);
 
 const io = new Server(server, {

@@ -10,19 +10,8 @@ console.log(`[Database] Attempting to load .env from: ${envPath}`);
 dotenv.config({ path: envPath });
 dotenv.config({ path: envPathAlt }); // Fallback for various cPanel structures
 
-// Enhanced Environment Detection for Shared Hosting (TrueHost)
-const hasDbCreds = !!(process.env.DB_NAME && process.env.DB_USER);
-const env = hasDbCreds ? 'production' : (process.env.NODE_ENV || 'development');
-
-console.log(`[Database] Mode: ${env} (Detected via: ${hasDbCreds ? 'DB Credentials' : 'NODE_ENV'})`);
-if (env === 'production') {
-  console.log(`[Database] Connecting to MySQL at ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
-  console.log(`[Database] DB Name: ${process.env.DB_NAME}`);
-  console.log(`[Database] DB User: ${process.env.DB_USER}`);
-  if (!process.env.DB_USER || !process.env.DB_USER.includes('_')) {
-    console.warn('⚠️ WARNING: Your DB_USER might be missing the cPanel prefix (e.g. vdranjxy_).');
-  }
-}
+const isProd = process.env.NODE_ENV === 'production';
+console.log(`[Database] Mode: ${process.env.NODE_ENV || 'development'}`);
 
 // Database configuration
 const config = {
@@ -118,16 +107,12 @@ const testConnection = async () => {
     await sequelize.authenticate();
     console.error(`✅ Database connected successfully (${dbConfig.dialect})`);
 
-    // Sync all models ONLY in development OR if explicitly requested via env
-    // Scaling issue: Syncing 61+ models on every restart in production takes 20-30s and triggers cPanel hangups
-    if (env === 'production' && process.env.DB_SYNC !== 'true') {
-      console.error('ℹ️ Skipping auto-sync (Production mode). Set DB_SYNC=true to update schema.');
-    } else if (env === 'production' || process.env.DB_SYNC === 'true') {
-      console.error('🔄 Synchronizing database models (This may take a moment)...');
+    const isProd = process.env.NODE_ENV === 'production';
+    if (isProd && process.env.DB_SYNC !== 'true') {
+      console.error('ℹ️ Skipping auto-sync (Production mode).');
+    } else if (isProd || process.env.DB_SYNC === 'true') {
+      console.error('🔄 Synchronizing database models...');
       await sequelize.sync({ force: false, alter: false });
-      console.error('✅ Database models synchronized');
-    } else {
-      console.error('ℹ️ Skipping auto-sync (Development mode).');
     }
 
     // Self-healing: Enforce default roles
