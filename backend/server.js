@@ -540,26 +540,37 @@ async function startServer() {
       });
     });
 
-    // Start the server
-    server.listen(DEFAULT_PORT, () => {
-      console.log(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
-      
-      // DEFERRED INITIALIZATION: Start heavy services after the port is open
-      setImmediate(async () => {
-        try {
-          console.log('🔄 Initializing deferred services (WhatsApp, Workers, Cron)...');
-          // Initialize OTP services (including WhatsApp Free Client)
-          require('./utils/messageService');
-          
-          const { initScheduledTasks } = require('./cron/scheduledTasks');
-          initScheduledTasks();
-          runAutoHandoverWorker();
-          console.log('✨ All background services initialized.');
-        } catch (deferredErr) {
-          console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
-        }
+    // Start the server ONLY if not already listening (prevents Passenger/Double-init crashes)
+    if (!server.listening) {
+      server.listen(DEFAULT_PORT, () => {
+        console.log(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+        
+        // DEFERRED INITIALIZATION: Start heavy services after the port is open
+        setImmediate(async () => {
+          try {
+            console.log('🔄 Initializing deferred services (WhatsApp, Workers, Cron)...');
+            // Initialize OTP services (including WhatsApp Free Client)
+            require('./utils/messageService');
+            
+            const { initScheduledTasks } = require('./cron/scheduledTasks');
+            initScheduledTasks();
+            runAutoHandoverWorker();
+            console.log('✨ All background services initialized.');
+          } catch (deferredErr) {
+            console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
+          }
+        });
       });
-    });
+    } else {
+      console.log('ℹ️ Server already listening (Passenger managed), skipping manual listen call.');
+      // Still trigger deferred initialization for managed environments
+      setImmediate(() => {
+        require('./utils/messageService');
+        const { initScheduledTasks } = require('./cron/scheduledTasks');
+        initScheduledTasks();
+        runAutoHandoverWorker();
+      });
+    }
 
     // Handle server errors
     server.on('error', (err) => {
