@@ -448,11 +448,11 @@ const DEFAULT_PORT = process.env.PORT || 5004;
 let isStarting = false;
 
 async function startServer() {
-  if (isStarting) {
-    console.log('ℹ️ Server start already in progress, skipping duplicate call.');
+  if (global.__serverStarted) {
+    console.log('ℹ️ Server start already in progress (Global), skipping duplicate call.');
     return;
   }
-  isStarting = true;
+  global.__serverStarted = true;
 
   try {
     // Attempt database connection but don't crash if it fails
