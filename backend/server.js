@@ -49,12 +49,11 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again in 15 minutes.' },
   validate: { trustProxy: false } // Acknowledge proxy trust to stop validation warnings
 });
-if (process.env.NODE_ENV === 'development') {
-  app.use('/api', (req, res, next) => {
-    console.error(`[DEV-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path})`);
-    next();
-  });
-}
+// DIAGNOSTIC LOGGING: Enabled for ALL environments temporarily to debug 404s
+app.use('/api', (req, res, next) => {
+  console.error(`[ROUTE-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path})`);
+  next();
+});
 
 app.use('/api', globalLimiter); // Apply global rate limit to all API routes
 app.use('/api/auth/login', authLimiter); // Stricter limit on login
@@ -209,8 +208,8 @@ let cachedMaintenanceSettings = null;
 let lastMaintenanceCheck = 0;
 
 app.use(async (req, res, next) => {
-  // Only enforce maintenance for API calls
-  if (!req.path.startsWith('/api')) return next();
+  // EMERGENCY TOTAL BYPASS
+  return next();
 
   // Always allow critical/admin/auth paths (INSTANT BYPASS)
   const path = req.path.toLowerCase();
@@ -443,7 +442,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  transports: ['polling', 'websocket'],
+  transports: ['websocket'], // Force WebSocket to avoid 400 errors from polling in multi-process setups
   pingTimeout: 60000,
   pingInterval: 25000
 });
