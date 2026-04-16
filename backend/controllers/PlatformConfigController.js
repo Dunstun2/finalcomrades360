@@ -29,7 +29,8 @@ exports.getConfig = async (req, res) => {
                     orderCancelled: `Order Notification: Cancellation ❌\n\nHello {name}, we regret to inform you that order #{orderNumber} has been cancelled.\n\nCancellation Details:\nReason: {reason}\n\nWe apologize for the inconvenience and hope to serve you again soon.`,
                     phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
                     passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
-                    withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰'
+                    withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰',
+                    googleWelcome: `Welcome to Comrades360! 🌟\n\nHello {name}, you have successfully joined our community using Google.\n\nIf you ever want to log in without Google, your temporary password is:\n\n  {tempPassword}\n\nWe recommend changing this in your account settings after your first login.\n\nThank you for choosing Comrades360!`
                 },
                 channels: {
                     passwordReset: { whatsapp: false, sms: true, email: true, in_app: false }

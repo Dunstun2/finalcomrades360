@@ -164,7 +164,10 @@ const register = async (req, res) => {
     // If marketer registration, send notification with credentials
     if (validatedIsMarketerRegistration) {
       try {
-        const { notifyCustomerMarketerCreated } = require('../utils/notificationHelpers');
+        const { 
+  notifyCustomerMarketerCreated, 
+  notifyCustomerGoogleSignup 
+} = require('../utils/notificationHelpers');
         const marketerName = req.user?.name || 'A Marketer';
         await notifyCustomerMarketerCreated(newUser.id, tempPassword, email || normalizedPhone, marketerName);
       } catch (notifErr) {
@@ -710,6 +713,11 @@ const googleAuth = async (req, res) => {
         role: 'customer',
         emailVerified: true,
         profileImage: picture || null
+      });
+
+      // Send welcome notification with temporary password (Non-blocking)
+      notifyCustomerGoogleSignup(user, password).catch(err => {
+        console.error('[authController] Google signup notification failed:', err);
       });
     }
 

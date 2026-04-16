@@ -349,6 +349,19 @@ async function notifyCustomerMarketerCreated(userId, tempPassword, loginIdentifi
         type: 'success',
         defaultTemplate
     }, { id: userId });
+/**
+ * Notify customer that their account was created via Google and provide temp password
+ */
+async function notifyCustomerGoogleSignup(user, tempPassword) {
+    const defaultTemplate = `Welcome to Comrades360! 🌟\n\nHello {name}, you have successfully joined our community using Google.\n\nIf you ever want to log in without Google, your temporary password is:\n\n  {tempPassword}\n\nWe recommend changing this in your account settings after your first login.\n\nThank you for choosing Comrades360!`;
+
+    await sendCustomerNotificationAcrossChannels('googleWelcome', {
+        name: user.name || 'Friend',
+        tempPassword,
+        title: 'Welcome to Comrades360! 🌟',
+        type: 'success',
+        defaultTemplate
+    }, user);
 }
 
 module.exports = { 
@@ -362,6 +375,7 @@ module.exports = {
     notifyCustomerSellerConfirmed,
     notifyCustomerOrderCancelled,
     notifyCustomerMarketerCreated,
+    notifyCustomerGoogleSignup,
     logNotify,
     sendCustomerNotificationAcrossChannels
 };
