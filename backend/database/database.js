@@ -11,7 +11,8 @@ dotenv.config({ path: envPath });
 dotenv.config({ path: envPathAlt }); // Fallback for various cPanel structures
 
 const isProd = process.env.NODE_ENV === 'production';
-console.log(`[Database] Mode: ${process.env.NODE_ENV || 'development'}`);
+const env = isProd ? 'production' : 'development';
+console.log(`[Database] Mode: ${env}`);
 
 // Database configuration
 const config = {
