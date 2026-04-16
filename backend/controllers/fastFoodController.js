@@ -436,11 +436,22 @@ exports.createFastFood = async (req, res) => {
                     createData.discountPrice = calculatedDiscount;
                 }
 
-                // VALIDATION: Vendor Location (Mandatory for Smart Filtering)
+                // AUTO-FILL: If location is missing, attempt to pull from Vendor's Business Profile
+                if (!createData.vendorLocation || !createData.vendorLat || !createData.vendorLng) {
+                    const vendorProfile = await User.findByPk(createData.vendor);
+                    if (vendorProfile) {
+                        createData.vendorLocation = createData.vendorLocation || vendorProfile.businessAddress;
+                        createData.vendorLat = createData.vendorLat || vendorProfile.businessLat;
+                        createData.vendorLng = createData.vendorLng || vendorProfile.businessLng;
+                        console.log(`[createFastFood] Auto-filled location for vendor ${createData.vendor} from business profile.`);
+                    }
+                }
+
+                // FINAL VALIDATION: Vendor Location (Mandatory for Smart Filtering)
                 if (!createData.vendorLocation || !createData.vendorLat || !createData.vendorLng) {
                     return res.status(400).json({
                         success: false,
-                        message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering.'
+                        message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering. Vendor profile must be complete.'
                     });
                 }
 
@@ -747,10 +758,22 @@ exports.updateFastFood = async (req, res) => {
                         });
                     }
 
-                    if (finalDeliveryFeeForValidation === null) {
+                    // AUTO-FILL: If location is missing, attempt to pull from Vendor's Business Profile
+                    if (!updateData.vendorLocation || !updateData.vendorLat || !updateData.vendorLng) {
+                        const vendorProfile = await User.findByPk(fastFood.vendor);
+                        if (vendorProfile) {
+                            updateData.vendorLocation = updateData.vendorLocation || vendorProfile.businessAddress;
+                            updateData.vendorLat = updateData.vendorLat || vendorProfile.businessLat;
+                            updateData.vendorLng = updateData.vendorLng || vendorProfile.businessLng;
+                            console.log(`[updateFastFood] Auto-filled location for vendor ${fastFood.vendor} from business profile.`);
+                        }
+                    }
+
+                    // FINAL VALIDATION: Vendor Location (Mandatory for Smart Filtering)
+                    if (!updateData.vendorLocation || !updateData.vendorLat || !updateData.vendorLng) {
                         return res.status(400).json({
                             success: false,
-                            message: 'Delivery Fee is required for approved items. Set it to 0 for free delivery.'
+                            message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering. Vendor profile must be complete.'
                         });
                     }
 
