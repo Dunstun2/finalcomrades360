@@ -159,10 +159,11 @@ function initializeRoutes(app) {
   app.use('/api/analytics', require('./routes/analyticsRoutes'));
   app.use('/api/inventory', require('./routes/inventoryRoutes'));
   app.use('/api/payment-enhancements', require('./routes/paymentEnhancementsRoutes'));
-  app.use('/api/batches', require('./routes/batchRoutes'));
-  app.use('/api/returns', require('./routes/returnRoutes'));
+  app.use('/api/password-reset', require('./routes/passwordResetRoutes'));
+  app.use('/api/handover', require('./routes/handoverRoutes'));
+  app.use('/api/images', require('./routes/imageRoutes'));
 
-  console.error('✅ 32+ Route modules successfully lazy-loaded.');
+  console.error('✅ 35+ Route modules successfully lazy-loaded.');
 }
 // Initialize database connection
 const { testConnection } = require('./database/database');
@@ -268,60 +269,6 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Use routes
-app.use('/api/platform', platformRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/categories/admin', adminCategoryRoutes);
-app.use('/api/categories', categoryRoutes);
-
-app.use('/api/admin', adminRoutes);
-app.use('/api/role-applications', roleApplicationRoutes);
-app.use('/api/roles', roleManagementRoutes);
-app.use('/api/hero-promotions', heroPromotionRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/wishlist', wishlistRoutes);
-app.use('/api/profile', profileRoutes); // Changed from /api/users to avoid conflict with userRoutes
-app.use('/api/social-media-accounts', socialMediaAccountRoutes);
-app.use('/api/contact', contactRoutes);
-app.use('/api/product-inquiries', productInquiryRoutes);
-app.use('/api/pickup-stations', pickupStationRoutes);
-app.use('/api/station-manager', stationManagerRoutes);
-
-app.use('/api/marketing', marketingRoutes);
-
-app.use('/api/sellers', sellerRoutes);
-app.use('/api/services', serviceRoutes);
-app.use('/api/fastfood', fastFoodRoutes);
-app.use('/api/ultra-fast', ultraFastRoutes);
-app.use('/api/cache', cacheRoutes);
-app.use('/api/search', searchRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/verification', verificationRoutes);
-app.use('/api/password-reset', require('./routes/passwordResetRoutes'));
-console.log('✅ Password Reset Routes Mounted');
-app.use('/api/images', imageRoutes);
-app.use('/api/job-openings', jobOpeningRoutes);
-app.use('/api/delivery', deliveryRoutes);
-app.use('/api/handover', require('./routes/handoverRoutes'));
-
-console.log('[server] Mounting finance routes...');
-app.use('/api/finance', financeRoutes);
-app.use('/api/audit', financeRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/inventory', inventoryRoutes);
-app.use('/api/payment-enhancements', paymentEnhancementsRoutes);
-app.use('/api/batches', batchRoutes);
-app.use('/api/returns', returnRoutes);
-console.log('✅ Delivery Routes Mounted');
-console.log('✅ Warehouse Routes Mounted');
-console.log('✅ Pickup Station Routes Mounted');
-console.log('✅ Payment Routes Mounted');
 
 // Serve static files from uploads directory with aggressive caching
 app.use('/uploads', (req, res, next) => {
