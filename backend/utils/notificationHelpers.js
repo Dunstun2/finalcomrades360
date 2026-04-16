@@ -205,7 +205,10 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames)
 
     const paymentMethod = order.paymentType === 'cash_on_delivery' ? 'Cash on Delivery' : 'Paid';
 
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360!`;
+    const siteUrl = process.env.FRONTEND_URL || 'https://comrades360.shop';
+    const trackUrl = `${siteUrl}/account`;
+
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`;
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
         name: customer.name || 'Customer',
@@ -215,6 +218,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames)
         paymentMethod,
         deliveryMethod,
         deliveryLocation,
+        trackUrl,
         title: 'Order Placed 🛍️',
         type: 'success',
         defaultTemplate
