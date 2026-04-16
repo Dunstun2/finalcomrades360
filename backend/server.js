@@ -567,9 +567,8 @@ async function startServer() {
   }
 }
 
-if (require.main === module) {
-  startServer();
-}
+// Always start the server (Passenger handles the binding)
+startServer();
 
 module.exports = {
   app,
