@@ -434,160 +434,150 @@ const io = new Server(server, {
 setIO(io);
 
 async function startServer() {
-  if (global.__serverStarted) {
-    console.log('ℹ️ Server start already in progress (Global check), skipping duplicate call.');
-    return;
-  }
-  global.__serverStarted = true;
+  const DEFAULT_PORT = process.env.PORT || 4000;
+  
+  console.error(`🚀 ULTRA-FAST BOOT: Starting server bind sequence for port ${DEFAULT_PORT}...`);
 
-  try {
-    // 1. Initialize Database Connection & Sync
-    const { testConnection } = require('./database/database');
+  // Start the server ONLY if not already listening (prevents Passenger/Double-init crashes)
+  if (!server.listening) {
     try {
-      await testConnection();
-      console.error('✅ Database connected and verified successfully');
-    } catch (dbError) {
-      console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
-    }
-
-    // 2. Initialize Routes (Lazy Loaded to prevent cPanel timeouts)
-    initializeRoutes(app);
-    // Socket.IO connection handling
-    io.on('connection', (socket) => {
-      console.log('Client connected:', socket.id);
-
-      socket.on('join_user', (userId) => {
-        if (userId) {
-          socket.join(`user_${userId}`);
-          socket.join(`user:${userId}`);
-          console.log(`User ${userId} joined their room`);
-        }
-      });
-
-      socket.on('join_admin', () => {
-        socket.join('admin_room');
-        socket.join('admin');
-        console.log('Admin connected to admin room');
-      });
-
-      socket.on('delivery_message_send', async (data) => {
-        const { receiverId } = data;
-        // Real-time broadcast for non-REST messages (if any)
-        // However, we now prefer REST API for persistence + broadcast.
-        // This handler remains for legacy/simultaneous support but WITHOUT DB write.
-        io.to(`user_${receiverId}`).emit('delivery_message_receive', data);
-      });
-
-      socket.on('delivery_typing', (data) => {
-        const { receiverId, orderId, isTyping } = data;
-        io.to(`user_${receiverId}`).emit('delivery_typing_receive', {
-          senderId: data.senderId,
-          orderId,
-          isTyping
-        });
-      });
-
-      socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
-      });
-    });
-
-    // Start the server ONLY if not already listening (prevents Passenger/Double-init crashes)
-    if (!server.listening) {
-      try {
-        server.listen(DEFAULT_PORT, () => {
-          console.error(`🚀 Server running on port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
-          
-          // DEFERRED INITIALIZATION: Start heavy services after the port is open
-          setImmediate(async () => {
+      server.listen(DEFAULT_PORT, () => {
+        console.error(`🚀 Server bound to port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+        
+        // DEFERRED INITIALIZATION: Start heavy services after the port is open
+        setImmediate(async () => {
+          try {
+            console.error('🔄 Loading Database and Routes in background...');
+            
+            // 1. Initialize Database Connection & Sync
+            const { testConnection } = require('./database/database');
             try {
-              console.error('🔄 Initializing deferred services (WhatsApp, Redis, Workers, Cron)...');
-              
-              // 1. Initialize Cache (Redis)
-              try {
-                const cache = require('./scripts/services/cacheService');
-                await cache.connect();
-              } catch (cacheErr) {
-                console.error('⚠️ Redis initialization skipped:', cacheErr.message);
-              }
-
-              // 2. Initialize OTP services (including WhatsApp Free Client)
-              require('./utils/messageService');
-              
-              const { initScheduledTasks } = require('./cron/scheduledTasks');
-              initScheduledTasks();
-              
-              // 3. Start Heavy Workers
-              const { startBatchAutomation } = require('./services/batchAutomation');
-              const { runAutoHandoverWorker } = require('./services/autoHandoverService');
-              startBatchAutomation();
-              runAutoHandoverWorker();
-              
-              console.error('✨ All background services initialized.');
-            } catch (deferredErr) {
-              console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
+              await testConnection();
+              console.error('✅ Database connected and verified successfully');
+            } catch (dbError) {
+              console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
             }
-          });
+
+            // 2. Initialize Routes (Lazy Loaded to prevent cPanel timeouts)
+            initializeRoutes(app);
+
+            // 3. Initialize Socket.IO connection handling
+            io.on('connection', (socket) => {
+              console.log('Client connected:', socket.id);
+
+              socket.on('join_user', (userId) => {
+                if (userId) {
+                  socket.join(`user_${userId}`);
+                  socket.join(`user:${userId}`);
+                  console.log(`User ${userId} joined their room`);
+                }
+              });
+
+              socket.on('join_admin', () => {
+                socket.join('admin_room');
+                socket.join('admin');
+                console.log('Admin connected to admin room');
+              });
+
+              socket.on('delivery_message_send', async (data) => {
+                const { receiverId } = data;
+                io.to(`user_${receiverId}`).emit('delivery_message_receive', data);
+              });
+
+              socket.on('delivery_typing', (data) => {
+                const { receiverId, orderId, isTyping } = data;
+                io.to(`user_${receiverId}`).emit('delivery_typing_receive', {
+                  senderId: data.senderId,
+                  orderId,
+                  isTyping
+                });
+              });
+
+              socket.on('disconnect', () => {
+                console.log('Client disconnected:', socket.id);
+              });
+            });
+
+            console.error('🔄 Initializing deferred services (WhatsApp, Redis, Workers, Cron)...');
+            
+            // 4. Initialize Cache (Redis)
+            try {
+              const cache = require('./scripts/services/cacheService');
+              await cache.connect();
+            } catch (cacheErr) {
+              console.error('⚠️ Redis initialization skipped:', cacheErr.message);
+            }
+
+            // 5. Initialize OTP services (including WhatsApp Free Client)
+            require('./utils/messageService');
+            
+            const { initScheduledTasks } = require('./cron/scheduledTasks');
+            initScheduledTasks();
+            
+            // 6. Start Heavy Workers
+            const { startBatchAutomation } = require('./services/batchAutomation');
+            const { runAutoHandoverWorker } = require('./services/autoHandoverService');
+            startBatchAutomation();
+            runAutoHandoverWorker();
+            
+            console.error('✨ ALL SERVICES INITIALIZED. Application is fully operational.');
+          } catch (deferredErr) {
+            console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
+          }
         });
-      } catch (listenError) {
-        if (listenError.message.includes('once') || listenError.code === 'EADDRINUSE') {
-          console.error('ℹ️ Server already listening or binding, skipping extra listen call.');
-        } else {
-          throw listenError;
-        }
-      }
-    } else {
-      console.error('ℹ️ Server already listening (Passenger managed), skipping manual listen call.');
-      // Still trigger deferred initialization for managed environments
-      setImmediate(async () => {
-        try {
-          // 1. Initialize Cache (Redis)
-          const cache = require('./scripts/services/cacheService');
-          await cache.connect();
-          
-          require('./utils/messageService');
-          const { initScheduledTasks } = require('./cron/scheduledTasks');
-          initScheduledTasks();
-
-          // 3. Start Heavy Workers
-          const { startBatchAutomation } = require('./services/batchAutomation');
-          const { runAutoHandoverWorker } = require('./services/autoHandoverService');
-          startBatchAutomation();
-          runAutoHandoverWorker();
-        } catch (err) {
-          console.error('⚠️ Error in Passenger deferred init:', err.message);
-        }
       });
+    } catch (listenError) {
+      if (listenError.message.includes('once') || listenError.code === 'EADDRINUSE') {
+        console.error('ℹ️ Server already listening or binding, skipping extra listen call.');
+      } else {
+        throw listenError;
+      }
     }
+  } else {
+    console.error('ℹ️ Server already listening (Passenger managed), skipping manual listen call.');
+    // Defer initialization for managed environments
+    setImmediate(async () => {
+      try {
+        const { testConnection } = require('./database/database');
+        await testConnection();
+        initializeRoutes(app);
+        
+        const cache = require('./scripts/services/cacheService');
+        await cache.connect();
+        
+        require('./utils/messageService');
+        const { initScheduledTasks } = require('./cron/scheduledTasks');
+        initScheduledTasks();
 
-    // Handle server errors
-    server.on('error', (err) => {
-      console.error('❌ Server error:', err);
-      if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${DEFAULT_PORT} is already in use. Please stop any other services using this port.`);
+        const { startBatchAutomation } = require('./services/batchAutomation');
+        const { runAutoHandoverWorker } = require('./services/autoHandoverService');
+        startBatchAutomation();
+        runAutoHandoverWorker();
+        console.error('✨ Managed environment initialization complete.');
+      } catch (err) {
+        console.error('⚠️ Error in Passenger deferred init:', err.message);
       }
-      // Do NOT process.exit(1) here in production managed environments
     });
-
-    // Handle unhandled promise rejections
-    process.on('unhandledRejection', (err) => {
-      console.error('UNHANDLED REJECTION! 💥 Logging error...');
-      console.error(err.name, err.message);
-      // Removed server.close() to prevent 503 loop
-    });
-
-    // Handle SIGTERM
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM received. Shutting down gracefully');
-      server.close(() => {
-        console.log('Process terminated');
-      });
-    });
-
-  } catch (error) {
-    console.error('Failed the initial startup sequence:', error.message);
-    // Proceed to try listen anyway if possible, or fallback
   }
+
+  // Handle server errors
+  server.on('error', (err) => {
+    console.error('❌ Server error:', err);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${DEFAULT_PORT} is already in use.`);
+    }
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (err) => {
+    console.error('UNHANDLED REJECTION! 💥', err.name, err.message);
+  });
+
+  // Handle SIGTERM
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down gracefully');
+    server.close(() => console.log('Process terminated'));
+  });
 }
 
 // Singleton Startup Protector
@@ -598,7 +588,5 @@ if (global.__serverStarted) {
   startServer();
 }
 
-// Export for cPanel/Passenger or tests
+// Export for cPanel/Passenger
 module.exports = app;
-
-// Restart 1772711452057// Restart 1774100536.86857
