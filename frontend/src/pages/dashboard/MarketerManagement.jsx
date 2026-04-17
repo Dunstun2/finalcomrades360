@@ -125,11 +125,11 @@ export default function MarketerManagement() {
                             )}
                           </td>
                           <td className="p-3">
-                            <span className={`px-2 py-1 rounded text-xs ${marketer.isActive
+                            <span className={`px-2 py-1 rounded text-xs ${!marketer.isDeactivated
                                 ? 'bg-green-100 text-green-800'
                                 : 'bg-red-100 text-red-800'
                               }`}>
-                              {marketer.isActive ? 'Active' : 'Suspended'}
+                              {!marketer.isDeactivated ? 'Active' : 'Suspended'}
                             </span>
                           </td>
                           <td className="p-3">{marketer.referralCount || 0}</td>
@@ -151,7 +151,7 @@ export default function MarketerManagement() {
                                   Assign Code
                                 </button>
                               )}
-                              {marketer.isActive ? (
+                              {!marketer.isDeactivated ? (
                                 <button
                                   className="btn-warning btn-xs"
                                   onClick={() => suspendMarketer(marketer.id)}
@@ -184,7 +184,7 @@ export default function MarketerManagement() {
               </div>
               <div className="card p-4 text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {marketers.filter(m => m.isActive).length}
+                  {marketers.filter(m => !m.isDeactivated).length}
                 </div>
                 <div className="text-gray-600">Active Marketers</div>
               </div>
