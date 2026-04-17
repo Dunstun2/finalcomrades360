@@ -57,7 +57,7 @@ app.set('timeout', 60000);
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: { policy: "unsafe-none" },
-  crossOriginOpenerPolicy: { policy: "unsafe-none" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(compression());
