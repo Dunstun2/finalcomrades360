@@ -216,7 +216,6 @@ const createProduct = async (req, res) => {
   const galleryFiles = (req.files && req.files.galleryImages) ? req.files.galleryImages : [];
   const videoFiles = (req.files && req.files.video) ? req.files.video : [];
 
-
   // Validate file requirements (only for non-draft products)
   if (!isDraft) {
     if (coverFiles.length < 1) {
@@ -231,67 +230,6 @@ const createProduct = async (req, res) => {
         message: 'At least 2 gallery images are required. Please upload 2 or more gallery images.'
       });
     }
-  }
-
-  // Enhanced file validation with better error handling
-  const validateFile = (file, fileType) => {
-    if (!file) {
-      throw new Error(`${fileType} file is missing`);
-    }
-
-    // Check for file object structure - multer adds these properties
-    if (!file.filename && !file.path && !file.originalname) {
-      throw new Error(`${fileType} file structure is invalid - missing filename/path/originalname`);
-    }
-
-    // If buffer is missing but file exists on disk, read it
-    if (!file.buffer && (file.path || file.filename)) {
-      console.log(`[createProduct] Reading ${fileType} file from disk`);
-      const fs = require('fs');
-      const path = require('path');
-      const filePath = file.path || path.join(__dirname, '../uploads/products', file.filename);
-
-      try {
-        if (fs.existsSync(filePath)) {
-          const fileBuffer = fs.readFileSync(filePath);
-          file.buffer = fileBuffer;
-          file.size = fileBuffer.length;
-          console.log(`[createProduct] Successfully read ${fileType} file from disk: ${fileBuffer.length} bytes`);
-        } else {
-          throw new Error(`File not found at path: ${filePath}`);
-        }
-      } catch (readError) {
-        console.error(`[createProduct] Error reading ${fileType} file:`, readError);
-        throw new Error(`${fileType} file could not be read from disk: ${readError.message}`);
-      }
-    }
-
-    if (!file.buffer) {
-      throw new Error(`${fileType} file buffer is missing - file may not have been uploaded properly`);
-    }
-
-    if (!file.mimetype) {
-      throw new Error(`${fileType} file mimetype is missing`);
-    }
-
-    if (!file.originalname) {
-      throw new Error(`${fileType} file original name is missing`);
-    }
-
-    return true;
-  };
-
-  // Validate all uploaded files
-  try {
-    coverFiles.forEach((file, index) => validateFile(file, `Cover image ${index + 1}`));
-    galleryFiles.forEach((file, index) => validateFile(file, `Gallery image ${index + 1}`));
-    videoFiles.forEach((file, index) => validateFile(file, `Video ${index + 1}`));
-  } catch (validationError) {
-    console.error('[createProduct] File validation error:', validationError);
-    return res.status(400).json({
-      code: 'FILE_VALIDATION_ERROR',
-      message: validationError.message
-    });
   }
 
   try {
@@ -403,45 +341,10 @@ const createProduct = async (req, res) => {
 
     const shareableLink = `product/${uuidv4()}`;
 
-    // Store uploaded images as base64 data directly in database JSON field
-    // Store uploaded images as base64 data directly in database JSON field
-
-
-    // Compose image data in parallel for better performance
-    const coverTask = (async () => {
-      if (coverFiles.length > 0) {
-        const coverFile = coverFiles[0];
-        if (coverFile.buffer && coverFile.mimetype) {
-          try {
-            const optimizedBuffer = await optimizeImage(coverFile.buffer);
-            return `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
-          } catch (optErr) {
-            console.error('[createProduct] Cover optimization failed, using original:', optErr);
-            return `data:${coverFile.mimetype};base64,${coverFile.buffer.toString('base64')}`;
-          }
-        }
-      }
-      return null;
-    })();
-
-    const galleryTasks = galleryFiles.map(async (file) => {
-      if (file.buffer && file.mimetype) {
-        try {
-          const optimizedBuffer = await optimizeImage(file.buffer);
-          return `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
-        } catch (optErr) {
-          console.error('[createProduct] Gallery optimization failed, using original:', optErr);
-          return `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
-        }
-      }
-      return null;
-    });
-
-    const [coverBase64, ...galleryBase64s] = await Promise.all([coverTask, ...galleryTasks]);
-
-    // Build final imageData array - filter out nulls if any
-    const finalCoverImage = coverBase64 || null;
-    const finalGalleryImages = galleryBase64s.filter(img => img !== null);
+    // Handle images: use paths instead of Base64 to prevent DB bloat and crashes
+    // Compression middleware has already optimized these to JPEG on disk
+    const finalCoverImage = coverFiles.length > 0 ? `/uploads/products/${coverFiles[0].filename}` : null;
+    const finalGalleryImages = galleryFiles.map(f => `/uploads/products/${f.filename}`);
 
 
 
@@ -1705,92 +1608,41 @@ const updateProduct = async (req, res) => {
     if (req.body.removeCoverImage === 'true') {
       console.log('[updateProduct] Removing cover image');
     } else if (coverFiles.length > 0) {
-      // New cover image uploaded - read from disk and convert to base64
-      const fs = require('fs').promises;
-      const path = require('path');
-      const coverFile = coverFiles[0];
-      const filePath = coverFile.path || path.join(__dirname, '../uploads/products', coverFile.filename);
-
-      try {
-        const coverBuffer = await fs.readFile(filePath);
-        let finalCoverBase64;
-
-        try {
-          const optimizedBuffer = await optimizeImage(coverBuffer);
-          finalCoverBase64 = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
-          console.log('[updateProduct] Optimized cover image to WebP');
-        } catch (optErr) {
-          console.error('[updateProduct] Cover optimization failed, using original:', optErr);
-          finalCoverBase64 = `data:${coverFile.mimetype};base64,${coverBuffer.toString('base64')}`;
-        }
-
-        imageUrls.push(finalCoverBase64);
-      } catch (readError) {
-        console.error('[updateProduct] Error reading cover file:', readError);
-        throw new Error(`Failed to read cover image: ${readError.message}`);
-      }
+      // New cover image optimized to JPEG by middleware
+      imageUrls.push(`/uploads/products/${coverFiles[0].filename}`);
     } else if (req.body.existingCoverImage) {
-      console.log('[updateProduct] Keeping existing cover image from database');
       imageUrls.push(req.body.existingCoverImage);
-    } else if ((product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]) && (product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]).length > 0) {
-      console.log('[updateProduct] Using first product image from database');
-      imageUrls.push((product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage])[0]);
+    } else if (product.coverImage) {
+      imageUrls.push(product.coverImage);
     }
 
-    // Handle gallery images - separate logic for existing vs new
+    // Handle gallery images
     let existingGalleryUrls = [];
     if (existingGalleryImages) {
-      if (Array.isArray(existingGalleryImages)) {
-        existingGalleryUrls = existingGalleryImages;
-      } else if (typeof existingGalleryImages === 'string') {
-        try {
-          const parsed = JSON.parse(existingGalleryImages);
-          existingGalleryUrls = Array.isArray(parsed) ? parsed : [parsed];
-        } catch (e) {
-          console.warn('[updateProduct] Error parsing existingGalleryImages:', e);
-          existingGalleryUrls = [existingGalleryImages]; // Fallback to single string
-        }
-      }
-      console.log('[updateProduct] Adding existing gallery images:', existingGalleryUrls);
-    } else if ((product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]) && (product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]).length > 1) {
-      // Fallback: use existing product images (excluding first which is cover)
-      const currentGalleryImages = (product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]).slice(1);
-      console.log('[updateProduct] Using current product gallery images:', currentGalleryImages);
-      existingGalleryUrls = currentGalleryImages;
+      existingGalleryUrls = Array.isArray(existingGalleryImages) ? existingGalleryImages : [existingGalleryImages];
+    } else if (product.galleryImages) {
+      existingGalleryUrls = product.galleryImages;
     }
 
-    // Add existing gallery images that should be kept
-    if (Array.isArray(existingGalleryUrls)) {
-      imageUrls = [...imageUrls, ...existingGalleryUrls];
-    } else if (typeof existingGalleryUrls === 'string' && existingGalleryUrls.trim()) {
-      imageUrls.push(existingGalleryUrls);
+    // Filter out removed gallery images if indices provided
+    if (req.body.removedGalleryIndices) {
+      let removedIndices = [];
+      try {
+        removedIndices = typeof req.body.removedGalleryIndices === 'string' 
+          ? JSON.parse(req.body.removedGalleryIndices) 
+          : req.body.removedGalleryIndices;
+      } catch (e) { console.warn('Error parsing removedGalleryIndices:', e); }
+      
+      existingGalleryUrls = existingGalleryUrls.filter((_, idx) => !removedIndices.includes(idx));
     }
 
-    // Add new gallery images in parallel
+    imageUrls = [...imageUrls, ...existingGalleryUrls];
+
+    // Add new gallery images from disk (optimized by middleware)
     if (galleryFiles.length > 0) {
-      const fs = require('fs').promises;
-      const path = require('path');
-
-      const galleryUploadTasks = galleryFiles.map(async (f) => {
-        const filePath = f.path || path.join(__dirname, '../uploads/products', f.filename);
-        try {
-          const buffer = await fs.readFile(filePath);
-          try {
-            const optimizedBuffer = await optimizeImage(buffer);
-            console.log(`[updateProduct] Optimized gallery image ${f.originalname} to WebP`);
-            return `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
-          } catch (optErr) {
-            console.error(`[updateProduct] Gallery optimization failed for ${f.originalname}, using original:`, optErr);
-            return `data:${f.mimetype};base64,${buffer.toString('base64')}`;
-          }
-        } catch (readError) {
-          console.error('[updateProduct] Error reading gallery file:', f.originalname, readError);
-          return null;
-        }
+      galleryFiles.forEach(f => {
+        imageUrls.push(`/uploads/products/${f.filename}`);
       });
-
-      const newGalleryBase64s = await Promise.all(galleryUploadTasks);
-      imageUrls = [...imageUrls, ...newGalleryBase64s.filter(img => img !== null)];
     }
 
     console.log('[updateProduct] Final imageUrls before validation:', imageUrls);

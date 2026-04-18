@@ -351,36 +351,9 @@ exports.createFastFood = async (req, res) => {
         // 1. Handle Main Image
         if (req.files && req.files.mainImage && req.files.mainImage[0]) {
             const file = req.files.mainImage[0];
-            try {
-                // Read file from disk
-                const fileBuffer = await fs.promises.readFile(file.path);
-
-                // Optimize
-                const optimizedBuffer = await optimizeImage(fileBuffer);
-
-                // Save optimized file (change ext to webp)
-                const dir = path.dirname(file.path);
-                const name = path.parse(file.filename).name;
-                const newFilename = `${name}.webp`;
-                const newPath = path.join(dir, newFilename);
-
-                await fs.promises.writeFile(newPath, optimizedBuffer);
-
-                // Remove original file if different
-                if (file.filename !== newFilename) {
-                    await fs.promises.unlink(file.path).catch(e => console.warn('Failed to delete original file:', e));
-                }
-
-                // Update path
-                // Note: Multer saves to 'other' so we preserve that structure
-                createData.mainImage = `/uploads/other/${newFilename}`;
-
-            } catch (err) {
-                console.error('Image optimization failed:', err);
-                // Fallback to original
-                createData.mainImage = `/uploads/other/${file.filename}`;
-            }
-        } else {
+            // Compression middleware already optimized it to JPEG on disk
+            createData.mainImage = `/uploads/other/${file.filename}`;
+        } else if (!createData.mainImage) {
             createData.mainImage = '/uploads/default-food.jpg'; // Default
         }
 
@@ -653,33 +626,8 @@ exports.updateFastFood = async (req, res) => {
         // 1. Handle Main Image
         if (req.files && req.files.mainImage && req.files.mainImage[0]) {
             const file = req.files.mainImage[0];
-            try {
-                // Read file from disk
-                const fileBuffer = await fs.promises.readFile(file.path);
-
-                // Optimize
-                const optimizedBuffer = await optimizeImage(fileBuffer);
-
-                // Save optimized file (change ext to webp)
-                const dir = path.dirname(file.path);
-                const name = path.parse(file.filename).name;
-                const newFilename = `${name}.webp`;
-                const newPath = path.join(dir, newFilename);
-
-                await fs.promises.writeFile(newPath, optimizedBuffer);
-
-                // Remove original file if different
-                if (file.filename !== newFilename) {
-                    await fs.promises.unlink(file.path).catch(e => console.warn('Failed to delete original file:', e));
-                }
-
-                // Update path
-                updateData.mainImage = `/uploads/other/${newFilename}`;
-            } catch (err) {
-                console.error('Image optimization failed:', err);
-                // Fallback to original
-                updateData.mainImage = `/uploads/other/${file.filename}`;
-            }
+            // Compression middleware already optimized it to JPEG on disk
+            updateData.mainImage = `/uploads/other/${file.filename}`;
         }
 
         // 2. Handle Gallery Images (Merging existing + new)
