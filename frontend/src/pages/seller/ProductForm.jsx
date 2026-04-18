@@ -1417,6 +1417,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
           variant: 'destructive',
         });
         setLoading(false);
+        isSavingRef.current = false;
         return;
       }
 
@@ -1429,6 +1430,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
             variant: 'destructive',
           });
           setLoading(false);
+          isSavingRef.current = false;
           return;
         }
 
@@ -1440,6 +1442,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
             variant: 'destructive',
           });
           setLoading(false);
+          isSavingRef.current = false;
           return;
         }
 
@@ -1450,6 +1453,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
             variant: 'destructive',
           });
           setLoading(false);
+          isSavingRef.current = false;
           return;
         }
       }
@@ -1472,6 +1476,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
             variant: 'destructive',
           });
           setLoading(false);
+          isSavingRef.current = false;
           return;
         }
       }
