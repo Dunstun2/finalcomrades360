@@ -1,9 +1,11 @@
 ---
 deployment:
   tasks:
-    - export FRONTENDPATH=/home/vdranjxy/public_html/
-    - export BACKENDPATH=/home/vdranjxy/comrades-backend/
-    - /bin/cp -Rf frontend/dist/* $FRONTENDPATH
-    - /bin/cp -Rf backend/* $BACKENDPATH
+    - export FRONTENDPATH=/home/vdranjxy/public_html
+    - export BACKENDPATH=/home/vdranjxy/comrades-backend
+    - /bin/mkdir -p $FRONTENDPATH
+    - /bin/mkdir -p $BACKENDPATH
+    - /bin/cp -Rf frontend/dist/* $FRONTENDPATH/
+    - /bin/cp -Rf backend/* $BACKENDPATH/
     - /bin/mkdir -p $BACKENDPATH/tmp
     - /bin/touch $BACKENDPATH/tmp/restart.txt
