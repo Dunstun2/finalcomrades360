@@ -1,10 +1,7 @@
----
 deployment:
   tasks:
-    - export BACKEND=/home/vdranjxy/comrades-backend
-    - export FRONTEND=/home/vdranjxy/public_html
-    - /bin/mkdir -p $BACKEND
-    - /bin/cp -a backend/. $BACKEND/
-    - /bin/cp -a frontend/dist/. $FRONTEND/
-    - /bin/mkdir -p $BACKEND/tmp
-    - /bin/touch $BACKEND/tmp/restart.txt
+    - /bin/mkdir -p /home/vdranjxy/comrades-backend
+    - /bin/cp -R backend/* /home/vdranjxy/comrades-backend/
+    - /bin/cp -R frontend/dist/* /home/vdranjxy/public_html/
+    - /bin/mkdir -p /home/vdranjxy/comrades-backend/tmp
+    - /bin/touch /home/vdranjxy/comrades-backend/tmp/restart.txt
