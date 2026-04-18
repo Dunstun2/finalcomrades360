@@ -123,10 +123,10 @@ const ComradesProductForm = ({
 }) => {
   const { id: paramId } = useParams();
   const location = useLocation();
-  const id = propId || paramId || initialProduct?.id || initialProduct?._id;
+  const id = (propId || (paramId !== 'create' ? paramId : null) || initialProduct?.id || initialProduct?._id);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [isValidatingId, setIsValidatingId] = useState(!!id && !initialProduct);
+  const [isValidatingId, setIsValidatingId] = useState(!!id && !initialProduct && id !== 'create');
   const [productError, setProductError] = useState(null);
 
   // Enhanced mode detection
@@ -136,9 +136,10 @@ const ComradesProductForm = ({
 
   const isListMode = mode === 'list' || isListRoute;
   const isViewMode = mode === 'view' || isViewRoute;
-  // If we have an ID and it's not explicitly list/view, it's likely edit, especially if URL says so
-  const isEditMode = (mode === 'edit' || isEditRoute || (!!id && !isListRoute && !isViewRoute)) && mode !== 'create_force';
-  const isCreateMode = (!isEditMode && !isViewMode && !isListMode) || mode === 'create';
+  // If we have a valid ID (not 'create') and it's not explicitly list/view, it's likely edit
+  const hasValidId = id && id !== 'create';
+  const isEditMode = (mode === 'edit' || isEditRoute || (!!hasValidId && !isListRoute && !isViewRoute)) && mode !== 'create_force';
+  const isCreateMode = (!isEditMode && !isViewMode && !isListMode) || mode === 'create' || paramId === 'create';
 
   // CRITICAL FIX: Prioritize mode/pathname for detection
   const effectiveIsListMode = isListMode;
@@ -295,11 +296,7 @@ const ComradesProductForm = ({
         downloadUrl: ''
       };
 
-      // If we have an initial product, set the product name in state
-      if (initialProduct?.name) {
-        setProductName(initialProduct.name);
-      }
-
+    if (id || initialProduct) {
       return initialData;
     }
 
@@ -309,13 +306,6 @@ const ComradesProductForm = ({
       const draft = localStorage.getItem(draftKey);
       if (draft) {
         const parsed = JSON.parse(draft);
-        setHasDraft(true);
-
-        // Set media metadata for restoration
-        if (parsed.mediaMetadata) {
-          // This will be processed in the draft loading effect
-        }
-
         return { ...parsed, status: 'draft' };
       }
     } catch (e) {
@@ -432,6 +422,29 @@ const ComradesProductForm = ({
     null, // restore is handled separately (above, on mount)
     { debounceMs: 1200 }
   );
+
+  // Synchronize product name and draft status on load (Side effects moved from initializer)
+  useEffect(() => {
+    // 1. Sync product name if editing
+    if (initialProduct?.name) {
+      setProductName(initialProduct.name);
+    } else if (formData?.name) {
+      setProductName(formData.name);
+    }
+
+    // 2. Check for drafts if creating a new product
+    if (!id && !initialProduct) {
+      try {
+        const draftKey = `comrades_product_draft_new`;
+        const saved = localStorage.getItem(draftKey);
+        if (saved) {
+          setHasDraft(true);
+        }
+      } catch (e) {
+        console.warn('[ComradesProductForm] Draft check effect error:', e);
+      }
+    }
+  }, [id, initialProduct, formData?.name]);
 
   // Helper to find category/subcategory name by ID
   const getCategoryName = (id) => {
