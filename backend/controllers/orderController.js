@@ -791,7 +791,59 @@ const createOrderFromCart = async (req, res) => {
 
       // Stock reduction
       if (cartItem.type !== 'fastfood' && cartItem.type !== 'service') {
-        await product.update({ stock: product.stock - cartItem.quantity }, { transaction: t });
+        const qty = parseInt(cartItem.quantity) || 0;
+        
+        if (cartItem.variantId) {
+          let variants = product.variants;
+          if (typeof variants === 'string') {
+            try { variants = JSON.parse(variants); } catch (e) { variants = []; }
+          }
+          if (!Array.isArray(variants)) variants = [];
+
+          let variantUpdated = false;
+          let variantGroupName = null;
+
+          // Find which variant group and option matches the selected variant
+          // ComradesProductForm structure: variants: [{ name: "Size", options: [...], optionDetails: { "XL": { stock: 10 } } }]
+          const target = String(cartItem.variantId).toLowerCase();
+          
+          for (let vGroup of variants) {
+            if (vGroup.optionDetails) {
+              for (let optName of Object.keys(vGroup.optionDetails)) {
+                if (optName.toLowerCase() === target) {
+                  const currentStock = parseInt(vGroup.optionDetails[optName].stock) || 0;
+                  vGroup.optionDetails[optName].stock = Math.max(0, currentStock - qty);
+                  variantUpdated = true;
+                  variantGroupName = vGroup.name;
+                  break;
+                }
+              }
+            }
+            if (variantUpdated) break;
+          }
+
+          if (variantUpdated) {
+            product.variants = variants;
+            product.changed('variants', true);
+            
+            // Recalculate total product stock from the updated variant group
+            const vGroup = variants.find(v => v.name === variantGroupName);
+            if (vGroup && vGroup.optionDetails) {
+              const totalStock = Object.values(vGroup.optionDetails).reduce((sum, opt) => {
+                return sum + (parseInt(opt.stock) || 0);
+              }, 0);
+              product.stock = totalStock;
+            }
+          } else {
+            // Fallback: If variant not found in details, just decrement main stock
+            product.stock = Math.max(0, (product.stock || 0) - qty);
+          }
+        } else {
+          // No variant selected, just decrement main stock
+          product.stock = Math.max(0, (product.stock || 0) - qty);
+        }
+
+        await product.save({ transaction: t });
       }
     }
 

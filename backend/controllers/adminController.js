@@ -287,7 +287,7 @@ const getLowStockAlerts = async (req, res) => {
 const updateStockLevels = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { stock, lowStockThreshold } = req.body;
+    const { stock, lowStockThreshold, variantName, optionName } = req.body;
 
     const product = await Product.findByPk(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
@@ -300,11 +300,46 @@ const updateStockLevels = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to update this product inventory' });
     }
 
-    if (stock !== undefined) product.stock = parseInt(stock);
+    // Handle variant stock update if provided
+    if (variantName && optionName && stock !== undefined) {
+      let variants = product.variants;
+      if (typeof variants === 'string') {
+        try { variants = JSON.parse(variants); } catch (e) { variants = []; }
+      }
+      if (!Array.isArray(variants)) variants = [];
+
+      let variantFound = false;
+      const updatedVariants = variants.map(v => {
+        if (v.name === variantName && v.optionDetails && v.optionDetails[optionName]) {
+          v.optionDetails[optionName].stock = parseInt(stock);
+          variantFound = true;
+        }
+        return v;
+      });
+
+      if (variantFound) {
+        product.variants = updatedVariants;
+        // Mark variants as changed for Sequelize if it's a JSON field
+        product.changed('variants', true);
+        
+        // Recalculate total stock as sum of variants
+        // We take the sum from the variant group that was just updated
+        const targetVariant = updatedVariants.find(v => v.name === variantName);
+        if (targetVariant && targetVariant.optionDetails) {
+          const totalStock = Object.values(targetVariant.optionDetails).reduce((sum, opt) => {
+            return sum + (parseInt(opt.stock) || 0);
+          }, 0);
+          product.stock = totalStock;
+        }
+      }
+    } else if (stock !== undefined) {
+      product.stock = parseInt(stock);
+    }
+
     if (lowStockThreshold !== undefined) product.lowStockThreshold = parseInt(lowStockThreshold);
 
     // Reset alert flag if stock is above threshold
-    if (product.stock > product.lowStockThreshold) {
+    if (product.stock > (product.lowStockThreshold || 0)) {
       product.outOfStockAlertSent = false;
     }
 

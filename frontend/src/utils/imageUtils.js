@@ -22,19 +22,23 @@ export const generateCacheBustedUrl = (imageUrl, version = null) => {
   // Ensure imageUrl is a string and trimmed
   const cleanUrl = typeof imageUrl === 'string' ? imageUrl.trim() : String(imageUrl).trim();
 
-  // Robust check for data URIs and full external URLs
-  // Case-insensitive check for data:, http://, https://
-  if (/^(data:|https?:\/\/)/i.test(cleanUrl)) {
+  // Robust check for data URIs and full external URLs - return absolute URIs as-is
+  // Case-insensitive check for data:, http://, https://, blob:
+  if (/^(data:|https?:\/\/|blob:)/i.test(cleanUrl)) {
     return cleanUrl;
   }
 
-  // Use provided version or generate timestamp-based version
-  // Optimization: If URL is very long (>500 chars), assume it's a data URI or base64 that missed the regex check
+  // Optimization: If URL is very long (>200 chars), assume it's a data URI or base64 that missed the regex check
   // and return it as-is to prevent appending query params to massive strings.
-  if (cleanUrl.length > 500) return cleanUrl;
+  if (cleanUrl.length > 200) return cleanUrl;
 
   // Don't append version if it's already there (avoids ?v=123&v=456)
   if (cleanUrl.includes('?v=') || cleanUrl.includes('&v=')) {
+    return cleanUrl;
+  }
+
+  // Only apply cache busting to paths that look like local file paths (start with uploads/ or /)
+  if (!cleanUrl.startsWith('/') && !cleanUrl.startsWith('uploads/')) {
     return cleanUrl;
   }
 

@@ -100,6 +100,17 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
 
   // State for showing save feedback
   const [showSaved, setShowSaved] = useState(false);
+  const [lastAutoSaved, setLastAutoSaved] = useState(() => {
+    // Restore last save timestamp from draft on mount
+    try {
+      const draft = localStorage.getItem('seller_product_draft');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        return parsed.lastSaved ? new Date(parsed.lastSaved) : null;
+      }
+    } catch (e) {}
+    return null;
+  });
   const saveTimeoutRef = useRef(null);
   const initialRender = useRef(true);
 
@@ -292,7 +303,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
   const getInitialFormData = useCallback(() => {
     if (mode === 'edit' && productId) {
       // For edit mode, we'll load data from API
-      const initialData = {
+      return {
         name: '',
         brand: '',
         model: '',
@@ -343,18 +354,10 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
         isDigital: false,
         downloadUrl: ''
       };
-
-      // Set the product name from initial data if available
-      if (initialData?.name) {
-        setProductName(initialData.name);
-      }
-
-      return initialData;
     }
 
-    // For new products, start with a clean slate (do not auto-load drafts)
-    setHasDraft(false);
-    return {
+    // For new products, try to restore an autosaved draft
+    const blankForm = {
       name: '',
       brand: '',
       model: '',
@@ -362,7 +365,6 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
       shortDescription: '',
       fullDescription: '',
       basePrice: '',
-
       stock: '',
       categoryId: '',
       subcategoryId: '',
@@ -409,15 +411,41 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
       isDigital: false,
       downloadUrl: ''
     };
+
+    try {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        // Exclude non-serializable/media fields that were stripped during save
+        const { coverImage: _ci, galleryImages: _gi, video: _v, lastSaved: _ls, ...rest } = parsed;
+        return { ...blankForm, ...rest };
+      }
+    } catch (e) {
+      console.warn('[ProductForm] Could not restore draft:', e);
+    }
+
+    return blankForm;
   }, [mode, productId]);
 
-  // Form data state
+  // Form data state - initializes from draft for create mode
   const [formData, setFormData] = useState(getInitialFormData);
 
-  // Always reset to a clean form when entering create mode
+  // On create mode mount, check if there's a draft to signal hasDraft
   useEffect(() => {
     if (mode !== 'edit') {
-      clearDraftAndReset();
+      try {
+        const draft = localStorage.getItem(DRAFT_KEY);
+        if (draft) {
+          const parsed = JSON.parse(draft);
+          setHasDraft(true);
+          // Also restore productName for form-type detection
+          if (parsed.name) setProductName(parsed.name);
+        } else {
+          setHasDraft(false);
+        }
+      } catch (e) {
+        setHasDraft(false);
+      }
     }
   }, [mode, productId]);
 
@@ -479,6 +507,8 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
         setHasDraft(true);
 
         // Show saved indicator
+        const now = new Date();
+        setLastAutoSaved(now);
         setShowSaved(true);
         setTimeout(() => setShowSaved(false), 2000);
       } catch (error) {
@@ -1787,7 +1817,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
   }, [formData.categoryId, allCategories]);
 
   return (
-    <div className="p-0 sm:p-6 w-full">
+    <div className="p-0 sm:p-4 md:p-6 w-full overflow-x-hidden">
       {mode === 'edit' && (
         <div className="mb-6">
           <Button
@@ -2017,7 +2047,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
                 </div>
 
                 {/* Unit of Measure, Stock, and Pricing */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="unitOfMeasure">Unit of Measure *</Label>
                     <Select
@@ -2147,7 +2177,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
 
                   {formData.variants?.map((variant, variantIndex) => (
                     <div key={variantIndex} className="space-y-4 p-4 border rounded-md">
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <Label>Variant Name</Label>
                           <Input
@@ -2781,7 +2811,7 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
                 {/* Submit Buttons */}
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <AutoSaveIndicator lastSaved={showSaved ? new Date() : null} isSaving={false} />
+                    <AutoSaveIndicator lastSaved={lastAutoSaved} isSaving={false} />
                     {hasDraft && (
                       <Button type="button" variant="ghost" size="sm" className="text-xs text-gray-400 hover:text-red-500" onClick={clearDraftAndReset}>
                         Clear Draft

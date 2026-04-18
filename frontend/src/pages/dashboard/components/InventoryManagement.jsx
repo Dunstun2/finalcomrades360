@@ -157,6 +157,7 @@ const InventoryManagement = ({ onBack }) => {
     onConfirm: null
   });
 
+  const [expandedRows, setExpandedRows] = useState([]);
   const [confirmationDialog, setConfirmationDialog] = useState({
     isOpen: false,
     success: true,
@@ -650,11 +651,25 @@ const InventoryManagement = ({ onBack }) => {
     });
   };
 
-  const handleEditStock = (product) => {
+  const handleEditStock = (product, variantKey = null, optionName = null) => {
     if (!product.stockTracked) return;
-    setEditingProduct(product);
+    
+    let currentStock = product.stock || 0;
+    if (variantKey && optionName && product.variants) {
+      const variant = product.variants.find(v => v.variantKey === variantKey || v.id === variantKey);
+      if (variant && variant.optionDetails?.[optionName]) {
+        currentStock = variant.optionDetails[optionName].stock || 0;
+      }
+    }
+
+    setEditingProduct({
+      ...product,
+      variantKey,
+      optionName
+    });
+    
     setEditForm({
-      stock: product.stock || 0,
+      stock: currentStock,
       lowStockThreshold: product.lowStockThreshold || 5
     });
   };
@@ -665,7 +680,6 @@ const InventoryManagement = ({ onBack }) => {
     if (!editingProduct) return;
 
     try {
-      // Check if the product belongs to the current admin or if user is superadmin
       const isOwnProduct = editingProduct.seller?.id === currentUser?.id;
       const isAdmin = ['superadmin', 'super_admin', 'admin'].includes(String(currentUser?.role || '').toLowerCase());
 
@@ -674,50 +688,24 @@ const InventoryManagement = ({ onBack }) => {
         return;
       }
 
-      await adminApi.updateStockLevels(editingProduct.id, editForm);
-      setEditingProduct(null);
-
-      // Update the local state to reflect changes
-      const updatedFields = {
-        stock: Number(editForm.stock || 0),
-        lowStockThreshold: Number(editForm.lowStockThreshold || 0)
+      const updatePayload = {
+        ...editForm,
+        variantKey: editingProduct.variantKey,
+        optionName: editingProduct.optionName
       };
 
-      setProducts(prevProducts =>
-        prevProducts.map(p =>
-          p.id === editingProduct.id
-            ? { ...p, ...updatedFields }
-            : p
-        )
-      );
+      await adminApi.updateStockLevels(editingProduct.id, updatePayload);
+      setEditingProduct(null);
 
-      if (usingLegacyInventoryFallback) {
-        setAllInventoryItems(prevItems => prevItems.map(item => (
-          item.id === editingProduct.id && item.itemType === 'product'
-            ? { ...item, ...updatedFields }
-            : item
-        )));
-      }
-
-      // Update the overview data
-      if (inventoryData && editingProduct.stockTracked) {
-        const overviewItems = usingLegacyInventoryFallback
-          ? allInventoryItems.map(item => (
-            item.id === editingProduct.id && item.itemType === 'product'
-              ? { ...item, ...updatedFields }
-              : item
-          ))
-          : products.map(item => (
-            item.id === editingProduct.id && item.itemType === 'product'
-              ? { ...item, ...updatedFields }
-              : item
-          ));
-
-        setInventoryData(prev => ({
-          ...prev,
-          overview: usingLegacyInventoryFallback ? computeOverviewFromItems(overviewItems) : prev.overview
-        }));
-      }
+      // Refresh data to show aggregated total and updated variant stock
+      loadProducts(currentPage);
+      
+      setConfirmationDialog({
+        isOpen: true,
+        success: true,
+        title: 'Stock Updated',
+        message: 'Inventory levels updated successfully.'
+      });
     } catch (err) {
       setError('Failed to update stock levels');
       console.error('Update stock error:', err);
@@ -1200,245 +1188,231 @@ const InventoryManagement = ({ onBack }) => {
                       return true;
                     })
                     .map((product) => (
-                      <tr key={product.id} className={`hover:bg-gray-50 ${selectedIds.includes(product.id) ? 'bg-orange-50' : ''}`}>
-                        {!product.stockTracked && (
-                          <td className="px-6 py-4">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 cursor-pointer"
-                              checked={selectedIds.includes(product.id)}
-                              onChange={() => handleSelect(product.id)}
-                            />
-                          </td>
-                        )}
-                        {product.stockTracked && filters.itemType === 'fastfood' && (
-                          <td className="px-6 py-4"></td> // Spacer for non-fastfood if mixed
-                        )}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10">
-                              {getInventoryItemImage(product) !== FALLBACK_IMAGE ? (
-                                <img
-                                  className="h-10 w-10 rounded-md object-cover"
-                                  src={resolveImageUrl(getInventoryItemImage(product))}
-                                  alt={product.name}
+                        <React.Fragment key={product.id}>
+                          <tr className={`hover:bg-gray-50 ${selectedIds.includes(product.id) ? 'bg-orange-50' : ''} ${expandedRows.includes(product.id) ? 'bg-blue-50/50' : ''}`}>
+                            {!product.stockTracked && (
+                              <td className="px-6 py-4">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 cursor-pointer"
+                                  checked={selectedIds.includes(product.id)}
+                                  onChange={() => handleSelect(product.id)}
                                 />
-                              ) : (
-                                <div className="h-10 w-10 rounded-md bg-gray-200 flex items-center justify-center">
-                                  <FaBox className="text-gray-400" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                              {filters.itemType === 'all' && (
-                                <div className="text-xs text-gray-500 uppercase tracking-wide">{product.itemType === 'fastfood' ? 'Fast Food' : 'Product'}</div>
-                              )}
-                              <div className="text-sm text-gray-500 text-xs italic">ID: {product.id || 'N/A'}</div>
-                            </div>
-                          </div>
-                        </td>
-                        {currentUser?.role !== 'seller' && (
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {product.seller ? (
-                              <div>
-                                <div className="text-sm text-gray-500">ID: {product.seller.id}</div>
-                                <div className="text-sm font-medium text-gray-900">{product.seller.name || 'N/A'}</div>
-                                <div className="text-sm text-gray-500">{product.seller.email || 'N/A'}</div>
-                              </div>
-                            ) : (
-                              <span className="text-gray-500">Unknown</span>
+                              </td>
                             )}
-                          </td>
-                        )}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {product.stockTracked && editingProduct?.id === product.id ? (
-                            <input
-                              type="number"
-                              value={editForm.stock}
-                              onChange={(e) => setEditForm(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
-                              className="w-20 px-2 py-1 border rounded"
-                              min="0"
-                            />
-                          ) : !product.stockTracked ? (
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${product.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                              {product.isAvailable ? 'Available' : 'Unavailable'}
-                            </span>
-                          ) : (
-                            <span className={`font-medium ${product.stock === 0 ? 'text-red-600' : product.stock <= (product.lowStockThreshold || 5) ? 'text-yellow-600' : 'text-green-600'}`}>
-                              {product.stock}
-                            </span>
-                          )}
-                        </td>
-                        {filters.itemType !== 'fastfood' && currentUser?.role !== 'seller' && (
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {product.stockTracked && editingProduct?.id === product.id ? (
-                              <input
-                                type="number"
-                                value={editForm.lowStockThreshold}
-                                onChange={(e) => setEditForm(prev => ({ ...prev, lowStockThreshold: parseInt(e.target.value) || 0 }))}
-                                className="w-20 px-2 py-1 border rounded"
-                                min="0"
-                              />
-                            ) : !product.stockTracked ? (
-                              <span className="text-gray-500">-</span>
-                            ) : (
-                              <span className="text-gray-600">{product.lowStockThreshold || 5}</span>
+                            {product.stockTracked && filters.itemType === 'fastfood' && (
+                              <td className="px-6 py-4"></td> // Spacer for non-fastfood if mixed
                             )}
-                          </td>
-                        )}
-                        <td className="px-6 py-4">
-                          {product.stockTracked ? (
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusClass(product.stock, product.lowStockThreshold || 5)}`}>
-                              {renderStockStatus(product.stock, product.lowStockThreshold || 5)}
-                            </span>
-                          ) : (() => {
-                            const isPending = product.reviewStatus === 'pending';
-                            const isSuspended = !product.isActive && product.reviewStatus !== 'pending';
-                            const isHidden = product.isActive === false;
-                            const availability = fastFoodService.getAvailabilityStatus(product);
-                            const isOpen = availability.state === 'OPEN';
-
-                            return (
-                              <div className="flex flex-col items-start space-y-2">
-                                {/* Platform Status */}
-                                <span className={`px-2 py-0.5 text-[10px] font-black rounded-full border shadow-sm ${isPending ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' :
-                                  isSuspended ? 'bg-red-600 text-white border-red-700' :
-                                    'bg-green-100 text-green-700 border-green-200'
-                                  }`}>
-                                  {product.reviewStatus?.toUpperCase() || 'ACTIVE'}
-                                </span>
-
-                                {/* Real-time "OPEN/CLOSED" Badge */}
-                                <div className="flex flex-col items-start">
-                                  <span className={`px-3 py-1 text-[10px] font-black rounded-lg shadow-sm flex items-center gap-1.5 transition-all ${isOpen
-                                    ? 'bg-green-500 text-white animate-pulse ring-2 ring-green-500/20'
-                                    : 'bg-gray-200 text-gray-500'
-                                    }`} title={availability.reason}>
-                                    <div className={`w-1.5 h-1.5 rounded-full ${isOpen ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-gray-400'}`} />
-                                    {availability.state || 'CLOSED'}
-                                  </span>
-                                  {!isOpen && availability.reason && (
-                                    <span className="text-[9px] text-gray-500 mt-1 max-w-[120px] leading-tight break-words whitespace-normal">
-                                      {availability.reason}
-                                    </span>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                {product.variants && product.variants.length > 0 && (
+                                  <button 
+                                    onClick={() => setExpandedRows(prev => prev.includes(product.id) ? prev.filter(id => id !== product.id) : [...prev, product.id])}
+                                    className="mr-2 text-gray-400 hover:text-blue-600 transition-colors"
+                                  >
+                                    {expandedRows.includes(product.id) ? '▼' : '▶'}
+                                  </button>
+                                )}
+                                <div className="flex-shrink-0 h-10 w-10">
+                                  {getInventoryItemImage(product) !== FALLBACK_IMAGE ? (
+                                    <img
+                                      className="h-10 w-10 rounded-md object-cover"
+                                      src={resolveImageUrl(getInventoryItemImage(product))}
+                                      alt={product.name}
+                                    />
+                                  ) : (
+                                    <div className="h-10 w-10 rounded-md bg-gray-200 flex items-center justify-center">
+                                      <FaBox className="text-gray-400" />
+                                    </div>
                                   )}
                                 </div>
+                                <div className="ml-4">
+                                  <div className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{product.name}</div>
+                                  {filters.itemType === 'all' && (
+                                    <div className="text-xs text-gray-500 uppercase tracking-wide">{product.itemType === 'fastfood' ? 'Fast Food' : 'Product'}</div>
+                                  )}
+                                  <div className="text-sm text-gray-500 text-[10px] italic">ID: {product.id || 'N/A'}</div>
+                                </div>
+                              </div>
+                            </td>
+                            {currentUser?.role !== 'seller' && (
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {product.seller ? (
+                                  <div className="text-xs">
+                                    <div className="text-gray-500">ID: {product.seller.id}</div>
+                                    <div className="font-medium text-gray-900 truncate max-w-[120px]">{product.seller.name || 'N/A'}</div>
+                                    <div className="text-gray-500 truncate max-w-[120px]">{product.seller.email || 'N/A'}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-500 text-xs text-xs italic">Unknown</span>
+                                )}
+                              </td>
+                            )}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {product.stockTracked && editingProduct?.id === product.id && !editingProduct?.variantKey ? (
+                                <input
+                                  type="number"
+                                  value={editForm.stock}
+                                  onChange={(e) => setEditForm(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+                                  className="w-16 px-1.5 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-400"
+                                  min="0"
+                                />
+                              ) : !product.stockTracked ? (
+                                <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full ${product.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                  {product.isAvailable ? 'Available' : 'Unavailable'}
+                                </span>
+                              ) : (
+                                <span className={`text-sm font-bold ${product.stock === 0 ? 'text-red-600' : product.stock <= (product.lowStockThreshold || 5) ? 'text-yellow-600' : 'text-green-600'}`}>
+                                  {product.stock}
+                                  {product.variants && product.variants.length > 0 && <span className="ml-1 text-[10px] text-gray-400 font-normal">(Total)</span>}
+                                </span>
+                              )}
+                            </td>
+                            {filters.itemType !== 'fastfood' && currentUser?.role !== 'seller' && (
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {product.stockTracked && editingProduct?.id === product.id && !editingProduct?.variantKey ? (
+                                  <input
+                                    type="number"
+                                    value={editForm.lowStockThreshold}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, lowStockThreshold: parseInt(e.target.value) || 0 }))}
+                                    className="w-16 px-1.5 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-400"
+                                    min="0"
+                                  />
+                                ) : !product.stockTracked ? (
+                                  <span className="text-gray-400">-</span>
+                                ) : (
+                                  <span className="text-gray-600 font-medium text-sm">{product.lowStockThreshold || 5}</span>
+                                )}
+                              </td>
+                            )}
+                            <td className="px-6 py-4">
+                              {product.stockTracked ? (
+                                <span className={`px-2 py-1 text-[10px] font-black uppercase rounded-full ${getStatusClass(product.stock, product.lowStockThreshold || 5)}`}>
+                                  {renderStockStatus(product.stock, product.lowStockThreshold || 5)}
+                                </span>
+                              ) : (() => {
+                                const isPending = product.reviewStatus === 'pending';
+                                const isSuspended = !product.isActive && product.reviewStatus !== 'pending';
+                                const isHidden = product.isActive === false;
+                                const availability = fastFoodService.getAvailabilityStatus(product);
+                                const isOpen = availability.state === 'OPEN';
 
-                                {isHidden && (
-                                  <span className="px-2 py-0.5 text-[9px] font-black bg-gray-700 text-white rounded-full flex items-center w-fit">
-                                    <EyeOff size={10} className="mr-1" /> HIDDEN
-                                  </span>
+                                return (
+                                  <div className="flex flex-col items-start space-y-1">
+                                    <span className={`px-2 py-0.5 text-[9px] font-black rounded-full border shadow-sm ${isPending ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                      isSuspended ? 'bg-red-600 text-white border-red-700' :
+                                        'bg-green-100 text-green-700 border-green-200'
+                                      }`}>
+                                      {product.reviewStatus?.toUpperCase() || 'ACTIVE'}
+                                    </span>
+                                    <div className="flex flex-col items-start">
+                                      <span className={`px-2 py-0.5 text-[9px] font-black rounded-md flex items-center gap-1 transition-all ${isOpen
+                                        ? 'bg-green-500 text-white'
+                                        : 'bg-gray-200 text-gray-500'
+                                        }`}>
+                                        <div className={`w-1 h-1 rounded-full ${isOpen ? 'bg-white' : 'bg-gray-400'}`} />
+                                        {availability.state || 'CLOSED'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center space-x-3">
+                                {product.stockTracked && editingProduct?.id === product.id && !editingProduct?.variantKey ? (
+                                  <>
+                                    <button onClick={handleSaveStock} className="text-green-600 hover:text-green-800 transition-colors" title="Save"><FaSave /></button>
+                                    <button onClick={handleCancelEdit} className="text-gray-600 hover:text-gray-800 transition-colors" title="Cancel"><FaTimes /></button>
+                                  </>
+                                ) : (
+                                  <>
+                                    {product.stockTracked && (
+                                      <button onClick={() => handleEditStock(product)} className="text-blue-600 hover:text-blue-800 transition-colors" title="Edit Master Stock"><FaEdit /></button>
+                                    )}
+                                    {currentUser?.role !== 'seller' && product.seller && product.itemType === 'product' && (
+                                      <button onClick={() => {
+                                        setSelectedSellerForContact({ id: product.seller.id, name: product.seller.name, email: product.seller.email, productId: product.id, productName: product.name });
+                                        setContactMessage(`Regarding your product: ${product.name}`);
+                                        setIsContactModalOpen(true);
+                                      }} className="text-yellow-600 hover:text-yellow-800 transition-colors" title="Contact Seller"><FaEnvelope /></button>
+                                    )}
+                                    {!product.stockTracked && (
+                                      <div className="flex gap-2">
+                                        <button onClick={() => {
+                                          if (currentUser?.role === 'seller') navigate(`/seller/fast-food/edit/${product.id}`);
+                                          else navigate(`/dashboard/fastfood?search=${encodeURIComponent(product.name)}&action=edit`);
+                                        }} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all"><Edit size={16} /></button>
+                                        <button onClick={() => handleFFDelete(product)} className="p-1.5 text-red-600 hover:bg-white rounded-lg transition-all"><Trash2 size={16} /></button>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex items-center space-x-2">
-                            {product.stockTracked && editingProduct?.id === product.id ? (
-                              <>
-                                <button
-                                  onClick={handleSaveStock}
-                                  className="text-green-600 hover:text-green-800"
-                                  title="Save"
-                                >
-                                  <FaSave />
-                                </button>
-                                <button
-                                  onClick={handleCancelEdit}
-                                  className="text-gray-600 hover:text-gray-800"
-                                  title="Cancel"
-                                >
-                                  <FaTimes />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                {product.stockTracked && (
-                                  <button
-                                    onClick={() => handleEditStock(product)}
-                                    className="text-blue-600 hover:text-blue-800"
-                                    title="Edit Stock"
-                                  >
-                                    <FaEdit />
-                                  </button>
-                                )}
-                                {currentUser?.role !== 'seller' && product.seller && product.itemType === 'product' && (
-                                  <button
-                                    onClick={() => {
-                                      setSelectedSellerForContact({
-                                        id: product.seller.id,
-                                        name: product.seller.name,
-                                        email: product.seller.email,
-                                        productId: product.id,
-                                        productName: product.name
-                                      });
-                                      setContactMessage(`Regarding your product: ${product.name}`);
-                                      setIsContactModalOpen(true);
-                                    }}
-                                    className="text-yellow-600 hover:text-yellow-800"
-                                    title="Contact Seller"
-                                  >
-                                    <FaEnvelope />
-                                  </button>
-                                )}
-                                {!product.stockTracked && (
-                                  <div className="flex gap-1">
-                                    <button
-                                      onClick={() => {
-                                        if (currentUser?.role === 'seller') navigate(`/seller/fast-food/edit/${product.id}`);
-                                        else navigate(`/dashboard/fastfood?search=${encodeURIComponent(product.name)}&action=edit`);
-                                      }}
-                                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                      title="View/Edit"
-                                    >
-                                      <Edit size={16} />
-                                    </button>
-                                    <div className="relative inline-block" title="Select Availability Mode">
-                                      <select
-                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                                        value={product.availabilityMode || 'AUTO'}
-                                        onChange={(e) => handleFFOptimisticUpdate(product, { availabilityMode: e.target.value })}
-                                      >
-                                        <option value="AUTO">📅 Auto Schedule</option>
-                                        <option value="OPEN">🍽️ Force Open</option>
-                                        <option value="CLOSED">🚫 Force Closed</option>
-                                      </select>
-                                      <button
-                                        className={`p-1.5 rounded-lg transition-all shadow-sm border pointer-events-none focus:outline-none focus:ring-0 ${product.availabilityMode === 'OPEN' ? 'text-green-600 bg-green-50 border-green-200' :
-                                          product.availabilityMode === 'CLOSED' ? 'text-red-500 bg-red-50 border-red-200' :
-                                            'text-blue-500 bg-blue-50 border-blue-200 hover:bg-blue-100'
-                                          }`}
-                                      >
-                                        {product.availabilityMode === 'OPEN' ? <Utensils size={16} className="text-green-600" /> :
-                                          product.availabilityMode === 'CLOSED' ? <Ban size={16} className="text-red-500" /> :
-                                            <Clock size={16} className="text-blue-500" />}
-                                      </button>
-                                    </div>
-                                    {currentUser?.role !== 'seller' && (
-                                      <button
-                                        onClick={() => handleFFOptimisticUpdate(product, { isActive: !product.isActive })}
-                                        className={`p-1.5 rounded-lg transition-all ${product.isActive ? 'text-gray-500 hover:text-amber-600 hover:bg-amber-50' : 'text-amber-600 hover:bg-amber-600 hover:text-white'}`}
-                                        title="Manage Visibility"
-                                      >
-                                        {product.isActive ? <EyeOff size={16} /> : <Eye size={16} />}
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleFFDelete(product)}
-                                      className="p-1.5 text-red-600 hover:bg-red-600 hover:text-white rounded-lg transition-all"
-                                      title="Delete Item"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                            </td>
+                          </tr>
+
+                          {/* Expanded Variant View */}
+                          {expandedRows.includes(product.id) && product.variants && product.variants.length > 0 && (
+                            <tr className="bg-blue-50/30 border-b-2 border-blue-100">
+                              <td colSpan={colCount} className="px-6 py-4">
+                                <div className="pl-10 space-y-4">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                                    <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Stock for Variants</h4>
                                   </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {product.variants.map((variant) => (
+                                      <div key={variant.id} className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">{variant.variantKey}</div>
+                                        <div className="space-y-2">
+                                          {Object.entries(variant.optionDetails || {}).map(([optionName, details]) => {
+                                            const isEditingThis = editingProduct?.id === product.id && 
+                                                                 editingProduct?.variantKey === variant.variantKey && 
+                                                                 editingProduct?.optionName === optionName;
+                                            
+                                            return (
+                                              <div key={optionName} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                                                <span className="text-sm font-medium text-gray-700">{optionName}</span>
+                                                <div className="flex items-center gap-3">
+                                                  {isEditingThis ? (
+                                                    <div className="flex items-center gap-2">
+                                                      <input
+                                                        type="number"
+                                                        value={editForm.stock}
+                                                        onChange={(e) => setEditForm(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+                                                        className="w-16 px-1.5 py-1 text-xs border rounded focus:ring-1 focus:ring-blue-400"
+                                                        autoFocus
+                                                      />
+                                                      <button onClick={handleSaveStock} className="text-green-600 text-sm"><FaSave /></button>
+                                                      <button onClick={handleCancelEdit} className="text-gray-400 text-sm"><FaTimes /></button>
+                                                    </div>
+                                                  ) : (
+                                                    <div className="flex items-center gap-3">
+                                                      <span className={`text-sm font-bold ${details.stock === 0 ? 'text-red-600' : details.stock <= 5 ? 'text-yellow-600' : 'text-blue-600'}`}>
+                                                        {details.stock || 0}
+                                                      </span>
+                                                      <button 
+                                                        onClick={() => handleEditStock(product, variant.variantKey, optionName)}
+                                                        className="text-gray-400 hover:text-blue-600 transition-colors"
+                                                      >
+                                                        <FaEdit size={12} />
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                     ));
                 })()}
               </tbody>

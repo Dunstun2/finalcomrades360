@@ -399,13 +399,32 @@ const ComradesProductForm = ({
   const [createdProduct, setCreatedProduct] = useState(null);
   const [changes, setChanges] = useState([]);
 
-  // AutoSave — persist form data to localStorage while filling form (create mode only)
-  const [formData, setFormData] = useState(() => getInitialFormData());
+  // AutoSave — persist form data to localStorage while filling form
+  // IMPORTANT: formData must be declared ONCE here and reused by useAutoSave
+  const [formData, setFormData] = useState(() => {
+    const initial = getInitialFormData();
+    // Restore draft for new products on mount
+    if (!id && !initialProduct) {
+      try {
+        const draftKey = `comrades_product_draft_new`;
+        const saved = localStorage.getItem(draftKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Strip non-serializable fields that were excluded during save
+          const { coverImage: _ci, galleryImages: _gi, video: _v, mediaMetadata: _mm, _lastSaved, lastSaved: _ls, ...rest } = parsed;
+          return { ...initial, ...rest };
+        }
+      } catch (e) {
+        console.warn('[ComradesProductForm] Could not restore draft:', e);
+      }
+    }
+    return initial;
+  });
   const autoSaveDraftKey = !effectiveIsViewMode ? `comrades_product_draft_${id || 'new'}` : null;
   const { lastSaved: autoLastSaved, clearDraft: clearAutoSaveDraft } = useAutoSave(
     autoSaveDraftKey,
     formData,
-    null, // restore is handled separately
+    null, // restore is handled separately (above, on mount)
     { debounceMs: 1200 }
   );
 
@@ -485,8 +504,8 @@ const ComradesProductForm = ({
   const [isEditing, setIsEditing] = useState(mode !== 'view');
   const [showAllUom, setShowAllUom] = useState(false);
 
-  // Form data state - will be initialized based on whether we have a product or not
-  const [formData, setFormData] = useState(getInitialFormData);
+  // NOTE: formData state is declared above (line ~403) alongside useAutoSave.
+  // Do NOT redeclare it here — the above declaration is the canonical one.
 
   // Clear draft from local storage - defined early so it can be used in getInitialFormData
   const clearDraft = useCallback(() => {
@@ -1117,8 +1136,6 @@ const ComradesProductForm = ({
       } else {
         console.log('🛡️ [ComradesProductForm] strictMode enabled - skipping auto-switch logic');
       }
-        description: toastDescription,
-      });
 
     } else {
       console.warn('No category found for ID:', value);
@@ -1296,10 +1313,24 @@ const ComradesProductForm = ({
 
   // Handle field changes
   const handleFieldChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setFormData(prev => {
+      const newData = { ...prev, [field]: value };
+      
+      // Calculate discount price if pricing fields change
+      if (field === 'basePrice' || field === 'displayPrice' || field === 'discountPercentage') {
+        const base = parseFloat(newData.basePrice || 0);
+        const display = parseFloat(newData.displayPrice || base || 0);
+        const perc = parseFloat(newData.discountPercentage || 0);
+        
+        if (perc > 0) {
+          newData.discountPrice = (display * (1 - perc / 100)).toFixed(2);
+        } else {
+          newData.discountPrice = display.toFixed(2);
+        }
+      }
+      
+      return newData;
+    });
   };
 
   // Helper for client-side image compression
@@ -1453,10 +1484,27 @@ const ComradesProductForm = ({
     }
 
     const isNewItem = !id && !initialProduct;
-    if (isNewItem && galleryImages.length !== 2) {
+    if (isNewItem && galleryImages.length < 2) {
       newErrors.media = newErrors.media || 'Gallery images required';
       setShowMediaError(true);
-      setMediaErrorMessage('New products require exactly 2 gallery images');
+      setMediaErrorMessage('New products require at least 2 gallery images');
+    }
+
+    // 7. Sync with backend strict validation requirements
+    if (!formData.fullDescription || formData.fullDescription.trim() === '') {
+      newErrors.fullDescription = 'Full description is required';
+    }
+    
+    if (!formData.shortDescription || formData.shortDescription.trim() === '') {
+      newErrors.shortDescription = 'Short description is required';
+    }
+
+    if (!formData.keywords || formData.keywords.trim() === '') {
+      newErrors.keywords = 'At least one keyword/tag is required';
+    }
+
+    if (!formData.deliveryMethod) {
+      newErrors.deliveryMethod = 'Delivery method is required';
     }
 
     // 6. LISTING MODE SPECIFIC VALIDATIONS
@@ -1522,6 +1570,8 @@ const ComradesProductForm = ({
         pricingRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if (newErrors.stock && stockRef.current) {
         stockRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (newErrors.fullDescription && typeof fullDescriptionRef !== 'undefined' && fullDescriptionRef.current) {
+        fullDescriptionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if (newErrors.media && mediaRef.current) {
         mediaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else if ((newErrors.deliveryFeeType || newErrors.deliveryFee || newErrors.deliveryCoverageZones) && deliveryRef.current) {
@@ -1862,8 +1912,9 @@ const ComradesProductForm = ({
         });
         setShowModal(true);
 
-        // Clear the draft
+        // Clear the draft (both old key and useAutoSave key)
         clearDraft();
+        clearAutoSaveDraft();
 
         // Mark as updated to trigger re-initialization
         setHasUpdated(true);
@@ -1945,9 +1996,9 @@ const ComradesProductForm = ({
   const isSuperAdminCreate = !id && initialProduct?.addedBy?.role === 'superadmin';
 
   return (
-    <div className="w-full max-w-5xl ml-0 mr-auto">
+    <div className="w-full max-w-5xl ml-0 mr-auto overflow-x-hidden">
       <div className="bg-white rounded-lg shadow-lg">
-        <div className="p-8">
+        <div className="p-3 sm:p-5 md:p-8">
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-4">
               <Button
@@ -2061,7 +2112,7 @@ const ComradesProductForm = ({
               <form id="product-form" onSubmit={handleSubmit} className="space-y-8 pb-24">
 
                 {isFieldDisabled('vendorInfo') && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 pb-6">
                     {/* Vendor Information Card */}
                     <div className="bg-blue-50 rounded-lg p-6 border border-blue-100 shadow-sm">
                       <h3 className="text-lg font-semibold text-blue-900 mb-4 flex items-center">
@@ -2137,7 +2188,7 @@ const ComradesProductForm = ({
                 </div>
 
                 {/* Category and Subcategory */}
-                <div ref={categoryRef} className={`grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 rounded-lg transition-colors ${validationErrors.category || validationErrors.subcategory ? 'bg-red-50 border-2 border-red-500 shadow-sm' : ''}`}>
+                <div ref={categoryRef} className={`grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 p-2 sm:p-4 rounded-lg transition-colors ${validationErrors.category || validationErrors.subcategory ? 'bg-red-50 border-2 border-red-500 shadow-sm' : ''}`}>
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <Label htmlFor="categoryId" className={validationErrors.category ? 'text-red-700 font-bold' : ''}>Category *</Label>
@@ -2182,7 +2233,7 @@ const ComradesProductForm = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                   <div>
                     <Label htmlFor="brand">Brand</Label>
                     <Input
@@ -2291,7 +2342,7 @@ const ComradesProductForm = ({
                 {/* Pricing + Stock */}
                 <div className={`p-6 rounded-lg border transition-colors ${validationErrors.basePrice || validationErrors.stock ? 'bg-red-50 border-red-500 shadow-md' : 'bg-blue-50 border-blue-200'}`}>
                   <h3 className={`text-xl font-semibold mb-4 ${validationErrors.basePrice || validationErrors.stock ? 'text-red-900' : 'text-blue-900'}`}>Pricing & Stock</h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
                     <div ref={pricingRef} className="relative">
                       <div className="flex justify-between items-center mb-1">
                         <Label htmlFor="basePrice" className={`text-lg font-medium ${validationErrors.basePrice ? 'text-red-700' : 'text-blue-800'}`}>Base Price</Label>
@@ -2420,7 +2471,7 @@ const ComradesProductForm = ({
                   </div>
                   {formData.variants?.map((variant, variantIndex) => (
                     <div key={variantIndex} className="space-y-4 p-4 border rounded-md">
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <Label>Variant Name</Label>
                           <Input type="text" value={variant.name} onChange={(e) => {
@@ -2481,7 +2532,7 @@ const ComradesProductForm = ({
                       {(variant.options || []).filter(opt => opt).length > 0 && variant.name && (
                         <div className="mt-4 overflow-x-auto border rounded-md shadow-inner bg-white">
                           <Label className="px-4 py-2 block border-b bg-gray-50 text-blue-900 font-bold">Variant Options and Prices</Label>
-                          <table className="min-w-[900px] w-full mt-2">
+                          <table className="min-w-[800px] w-full mt-2">
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">{variant.name}</th>
@@ -2504,10 +2555,12 @@ const ComradesProductForm = ({
                                     [field]: value
                                   };
 
-                                  // Parity logic: if basePrice is entered and displayPrice is empty, auto-fill it
+                                  // Removed auto-filling displayPrice from basePrice to respect user's request
+                                  /*
                                   if (field === 'basePrice' && !updatedItem.displayPrice) {
                                     updatedItem.displayPrice = value;
                                   }
+                                  */
 
                                   // Calculate discountPrice if any pricing field changes
                                   if (field === 'basePrice' || field === 'displayPrice' || field === 'discountPercentage') {
@@ -2848,7 +2901,7 @@ const ComradesProductForm = ({
                         <div className="space-y-3">
                           <div className="relative inline-block bg-gray-100 rounded-md p-1">
                             <img
-                              src={coverPreview}
+                              src={resolveImageUrl(coverPreview)}
                               alt="Cover preview"
                               className="h-64 w-64 object-contain rounded-md border-2 border-gray-200 bg-white"
                               onError={(e) => {
@@ -2936,7 +2989,7 @@ const ComradesProductForm = ({
                           {galleryPreviews.map((preview, index) => (
                             <div key={index} className="relative group bg-gray-100 rounded-md p-1">
                               <img
-                                src={preview}
+                                src={resolveImageUrl(preview)}
                                 alt={`Gallery ${index + 1}`}
                                 className="h-40 w-40 object-contain rounded-md border-2 border-gray-200 bg-white"
                               />
@@ -3017,7 +3070,7 @@ const ComradesProductForm = ({
                       <div className="space-y-3">
                         <div className="relative bg-gray-100 rounded-md p-1">
                           <video className="h-64 w-full object-contain rounded-md border-2 border-gray-200 bg-black" controls>
-                            <source src={videoPreview} type="video/mp4" />
+                            <source src={resolveImageUrl(videoPreview)} type="video/mp4" />
                             Your browser does not support the video tag.
                           </video>
                           {!isFieldDisabled('video') && (
@@ -3100,7 +3153,7 @@ const ComradesProductForm = ({
                   </div>
 
                   {/* Dimensions */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <Label htmlFor="length">Length</Label>
                       <Input
@@ -3336,7 +3389,7 @@ const ComradesProductForm = ({
                       <div>
                         <Label>Marketing Duration</Label>
                         <p className="text-sm text-gray-500 mb-2">Select the period during which this product should be marketed</p>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <Label htmlFor="marketingStartDate" className="text-sm">Start Date</Label>
                             <Input
@@ -3398,9 +3451,9 @@ const ComradesProductForm = ({
 
                 {/* Action buttons - Only show in Edit/Create/List mode */}
                 {(!effectiveIsViewMode || isEditing) && (
-                  <div className="flex items-center justify-between pt-6 border-t bg-white mt-8">
-                    <AutoSaveIndicator lastSaved={(() => { try { const d = localStorage.getItem('comrades_product_draft'); if (d) { const p = JSON.parse(d); return p._savedAt || null; } } catch(e) {} return null; })()} isSaving={false} />
-                    <div className="flex space-x-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t bg-white mt-8">
+                    <AutoSaveIndicator lastSaved={autoLastSaved} isSaving={false} />
+                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 w-full sm:w-auto">
                       <Button
                         type="button"
                         variant="outline"
