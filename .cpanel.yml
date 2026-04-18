@@ -2,8 +2,8 @@
 deployment:
   tasks:
     - /bin/mkdir -p /home/vdranjxy/public_html
-    - /bin/mkdir -p /home/vdranjxy/comrades-backend
+    - /bin/mkdir -p /home/vdranjxy/comrades-final
     - /bin/cp -Rf frontend/dist/. /home/vdranjxy/public_html/
-    - /bin/cp -Rf backend/. /home/vdranjxy/comrades-backend/
-    - /bin/mkdir -p /home/vdranjxy/comrades-backend/tmp
-    - /bin/touch /home/vdranjxy/comrades-backend/tmp/restart.txt
+    - /bin/cp -Rf backend/. /home/vdranjxy/comrades-final/
+    - /bin/mkdir -p /home/vdranjxy/comrades-final/tmp
+    - /bin/touch /home/vdranjxy/comrades-final/tmp/restart.txt
