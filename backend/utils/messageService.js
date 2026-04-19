@@ -20,6 +20,7 @@ const path = require('path');
 let sock = null;
 let isWhatsAppReady = false;
 let latestQr = null;
+let isInitializing = false;
 let whatsappStatus = 'initializing'; // initializing, qr_ready, authenticated, ready, disconnected, error
 
 // Prepare session directory (using absolute path for cPanel/Passenger stability)
@@ -38,6 +39,11 @@ const logWhatsApp = (msg) => {
 };
 
 const initWhatsApp = async () => {
+    if (isInitializing) {
+        logWhatsApp('⚠️ SKIPPING: initWhatsApp already in progress.');
+        return;
+    }
+    isInitializing = true;
     logWhatsApp('STARTING: initWhatsApp triggered');
     // 1. Fetch config from DB
     let method = 'local';
@@ -102,6 +108,7 @@ const initWhatsApp = async () => {
                 isWhatsAppReady = true;
                 whatsappStatus = 'ready';
                 latestQr = null;
+                isInitializing = false;
             }
 
             if (connection === 'close') {
@@ -109,6 +116,7 @@ const initWhatsApp = async () => {
                 logWhatsApp(`EVENT: Closed (shouldReconnect=${shouldReconnect})`);
                 isWhatsAppReady = false;
                 whatsappStatus = 'disconnected';
+                isInitializing = false;
                 
                 if (shouldReconnect) {
                     setTimeout(initWhatsApp, 5000);
@@ -126,6 +134,7 @@ const initWhatsApp = async () => {
         logWhatsApp(`FATAL ERROR: ${err.message}`);
         whatsappStatus = 'error';
         isWhatsAppReady = false;
+        isInitializing = false;
         sock = null;
     }
 };

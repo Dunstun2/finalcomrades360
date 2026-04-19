@@ -526,9 +526,10 @@ async function startServer() {
     }
   } else {
     console.error('ℹ️ Server already listening (Passenger managed), skipping manual listen call.');
-    // Managed environment: Start everything immediately
-    setImmediate(async () => {
+    // Managed environment: Start everything with a small stagger to prevent CPU/Process spikes
+    setTimeout(async () => {
       try {
+        console.error('⏳ Starting deferred initialization (Managed env)...');
         const { testConnection } = require('./database/database');
         await testConnection();
         
