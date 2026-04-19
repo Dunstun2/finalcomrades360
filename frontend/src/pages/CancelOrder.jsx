@@ -66,7 +66,7 @@ export default function CancelOrder() {
       ? ['order_placed']
       : ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'processing'];
 
-    const normalizedStatus = typeof order.status === 'string' ? order.status.toLowerCase() : '';
+    const normalizedStatus = order.status == null ? '' : String(order.status).toLowerCase();
 
     if (!allowedStatuses.includes(normalizedStatus)) return false;
 
