@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getConfig, updateConfig, getWhatsAppStatus, handleRestartWhatsApp } = require('../controllers/PlatformConfigController');
+const { getConfig, updateConfig, getWhatsAppStatus, handleRestartWhatsApp, handleLogoutWhatsApp } = require('../controllers/PlatformConfigController');
 const { PlatformConfig } = require('../models');
 const { authenticate, adminOnly } = require('../middleware/auth');
 
@@ -13,6 +13,7 @@ router.post('/config/:key', authenticate, adminOnly, updateConfig);
 // Protected WhatsApp Management
 router.get('/whatsapp/status', authenticate, adminOnly, getWhatsAppStatus);
 router.post('/whatsapp/restart', authenticate, adminOnly, handleRestartWhatsApp);
+router.post('/whatsapp/logout', authenticate, adminOnly, handleLogoutWhatsApp);
 
 // Public maintenance status endpoint (always reachable, used by frontend startup check)
 router.get('/status', async (req, res) => {

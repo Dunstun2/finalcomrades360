@@ -350,8 +350,12 @@ const AppContent = () => {
     return <PageLoading />;
   }
 
-  // Station accounts are restricted to station-only flows, but must be allowed to log in and verify dashboard access.
-  if (isStationUser && !location.pathname.startsWith('/station') && !['/dashboard-login', '/login'].includes(location.pathname)) {
+  // Station accounts are restricted to station-only flows by default, 
+  // but must be allowed to access dashboard management routes for warehouses and pickup stations.
+  const isDashboardStationPath = location.pathname.startsWith('/dashboard/delivery/warehouses') || 
+                                 location.pathname.startsWith('/dashboard/delivery/pickup-stations');
+
+  if (isStationUser && !location.pathname.startsWith('/station') && !isDashboardStationPath && !['/dashboard-login', '/login'].includes(location.pathname)) {
     return <Navigate to="/station" replace />;
   }
 
@@ -454,7 +458,7 @@ const AppContent = () => {
 
                 {/* Protected Dashboard Route */}
                 <Route path="/dashboard/*" element={
-                  <ProtectedRoute requiredRole={['admin', 'super_admin', 'superadmin', 'logistics_manager', 'delivery_agent', 'finance_manager']}>
+                  <ProtectedRoute requiredRole={['admin', 'super_admin', 'superadmin', 'logistics_manager', 'delivery_agent', 'finance_manager', 'warehouse_manager', 'pickup_station_manager']}>
                     <DashboardGuard>
                       <Dashboard />
                     </DashboardGuard>

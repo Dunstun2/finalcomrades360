@@ -1,14 +1,19 @@
 const { Sequelize } = require('sequelize');
 const path = require('path');
+const fs = require('fs');
 const dotenv = require('dotenv');
 
-// Load environment variables with absolute path logging
-const envPath = path.resolve(process.cwd(), '.env');
-const envPathAlt = path.resolve(process.cwd(), 'backend', '.env');
+// Load environment variables with robust path detection
+const rootPath = path.resolve(__dirname, '..', '..');
+const envPath = path.join(rootPath, '.env');
 
 console.log(`[Database] Attempting to load .env from: ${envPath}`);
-dotenv.config({ path: envPath });
-dotenv.config({ path: envPathAlt }); // Fallback for various cPanel structures
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+} else {
+  console.warn(`⚠️ Warning: root .env not found at ${envPath}`);
+  dotenv.config(); // Fallback to default behavior
+}
 
 const isProd = process.env.NODE_ENV === 'production';
 const env = isProd ? 'production' : 'development';
@@ -141,7 +146,7 @@ const testConnection = async () => {
           WHERE NOT EXISTS (
               SELECT id FROM Roles WHERE id = '${r.id}'
           ) LIMIT 1;
-        `.replace('NOW()', dbConfig.dialect === 'sqlite' ? "datetime('now')" : "NOW()")
+        `.replace(/NOW\(\)/g, dbConfig.dialect === 'sqlite' ? "datetime('now')" : "NOW()")
          .replace('OR IGNORE', '') // Cleanup any legacy attempts
         );
       }

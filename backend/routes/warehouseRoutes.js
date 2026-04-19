@@ -9,11 +9,11 @@ console.log('[warehouseRoutes] Mounting routes...');
 router.get('/', authenticate, warehouseController.listWarehouses);
 router.get('/:id', authenticate, warehouseController.getWarehouse);
 
-// Admin routes
-router.post('/', authenticate, authorize(['admin', 'superadmin', 'super_admin']), warehouseController.createWarehouse);
-router.put('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), warehouseController.updateWarehouse);
+// Admin & Manager routes
+router.post('/', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'warehouse_manager']), warehouseController.createWarehouse);
+router.put('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'warehouse_manager']), warehouseController.updateWarehouse);
 router.delete('/hard/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), warehouseController.hardDeleteWarehouse);
-router.delete('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), warehouseController.deleteWarehouse);
-router.patch('/:id/activate', authenticate, authorize(['admin', 'superadmin', 'super_admin']), warehouseController.activateWarehouse);
+router.delete('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'warehouse_manager']), warehouseController.deleteWarehouse);
+router.patch('/:id/activate', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'warehouse_manager']), warehouseController.activateWarehouse);
 
 module.exports = router;

@@ -9,7 +9,7 @@ import { useToast } from '../../../components/ui/use-toast';
 import { productApi } from '../../../services/api';
 import { useCategories } from '../../../contexts/CategoriesContext';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, X, AlertCircle, Info } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, X, AlertCircle, Info, Cloud } from 'lucide-react';
 import { productExists, getProductEditUrl } from '../../../utils/productUtils';
 import { resolveImageUrl } from '../../../utils/imageUtils';
 import { recursiveParse, ensureArray, ensureObject } from '../../../utils/parsingUtils';
@@ -109,6 +109,27 @@ const UOM_LABELS = {
   'sheet': 'Sheet'
 };
 
+const getInitialFormData = () => ({
+  name: '', brand: '', model: '', condition: '', shortDescription: '', fullDescription: '',
+  basePrice: '', displayPrice: '', discountPercentage: '', discountPrice: '', stock: '',
+  categoryId: '', subcategoryId: '', unitOfMeasure: '', keyFeatures: [], physicalFeatures: {},
+  specifications: {}, variants: [], coverImage: '', galleryImages: [], videoUrl: '',
+  keywords: '', status: 'draft', featured: false, isBestSeller: false,
+  weight: '', length: '', width: '', height: '', deliveryMethod: 'Pickup',
+  warranty: '', returnPolicy: '', deliveryFeeType: 'flat', deliveryFee: '',
+  deliveryCoverageZones: '', marketingEnabled: false, marketingCommissionType: 'flat',
+  marketingCommission: '', marketingStartDate: '', marketingEndDate: '',
+  visibilityStatus: 'active', reviewNotes: '', sku: '', barcode: '',
+  lowStockThreshold: '', compareAtPrice: '', cost: '', metaTitle: '',
+  metaDescription: '', metaKeywords: '', isFlashSale: false, flashSalePrice: '',
+  flashSaleStart: '', flashSaleEnd: '', isDigital: false, downloadUrl: ''
+});
+
+// Helper for generating consistent draft keys
+const getDraftKey = (categoryId) => {
+  return `comrades_product_draft_${categoryId || 'general'}`;
+};
+
 const ComradesProductForm = ({
   onSuccess,
   product: initialProduct,
@@ -193,16 +214,6 @@ const ComradesProductForm = ({
     }
   }, [currentButtonText, previousButtonText]);
 
-  // Smart form switching state
-  const [currentFormType, setCurrentFormType] = useState(CATEGORY_TYPES.REGULAR);
-  const [currentComponent, setCurrentComponent] = useState('comrades'); // Track which component to render
-  const [productName, setProductName] = useState(''); // Track product name for form switching
-
-  useEffect(() => {
-    console.log('🟢 [ComradesProductForm] Component mounted/updated');
-    return () => console.log('🔴 [ComradesProductForm] Component UNMOUNTED');
-  }, []);
-
   const [loading, setLoading] = useState(false);
   const [listingLoading, setListingLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -210,169 +221,7 @@ const ComradesProductForm = ({
   const [mediaErrorMessage, setMediaErrorMessage] = useState('');
   const [validationErrors, setValidationErrors] = useState({});
 
-  // Local storage key for draft products
-  // Using a helper function to avoid circular dependency with formData initialization
-  const getDraftKey = (categoryId) => `comrades_product_draft_${categoryId || 'general'}`;
-
-  // Track if we have a draft
-  const [hasDraft, setHasDraft] = useState(false);
-
-  // State for showing save feedback
-  const [showSaved, setShowSaved] = useState(false);
-  const saveTimeoutRef = useRef(null);
-
-  // Section Refs for auto-scrolling
-  const nameRef = useRef(null);
-  const categoryRef = useRef(null);
-  const pricingRef = useRef(null);
-  const stockRef = useRef(null);
-  const mediaRef = useRef(null);
-  const deliveryRef = useRef(null);
-  const marketingRef = useRef(null);
-
-  const initialRender = useRef(true);
-
-  // Initialize form data based on whether we're creating or editing
-  const getInitialFormData = useCallback(() => {
-    // If editing, we'll load data later via effect; start with empty defaults
-    if (id || initialProduct) {
-      const initialData = {
-        name: '',
-        brand: '',
-        model: '',
-        condition: '',
-        shortDescription: '',
-        fullDescription: '',
-        basePrice: '',
-        displayPrice: '',
-        discountPercentage: '',
-        discountPrice: '',
-        stock: '',
-        categoryId: '',
-        subcategoryId: '',
-        unitOfMeasure: '',
-        keyFeatures: [],
-        physicalFeatures: {},
-        specifications: {},
-        variants: [],
-        coverImage: '',
-        galleryImages: [],
-        videoUrl: '',
-        keywords: '',
-        status: 'draft',
-        featured: false,
-        isBestSeller: false,
-        weight: '',
-        length: '',
-        width: '',
-        height: '',
-        deliveryMethod: 'Pickup',
-        warranty: '',
-        returnPolicy: '',
-        deliveryFeeType: 'flat',
-        deliveryFee: '',
-        deliveryCoverageZones: '',
-        marketingEnabled: false,
-        marketingCommissionType: 'flat',
-        marketingCommission: '',
-        marketingStartDate: '',
-        marketingEndDate: '',
-        visibilityStatus: 'active',
-        reviewNotes: '',
-        // Additional fields
-        sku: '',
-        barcode: '',
-        lowStockThreshold: '',
-        compareAtPrice: '',
-        cost: '',
-        metaTitle: '',
-        metaDescription: '',
-        metaKeywords: '',
-        isFlashSale: false,
-        flashSalePrice: '',
-        flashSaleStart: '',
-        flashSaleEnd: '',
-        isDigital: false,
-        downloadUrl: ''
-      };
-
-      return initialData;
-    }
-
-    // New product: try to load draft from localStorage
-    try {
-      const draftKey = getDraftKey(initialProduct?.categoryId || '');
-      const draft = localStorage.getItem(draftKey);
-      if (draft) {
-        const parsed = JSON.parse(draft);
-        return { ...parsed, status: 'draft' };
-      }
-    } catch (e) {
-      console.error('Error loading draft:', e);
-    }
-
-    // Default for new product
-    return {
-      name: '',
-      brand: '',
-      model: '',
-      condition: '',
-      shortDescription: '',
-      fullDescription: '',
-      basePrice: '',
-      displayPrice: '',
-      discountPercentage: '',
-      discountPrice: '',
-      stock: '',
-      categoryId: '',
-      subcategoryId: '',
-      unitOfMeasure: '',
-      keyFeatures: [],
-      physicalFeatures: {},
-      specifications: {},
-      variants: [],
-      coverImage: '',
-      galleryImages: [],
-      videoUrl: '',
-      keywords: '',
-      status: 'draft',
-      featured: false,
-      isBestSeller: false,
-      weight: '',
-      length: '',
-      width: '',
-      height: '',
-      deliveryMethod: 'Pickup',
-      warranty: '',
-      returnPolicy: '',
-      deliveryFeeType: 'flat',
-      deliveryFee: '',
-      deliveryCoverageZones: '',
-      marketingEnabled: false,
-      marketingCommissionType: 'flat',
-      marketingCommission: '',
-      marketingStartDate: '',
-      marketingEndDate: '',
-      visibilityStatus: 'active',
-      reviewNotes: '',
-      // Additional fields
-      sku: '',
-      barcode: '',
-      lowStockThreshold: '',
-      compareAtPrice: '',
-      cost: '',
-      metaTitle: '',
-      metaDescription: '',
-      metaKeywords: '',
-      isFlashSale: false,
-      flashSalePrice: '',
-      flashSaleStart: '',
-      flashSaleEnd: '',
-      isDigital: false,
-      downloadUrl: ''
-    };
-  }, [id, initialProduct, getDraftKey]);
-
+  // 1. PRIMARY FORM STATE (MOVED TO TOP TO PREVENT REFERENCE ERRORS)
   // State for media files and previews
   const [coverPreview, setCoverPreview] = useState('');
   const [galleryPreviews, setGalleryPreviews] = useState([]);
@@ -381,39 +230,59 @@ const ComradesProductForm = ({
   const [coverImage, setCoverImage] = useState(null);
   const [galleryImages, setGalleryImages] = useState([]);
 
-  // State to track if we've updated the product (for refreshing data)
-  const [hasUpdated, setHasUpdated] = useState(false);
-  // Track original loaded data and show success summary on update (match Seller ProductForm UX)
-  const [originalProductData, setOriginalProductData] = useState(null);
-
-  // Success dialog state for new product creation
-  const [showModal, setShowModal] = useState(false);
-  const [modalConfig, setModalConfig] = useState({ type: 'success', title: '', description: '', onConfirm: null });
-  const [showChangesDialog, setShowChangesDialog] = useState(false);
-  const [createdProduct, setCreatedProduct] = useState(null);
-  const [changes, setChanges] = useState([]);
-
-  // AutoSave — persist form data to localStorage while filling form
-  // IMPORTANT: formData must be declared ONCE here and reused by useAutoSave
+  // AutoSave — persist form data to localStorage
   const [formData, setFormData] = useState(() => {
-    const initial = getInitialFormData();
-    // Restore draft for new products on mount
+    // try to load draft from localStorage for new products
     if (!id && !initialProduct) {
       try {
         const draftKey = `comrades_product_draft_new`;
         const saved = localStorage.getItem(draftKey);
         if (saved) {
           const parsed = JSON.parse(saved);
-          // Strip non-serializable fields that were excluded during save
-          const { coverImage: _ci, galleryImages: _gi, video: _v, mediaMetadata: _mm, _lastSaved, lastSaved: _ls, ...rest } = parsed;
-          return { ...initial, ...rest };
+          return { 
+            ...parsed,
+            status: 'draft' 
+          };
         }
       } catch (e) {
         console.warn('[ComradesProductForm] Could not restore draft:', e);
       }
     }
-    return initial;
+    
+    // Default if no draft or if editing
+    return getInitialFormData();
   });
+
+  // Track if we have a draft
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // 2. PREVIEW SYNCHRONIZATION
+  useEffect(() => {
+    // cover image
+    if (coverImage instanceof File) {
+      // Local file preview - keep it
+    } else if (typeof formData.coverImage === 'string' && formData.coverImage) {
+      setCoverPreview(resolveImageUrl(formData.coverImage));
+    } else if (!formData.coverImage) {
+      setCoverPreview('');
+    }
+    
+    // gallery images
+    const hasOnlyFiles = galleryImages.length > 0 && galleryImages.every(img => img instanceof File);
+    if (!hasOnlyFiles && Array.isArray(formData.galleryImages)) {
+      const serverUrls = formData.galleryImages.filter(img => typeof img === 'string');
+      if (serverUrls.length > 0) {
+        setGalleryPreviews(prev => {
+          // Only replace if needed to avoid infinite loops
+          const resolved = serverUrls.map(img => resolveImageUrl(img));
+          if (JSON.stringify(prev) !== JSON.stringify(resolved)) return resolved;
+          return prev;
+        });
+      } else if (formData.galleryImages.length === 0 && galleryImages.length === 0) {
+        setGalleryPreviews([]);
+      }
+    }
+  }, [formData.coverImage, formData.galleryImages, coverImage, galleryImages.length]);
   const autoSaveDraftKey = !effectiveIsViewMode ? `comrades_product_draft_${id || 'new'}` : null;
   const { lastSaved: autoLastSaved, clearDraft: clearAutoSaveDraft } = useAutoSave(
     autoSaveDraftKey,
@@ -421,6 +290,160 @@ const ComradesProductForm = ({
     null, // restore is handled separately (above, on mount)
     { debounceMs: 1200 }
   );
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastCloudSaved, setLastCloudSaved] = useState(null);
+  const cloudSaveTimeoutRef = useRef(null);
+  const prevFilesRef = useRef({
+    cover: null,
+    galleryCount: 0,
+    video: null
+  });
+
+  // Sync with cloud draft (server-side)
+  const syncWithCloud = useCallback(async (data = formData, manual = false) => {
+    // Only sync if we have at least a Name or an Image, or if user explicitly clicked Save
+    const hasName = data.name && data.name.trim();
+    const hasImages = coverImage || galleryImages.length > 0;
+    
+    if (!manual && !hasName && !hasImages) {
+      console.log('[ComradesProductForm] Skipping cloud sync: No name or images yet.');
+      return;
+    }
+
+    if (isSyncing) return;
+    setIsSyncing(true);
+
+    try {
+      console.log('[ComradesProductForm] Syncing draft to cloud...');
+      
+      const formDataToSend = new FormData();
+      
+      // Basic fields
+      Object.keys(data).forEach(key => {
+        // Skip media fields and technical internal state
+        if (data[key] !== null && data[key] !== undefined && key !== 'coverImage' && key !== 'galleryImages' && key !== 'video') {
+          if (typeof data[key] === 'object') {
+            formDataToSend.append(key, JSON.stringify(data[key]));
+          } else {
+            formDataToSend.append(key, data[key]);
+          }
+        }
+      });
+
+      // Explicitly set draft mode
+      formDataToSend.append('draft', 'true');
+      formDataToSend.append('status', 'draft');
+
+      // Media - only append if they are actual File objects
+      if (coverImage instanceof File) {
+        formDataToSend.append('coverImage', coverImage);
+      } else if (typeof coverImage === 'string') {
+        formDataToSend.append('existingCoverImage', coverImage);
+      }
+
+      galleryImages.forEach((img, index) => {
+        if (img instanceof File) {
+          formDataToSend.append('galleryImages', img);
+        }
+      });
+      
+      const existingGallery = galleryImages.filter(img => typeof img === 'string');
+      if (existingGallery.length > 0) {
+        formDataToSend.append('existingGalleryImages', JSON.stringify(existingGallery));
+      }
+
+      if (productVideo instanceof File) {
+        formDataToSend.append('video', productVideo);
+      } else if (typeof productVideo === 'string') {
+        formDataToSend.append('existingVideo', productVideo);
+      }
+
+      let response;
+      const targetId = id || data.id;
+      if (targetId) {
+        console.log('[ComradesProductForm] Updating cloud draft:', targetId);
+        response = await productApi.update(targetId, formDataToSend);
+      } else {
+        console.log('[ComradesProductForm] Creating new cloud draft');
+        response = await productApi.create(formDataToSend);
+      }
+
+      if (response && response.data) {
+        const result = response.data.data || response.data;
+        console.log('[ComradesProductForm] Cloud draft saved successfully:', result.id);
+        
+        // IMPORTANT: Update local ID so subsequent saves use PUT
+        if (!id && !data.id && result.id) {
+          // Hydrate formData with all server-side fields (IDs and persistent URLs)
+          setFormData(prev => ({ 
+            ...prev, 
+            id: result.id,
+            coverImage: result.coverImage || prev.coverImage,
+            galleryImages: result.galleryImages || prev.galleryImages,
+            videoUrl: result.videoUrl || prev.videoUrl
+          }));
+          console.log('[ComradesProductForm] Captured new draft ID and media URLs:', result.id);
+          
+          // Silently update the URL so refreshes work correctly
+          navigate(`/dashboard/products/comrades/${result.id}/edit`, { replace: true });
+        } else if (id || data.id) {
+          // Even in edit mode, update media urls if they changed (e.g. after upload)
+          setFormData(prev => ({
+            ...prev,
+            coverImage: result.coverImage || prev.coverImage,
+            galleryImages: result.galleryImages || prev.galleryImages,
+            videoUrl: result.videoUrl || prev.videoUrl
+          }));
+        }
+        
+        setLastCloudSaved(new Date());
+        if (manual) {
+          toast({
+            title: "Draft Saved to Cloud",
+            description: "Your progress and images are now safe on the server.",
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[ComradesProductForm] Cloud sync failed:', error);
+      if (manual) {
+        toast({
+          title: "Sync Failed",
+          description: error.response?.data?.message || "Could not save to cloud. Local draft is still active.",
+          variant: "destructive"
+        });
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [formData, coverImage, galleryImages, productVideo, id, toast]);
+
+  // Automatic Cloud Sync (Auto-Save to Database)
+  useEffect(() => {
+    if (!initialRender.current && !effectiveIsViewMode) {
+      // Check if files changed - we want to sync files faster
+      const filesChanged = 
+        coverImage !== prevFilesRef.current.cover || 
+        galleryImages.length !== prevFilesRef.current.galleryCount ||
+        productVideo !== prevFilesRef.current.video;
+      
+      const debounceDelay = filesChanged ? 1500 : 5000; // 1.5s for files, 5s for text
+      
+      if (cloudSaveTimeoutRef.current) clearTimeout(cloudSaveTimeoutRef.current);
+      
+      cloudSaveTimeoutRef.current = setTimeout(() => {
+        syncWithCloud();
+        // Update refs after sync
+        prevFilesRef.current = {
+          cover: coverImage,
+          galleryCount: galleryImages.length,
+          video: productVideo
+        };
+      }, debounceDelay);
+    }
+    return () => clearTimeout(cloudSaveTimeoutRef.current);
+  }, [formData.name, coverImage, galleryImages.length, productVideo, syncWithCloud, effectiveIsViewMode]);
 
   // Synchronize product name and draft status on load (Side effects moved from initializer)
   useEffect(() => {
@@ -523,7 +546,38 @@ const ComradesProductForm = ({
   const [isEditing, setIsEditing] = useState(mode !== 'view');
   const [showAllUom, setShowAllUom] = useState(false);
 
-  // NOTE: formData state is declared above (line ~403) alongside useAutoSave.
+  // Form type and component switching state (CRITICAL - must be declared or ReferenceError occurs)
+  const [currentFormType, setCurrentFormType] = useState(CATEGORY_TYPES.REGULAR);
+  const [currentComponent, setCurrentComponent] = useState('comrades');
+
+  // Other missing state variables
+  const [showSaved, setShowSaved] = useState(false);
+  const [originalProductData, setOriginalProductData] = useState(null);
+  const [productName, setProductName] = useState(initialProduct?.name || '');
+  const [showChangesDialog, setShowChangesDialog] = useState(false);
+  const [changes, setChanges] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [modalConfig, setModalConfig] = useState({ type: 'success', title: '', description: '', onConfirm: null });
+  const [createdProduct, setCreatedProduct] = useState(null);
+  const [hasUpdated, setHasUpdated] = useState(false);
+
+
+  // Refs
+  const saveTimeoutRef = useRef(null);
+  const initialRender = useRef(true);
+
+  // Section refs for scroll navigation
+  const deliveryRef = useRef(null);
+  const marketingRef = useRef(null);
+  const mediaRef = useRef(null);
+  const pricingRef = useRef(null);
+
+  // Scroll-to-error refs for form validation
+  const nameRef = useRef(null);
+  const categoryRef = useRef(null);
+  const stockRef = useRef(null);
+  const fullDescriptionRef = useRef(null);
+
   // Do NOT redeclare it here — the above declaration is the canonical one.
 
   // Clear draft from local storage - defined early so it can be used in getInitialFormData
@@ -536,7 +590,7 @@ const ComradesProductForm = ({
     } catch (error) {
       console.error('Error clearing draft:', error);
     }
-  }, [formData?.categoryId, getDraftKey]);
+  }, [formData?.categoryId]);
 
   // Load existing product on edit - using the same approach as ProductForm
   useEffect(() => {
@@ -571,6 +625,20 @@ const ComradesProductForm = ({
             });
           } catch (error) {
             console.error('[ComradesProductForm] Error fetching product:', error);
+            
+            // 404 Resilience: If the draft/product no longer exists, fall back to create mode
+            if (error.response?.status === 404) {
+              toast({
+                title: 'Draft Not Found',
+                description: 'The saved draft could not be found. Starting a fresh product.',
+                variant: 'default',
+              });
+              // navigate to create mode without the invalid ID
+              navigate('/dashboard/products/comrades/create', { replace: true });
+              if (alive) setLoading(false);
+              return;
+            }
+
             toast({
               title: 'Error',
               description: error.response?.data?.message || 'Failed to load product data.',
@@ -753,24 +821,24 @@ const ComradesProductForm = ({
 
           // Initialize media from draft metadata if available
           if (parsedDraft.mediaMetadata) {
-            const { coverImage, galleryImages, video } = parsedDraft.mediaMetadata;
+            const { coverImage: draftCover, galleryImages: draftGallery, video: draftVideo } = parsedDraft.mediaMetadata;
 
-            // Show cover image metadata if it existed
-            if (coverImage && coverImage.hasFile) {
-              setCoverPreview(`📷 ${coverImage.name} (${Math.round(coverImage.size / 1024)}KB)`);
+            // Show cover image metadata if it existed AND we don't already have an active image
+            if (draftCover && draftCover.hasFile && !coverImage) {
+              setCoverPreview(`📷 ${draftCover.name} (${Math.round(draftCover.size / 1024)}KB)`);
             }
 
-            // Show gallery images metadata
-            if (galleryImages && galleryImages.length > 0) {
-              const galleryPreviews = galleryImages.map(img =>
+            // Show gallery images metadata metadata ONLY if current gallery is empty
+            if (draftGallery && draftGallery.length > 0 && galleryImages.length === 0) {
+              const galleryPreviews = draftGallery.map(img =>
                 img.hasFile ? `🖼️ ${img.name} (${Math.round(img.size / 1024)}KB)` : img
               );
               setGalleryPreviews(galleryPreviews);
             }
 
-            // Show video metadata if it existed
-            if (video && video.hasFile) {
-              setVideoPreview(`🎥 ${video.name} (${Math.round(video.size / 1024)}KB)`);
+            // Show video metadata if it existed ONLY if current video is empty
+            if (draftVideo && draftVideo.hasFile && !productVideo) {
+              setVideoPreview(`🎥 ${draftVideo.name} (${Math.round(draftVideo.size / 1024)}KB)`);
             }
           }
 
@@ -3477,7 +3545,12 @@ const ComradesProductForm = ({
                 {/* Action buttons - Only show in Edit/Create/List mode */}
                 {(!effectiveIsViewMode || isEditing) && (
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t bg-white mt-8 p-4 sm:p-0">
-                    <AutoSaveIndicator lastSaved={autoLastSaved} isSaving={false} />
+                    <AutoSaveIndicator 
+                      lastSaved={autoLastSaved} 
+                      isSaving={false} 
+                      lastCloudSaved={lastCloudSaved} 
+                      isCloudSync={isSyncing} 
+                    />
                     <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-end gap-3 w-full sm:w-auto">
                       <Button
                         type="button"

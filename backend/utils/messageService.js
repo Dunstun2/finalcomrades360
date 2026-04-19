@@ -149,13 +149,47 @@ const getWhatsAppStatus = () => {
 };
 
 const restartWhatsApp = async () => {
-    console.log('🔄 [WhatsApp] Manual restart requested...');
+    logWhatsApp('🔄 RESTART: Soft restart (reconnect) requested...');
     isWhatsAppReady = false;
     latestQr = null;
     if (sock) {
-        try { sock.logout(); } catch (e) {}
+        try { 
+            // End the socket abruptly so it tries to reconnect 
+            // if we don't null it out, or we can null it and re-init.
+            sock.end(new Error('Manual Reconnect Requested')); 
+        } catch (e) {
+            logWhatsApp(`RESTART ERROR: ${e.message}`);
+        }
     }
+    // Re-initialize after a short delay
     setTimeout(initWhatsApp, 1000);
+    return { success: true };
+};
+
+const logoutWhatsApp = async () => {
+    logWhatsApp('🚪 LOGOUT: Hard logout requested (clearing session)...');
+    isWhatsAppReady = false;
+    latestQr = null;
+    if (sock) {
+        try { 
+            await sock.logout(); 
+            sock = null;
+        } catch (e) {
+            logWhatsApp(`LOGOUT ERROR: ${e.message}`);
+        }
+    }
+    
+    // Explicitly clear session directory to be sure
+    try {
+        if (fs.existsSync(sessionDir)) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+            fs.mkdirSync(sessionDir, { recursive: true });
+        }
+    } catch (e) {
+        logWhatsApp(`CLEANUP ERROR: ${e.message}`);
+    }
+
+    setTimeout(initWhatsApp, 2000);
     return { success: true };
 };
 
@@ -230,4 +264,4 @@ const sendSms = async (to, message) => {
     }
 };
 
-module.exports = { sendMessage, getWhatsAppStatus, restartWhatsApp };
+module.exports = { sendMessage, getWhatsAppStatus, restartWhatsApp, logoutWhatsApp };

@@ -323,17 +323,19 @@ function HomeProductCard({
           {product.name}
         </h3>
 
-        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
-          <p className="font-sans text-sm sm:text-base font-black text-gray-900">
+        <div className="px-2 sm:px-3 mb-1 flex flex-col justify-start min-h-[38px] sm:min-h-[42px]">
+          <p className="font-sans text-sm sm:text-base font-black text-gray-900 leading-tight">
             {formatPrice(finalDisplayPrice)}
           </p>
-          {hasDiscount ? (
-            <p className="text-xs text-gray-500 line-through decoration-gray-400">
-              {formatPrice(originalPrice)}
-            </p>
-          ) : (
-            <p className="text-xs text-gray-500 line-through decoration-gray-400 invisible">-</p>
-          )}
+          <div className="flex items-center -mt-0.5">
+            {hasDiscount ? (
+              <p className="text-[10px] sm:text-xs text-gray-500 line-through decoration-gray-400 leading-tight">
+                {formatPrice(originalPrice)}
+              </p>
+            ) : (
+              <p className="text-[10px] sm:text-xs text-gray-500 invisible leading-tight">-</p>
+            )}
+          </div>
         </div>
 
         {/* Action Bar - Conditional rendering based on renderActions prop */}

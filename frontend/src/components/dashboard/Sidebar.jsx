@@ -87,7 +87,7 @@ const adminMenuItems = [
     name: 'Delivery & Logistics',
     path: '/dashboard/delivery',
     icon: <FaTruck className="mr-3" />,
-    roles: ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent'],
+    roles: ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent', 'warehouse_manager', 'pickup_station_manager'],
     children: [
       { name: 'Delivery Requests', path: '/dashboard/orders/requests', icon: <FaClipboardList className="mr-2" /> },
       { name: 'Active Assignments', path: '/dashboard/orders/assignments', icon: <FaTruckLoading className="mr-2" /> },
@@ -297,7 +297,7 @@ const Sidebar = ({ onClose }) => {
       );
     }
 
-    if (userRoles.includes('logistics_manager') || userRoles.includes('delivery_agent')) {
+    if (userRoles.includes('logistics_manager') || userRoles.includes('delivery_agent') || userRoles.includes('warehouse_manager') || userRoles.includes('pickup_station_manager')) {
       return adminMenuItems.filter(item =>
         item.name === 'Order Management' || item.name === 'Delivery & Logistics' || item.name === 'Notifications & Alerts'
       );

@@ -129,7 +129,7 @@ export const resolveImageUrl = (imageUrl, baseUrl = null, version = null) => {
   if (!imageUrl) return FALLBACK_IMAGE;
 
   // Handle data URIs and full URLs - return as-is
-  if (typeof imageUrl === 'string' && /^(data:|https?:\/\/)/i.test(imageUrl)) {
+  if (typeof imageUrl === 'string' && /^(data:|https?:\/\/|blob:)/i.test(imageUrl)) {
     return imageUrl;
   }
 
@@ -144,7 +144,7 @@ export const resolveImageUrl = (imageUrl, baseUrl = null, version = null) => {
     const trimmedUrl = imageUrl.trim();
 
     // Safety check again - if somehow it looks like a data URL after trimming
-    if (/^(data:|https?:\/\/)/i.test(trimmedUrl)) {
+    if (/^(data:|https?:\/\/|blob:)/i.test(trimmedUrl)) {
       return generateCacheBustedUrl(trimmedUrl, version);
     }
 

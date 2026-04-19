@@ -251,15 +251,17 @@ export default function FastFoodCard({
           </h3>
         )}
 
-        <div className="px-2 sm:px-3 mb-0.5 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
-          <span className={`font-sans text-sm sm:text-base font-black ${isOpen ? 'text-gray-900' : 'text-gray-500'}`}>
+        <div className="px-2 sm:px-3 mb-1 flex flex-col justify-start min-h-[38px] sm:min-h-[42px]">
+          <span className={`font-sans text-sm sm:text-base font-black leading-tight ${isOpen ? 'text-gray-900' : 'text-gray-500'}`}>
             {formatPrice(finalPrice)}
           </span>
-          {hasDiscount ? (
-            <span className="text-xs text-gray-400 line-through">{formatPrice(originalPrice)}</span>
-          ) : (
-            <span className="text-xs text-gray-400 line-through invisible">-</span>
-          )}
+          <div className="flex items-center -mt-0.5">
+            {hasDiscount ? (
+              <span className="text-[10px] sm:text-xs text-gray-400 line-through leading-tight">{formatPrice(originalPrice)}</span>
+            ) : (
+              <span className="text-[10px] sm:text-xs text-gray-400 invisible leading-tight">-</span>
+            )}
+          </div>
         </div>
 
         {/* Removed spacer below price */}

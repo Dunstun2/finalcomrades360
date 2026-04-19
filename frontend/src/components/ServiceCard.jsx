@@ -194,17 +194,17 @@ export default function ServiceCard({
           </h3>
         </div>
 
-        <div className="mt-0 mb-0 relative">
-          <div className="px-2 sm:px-3 flex flex-wrap gap-x-1.5 gap-y-0 items-baseline">
-            <p className="font-sans text-base font-black text-gray-900">
-              KES {Number(finalPrice).toLocaleString()}
-            </p>
+        <div className="px-2 sm:px-3 mb-1 flex flex-col justify-start min-h-[38px] sm:min-h-[42px]">
+          <p className="font-sans text-sm sm:text-base font-black text-gray-900 leading-tight">
+            KES {Number(finalPrice).toLocaleString()}
+          </p>
+          <div className="flex items-center -mt-0.5">
             {hasDiscount ? (
-              <p className="text-xs text-gray-400 line-through decoration-gray-400">
+              <p className="text-[10px] sm:text-xs text-gray-400 line-through decoration-gray-400 leading-tight">
                 KES {Number(originalPrice).toLocaleString()}
               </p>
             ) : (
-              <p className="text-xs text-gray-400 line-through decoration-gray-400 invisible">-</p>
+              <p className="text-[10px] sm:text-xs text-gray-400 invisible leading-tight">-</p>
             )}
           </div>
         </div>

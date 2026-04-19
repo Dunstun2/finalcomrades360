@@ -15,11 +15,11 @@ router.use((req, res, next) => {
 router.get('/', pickupStationController.getAllPickupStations);
 router.get('/:id', pickupStationController.getPickupStationById);
 
-// Admin routes
-router.post('/', authenticate, authorize(['admin', 'superadmin', 'super_admin']), pickupStationController.createPickupStation);
-router.put('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), pickupStationController.updatePickupStation);
+// Admin & Manager routes
+router.post('/', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'pickup_station_manager']), pickupStationController.createPickupStation);
+router.put('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'pickup_station_manager']), pickupStationController.updatePickupStation);
 router.delete('/hard/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), pickupStationController.hardDeletePickupStation);
-router.delete('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin']), pickupStationController.deletePickupStation);
-router.patch('/:id/activate', authenticate, authorize(['admin', 'superadmin', 'super_admin']), pickupStationController.activatePickupStation);
+router.delete('/:id', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'pickup_station_manager']), pickupStationController.deletePickupStation);
+router.patch('/:id/activate', authenticate, authorize(['admin', 'superadmin', 'super_admin', 'logistics_manager', 'pickup_station_manager']), pickupStationController.activatePickupStation);
 
 module.exports = router;

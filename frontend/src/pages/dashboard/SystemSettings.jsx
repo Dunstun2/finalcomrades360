@@ -86,16 +86,33 @@ export default function SystemSettings() {
     }
   };
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const handleRestartWhatsApp = async () => {
-    if (!window.confirm('Are you sure you want to restart the WhatsApp service? This will disconnect current sessions.')) return;
+    if (!window.confirm('Reconnect WhatsApp service? This will attempt to restore a stuck connection without logging you out.')) return;
     setIsRestarting(true);
     try {
       await api.post('/platform/whatsapp/restart');
+      toast.info('Reconnection initiated...');
       setTimeout(fetchWhatsAppStatus, 2000);
     } catch (err) {
-      alert('Failed to restart WhatsApp service');
+      toast.error('Failed to reconnect WhatsApp service');
     } finally {
       setIsRestarting(false);
+    }
+  };
+
+  const handleLogoutWhatsApp = async () => {
+    if (!window.confirm('WARNING: This will permanently disconnect your WhatsApp and delete the session. You will need to scan the QR code again. Proceed?')) return;
+    setIsLoggingOut(true);
+    try {
+      await api.post('/platform/whatsapp/logout');
+      toast.warning('WhatsApp disconnected and session cleared');
+      setTimeout(fetchWhatsAppStatus, 2000);
+    } catch (err) {
+      toast.error('Failed to disconnect WhatsApp');
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
@@ -543,13 +560,24 @@ export default function SystemSettings() {
                       }`}>
                         {whatsappStatus.status.replace('_', ' ')}
                       </span>
-                      <button 
-                        onClick={handleRestartWhatsApp}
-                        disabled={isRestarting}
-                        className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded-lg font-bold transition-all border border-red-100 disabled:opacity-50"
-                      >
-                        {isRestarting ? 'Restarting...' : 'Restart Service'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={handleRestartWhatsApp}
+                          disabled={isRestarting || isLoggingOut}
+                          className="text-[10px] bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-bold transition-all border border-blue-100 disabled:opacity-50 flex items-center gap-1"
+                          title="Soft reset the connection without logging out"
+                        >
+                          {isRestarting ? 'Connecting...' : '🔄 Reconnect'}
+                        </button>
+                        <button 
+                          onClick={handleLogoutWhatsApp}
+                          disabled={isRestarting || isLoggingOut}
+                          className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-lg font-bold transition-all border border-red-100 disabled:opacity-50 flex items-center gap-1"
+                          title="Log out and clear session (forces QR scan)"
+                        >
+                          {isLoggingOut ? 'Logging out...' : '🚪 Disconnect'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                   

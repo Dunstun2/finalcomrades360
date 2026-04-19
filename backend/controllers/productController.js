@@ -68,17 +68,20 @@ const createProduct = async (req, res) => {
     // Attributes
     condition,
     isBestSeller,
-    shareableLink
+    shareableLink,
+    basePrice,
+    stock,
+    categoryId,
+    subcategoryId
   } = req.body;
-  const normalizedName = normalizeItemName(name);
-  // Handle backward compatibility: if shortDescription is not provided but description is, use description as shortDescription
-  const effectiveShortDescription = shortDescription || description;
-  const subcategoryId = parseInt(req.body.subcategoryId, 10);
-  const basePrice = parseFloat(req.body.basePrice);
-  const discountPercentage = parseInt(req.body.discountPercentage, 10) || 0;
-  const discountPrice = Math.round(parseFloat(req.body.discountPrice) || basePrice);
-  const stock = parseInt(req.body.stock, 10);
   const isDraft = ['1', 'true', true].includes((req.body.draft ?? '').toString().toLowerCase());
+  
+  // For drafts, allow a placeholder name if none provided
+  if (isDraft && (!name || !String(name).trim())) {
+    name = `Untitled Draft - ${new Date().toLocaleString()}`;
+  }
+
+  const normalizedName = normalizeItemName(name);
   // SEO fields
   const metaTitle = req.body.metaTitle;
   const metaDescription = req.body.metaDescription;
@@ -127,79 +130,64 @@ const createProduct = async (req, res) => {
     galleryImageFiles: req.files?.galleryImages?.length || 0,
   });
 
-  const missing = []
-  if (!normalizedName || !normalizedName.trim()) missing.push('name')
-  if (!req.body.basePrice || Number.isNaN(basePrice)) missing.push('basePrice')
-  if (!req.body.stock || Number.isNaN(stock)) missing.push('stock')
-  // Require at least one of categoryId or subcategoryId
-  const categoryIdProvidedRaw = req.body.categoryId;
-  const categoryIdProvided = categoryIdProvidedRaw ? parseInt(categoryIdProvidedRaw, 10) : null;
-  const hasCategoryContext = (
-    (categoryIdProvided && !Number.isNaN(categoryIdProvided)) ||
-    (req.body.subcategoryId && !Number.isNaN(subcategoryId))
-  );
-  if (!hasCategoryContext) missing.push('categoryId | subcategoryId')
-  if (!effectiveShortDescription || !effectiveShortDescription.trim()) missing.push('shortDescription')
-  if (!req.body.unitOfMeasure || !req.body.unitOfMeasure.trim()) missing.push('unitOfMeasure')
-  // Newly required fields
-  if (!req.body.fullDescription || !req.body.fullDescription.trim()) missing.push('fullDescription')
-  // deliveryMethod can come from body or logistics in merged tags
-  let deliveryMethod = '';
-  if (req.body.deliveryMethod) {
-    try {
-      deliveryMethod = String(req.body.deliveryMethod).trim();
-    } catch (e) {
-      console.error('Error processing deliveryMethod:', e);
-    }
-  } else if (mergedTags?.logistics?.deliveryMethod) {
-    try {
-      deliveryMethod = String(mergedTags.logistics.deliveryMethod).trim();
-    } catch (e) {
-      console.error('Error processing deliveryMethod from logistics:', e);
-    }
-  }
+  // Perform validation ONLY if it is not a draft
+  const missing = [];
+  const effectiveShortDescription = (shortDescription || description || '').trim();
 
-  if (!deliveryMethod) {
-    missing.push('deliveryMethod');
-  }
-  // keywords can come from body or merged tags
-  if (!(req.body.keywords || mergedTags.keywords)) missing.push('keywords')
-
-  if (missing.length) {
-    try { console.log('[createProduct] missing fields:', missing); } catch (_) { }
-    try {
-      console.log('[createProduct] received data:', {
-        name: req.body.name,
-        shortDescription: effectiveShortDescription,
-        fullDescription: req.body.fullDescription,
-        unitOfMeasure: req.body.unitOfMeasure,
-        deliveryMethod: req.body.deliveryMethod,
-        keywords: req.body.keywords,
-        basePrice: req.body.basePrice,
-        stock: req.body.stock,
-        categoryId: categoryIdProvided,
-        subcategoryId: subcategoryId
-      });
-    } catch (_) { }
-    return res.status(400).json({
-      code: 'VALIDATION_ERROR',
-      message: 'Missing or invalid required fields',
-      details: {
-        fields: missing,
-        receivedData: {
-          name: !!req.body.name,
-          shortDescription: !!effectiveShortDescription,
-          fullDescription: !!req.body.fullDescription,
-          unitOfMeasure: !!req.body.unitOfMeasure,
-          deliveryMethod: !!req.body.deliveryMethod,
-          keywords: !!req.body.keywords,
-          basePrice: !!req.body.basePrice,
-          stock: !!req.body.stock,
-          categoryId: !!categoryIdProvided,
-          subcategoryId: !!subcategoryId
-        }
+  if (!isDraft) {
+    if (!normalizedName || !normalizedName.trim()) missing.push('name');
+    
+    const parsedBasePrice = parseFloat(basePrice);
+    if (!basePrice || isNaN(parsedBasePrice)) missing.push('basePrice');
+    
+    const parsedStock = parseInt(stock, 10);
+    if (!stock || isNaN(parsedStock)) missing.push('stock');
+    
+    // Require at least one of categoryId or subcategoryId
+    const categoryIdProvided = categoryId ? parseInt(categoryId, 10) : null;
+    const subcategoryIdProvided = subcategoryId ? parseInt(subcategoryId, 10) : null;
+    
+    const hasCategoryContext = (
+      (categoryIdProvided && !isNaN(categoryIdProvided)) ||
+      (subcategoryIdProvided && !isNaN(subcategoryIdProvided))
+    );
+    if (!hasCategoryContext) missing.push('categoryId | subcategoryId');
+    if (!effectiveShortDescription) missing.push('shortDescription');
+    if (!unitOfMeasure || !unitOfMeasure.trim()) missing.push('unitOfMeasure');
+    // Newly required fields
+    if (!fullDescription || !fullDescription.trim()) missing.push('fullDescription');
+    
+    // deliveryMethod can come from body or logistics in merged tags
+    let deliveryMethod = '';
+    if (req.body.deliveryMethod) {
+      try {
+        deliveryMethod = String(req.body.deliveryMethod).trim();
+      } catch (e) {
+        console.error('Error processing deliveryMethod:', e);
       }
-    });
+    } else if (mergedTags?.logistics?.deliveryMethod) {
+      try {
+        deliveryMethod = String(mergedTags.logistics.deliveryMethod).trim();
+      } catch (e) {
+        console.error('Error processing deliveryMethod from logistics:', e);
+      }
+    }
+
+    if (!deliveryMethod) {
+      missing.push('deliveryMethod');
+    }
+    // keywords can come from body or merged tags
+    if (!(req.body.keywords || mergedTags.keywords)) missing.push('keywords')
+
+    if (missing.length) {
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        message: 'Missing or invalid required fields',
+        details: {
+          fields: missing
+        }
+      });
+    }
   }
 
   // Price Validation
@@ -233,37 +221,36 @@ const createProduct = async (req, res) => {
   }
 
   try {
-    // Determine categoryId from either provided categoryId or subcategoryId and persist subcategoryId when available
-    let categoryId;
+    // Determine categoryId from either provided categoryId or subcategoryId
+    let categoryId = null;
     let resolvedSubcategoryId = null;
+    
+    const categoryIdProvidedRaw = req.body.categoryId;
+    const categoryIdProvided = categoryIdProvidedRaw ? parseInt(categoryIdProvidedRaw, 10) : null;
+
     if (categoryIdProvided && !Number.isNaN(categoryIdProvided)) {
       const catRow = await Category.findByPk(categoryIdProvided);
-      if (!catRow) {
-        return res.status(400).json({ code: 'INVALID_CATEGORY', message: 'Selected category does not exist.' });
-      }
-      // If a subcategory was passed in categoryId by mistake, set both properly
-      if (catRow.parentId) {
-        categoryId = catRow.parentId;
-        resolvedSubcategoryId = catRow.id;
-      } else {
-        categoryId = catRow.id;
-        // If subcategoryId is also provided, use it
-        if (subcategoryId && !Number.isNaN(subcategoryId)) {
-          resolvedSubcategoryId = subcategoryId;
+      if (catRow) {
+        if (catRow.parentId) {
+          categoryId = catRow.parentId;
+          resolvedSubcategoryId = catRow.id;
+        } else {
+          categoryId = catRow.id;
+          if (subcategoryId && !Number.isNaN(subcategoryId)) {
+            resolvedSubcategoryId = subcategoryId;
+          }
         }
       }
     } else if (req.body.subcategoryId && !Number.isNaN(subcategoryId)) {
-      // Derive categoryId from the selected subcategory's parent
       const subcat = await Category.findByPk(subcategoryId);
-      if (!subcat) {
-        return res.status(400).json({ code: 'INVALID_SUBCATEGORY', message: 'Selected subcategory does not exist.' });
+      if (subcat && subcat.parentId) {
+        categoryId = subcat.parentId;
+        resolvedSubcategoryId = subcat.id;
       }
-      if (!subcat.parentId) {
-        return res.status(400).json({ code: 'SUBCATEGORY_NO_PARENT', message: 'Selected subcategory has no parent category.' });
-      }
-      categoryId = subcat.parentId;
-      resolvedSubcategoryId = subcat.id;
-    } else {
+    }
+
+    // For drafts, we don't strictly reject missing category
+    if (!isDraft && !categoryId) {
       return res.status(400).json({ code: 'CATEGORY_REQUIRED', message: 'Provide either categoryId or subcategoryId.' });
     }
 

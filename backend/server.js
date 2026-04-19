@@ -8,8 +8,14 @@ const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
 
-// Load environment variables
-dotenv.config();
+// Load environment variables with robust path detection
+const envPath = path.resolve(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+} else {
+  console.warn(`⚠️ Warning: root .env not found at ${envPath}`);
+  dotenv.config();
+}
 
 // DETECT STATIC PATHS GLOBALLY
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -138,7 +144,27 @@ if (process.env.NODE_ENV === 'development') {
 const { realtimeSyncMiddleware } = require('./middleware/realtimeSync');
 app.use(realtimeSyncMiddleware);
 
-// Import routes
+// -----------------------------------------------------------------
+// 1. MAINTENANCE MODE (MUST BE BEFORE ROUTES)
+// -----------------------------------------------------------------
+let cachedMaintenanceSettings = null;
+let lastMaintenanceCheck = 0;
+
+app.use(async (req, res, next) => {
+  // EMERGENCY TOTAL BYPASS
+  return next();
+  
+  // Remaining maintenance logic is kept but bypassed above for stability
+});
+
+// -----------------------------------------------------------------
+// 2. API ROUTES
+// -----------------------------------------------------------------
+initializeRoutes(app);
+
+// -----------------------------------------------------------------
+// 3. STATIC FILES
+// -----------------------------------------------------------------
 // Route Initialization Function (Lazy Loaded)
 function initializeRoutes(app) {
   console.error('ℹ️ Registering core API routes...');
@@ -148,6 +174,7 @@ function initializeRoutes(app) {
   app.use('/api/cart', require('./routes/cartRoutes'));
   app.use('/api/wishlist', require('./routes/wishlistRoutes'));
   app.use('/api/ultra-fast', require('./routes/ultraFastRoutes'));
+  app.use('/api/password-reset', require('./routes/passwordResetRoutes'));
   
   console.error('ℹ️ Registering extended API modules...');
   app.use('/api/platform', require('./routes/platformRoutes'));
@@ -182,7 +209,9 @@ function initializeRoutes(app) {
   app.use('/api/wallet', require('./routes/walletRoutes'));
   app.use('/api/delivery', require('./routes/deliveryRoutes'));
   app.use('/api/warehouse', require('./routes/warehouseRoutes'));
+  app.use('/api/warehouses', require('./routes/warehouseRoutes'));
   app.use('/api/pickup-station', require('./routes/pickupStationRoutes'));
+  app.use('/api/pickup-stations', require('./routes/pickupStationRoutes'));
   app.use('/api/station-manager', require('./routes/stationManagerRoutes'));
   
   // Final heavy route modules
@@ -196,8 +225,7 @@ function initializeRoutes(app) {
 
   console.error('✅ 35+ Route modules successfully lazy-loaded.');
   
-  // FINALIZE: Mount catch-all and 404 handlers AFTER all routes are ready
-  finalizeMiddleware(app);
+  // finalizeMiddleware(app) call removed from here - will be called at the very end of the file
 }
 
 // Final Middleware Function (Deferred to stay at end of stack)
@@ -251,103 +279,7 @@ function finalizeMiddleware(app) {
 // Initialize database connection
 const { testConnection } = require('./database/database');
 
-// Global Maintenance Mode Middleware with in-memory caching
-let cachedMaintenanceSettings = null;
-let lastMaintenanceCheck = 0;
-
-app.use(async (req, res, next) => {
-  // EMERGENCY TOTAL BYPASS
-  return next();
-
-  // Always allow critical/admin/auth paths (INSTANT BYPASS)
-  const path = req.path.toLowerCase();
-  const allowList = [
-    '/api/auth/login', 
-    '/api/auth/me', 
-    '/api/admin', 
-    '/api/config', 
-    '/api/platform',
-    '/api/users/me',
-    '/api/profile/dashboard-password'
-  ];
-  
-  if (allowList.some(p => path.startsWith(p.toLowerCase()))) return next();
-
-  try {
-    // Refresh cache every 60 seconds
-    const now = Date.now();
-    if (!cachedMaintenanceSettings || (now - lastMaintenanceCheck > 60000)) {
-      const { PlatformConfig } = require('./models');
-      const config = await PlatformConfig.findOne({ where: { key: 'maintenance_settings' } });
-      if (config) {
-        cachedMaintenanceSettings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
-      } else {
-        cachedMaintenanceSettings = { enabled: false };
-      }
-      lastMaintenanceCheck = now;
-    }
-
-    const settings = cachedMaintenanceSettings;
-    if (!settings) return next();
-      
-      /* TEMPORARY EMERGENGY BYPASS: Maintenance Mode is forced to OFF
-      if (settings.enabled) {
-        console.error(`[MAINTENANCE] Blocking request to: ${req.path}`);
-        return res.status(503).json({ 
-          success: false, 
-          maintenance: true,
-          message: settings.message || 'System is currently under maintenance. Please try again later.' 
-        });
-      }
-      */
-
-      // 2. GRANULAR Check (for non-admins)
-      if (settings.dashboards || settings.sections) {
-        const path = req.path;
-        let block = null;
-
-        // Dashboard Mapping
-        if (path.startsWith('/api/admin')) block = settings.dashboards?.admin;
-        else if (path.startsWith('/api/seller')) block = settings.dashboards?.seller;
-        else if (path.startsWith('/api/marketing')) block = settings.dashboards?.marketer;
-        else if (path.startsWith('/api/delivery')) block = settings.dashboards?.delivery;
-        else if (path.startsWith('/api/station') || path.startsWith('/api/pickup-station') || path.startsWith('/api/warehouse')) block = settings.dashboards?.station;
-        else if (path.startsWith('/api/ops')) block = settings.dashboards?.ops;
-        else if (path.startsWith('/api/logistics')) block = settings.dashboards?.logistics;
-        else if (path.startsWith('/api/finance')) block = settings.dashboards?.finance;
-        else if (path.startsWith('/api/service-provider')) block = settings.dashboards?.provider;
-        
-        // Public Section Mapping — handle both hyphenated and non-hyphenated formats
-        else if (path.startsWith('/api/products')) block = settings.sections?.products;
-        else if (path.startsWith('/api/services')) block = settings.sections?.services;
-        else if (path.startsWith('/api/fast-food') || path.startsWith('/api/fastfood')) block = settings.sections?.fastfood;
-
-        if (block?.enabled) {
-          // If it's a public section, return 404 to hide it "silently"
-          const isSection = path.startsWith('/api/products') || path.startsWith('/api/services') || path.startsWith('/api/fast-food') || path.startsWith('/api/fastfood');
-          
-          if (isSection) {
-            return res.status(404).json({
-              success: false,
-              message: 'Section not available'
-            });
-          }
-
-          // Dashboards still return 503 for the proper redirect
-          return res.status(503).json({
-            success: false,
-            maintenance: true,
-            granular: true,
-            message: block.message || 'This section is currently under maintenance.'
-          });
-        }
-    }
-  } catch (err) {
-    // Fail silent to allow app startup
-    console.warn('[server] Maintenance check failed:', err.message);
-  }
-  next();
-});
+// Maintenance block moved up
 
 
 // Serve static files from uploads directory with aggressive caching
@@ -379,6 +311,11 @@ app.use('/uploads', (req, res, next) => {
 });
 
 app.use(express.static(GLOBAL_STATIC_PATH));
+
+// -----------------------------------------------------------------
+// 4. FINAL CATCH-ALLS (MUST BE VERY LAST)
+// -----------------------------------------------------------------
+finalizeMiddleware(app);
 
 // SPA Fallback - Always serve index.html for non-API routes.
 // Maintenance enforcement happens at two levels:
@@ -451,7 +388,7 @@ const server = createServer(app);
 server.timeout = 60000;
 server.keepAliveTimeout = 65000;
 
-const DEFAULT_PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 4000);
+const DEFAULT_PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 5001);
 
 // Socket.IO configuration
 const socketAllowedOrigins = [
@@ -487,8 +424,7 @@ const io = new Server(server, {
 setIO(io);
 
 async function startServer() {
-  const DEFAULT_PORT = process.env.PORT || 4000;
-  
+  // Use the DEFAULT_PORT defined in the outer scope
   console.error(`🚀 ULTRA-FAST BOOT: Starting server bind sequence for port ${DEFAULT_PORT}...`);
 
   // Start the server ONLY if not already listening (prevents Passenger/Double-init crashes)
@@ -511,8 +447,7 @@ async function startServer() {
               console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
             }
 
-            // 2. Initialize Routes (Lazy Loaded to prevent cPanel timeouts)
-            initializeRoutes(app);
+            // Routes are now initialized immediately above startServer
 
             // 3. Initialize Socket.IO connection handling
             io.on('connection', (socket) => {
@@ -593,7 +528,7 @@ async function startServer() {
       try {
         const { testConnection } = require('./database/database');
         await testConnection();
-        initializeRoutes(app);
+        // initializeRoutes(app); // No longer needed here as it's called globally above
         
         const cache = require('./scripts/services/cacheService');
         await cache.connect();

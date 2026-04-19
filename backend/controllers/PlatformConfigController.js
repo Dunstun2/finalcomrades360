@@ -190,7 +190,7 @@ exports.updateConfig = async (req, res) => {
     }
 };
 
-const { getWhatsAppStatus, restartWhatsApp } = require('../utils/messageService');
+const { getWhatsAppStatus, restartWhatsApp, logoutWhatsApp } = require('../utils/messageService');
 
 exports.getWhatsAppStatus = async (req, res) => {
     try {
@@ -207,5 +207,14 @@ exports.handleRestartWhatsApp = async (req, res) => {
         res.json({ success: true, message: 'WhatsApp restart initiated' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to restart WhatsApp' });
+    }
+};
+
+exports.handleLogoutWhatsApp = async (req, res) => {
+    try {
+        await logoutWhatsApp();
+        res.json({ success: true, message: 'WhatsApp logout and session clear initiated' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to logout WhatsApp' });
     }
 };

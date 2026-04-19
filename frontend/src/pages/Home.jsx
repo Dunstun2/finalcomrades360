@@ -585,7 +585,7 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
   const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true&ignoreCache=true' : '/ultra-fast/batch?ignoreCache=true';
   const { data: homeBatchData, loading: hookLoading, error: hookError, refresh: refreshHomeData } = usePersistentFetch(
     // FORCE CACHE BUST FROM V15 -> V16
-    `home_data_v18_critical_refresh_${isMarketingMode ? 'marketing' : 'personal'}`,
+    `home_data_v19_critical_refresh_${isMarketingMode ? 'marketing' : 'personal'}`,
     batchUrl,
     {
       staleTime: 5 * 60 * 1000, // 5 minutes stale time
