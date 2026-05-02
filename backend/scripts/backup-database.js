@@ -29,7 +29,11 @@ async function backupSQLite() {
     fs.copyFileSync(dbPath, backupPath);
     
     // Compress backup
-    await execPromise(`powershell Compress-Archive -Path "${backupPath}" -DestinationPath "${backupPath}.zip" -Force`);
+    const zipCommand = process.platform === 'win32' 
+      ? `powershell Compress-Archive -Path "${backupPath}" -DestinationPath "${backupPath}.zip" -Force`
+      : `zip -j "${backupPath}.zip" "${backupPath}"`;
+    
+    await execPromise(zipCommand);
     fs.unlinkSync(backupPath); // Remove uncompressed file
     
     console.log(`✅ SQLite backup created: ${backupPath}.zip`);
@@ -55,7 +59,11 @@ async function backupMySQL() {
     await execPromise(command);
     
     // Compress backup
-    await execPromise(`powershell Compress-Archive -Path "${backupPath}" -DestinationPath "${backupPath}.zip" -Force`);
+    const zipCommand = process.platform === 'win32'
+      ? `powershell Compress-Archive -Path "${backupPath}" -DestinationPath "${backupPath}.zip" -Force`
+      : `zip -j "${backupPath}.zip" "${backupPath}"`;
+    
+    await execPromise(zipCommand);
     fs.unlinkSync(backupPath); // Remove uncompressed file
     
     console.log(`✅ MySQL backup created: ${backupPath}.zip`);
@@ -97,7 +105,11 @@ async function backupUploads() {
   }
 
   try {
-    await execPromise(`powershell Compress-Archive -Path "${uploadsPath}" -DestinationPath "${backupPath}" -Force`);
+    const zipCommand = process.platform === 'win32'
+      ? `powershell Compress-Archive -Path "${uploadsPath}" -DestinationPath "${backupPath}" -Force`
+      : `zip -r "${backupPath}" "${uploadsPath}"`;
+    
+    await execPromise(zipCommand);
     console.log(`✅ Uploads backup created: ${backupPath}`);
     return backupPath;
   } catch (error) {
