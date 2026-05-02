@@ -108,19 +108,31 @@ const moveToSuccess = async (userId, amount, orderNumber, description, orderId =
 
         const successTxId = tx.id;
 
-        // 4. CHECK FOR AUTOMATIC PAYOUT MODE
+        // 4. CHECK FOR AUTOMATIC PAYOUT / VERIFICATION MODE
         try {
+            // Check specific delivery payout setting
             const autoPayoutConfig = await PlatformConfig.findOne({
                 where: { key: 'automatic_delivery_payout_enabled' },
                 transaction
             });
 
-            if (autoPayoutConfig && autoPayoutConfig.value === 'true') {
-                console.log(`[walletHelpers] Automatic payout enabled. Moving ${amount} to balance for user ${userId}`);
+            // Check general earning verification setting (for Sellers, Marketers, etc.)
+            const autoVerifyConfig = await PlatformConfig.findOne({
+                where: { key: 'automatic_earning_verification_enabled' },
+                transaction
+            });
+
+            const isDeliveryAgent = walletType === 'delivery_agent' || tx.walletType === 'delivery_agent';
+            const shouldAutoVerify = 
+                (isDeliveryAgent && autoPayoutConfig?.value === 'true') || 
+                (!isDeliveryAgent && autoVerifyConfig?.value === 'true');
+
+            if (shouldAutoVerify) {
+                console.log(`[walletHelpers] Auto-verification triggered for user ${userId} (${walletType || 'unknown role'}). Moving ${amount} to balance.`);
                 await moveToPaid(userId, amount, successTxId, transaction);
             }
         } catch (error) {
-            console.error('[walletHelpers] Error checking automatic payout config:', error);
+            console.error('[walletHelpers] Error checking automatic verification configs:', error);
         }
     }
 };

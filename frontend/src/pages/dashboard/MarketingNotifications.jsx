@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   FaBullhorn, 
   FaComments, 
@@ -11,7 +12,8 @@ import {
   FaSearch,
   FaCalendarDay,
   FaUser,
-  FaClock
+  FaClock,
+  FaChevronRight
 } from 'react-icons/fa';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
@@ -93,16 +95,21 @@ const MarketingNotifications = () => {
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase flex items-center gap-2">
-            <FaBullhorn className="text-blue-600" />
-            Daily Thank You Messages
-          </h1>
-          <p className="text-sm text-gray-500">Engage customers after successful delivery</p>
+        <div className="flex items-center gap-4">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase flex items-center gap-2">
+              <FaBullhorn className="text-blue-600" />
+              Daily Thank You Messages
+            </h1>
+            <p className="text-sm text-gray-500">Engage customers after successful delivery</p>
+          </div>
         </div>
         <div className="flex bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold items-center gap-2">
           <FaCalendarDay />
-          Automated daily at 8:00 PM
+          Automated daily at 12:00 AM
         </div>
       </div>
 
@@ -154,10 +161,25 @@ const MarketingNotifications = () => {
             </div>
           </div>
 
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 space-y-4">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+              <FaComments className="w-3 h-3" />
+              Message Preview
+            </h3>
+            <div className="bg-gray-50 rounded-2xl p-4 text-sm text-gray-600 whitespace-pre-line border border-gray-100 leading-relaxed">
+              Hello [Customer Name], thank you for shopping with Comrades360! 🌟
+
+              Your order #[Order Number] has been delivered.
+              {filter === 'fastfood' ? ' Hope you enjoyed your meal! 🍔' : filter === 'product' ? ' We hope you love your new purchase! 🛍️' : ' [We hope you love your new purchase! 🛍️ / Hope you enjoyed your meal! 🍔]'}
+
+              We value your support and look forward to serving you again soon!
+            </div>
+          </div>
+
           <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
             <h4 className="text-[11px] font-black text-amber-600 uppercase tracking-widest mb-2">Pro Tip</h4>
             <p className="text-xs text-amber-700 leading-relaxed">
-              Manual triggers are great for early engagement, but the system will automatically process all remaining delivered orders at 8:00 PM tonight.
+              Manual triggers are great for early engagement, but the system will automatically process all remaining delivered orders at 12:00 AM tonight.
             </p>
           </div>
         </div>

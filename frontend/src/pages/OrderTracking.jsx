@@ -23,7 +23,7 @@ export default function OrderTracking() {
 
     // Auto-refresh tracking for active orders (every 20s)
     let interval = null;
-    if (tracking && ['processing', 'shipped', 'in_transit', 'in_transit', 'ready_for_pickup'].includes(tracking.status?.toLowerCase().replace(' ', '_'))) {
+    if (tracking && ['order_placed', 'super_admin_confirmed', 'seller_confirmed', 'processing', 'shipped', 'in_transit', 'ready_for_pickup'].includes(tracking.status?.toLowerCase().replace(/ /g, '_'))) {
       interval = setInterval(loadOrderTracking, 20000);
     }
 
@@ -63,7 +63,10 @@ export default function OrderTracking() {
     const colors = {
       'Pending Payment': 'text-yellow-600',
       'Processing': 'text-blue-600',
+      'Preparing': 'text-orange-600',
       'Shipped': 'text-purple-600',
+      'Out for Delivery': 'text-indigo-600',
+      'In Transit': 'text-indigo-600',
       'Ready for Pickup': 'text-sky-600',
       'Delivered': 'text-green-600',
       'Cancelled': 'text-red-600'
@@ -75,7 +78,10 @@ export default function OrderTracking() {
     const icons = {
       'Pending Payment': FaClock,
       'Processing': FaClock,
+      'Preparing': FaClock,
       'Shipped': FaTruck,
+      'Out for Delivery': FaTruck,
+      'In Transit': FaTruck,
       'Ready for Pickup': FaBox,
       'Delivered': FaCheckCircle,
       'Cancelled': FaClock
@@ -155,7 +161,7 @@ export default function OrderTracking() {
         </div>
 
         {/* Live Map Integration */}
-        {['processing', 'shipped', 'in_transit', 'in_transit', 'delivered'].includes(tracking.status?.toLowerCase().replace(' ', '_')) && (
+        {!['cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (
           <div className="mb-8">
             <DeliveryTrackingMap
               status={tracking.status?.toLowerCase().replace(' ', '_')}
@@ -176,30 +182,36 @@ export default function OrderTracking() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Current Status</h2>
                 {(() => {
-                  const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
-                    if (!rawStatus) return 'Processing';
-                    const s = rawStatus.toLowerCase().replace(/ /g, '_');
-                    
-                    if (['delivered', 'completed'].includes(s)) return 'Delivered';
-                    if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+                    const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                      if (!rawStatus) return 'Processing';
+                      const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                      const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                      
+                      if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                      if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
 
-                    const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
-                    const isTerminalLeg = tasks.some(task => {
-                        const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
-                        const isToStation = orderObj?.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
-                        return (isToCustomer || isToStation) && task.status === 'in_progress';
-                    }) || ['in_transit'].includes(s);
+                      if (isFastFood) {
+                        if (s === 'super_admin_confirmed') return 'Preparing';
+                        if (['in_transit', 'shipped'].includes(s)) return 'Out for Delivery';
+                      }
 
-                    if (isTerminalLeg || (['in_transit', 'shipped'].includes(s) && isTerminalLeg)) {
-                        return 'In Transit';
-                    }
-                    
-                    if (s === 'order_placed') return 'Order Placed';
-                    if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
-                    if (['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
-                    
-                    return 'Processing';
-                  };
+                      const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                      const isTerminalLeg = tasks.some(task => {
+                          const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
+                          const isToStation = orderObj?.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
+                          return (isToCustomer || isToStation) && task.status === 'in_progress';
+                      }) || ['in_transit'].includes(s);
+
+                      if (isTerminalLeg || (['in_transit', 'shipped'].includes(s) && isTerminalLeg)) {
+                          return 'In Transit';
+                      }
+                      
+                      if (s === 'order_placed') return 'Order Placed';
+                      if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                      if (['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
+                      
+                      return 'Processing';
+                    };
                   const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
                   const displayColor = getStatusColor(displayStatus);
                   const DisplayIcon = getStatusIcon(displayStatus);

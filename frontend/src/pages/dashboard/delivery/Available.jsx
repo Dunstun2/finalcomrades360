@@ -6,8 +6,10 @@ import { formatPrice } from '../../../utils/currency';
 import { resolveImageUrl } from '../../../utils/imageUtils';
 import Dialog from '../../../components/Dialog';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const DeliveryAgentAvailable = () => {
+  const { user } = useAuth();
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);

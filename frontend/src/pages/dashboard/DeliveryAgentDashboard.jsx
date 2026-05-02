@@ -3,7 +3,7 @@ import { useLocation, Link, Outlet } from 'react-router-dom';
 import {
   FaBoxOpen, FaMotorcycle, FaMapMarkedAlt, FaCheckCircle,
   FaHistory, FaMoneyBillWave, FaBell, FaCog, FaHeadset, FaUser, FaWallet,
-  FaBars, FaTimes
+  FaBars, FaTimes, FaTools
 } from 'react-icons/fa';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -198,6 +198,18 @@ const DeliveryAgentDashboard = () => {
       path: '/delivery/account',
       icon: <FaUser className="lg:mr-3 text-gray-500" />,
       key: 'account'
+    },
+    {
+      name: 'Delivery Tools',
+      path: '/delivery/tools',
+      icon: <FaTools className="lg:mr-3 text-gray-500" />,
+      key: 'tools'
+    },
+    {
+      name: 'Delivery Manual',
+      path: '/delivery/manual',
+      icon: <FaBoxOpen className="lg:mr-3 text-gray-500" />,
+      key: 'manual'
     }
   ];
 

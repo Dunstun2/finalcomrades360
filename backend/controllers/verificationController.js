@@ -1,4 +1,4 @@
-const { User, Otp } = require('../models');
+const { User, Otp, VerifiedContact } = require('../models');
 const { sendMessage } = require('../utils/messageService');
 const { normalizeKenyanPhone } = require('../middleware/validators');
 const { getDynamicMessage } = require('../utils/templateUtils');
@@ -156,8 +156,9 @@ const requestPhoneVerificationOtp = async (req, res, next) => {
             'sms'
         );
         
-        if (socketId) {
-            mirrorOtpToSocket(socketId, otp, 'phoneVerification');
+        if (socketId || normalizedPhone) {
+            const { mirrorOtp } = require('../utils/otpUtils');
+            mirrorOtp(normalizedPhone, otp, 'phoneVerification', socketId);
         }
 
         res.json({ success: true, message: 'Verification code sent successfully' });
@@ -254,8 +255,9 @@ const requestGuestPhoneOtp = async (req, res, next) => {
             method
         );
 
-        if (socketId) {
-            mirrorOtpToSocket(socketId, otp, 'guestCheckout');
+        if (socketId || normalizedPhone) {
+            const { mirrorOtp } = require('../utils/otpUtils');
+            mirrorOtp(normalizedPhone, otp, 'guestCheckout', socketId);
         }
 
         res.json({ success: true, message: 'Verification code sent to your phone' });
@@ -291,6 +293,12 @@ const verifyGuestPhoneOtp = async (req, res, next) => {
         // Extend expiry for order placement (30 mins from now)
         otpRecord.expiresAt = new Date(Date.now() + 30 * 60 * 1000);
         await otpRecord.save();
+
+        // Also permanently remember this contact as verified
+        const existingVerified = await VerifiedContact.findOne({ where: { phone: normalizedPhone } });
+        if (!existingVerified) {
+            await VerifiedContact.create({ phone: normalizedPhone });
+        }
 
         res.json({
             success: true,
@@ -335,18 +343,55 @@ const rejectNationalId = async (req, res, next) => {
             await user.recalculateIsVerified();
         }
 
-        res.json({ message: 'National ID rejected successfully' });
-    } catch (error) {
-        next(error);
+    res.status(200).json({ message: 'National ID rejected successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Check if a phone number exists in the system
+ */
+const checkPhoneStatus = async (req, res, next) => {
+  try {
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ message: 'Phone number is required' });
+
+    const normalizedPhone = normalizeKenyanPhone(phone);
+    if (!normalizedPhone) return res.status(400).json({ message: 'Invalid phone format' });
+
+    // Check if the phone is verified by a registered user
+    const user = await User.findOne({ where: { phone: normalizedPhone } });
+    let isVerified = false;
+
+    if (user && user.phoneVerified) {
+        isVerified = true;
+    } else {
+        // Check if it's in the standalone VerifiedContact table
+        const verifiedContact = await VerifiedContact.findOne({ where: { phone: normalizedPhone } });
+        if (verifiedContact) {
+            isVerified = true;
+        }
     }
+    
+    res.json({
+      success: true,
+      exists: !!user,
+      isVerified,
+      phone: normalizedPhone
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 module.exports = {
-    getVerificationStatus,
-    requestPhoneVerificationOtp,
-    verifyPhoneOtp,
-    requestGuestPhoneOtp,
-    verifyGuestPhoneOtp,
-    approveNationalId,
-    rejectNationalId
+  getVerificationStatus,
+  requestPhoneVerificationOtp,
+  verifyPhoneOtp,
+  requestGuestPhoneOtp,
+  verifyGuestPhoneOtp,
+  approveNationalId,
+  rejectNationalId,
+  checkPhoneStatus
 };

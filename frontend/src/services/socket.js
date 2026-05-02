@@ -48,7 +48,7 @@ const connectSocket = () => {
 
   // Connection event handlers
   socket.on('connect', () => {
-    console.log('WebSocket connected');
+    console.log('WebSocket connected. Socket ID:', socket.id);
     reconnectAttempts = 0; // Reset reconnect attempts on successful connection
   });
 
@@ -107,5 +107,29 @@ export const joinAdminRoom = () => {
     socketInstance.on('connect', () => {
       socketInstance.emit('join_admin');
     });
+  }
+};
+
+/**
+ * Join a room specifically for capturing OTPs sent to a contact.
+ * This enables cross-device autofill (e.g. request on laptop, site open on phone).
+ * 
+ * @param {string} contact - Email or phone number.
+ */
+export const joinOtpRoom = (contact) => {
+  if (!contact) return;
+  
+  const socketInstance = getSocket();
+  const room = `otp:${contact.toLowerCase().trim()}`;
+  
+  const join = () => {
+    console.log(`[Socket] Joining OTP room: ${room}`);
+    socketInstance.emit('join_room', room);
+  };
+
+  if (socketInstance.connected) {
+    join();
+  } else {
+    socketInstance.on('connect', join);
   }
 };

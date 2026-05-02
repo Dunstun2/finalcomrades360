@@ -30,6 +30,7 @@ export default function Navbar() {
   const { cart } = useCart();
   const [searchQuery, setSearchQuery] = useState("");
   const [isMarketingMode, setIsMarketingMode] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const cartScope = location.pathname.startsWith('/fastfood') ? 'fastfood' : 'products';
@@ -208,6 +209,23 @@ export default function Navbar() {
     return () => window.removeEventListener('storage', onStorage);
   }, [location.pathname]);
 
+  // Keep impersonation mode flag in sync
+  useEffect(() => {
+    const checkImpersonating = () => {
+      setIsImpersonating(!!localStorage.getItem('admin_token_backup'));
+    };
+
+    const onStorage = (event) => {
+      if (!event || event.key === 'admin_token_backup') {
+        checkImpersonating();
+      }
+    };
+
+    checkImpersonating();
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const isDashboardRoute = location.pathname.startsWith('/dashboard') ||
     ['/marketing', '/seller', '/customer', '/ops', '/logistics', '/finance', '/station'].some(path => location.pathname.startsWith(path));
 
@@ -222,8 +240,30 @@ export default function Navbar() {
     window.location.href = '/';
   };
 
+  const exitImpersonation = () => {
+    const backup = localStorage.getItem('admin_token_backup');
+    if (backup) {
+      localStorage.setItem('token', backup);
+      localStorage.removeItem('admin_token_backup');
+      window.location.href = '/dashboard/admin-tools';
+    }
+  };
+
   return (
     <>
+      {/* Impersonation Mode Exit Button - Floating on bottom left */}
+      {isImpersonating && (
+        <div className="fixed bottom-20 left-4 z-[9999]">
+          <button
+            onClick={exitImpersonation}
+            className="flex items-center gap-2 px-5 py-4 bg-indigo-600 text-white rounded-full shadow-2xl hover:bg-indigo-700 font-black text-base animate-bounce border-4 border-white"
+          >
+            <FaTimes size={20} />
+            <span>EXIT IMPERSONATION</span>
+          </button>
+        </div>
+      )}
+
       {/* Marketing Mode Exit Button - Floating on Mobile */}
       {isMarketingMode && (
         <div className="fixed bottom-20 right-4 z-[9999] lg:hidden">

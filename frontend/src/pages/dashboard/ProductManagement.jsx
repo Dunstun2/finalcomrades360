@@ -6,6 +6,7 @@ import {
   FaTools,
   FaArrowRight,
   FaUtensils,
+  FaChevronRight
 } from 'react-icons/fa';
 
 const ProductManagement = () => {
@@ -61,14 +62,12 @@ const ProductManagement = () => {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center text-gray-600 hover:text-gray-800 mb-4 transition-colors"
-          >
-            <FaArrowRight className="transform rotate-180 mr-2" />
-            <span>Back to Dashboard</span>
-          </button>
-          <h1 className="text-2xl font-bold text-gray-800">Product Management</h1>
+          <div className="flex items-center gap-4 mb-4">
+            <Link to="/dashboard/admin-tools" className="p-2 hover:bg-white rounded-full text-gray-500 transition-colors shadow-sm border border-gray-100" title="Back to Admin Tools">
+              <FaChevronRight className="rotate-180" />
+            </Link>
+            <h1 className="text-2xl font-bold text-gray-800">Product Management</h1>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

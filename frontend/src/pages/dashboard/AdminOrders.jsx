@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute, FaUndo, FaUserMinus, FaUtensils, FaFileAlt } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute, FaUndo, FaUserMinus, FaUtensils, FaFileAlt, FaChevronRight } from 'react-icons/fa';
 import api from '../../services/api';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import { formatPrice } from '../../utils/currency';
@@ -185,17 +186,21 @@ export default function AdminOrders() {
   };
 
   const getItemSellerEarning = (item) => {
-    if (item?.commissionAmount !== undefined && item?.commissionAmount !== null) {
-      return Number(item.total || 0) - Number(item.commissionAmount || 0);
-    }
+    // User requested seller receives base price AS IT IS for now (no commission deductions)
     const quantity = Math.max(1, Number(item?.quantity || 1));
+    const itemTotal = Number(item?.total || 0);
+    if (itemTotal > 0) return itemTotal;
+    
     return getItemSellerUnitBasePrice(item) * quantity;
   };
 
   const getOrderSellerPayout = (order) => {
-    if (order?.totalCommission !== undefined && order?.totalCommission !== null && order?.total) {
-      return Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.totalCommission || 0);
+    // For now, the user wants the seller to receive their base price as it is (no delivery fee or commission deductions from the items' subtotal).
+    // The items' subtotal is effectively order.total - order.deliveryFee.
+    if (order?.total && order?.deliveryFee !== undefined) {
+      return Number(order.total || 0) - Number(order.deliveryFee || 0);
     }
+    
     const items = Array.isArray(order?.OrderItems) ? order.OrderItems : [];
     if (items.length === 0) return Number(order?.totalBasePrice || 0);
 
@@ -204,6 +209,7 @@ export default function AdminOrders() {
 
     return Number(order?.totalBasePrice || 0);
   };
+
 
   const isFastFoodOnlyOrder = (order) => {
     const items = Array.isArray(order?.OrderItems) ? order.OrderItems : [];
@@ -241,6 +247,7 @@ export default function AdminOrders() {
         page: currentPage,
         pageSize,
         workflowFilter: workflowFilter !== 'all' ? workflowFilter : '',
+        statusFilter: statusFilter !== 'all' ? statusFilter : '',
         dateFilter: dateFilter !== 'all' ? dateFilter : '',
         q: debouncedSearch || ''
       });
@@ -250,12 +257,30 @@ export default function AdminOrders() {
       }
       recentOrdersRequestAt.set(orderRequestKey, Date.now());
 
+      let fromDate = undefined;
+      if (dateFilter !== 'all') {
+        const now = new Date();
+        if (dateFilter === 'today') {
+          fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        } else if (dateFilter === 'week') {
+          const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+          startOfWeek.setHours(0, 0, 0, 0);
+          fromDate = startOfWeek.toISOString();
+        } else if (dateFilter === 'month') {
+          fromDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        } else if (dateFilter === 'quarter') {
+          const currentQuarter = Math.floor(now.getMonth() / 3);
+          fromDate = new Date(now.getFullYear(), currentQuarter * 3, 1).toISOString();
+        }
+      }
+
       const response = await api.get('/orders', {
         params: {
           page: currentPage,
           pageSize,
           workflowFilter: workflowFilter !== 'all' ? workflowFilter : undefined,
-          dateFilter: dateFilter !== 'all' ? dateFilter : undefined,
+          status: statusFilter !== 'all' ? statusFilter : undefined,
+          from: fromDate,
           q: debouncedSearch || undefined
         },
         signal: abortControllerRef.current.signal
@@ -465,7 +490,7 @@ export default function AdminOrders() {
   // Handle filter changes to reset pagination
   useEffect(() => {
     loadOrders(true);
-  }, [workflowFilter, dateFilter, debouncedSearch]);
+  }, [workflowFilter, statusFilter, dateFilter, debouncedSearch]);
 
   const handleLoadMore = () => {
     if (hasMore && !loading) {
@@ -507,7 +532,7 @@ export default function AdminOrders() {
       order.User?.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
       order.User?.email?.toLowerCase().includes(debouncedSearch.toLowerCase());
 
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || statusFilter.split(',').includes(order.status);
 
     let matchesDate = true;
     if (dateFilter !== 'all') {
@@ -972,8 +997,13 @@ export default function AdminOrders() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Order Management</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">Order Management</h1>
+        </div>
         <button
           onClick={exportOrders}
           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"

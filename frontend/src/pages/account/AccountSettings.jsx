@@ -10,6 +10,8 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 import userService from '../../services/userService';
+import { getSocket } from '../../services/socket';
+import useWebOTP from '../../hooks/useWebOTP';
 import { toast } from 'react-toastify';
 import Addresses from './Addresses';
 import ProfileComponent from '../../components/ProfileComponent';
@@ -402,7 +404,13 @@ const AccountSettings = () => {
       console.log('Setting isVerifying to true');
       setIsVerifying(true);
       console.log('Calling userService.requestEmailChange for:', emailToVerify);
-      const res = await userService.requestEmailChange(emailToVerify);
+      
+      const socket = getSocket();
+      // Join specialized room for this contact to support cross-device prefilling
+      const { joinOtpRoom } = await import('../../services/socket');
+      joinOtpRoom(emailToVerify);
+
+      const res = await userService.requestEmailChange(emailToVerify, socket?.connected ? socket.id : null);
       console.log('userService response:', res);
       toast.success(res.message || 'Verification token sent to your email');
       setVerifyEmailStep('verify');
@@ -455,7 +463,7 @@ const AccountSettings = () => {
     }
     try {
       setIsVerifying(true);
-      await userService.requestPhoneOtp(userData.phone);
+      await userService.requestPhoneOtp(userData.phone, 'whatsapp', getSocket()?.id);
       toast.success('Verification code sent to your phone via WhatsApp');
       setVerifyPhoneStep('verify');
     } catch (error) {
@@ -497,6 +505,25 @@ const AccountSettings = () => {
       setIsVerifying(false);
     }
   };
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleOtpReceived = (data) => {
+      console.log('[OTP-Monitor] Received code via socket in AccountSettings:', data);
+      if (data.otp) {
+        if (data.type === 'emailChange') {
+          setEmailToken(data.otp.toString());
+        } else if (data.type === 'phoneChange' || data.type === 'phoneVerification') {
+          setPhoneOtp(data.otp.toString());
+        }
+      }
+    };
+
+    socket.on('otp:received', handleOtpReceived);
+    return () => socket.off('otp:received', handleOtpReceived);
+  }, [activeTab]);
 
   // Handle notification settings update
   const handleNotificationSettingsUpdate = async (settings) => {
@@ -715,6 +742,7 @@ const AccountSettings = () => {
                               <input
                                 type="text"
                                 maxLength={6}
+                                autoComplete="one-time-code"
                                 value={emailToken}
                                 onChange={(e) => setEmailToken(e.target.value.replace(/\D/g, ''))}
                                 placeholder="6-digit code"

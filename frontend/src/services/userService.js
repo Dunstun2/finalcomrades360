@@ -55,9 +55,9 @@ const userService = {
   },
 
   // Request email change
-  requestEmailChange: async (newEmail) => {
+  requestEmailChange: async (newEmail, socketId) => {
     try {
-      const response = await api.post('/users/me/email-change/request', { newEmail });
+      const response = await api.post('/users/me/email-change/request', { newEmail, socketId });
       return response.data;
     } catch (error) {
       console.error('Error requesting email change:', error);
@@ -77,9 +77,9 @@ const userService = {
   },
 
   // Request phone OTP
-  requestPhoneOtp: async (newPhone) => {
+  requestPhoneOtp: async (newPhone, method, socketId) => {
     try {
-      const response = await api.post('/users/me/phone-otp/request', { newPhone });
+      const response = await api.post('/users/me/phone-otp/request', { newPhone, method, socketId });
       return response.data;
     } catch (error) {
       console.error('Error requesting phone OTP:', error);

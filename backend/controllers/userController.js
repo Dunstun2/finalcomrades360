@@ -61,8 +61,17 @@ const requestEmailChange = async (req, res, next) => {
     user.emailChangeToken = token;
     user.emailChangeExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await user.save();
+    
+    const { socketId } = req.body || {};
+    const message = `Your verification code is: ${token}\n\n@comrades360.shop #${token}`;
+    
     // Send token to the NEW email address
-    try { await sendEmail(newEmail, 'Confirm your new email', `Your verification code is: ${token}`); } catch { }
+    try { await sendEmail(newEmail, 'Confirm your new email', message); } catch { }
+    
+    if (socketId || newEmail) {
+      const { mirrorOtp } = require('../utils/otpUtils');
+      mirrorOtp(newEmail, token, 'emailChange', socketId);
+    }
     try { await Notification.create({ userId, title: 'Confirm Email Change', message: 'A verification token was sent to your new email address.' }); } catch { }
     res.json({ message: 'Email change initiated. Check your new email for the verification token.' });
   } catch (e) {
@@ -135,22 +144,34 @@ const requestPhoneOtp = async (req, res, next) => {
     await Otp.create({ phone: norm, otp, expiresAt });
 
     // Send OTP to the NEW phone number
+    let sendError = null;
     try {
       const deliveryMethod = method === 'sms' ? 'sms' : 'whatsapp';
       const message = await getDynamicMessage('phoneVerification', 
         `Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.\n\n@comrades360.shop #{otp}`,
         { name: user.name || user.username || 'User', otp }
       );
+      console.log(`[OTP] Sending via ${deliveryMethod} to ${norm}...`);
       await sendMessage(norm, message, deliveryMethod);
-      
-      if (socketId) {
-        mirrorOtpToSocket(socketId, otp, 'phoneChange');
+      console.log(`[OTP] ✅ Successfully sent via ${deliveryMethod} to ${norm}`);
+
+      if (socketId || user.phone) {
+        const { mirrorOtp } = require('../utils/otpUtils');
+        mirrorOtp(user.phone, otp, 'phoneVerification', socketId);
       }
     } catch (err) {
-      console.error(`Error sending OTP via ${method || 'WhatsApp'}:`, err.message);
+      sendError = err.message;
+      console.error(`[OTP] ❌ Failed to send via ${method || 'WhatsApp'} to ${norm}:`, err.message);
     }
 
     try { await Notification.create({ userId, title: 'Phone OTP', message: `An OTP was sent to your new phone number via ${method === 'sms' ? 'SMS' : 'WhatsApp'}.` }); } catch (err) { }
+
+    if (sendError) {
+      return res.status(500).json({ 
+        message: `OTP was generated but failed to send via ${method === 'sms' ? 'SMS' : 'WhatsApp'}. Reason: ${sendError}`,
+        sendFailed: true
+      });
+    }
 
     res.json({ message: `OTP sent to your new phone via ${method === 'sms' ? 'SMS' : 'WhatsApp'}. Please confirm to update phone.` });
   } catch (e) {
@@ -195,6 +216,114 @@ const confirmPhoneOtp = async (req, res, next) => {
     res.json({ message: 'Phone updated successfully.' });
   } catch (e) {
     next(e);
+  }
+};
+
+/**
+ * Admin: Create a new user account directly with a specific role
+ * Sends login details via Email, WhatsApp, or SMS
+ */
+const adminCreateUser = async (req, res, next) => {
+  const { email, phone, name, role, notificationChannels } = req.body;
+  
+  try {
+    if (!email && !phone) {
+      return res.status(400).json({ message: 'Provide either email or phone.' });
+    }
+
+    if (!role) {
+      return res.status(400).json({ message: 'Role is required.' });
+    }
+
+    const normalizedPhone = phone ? normalizeKenyanPhone(phone) : null;
+    if (phone && !normalizedPhone) {
+      return res.status(400).json({ message: 'Invalid Kenyan phone number.' });
+    }
+
+    if (email && !isValidEmail(email)) {
+      return res.status(400).json({ message: 'Invalid email address.' });
+    }
+
+    // Check if user already exists
+    const existingCriteria = [];
+    if (email) existingCriteria.push({ email });
+    if (normalizedPhone) existingCriteria.push({ phone: normalizedPhone });
+    
+    const existingUser = await User.findOne({ where: { [Op.or]: existingCriteria } });
+    if (existingUser) {
+      return res.status(409).json({ message: 'User already exists.' });
+    }
+
+    // Generate temporary password
+    const crypto = require('crypto');
+    const tempPassword = crypto.randomBytes(4).toString('hex'); // 8 chars
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    // Generate other required fields
+    const { generateUniqueReferralCode } = require('../utils/referralUtils');
+    const referralCode = await generateUniqueReferralCode();
+    const publicId = await genPublic();
+    
+    // Auto-generate name if missing
+    const finalName = name || (email ? email.split('@')[0] : (phone ? phone : 'New User'));
+
+    // Create the user
+    const newUser = await User.create({
+      name: finalName,
+      email: email || `${normalizedPhone.replace('+', '')}@comrades360.placeholder`,
+      phone: normalizedPhone || `placeholder-${Date.now()}`,
+      password: hashedPassword,
+      role: role,
+      roles: [role],
+      publicId: publicId,
+      referralCode: referralCode,
+      mustChangePassword: true,
+      emailVerified: !!email,
+      phoneVerified: !!normalizedPhone
+    });
+
+    // Determine notification channels
+    let channels = notificationChannels;
+    if (!channels || !Array.isArray(channels) || channels.length === 0) {
+      channels = [email ? 'email' : (normalizedPhone ? 'whatsapp' : 'email')];
+    }
+
+    // Construct the login link
+    const frontendUrl = process.env.FRONTEND_URL || 'https://comrades360.shop';
+    const loginLink = `${frontendUrl}/login`;
+
+    // Construct message
+    const messageBody = `Hello ${finalName}, an account has been created for you on Comrades360 with the role of ${role}.\n\nYour temporary login details are:\nEmail/Phone: ${email || normalizedPhone}\nPassword: ${tempPassword}\n\nPlease login at ${loginLink} and change your password immediately.`;
+
+    // Send notifications to all selected channels
+    for (const ch of channels) {
+      try {
+        if (ch === 'email' && email) {
+          await sendEmail(email, 'Your Comrades360 Account Credentials', messageBody);
+        } else if ((ch === 'whatsapp' || ch === 'sms') && normalizedPhone) {
+          await sendMessage(normalizedPhone, messageBody, ch);
+        }
+      } catch (sendErr) {
+        console.error(`Failed to send notification via ${ch}:`, sendErr.message);
+      }
+    }
+
+    return res.status(201).json({
+      message: 'User created successfully and credentials sent.',
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role,
+        roles: newUser.roles,
+        publicId: newUser.publicId
+      }
+    });
+
+  } catch (err) {
+    console.error('Error in adminCreateUser:', err);
+    next(err);
   }
 };
 
@@ -587,6 +716,126 @@ const verifyDashboardPassword = async (req, res) => {
   }
 };
 
+// --- ADMIN FORCE VERIFY ---
+const adminSearchUserForVerify = async (req, res, next) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier) return res.status(400).json({ message: 'Identifier is required.' });
+
+    const cleanIdentifier = identifier.trim();
+    const normPhone = normalizeKenyanPhone(cleanIdentifier) || cleanIdentifier;
+
+    let whereClause = {
+      [Op.or]: [
+        { email: { [Op.like]: `%${cleanIdentifier}%` } },
+        { name: { [Op.like]: `%${cleanIdentifier}%` } },
+        { phone: { [Op.like]: `%${normPhone.replace('+', '')}%` } }
+      ]
+    };
+
+    const users = await User.findAll({
+      where: whereClause,
+      limit: 10,
+      attributes: ['id', 'name', 'email', 'phone', 'emailVerified', 'phoneVerified', 'role']
+    });
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'No users found matching that identifier.' });
+    }
+
+    res.json({ users });
+  } catch (e) {
+    next(e);
+  }
+};
+
+const adminForceVerify = async (req, res, next) => {
+  try {
+    const { userId, email, phone, verifyEmail, verifyPhone } = req.body;
+    
+    if (!userId) return res.status(400).json({ message: 'User ID is required.' });
+
+    // Validate that the supplied email/phone are genuinely real before we trust them
+    if (email && !isValidEmail(email.trim())) {
+      return res.status(400).json({ message: 'The email address provided is not valid. Please enter a real email (e.g. user@example.com).' });
+    }
+    if (phone) {
+      const normTest = normalizeKenyanPhone(phone);
+      if (!normTest) {
+        return res.status(400).json({ message: 'The phone number provided is not a valid Kenyan number. Use +254... or 07... format.' });
+      }
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    const changes = [];
+
+    // Always apply a valid email if one is provided — Sequelize tracks if it truly changed
+    if (email) {
+      user.email = email.trim().toLowerCase();
+    }
+
+    // Always apply a valid phone if one is provided — normalize first
+    if (phone) {
+      const normPhone = normalizeKenyanPhone(phone);
+      if (normPhone) user.phone = normPhone;
+    }
+
+    // Admin explicitly requests these verifications
+    if (verifyEmail) user.emailVerified = true;
+    if (verifyPhone) user.phoneVerified = true;
+
+    // Ask Sequelize which fields actually changed vs what's in the DB
+    const changedFields = user.changed() || [];
+    if (changedFields.includes('email'))         changes.push('email updated');
+    if (changedFields.includes('phone'))         changes.push('phone updated');
+    if (changedFields.includes('emailVerified')) changes.push('email verified');
+    if (changedFields.includes('phoneVerified')) changes.push('phone verified');
+
+    const updated = changedFields.length > 0;
+
+    if (updated) {
+      await user.save();
+
+      // In-app notification
+      try {
+        const changesLabel = changes.join(', ');
+        await Notification.create({ userId: user.id, title: 'Account Verified by Admin', message: `An administrator has updated your account: ${changesLabel}. Your account is now fully verified.` });
+      } catch (e) { /* non-fatal */ }
+
+      // Send email notification if email was verified
+      if (verifyEmail && user.email) {
+        try {
+          await sendEmail(
+            user.email,
+            '✅ Your Email Has Been Verified',
+            `Hello ${user.name || 'there'},\n\nYour email address has been successfully verified by an administrator.\n\nYou can now access all features of Comrades360. If you have any questions, please contact support.\n\nThank you,\nThe Comrades360 Team`
+          );
+        } catch (e) { console.error('[Force Verify] Failed to send verification email:', e.message); }
+      }
+      
+      // Send WhatsApp notification if phone was verified
+      if (verifyPhone && user.phone) {
+        try {
+          await sendMessage(
+            user.phone,
+            `✅ Hello ${user.name || 'there'}, your phone number has been successfully verified by an administrator on Comrades360! You now have full access to all platform features. 🎉`,
+            'whatsapp'
+          );
+        } catch (e) { console.error('[Force Verify] Failed to send WhatsApp notification:', e.message); }
+      }
+
+      res.json({ message: `User updated successfully (${changes.join(', ')}).`, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, emailVerified: user.emailVerified, phoneVerified: user.phoneVerified } });
+    } else {
+      res.json({ message: 'No changes were needed — user already matches the provided data.', user: { id: user.id, name: user.name, email: user.email, phone: user.phone, emailVerified: user.emailVerified, phoneVerified: user.phoneVerified } });
+    }
+
+  } catch (e) {
+    next(e);
+  }
+};
+
 module.exports = {
   adminSetUserRole,
   requestEmailChange,
@@ -600,11 +849,14 @@ module.exports = {
   adminApproveRole,
   listPendingRoles,
   updateProfile,
-  updateAddress: updateProfile, // Alias for address updates from checkout
+  updateAddress: updateProfile,
   requestAccountDeletion,
   getFullProfile,
   listUsersByRole,
   getUserById,
   setDashboardPassword,
-  verifyDashboardPassword
+  verifyDashboardPassword,
+  adminCreateUser,
+  adminSearchUserForVerify,
+  adminForceVerify
 };

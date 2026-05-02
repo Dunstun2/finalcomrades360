@@ -7,17 +7,17 @@ const AdminPayouts = () => {
 
     const handlePayout = async () => {
         try {
-            await api.post('/admin/process-payout', { sellerId, amount: payoutAmount });
-            alert('Payout processed successfully');
+            await api.post('/finance/verify-earnings', { transactionIds: [sellerId], amount: payoutAmount });
+            alert('Earnings verified successfully');
         } catch (error) {
-            console.error('Error processing payout:', error);
-            alert('Failed to process payout');
+            console.error('Error verifying earnings:', error);
+            alert('Failed to verify earnings');
         }
     };
 
     return (
         <div>
-            <h1>Admin Payouts</h1>
+            <h1>Earning Verification</h1>
             <div>
                 <label>Seller ID:</label>
                 <input
@@ -34,7 +34,7 @@ const AdminPayouts = () => {
                     onChange={(e) => setPayoutAmount(e.target.value)}
                 />
             </div>
-            <button onClick={handlePayout}>Process Payout</button>
+            <button onClick={handlePayout}>Verify Earnings</button>
         </div>
     );
 };

@@ -151,6 +151,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
+    tokenVersion: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      comment: 'Used for force-logout/session invalidation'
+    },
     // Address fields for delivery
     county: {
       type: DataTypes.STRING,
@@ -301,6 +306,16 @@ module.exports = (sequelize, DataTypes) => {
     mustChangePassword: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
+    },
+    tokenVersion: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      comment: 'Increment to invalidate all existing JWTs for this user (force-logout)'
+    },
+    tokenInvalidatedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Timestamp when tokens were last invalidated'
     }
   }, {
     sequelize,

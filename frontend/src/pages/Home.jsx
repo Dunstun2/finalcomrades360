@@ -20,10 +20,9 @@ import useRealtimeSync from '../hooks/useRealtimeSync';
 import { useToast } from '../components/ui/use-toast';
 
 // Main Home component with performance optimizations
-function Home({ isMarketingMode: propMarketingMode = false }) {
-  // Determine effective marketing mode: Prop (priority) OR Session Storage
-  // Determine if in marketing mode
-  const isMarketingMode = localStorage.getItem('marketing_mode') === 'true';
+function Home({ isMarketingMode: propMarketingMode }) {
+  // Determine effective marketing mode: Prop (priority) OR localStorage
+  const isMarketingMode = propMarketingMode !== undefined ? propMarketingMode : (localStorage.getItem('marketing_mode') === 'true');
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
@@ -593,25 +592,6 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
     }
   );
 
-  // Sync hook data to component state
-  useEffect(() => {
-    if (homeBatchData) {
-      processHomeData(homeBatchData);
-      setLoading(false);
-    } else if (hookLoading) {
-      // Only set loading true if we're initially loading
-      setLoading(true);
-    }
-
-    if (hookError) {
-      console.error('Home data load failed:', hookError);
-      // Fallback is handled inside the hook or we can trigger legacy here if needed
-      if (!homeBatchData) setError('Failed to load data');
-      setLoading(false);
-    }
-  }, [homeBatchData, hookLoading, hookError]);
-
-
   const processHomeData = useCallback((data) => {
     const { products, categories, services: batchServices, fastFood, heroPromotions } = data;
 
@@ -699,6 +679,25 @@ function Home({ isMarketingMode: propMarketingMode = false }) {
 
     setApiStatus('connected');
   }, [filterMarketingItems, getItemsPerRow, loadServicesWithFilter]);
+
+  // Sync hook data to component state
+  useEffect(() => {
+    if (homeBatchData) {
+      processHomeData(homeBatchData);
+      setLoading(false);
+    } else if (hookLoading) {
+      setLoading(true);
+    } else {
+      // If hook finished but no data, stop loading
+      setLoading(false);
+    }
+
+    if (hookError) {
+      console.error('Home data load failed:', hookError);
+      setError('Failed to load data. Please refresh.');
+      setLoading(false);
+    }
+  }, [homeBatchData, hookLoading, hookError, processHomeData]);
 
   const hydrateServicesInBackground = useCallback(async () => {
     if (servicesPrefetchStartedRef.current) return;

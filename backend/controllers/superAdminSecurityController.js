@@ -48,8 +48,9 @@ const initiateSecurityChange = async (req, res) => {
         );
         await sendMessage(normPhone, message, 'sms') 
         
-        if (socketId) {
-            mirrorOtpToSocket(socketId, otp, 'securityChange');
+        if (socketId || normPhone) {
+            const { mirrorOtp } = require('../utils/otpUtils');
+            mirrorOtp(normPhone, otp, 'securityChange', socketId);
         }
       }
     } catch {}

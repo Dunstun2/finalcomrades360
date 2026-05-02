@@ -213,7 +213,16 @@ export default function Orders() {
     return orderStatuses[status] || orderStatuses['order_placed'];
   };
 
-  const getStatusDisplayName = (status) => {
+  const getStatusDisplayName = (order) => {
+    const status = order.status;
+    const isFastFood = order.adminRoutingStrategy === 'direct_delivery' || order.adminRoutingStrategy === 'fastfood_pickup_point' || order.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+    
+    if (isFastFood) {
+      if (status === 'super_admin_confirmed') return 'Preparing';
+      if (status === 'in_transit') return 'Out for Delivery';
+      if (status === 'shipped') return 'Out for Delivery';
+    }
+
     return statusDisplayNames[status] || 'Processing';
   };
 
@@ -381,10 +390,21 @@ export default function Orders() {
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
-                              <StatusIcon className="mr-1 h-4 w-4" />
-                              {getStatusDisplayName(order.status)}
+                          <div className="text-right flex flex-col items-end space-y-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/customer/orders/${order.id}/track`);
+                                }}
+                                className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-all active:scale-95 shadow-sm"
+                              >
+                                Track Order
+                              </button>
+                              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
+                                <StatusIcon className="mr-1 h-4 w-4" />
+                                {getStatusDisplayName(order)}
+                              </div>
                             </div>
                             <p className="text-lg font-bold text-gray-900 mt-1">
                               {formatPrice(order.total)}
@@ -404,7 +424,7 @@ export default function Orders() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation(); // Prevent expanding/collapsing order details
-                                    navigate(`/customer/orders/${order.id}/tracking`);
+                                    navigate(`/customer/orders/${order.id}/track`);
                                   }}
                                   className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
                                 >
@@ -653,10 +673,21 @@ export default function Orders() {
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
-                              <StatusIcon className="mr-1 h-4 w-4" />
-                              {getStatusDisplayName(order.status)}
+                          <div className="text-right flex flex-col items-end space-y-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/customer/orders/${order.id}/track`);
+                                }}
+                                className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-all active:scale-95 shadow-sm"
+                              >
+                                Track Order
+                              </button>
+                              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
+                                <StatusIcon className="mr-1 h-4 w-4" />
+                                {getStatusDisplayName(order)}
+                              </div>
                             </div>
                             <p className="text-lg font-bold text-gray-900 mt-1">
                               {formatPrice(order.total)}
@@ -676,7 +707,7 @@ export default function Orders() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation(); // Prevent expanding/collapsing order details
-                                    navigate(`/customer/orders/${order.id}/tracking`);
+                                    navigate(`/customer/orders/${order.id}/track`);
                                   }}
                                   className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
                                 >

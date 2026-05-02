@@ -7,6 +7,7 @@ const PUBLIC_KEYS = [
     'seo_settings',
     'finance_settings',
     'logistic_settings',
+    'batch_system_enabled',
     'content_page_about',
     'content_page_contact',
     'content_page_terms',

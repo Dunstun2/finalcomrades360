@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { FaEdit, FaTrash, FaCheck, FaTimes } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaCheck, FaTimes, FaEye, FaEyeSlash } from 'react-icons/fa';
 
 const RoleManagement = () => {
   const { user } = useAuth();
@@ -24,6 +24,7 @@ const RoleManagement = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const ACCESS_SECTIONS = [
     { id: 'marketplace', label: '🛒 Marketplace' },
@@ -236,15 +237,24 @@ const RoleManagement = () => {
               <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-700 mb-1">
                 Verify Identity (Super Admin Password)
               </label>
-              <input
-                type="password"
-                id="adminPassword"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                placeholder="Enter your password to authorize"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  id="adminPassword"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all pr-10"
+                  placeholder="Enter your password to authorize"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                >
+                  {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                </button>
+              </div>
             </div>
 
             <button

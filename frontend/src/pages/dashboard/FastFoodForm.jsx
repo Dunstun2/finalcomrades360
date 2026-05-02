@@ -13,7 +13,7 @@ import { fastFoodService } from '../../services/fastFoodService';
 import api, { productApi, adminApi } from '../../services/api';
 import { useCategories } from '../../contexts/CategoriesContext';
 import { FaArrowLeft, FaSave, FaSpinner, FaUpload, FaTimes, FaCheck, FaCloudUploadAlt } from 'react-icons/fa';
-import { Utensils, Clock } from 'lucide-react';
+import { Utensils, Clock, Shield } from 'lucide-react';
 import SystemFeedbackModal from '../../components/ui/SystemFeedbackModal';
 import Dialog from '../../components/Dialog';
 import {
@@ -1800,6 +1800,36 @@ const FastFoodForm = ({
                   <span className="text-sm text-gray-700">{formData.minOrderQty || 1}</span>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Admin-only Provider Selection */}
+        {isAdmin && (
+          <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200/50 mb-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                <Shield className="text-white w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-black text-blue-900 uppercase tracking-wider">Administrative Overrides</h3>
+            </div>
+            <div>
+              <Label htmlFor="vendor" className="text-xs font-bold text-blue-700 uppercase">Seller ID (Act on behalf of)</Label>
+              <select
+                id="vendor"
+                name="vendor"
+                value={formData.vendor || ''}
+                onChange={handleInputChange}
+                className="w-full h-10 rounded-md border border-blue-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">Select Provider (Current: {formData.vendor || 'Self'})</option>
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.name} ({seller.email})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-blue-600 mt-1 italic">Leave as "Select Provider" to keep current owner or assign to yourself (Admin). Provide a valid User ID to assign this product to a specific seller.</p>
             </div>
           </div>
         )}

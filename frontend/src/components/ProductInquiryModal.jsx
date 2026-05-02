@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Send, MessageCircle, Phone, Mail } from 'lucide-react';
 import api from '../services/api';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../utils/validation';
 
 const ProductInquiryModal = ({ product, isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({
@@ -25,6 +26,12 @@ const ProductInquiryModal = ({ product, isOpen, onClose, onSuccess }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    if (formData.phone && !validateKenyanPhone(formData.phone)) {
+      setError(`Phone: ${PHONE_VALIDATION_ERROR}`);
+      setLoading(false);
+      return;
+    }
 
     try {
       const inquiryData = {
@@ -130,9 +137,12 @@ const ProductInquiryModal = ({ product, isOpen, onClose, onSuccess }) => {
               name="phone"
               value={formData.phone}
               onChange={handleChange}
+              onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+              maxLength={13}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="+254 xxx xxx xxx"
+              placeholder="e.g. 0712345678 or +254712345678"
             />
+            <p className="text-xs text-gray-400 mt-1">Format: 07/01XXXXXXXX or +254XXXXXXXXX (optional)</p>
           </div>
 
           <div>

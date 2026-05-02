@@ -88,8 +88,8 @@ export default function FastFoodCard({
       return;
     }
 
-    // Redirect to details with autoAdd flag
-    handleView(e, { autoAdd: true });
+    // Redirect to details (auto-add removed as per request)
+    handleView(e);
   };
 
   const handleAddToCart = handleBuyNow;
@@ -269,24 +269,18 @@ export default function FastFoodCard({
           {renderActions ? (
             renderActions({ handleAddToCart, handleView, isOpen })
           ) : (
-            <div className="flex items-center border-t border-gray-100 gap-1">
+            <div className="flex items-center border-t border-gray-100 p-1">
               <button
                 onClick={handleBuyNow}
-                className={`flex-1 min-w-0 px-1 py-1.5 sm:py-2 rounded text-[10px] sm:text-xs font-bold transition-colors truncate flex items-center justify-center gap-1
+                className={`w-full px-2 py-2 rounded-md text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm
                   ${
-                   isOpen ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                   isOpen 
+                     ? 'bg-orange-600 hover:bg-orange-700 text-white hover:shadow-md' 
+                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                  }`}
-                title={isOpen ? 'Buy Now' : 'Shop is currently closed'}
+                title={isOpen ? 'View details and order' : 'Shop is currently closed'}
               >
-                {isOpen ? 'Buy Now' : 'Closed'}
-              </button>
-
-              <button
-                onClick={handleView}
-                className="flex-1 min-w-0 px-1 py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors truncate"
-                title="View Details"
-              >
-                View
+                {isOpen ? 'Order Now' : 'Shop Closed'}
               </button>
             </div>
           )}

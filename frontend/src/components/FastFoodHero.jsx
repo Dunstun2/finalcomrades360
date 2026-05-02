@@ -168,7 +168,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                                         onClick={handleViewDetails}
                                         className="inline-flex items-center gap-2 px-5 py-2 bg-white text-[#111827] rounded-md font-bold text-base shadow-md hover:opacity-95 transition"
                                     >
-                                        {item ? 'Buy Now' : 'Explore Menu'}
+                                        {item ? 'Order Now' : 'Explore Menu'}
                                     </button>
                                 </div>
                             </div>

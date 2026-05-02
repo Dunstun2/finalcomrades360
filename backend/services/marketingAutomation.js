@@ -11,9 +11,9 @@ const { notifyCustomerOrderThankYou } = require('../utils/notificationHelpers');
 const startMarketingAutomation = () => {
     console.log('🚀 Marketing Automation Service started');
 
-    // Run every day at 8:00 PM (20:00)
+    // Run every day at 12:00 AM (00:00)
     // Format: minute hour dayOfMonth month dayOfWeek
-    cron.schedule('0 20 * * *', async () => {
+    cron.schedule('0 0 * * *', async () => {
         console.log('[Marketing Automation] Running daily "Thank You" messages task...');
         try {
             const startOfDay = new Date();
@@ -26,6 +26,7 @@ const startMarketingAutomation = () => {
             const orders = await Order.findAll({
                 where: {
                     status: 'delivered',
+                    thankYouSent: { [Op.not]: true },
                     [Op.or]: [
                         {
                             actualDelivery: {
@@ -53,9 +54,13 @@ const startMarketingAutomation = () => {
             console.log(`[Marketing Automation] Found ${orders.length} delivered orders today.`);
 
             for (const order of orders) {
+                if (order.thankYouSent) continue; // Skip if already sent
+
                 try {
                     const itemType = order.OrderItems?.[0]?.itemType || 'product';
                     await notifyCustomerOrderThankYou(order, itemType);
+                    order.thankYouSent = true;
+                    await order.save();
                 } catch (err) {
                     console.error(`[Marketing Automation] Failed to send thank you for order ${order.orderNumber}:`, err.message);
                 }

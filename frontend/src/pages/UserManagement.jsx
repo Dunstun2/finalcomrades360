@@ -32,8 +32,12 @@ import {
   FaArrowLeft,
   FaSave,
   FaTrash,
-  FaTrashRestore
+  FaTrashRestore,
+  FaEye as FaEyeIcon,
+  FaEyeSlash as FaEyeSlashIcon
 } from 'react-icons/fa';
+import AdminDirectCreateUserModal from './UserManagementComponents/AdminDirectCreateUserModal';
+import AdminForceVerifyModal from './UserManagementComponents/AdminForceVerifyModal';
 
 // Support Messaging Modal Component
 const SupportModal = ({ isOpen, onClose, user }) => {
@@ -280,6 +284,7 @@ const SuperAdminPasswordDialog = ({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const resetAlerts = () => { setError(''); };
 
@@ -381,20 +386,29 @@ const SuperAdminPasswordDialog = ({
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 Super Admin Password *
               </label>
-              <input
-                type="password"
-                id="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  resetAlerts();
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter your super admin password"
-                required
-                disabled={loading}
-                autoFocus
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  id="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    resetAlerts();
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-10"
+                  placeholder="Enter your super admin password"
+                  required
+                  disabled={loading}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                >
+                  {showPassword ? <FaEyeSlashIcon size={16} /> : <FaEyeIcon size={16} />}
+                </button>
+              </div>
               <p className="text-xs text-gray-500 mt-1">
                 Required to verify your super admin privileges
               </p>
@@ -1031,330 +1045,7 @@ const EditUserModal = ({ isOpen, onClose, user, onUserUpdated }) => {
   );
 };
 
-// Add User Dialog Component
-const AddUserDialog = ({ isOpen, onClose, onUserCreated }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    phone: '',
-    role: 'customer',
-    roles: ['customer'],
-    superAdminPassword: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
-  const resetAlerts = () => { setError(''); setSuccess(''); };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    resetAlerts();
-  };
-
-  const handleRoleCheckboxChange = (roleValue) => {
-    setFormData(prev => {
-      const currentRoles = [...prev.roles];
-      const index = currentRoles.indexOf(roleValue);
-
-      if (index === -1) {
-        currentRoles.push(roleValue);
-      } else {
-        if (roleValue === 'customer' && currentRoles.length === 1) return prev;
-        currentRoles.splice(index, 1);
-      }
-
-      const finalRoles = currentRoles.length === 0 ? ['customer'] : currentRoles;
-
-      return {
-        ...prev,
-        roles: finalRoles,
-        role: finalRoles[finalRoles.length - 1]
-      };
-    });
-    resetAlerts();
-  };
-
-  const validateForm = () => {
-    if (!formData.name.trim()) return 'Name is required';
-    if (!formData.email.trim()) return 'Email is required';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) return 'Please enter a valid email';
-    if (!formData.password) return 'Password is required';
-    if (formData.password.length < 6) return 'Password must be at least 6 characters';
-    if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
-    if (!formData.phone.trim()) return 'Phone number is required';
-    if (!validateKenyanPhone(formData.phone)) return PHONE_VALIDATION_ERROR;
-    return null;
-    if (!formData.superAdminPassword) return 'Super admin password is required';
-    return null;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    const validationError = validateForm();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setLoading(true);
-    resetAlerts();
-
-    try {
-      const response = await adminApi.createUser({
-        name: formData.name.trim(),
-        email: formData.email.trim().toLowerCase(),
-        password: formData.password,
-        phone: formData.phone.trim(),
-        role: formData.role,
-        roles: formData.roles,
-        superAdminPassword: formData.superAdminPassword
-      });
-
-      setSuccess('User created successfully!');
-      onUserCreated(response.data.user);
-
-      // Reset form
-      setFormData({
-        name: '',
-        email: '',
-        password: '',
-        confirmPassword: '',
-        phone: '',
-        role: 'customer',
-        roles: ['customer'],
-        superAdminPassword: ''
-      });
-
-    } catch (err) {
-      console.error('Error creating user:', err);
-      setError(err.response?.data?.message || 'Failed to create user. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">Create New User</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <FaTimes className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Alerts */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-100 border border-red-200 text-red-700 rounded-lg">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="mb-4 p-3 bg-green-100 border border-green-200 text-green-700 rounded-lg">
-              {success}
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Name */}
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter full name"
-                  required
-                />
-              </div>
-
-              {/* Email */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter email address"
-                  required
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number *
-                </label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="e.g., 0712345678, 0123456789, or +254712345678"
-                  required
-                />
-              </div>
-
-              {/* Roles (Multi-select) */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-gray-700 mb-3">
-                  Assign Roles (Select all that apply) *
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-gray-50 p-4 border border-gray-200 rounded-lg">
-                  {[
-                    { value: 'customer', label: 'Customer', color: 'blue' },
-                    { value: 'marketer', label: 'Marketer', color: 'purple' },
-                    { value: 'seller', label: 'Seller', color: 'green' },
-                    { value: 'delivery_agent', label: 'Delivery Agent', color: 'orange' },
-                    { value: 'service_provider', label: 'Service Provider', color: 'indigo' },
-                    { value: 'ops_manager', label: 'Ops Manager', color: 'red' },
-                    { value: 'logistics_manager', label: 'Logistics Manager', color: 'yellow' },
-                    { value: 'finance_manager', label: 'Finance Manager', color: 'emerald' },
-                    { value: 'admin', label: 'Admin', color: 'gray' },
-                    { value: 'super_admin', label: 'Super Admin', color: 'black' }
-                  ].map((roleOption) => (
-                    <label
-                      key={roleOption.value}
-                      className={`flex items-center p-2 rounded-md border cursor-pointer transition-all ${formData.roles.includes(roleOption.value) || roleOption.value === 'customer'
-                        ? `border-${roleOption.color}-500 bg-white ring-1 ring-${roleOption.color}-500`
-                        : 'border-gray-200 hover:bg-white bg-transparent'
-                        }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.roles.includes(roleOption.value) || roleOption.value === 'customer'}
-                        onChange={() => roleOption.value !== 'customer' && handleRoleCheckboxChange(roleOption.value)}
-                        disabled={roleOption.value === 'customer'}
-                        className={`rounded border-gray-300 text-${roleOption.color}-600 focus:ring-${roleOption.color}-500 mr-3 h-4 w-4 ${roleOption.value === 'customer' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      />
-                      <span className={`text-xs font-medium ${formData.roles.includes(roleOption.value) || roleOption.value === 'customer' ? `text-${roleOption.color}-700` : 'text-gray-600'}`}>
-                        {roleOption.label} {roleOption.value === 'customer' && <span className="text-[8px] font-normal text-gray-400 mt-1">(Default)</span>}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-2 text-[10px] text-gray-500 italic">
-                  New users will have access to all selected dashboards after verification.
-                </p>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                  Password *
-                </label>
-                <input
-                  type="password"
-                  id="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter password"
-                  required
-                />
-              </div>
-
-              {/* Confirm Password */}
-              <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
-                  Confirm Password *
-                </label>
-                <input
-                  type="password"
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Confirm password"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Super Admin Password */}
-            <div>
-              <label htmlFor="superAdminPassword" className="block text-sm font-medium text-gray-700 mb-1">
-                Super Admin Password *
-              </label>
-              <input
-                type="password"
-                id="superAdminPassword"
-                name="superAdminPassword"
-                value={formData.superAdminPassword}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter your super admin password"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Required to verify administrative privileges
-              </p>
-            </div>
-
-            {/* Actions */}
-            <div className="flex justify-end space-x-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <FaPlus className="w-4 h-4" />
-                    Create User
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // View User Modal Component
 const ViewUserModal = ({ isOpen, onClose, user }) => {
@@ -1508,6 +1199,7 @@ const UserListTab = ({ forcedStatus, activeTab }) => {
   const [totalUsers, setTotalUsers] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showAddUserDialog, setShowAddUserDialog] = useState(false);
+  const [showForceVerifyDialog, setShowForceVerifyDialog] = useState(false);
   const [showEditUserDialog, setShowEditUserDialog] = useState(false);
   const [showViewUserDialog, setShowViewUserDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
@@ -1864,6 +1556,14 @@ const UserListTab = ({ forcedStatus, activeTab }) => {
             Add User
           </button>
           <button
+            onClick={() => setShowForceVerifyDialog(true)}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+            title="Manually verify a user's email or phone"
+          >
+            <FaUserCheck className="w-4 h-4" />
+            Force Verify
+          </button>
+          <button
             onClick={() => setShowExportModal(true)}
             className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
           >
@@ -2101,14 +1801,21 @@ const UserListTab = ({ forcedStatus, activeTab }) => {
       />
 
       {/* Add User Dialog */}
-      <AddUserDialog
+      <AdminDirectCreateUserModal
         isOpen={showAddUserDialog}
         onClose={() => setShowAddUserDialog(false)}
-        onUserCreated={(newUser) => {
-          setUsers([newUser, ...users]);
-          setShowAddUserDialog(false);
-          setSuccess('User created successfully and added to the list!');
-          // Auto-refresh the list
+        onSuccess={() => {
+          setSuccess('User created successfully and credentials sent!');
+          loadUsers();
+        }}
+      />
+
+      {/* Force Verify Dialog */}
+      <AdminForceVerifyModal
+        isOpen={showForceVerifyDialog}
+        onClose={() => setShowForceVerifyDialog(false)}
+        onSuccess={() => {
+          setSuccess('User verified successfully!');
           loadUsers();
         }}
       />

@@ -154,7 +154,6 @@ const FastFoodDetails = () => {
     return params.get('debugBuy') === '1';
   }, [location.search]);
 
-  const autoAddProcessed = useRef(false);
 
   const pushDebugEvent = useCallback((label, data = {}) => {
     if (!buyDebugEnabled) return;
@@ -920,38 +919,6 @@ const FastFoodDetails = () => {
     }
   };
 
-  // Handle auto-add from navigation state
-  useEffect(() => {
-    if (location.state?.autoAdd && item && !loading && !autoAddProcessed.current) {
-      const triggerAutoAdd = async () => {
-        if (!isOpen) return;
-
-        // Skip if already in cart to avoid duplicates or flashes
-        if (isBaseItemInCart) {
-          autoAddProcessed.current = true;
-          return;
-        }
-
-        try {
-          autoAddProcessed.current = true;
-          setPrimaryButtonBusy(true);
-          
-          await submitAddToCart(
-            null,
-            null,
-            false,
-            'auto-add-redirect'
-          );
-        } catch (err) {
-          console.error('[FastFoodDetails] Auto-add failed:', err);
-        } finally {
-          setPrimaryButtonBusy(false);
-        }
-      };
-
-      triggerAutoAdd();
-    }
-  }, [location.state, item, loading, isOpen, isPrimarySelectionInCart, primaryButtonSelection, submitAddToCart]);
 
   if (loading) {
     return (

@@ -10,6 +10,7 @@ import { resolveImageUrl } from '../../../utils/imageUtils';
 import api from '../../../services/api';
 import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../../utils/validation';
 
 // Helpers
 const getDeliveryLabel = (type) => ({
@@ -132,6 +133,10 @@ const DeliveryWallet = () => {
         }
         if (paymentMethod === 'mpesa' && !mpesaNumber) {
             showToast('Please enter your M-Pesa number.', 'error');
+            return;
+        }
+        if (paymentMethod === 'mpesa' && !validateKenyanPhone(mpesaNumber)) {
+            showToast(PHONE_VALIDATION_ERROR, 'error');
             return;
         }
         if (paymentMethod === 'bank' && (!bankName || !accountNumber)) {
@@ -448,10 +453,13 @@ const DeliveryWallet = () => {
                                                     type="tel"
                                                     value={mpesaNumber}
                                                     onChange={(e) => setMpesaNumber(e.target.value)}
-                                                    placeholder="e.g. 2547XXXXXXXX"
+                                                    onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                                                    placeholder="e.g. 0712345678 or +254712345678"
+                                                    maxLength={13}
                                                     required
                                                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all font-mono"
                                                 />
+                                                <p className="text-[10px] text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
                                             </div>
                                         )}
 

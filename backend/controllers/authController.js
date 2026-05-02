@@ -679,8 +679,10 @@ const sendRegistrationOtp = async (req, res, next) => {
     }
     
     // Mirror OTP to socket for auto-prefill (SMS, WhatsApp, or Email)
-    if (socketId) {
-      mirrorOtpToSocket(socketId, otp, 'registration');
+    if (socketId || email || normalizedPhone) {
+      const contact = email || normalizedPhone;
+      const { mirrorOtp } = require('../utils/otpUtils');
+      mirrorOtp(contact, otp, 'registration', socketId);
     }
 
     const responseMsg = email ? 'Verification code sent to your email.' : 'Verification code sent to your phone.';

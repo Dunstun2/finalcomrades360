@@ -7,6 +7,7 @@ import {
   Clock, ChevronDown, ChevronRight, PlusCircle, ListOrdered, Store, User, Shield, Mail
 } from 'lucide-react';
 import { toast } from '../../components/ui/use-toast';
+import PhoneVerification from '../../components/PhoneVerification';
 
 const STATUS_COLORS = {
   order_placed:    { bg: 'bg-blue-50',   text: 'text-blue-700',   label: 'Placed' },
@@ -204,6 +205,7 @@ const DirectOrders = () => {
   const [matches, setMatches] = useState([]);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [userExists, setUserExists] = useState(false);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
   const [suggestedPickupStation, setSuggestedPickupStation] = useState(null);
   const [orderResult, setOrderResult] = useState(null);
 
@@ -239,7 +241,9 @@ const DirectOrders = () => {
       if (data.success) {
         setParsedData(data.parsedData);
         setMatches(data.matches);
+        setMatches(data.matches);
         setUserExists(data.userExists);
+        setIsPhoneVerified(data.userExists); // If they exist, no verification needed
         setSuggestedPickupStation(data.suggestedPickupStation);
         setSelectedItemId(data.matches.length === 1 ? data.matches[0].id : null);
         setStep('review');
@@ -273,6 +277,10 @@ const DirectOrders = () => {
       toast({ title: 'Selection Required', description: 'Please select the correct item from the matches.', variant: 'destructive' });
       return;
     }
+    if (!userExists && !isPhoneVerified) {
+      toast({ title: 'Verification Required', description: 'Please verify the new customer\'s phone number before placing the order.', variant: 'destructive' });
+      return;
+    }
     setLoading(true);
     try {
       const { data } = await orderApi.confirmDirect({
@@ -304,6 +312,7 @@ const DirectOrders = () => {
     setParsedData(null);
     setMatches([]);
     setSelectedItemId(null);
+    setIsPhoneVerified(false);
     setOrderResult(null);
   };
 
@@ -508,7 +517,20 @@ const DirectOrders = () => {
                 </div>
               </div>
 
-              {/* Item Matching */}
+              {!userExists && !isPhoneVerified && parsedData?.customerPhone && (
+                <div className="bg-white rounded-2xl border-2 border-dashed border-amber-200 p-4">
+                  <div className="flex items-center gap-2 mb-4 text-amber-700">
+                    <Shield className="w-5 h-5" />
+                    <p className="text-sm font-black uppercase">Phone Verification Required</p>
+                  </div>
+                  <PhoneVerification 
+                    mode="guest" 
+                    currentPhone={parsedData.customerPhone} 
+                    onVerified={() => setIsPhoneVerified(true)} 
+                  />
+                </div>
+              )}
+
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import api from '../../services/api';
-import { FaEdit, FaTrash, FaPlus, FaChevronDown, FaChevronRight } from 'react-icons/fa';
+import { FaChevronDown, FaChevronRight, FaPlus, FaEdit, FaTrash, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function EnhancedCategories() {
@@ -112,7 +112,9 @@ export default function EnhancedCategories() {
     setPassword('');
     setPasswordError('');
     setVerifying(false);
+    setShowPassword(false);
   };
+  const [showPassword, setShowPassword] = useState(false);
 
   const loadCategories = async () => {
     try {
@@ -819,15 +821,24 @@ export default function EnhancedCategories() {
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                   Enter your admin password to confirm this action
                 </label>
-                <input
-                  type="password"
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                  placeholder="Your admin password"
-                  autoFocus
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 pr-10"
+                    placeholder="Your admin password"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                  </button>
+                </div>
                 {passwordError && (
                   <p className="mt-2 text-sm text-red-600">{passwordError}</p>
                 )}

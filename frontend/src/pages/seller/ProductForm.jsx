@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useToast } from '../../components/ui/use-toast';
 import { productApi } from '../../services/api';
 import { useCategories } from '../../contexts/CategoriesContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatKES, parsePriceInput } from '../../utils/currency';
-import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, Package } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, Package, Shield } from 'lucide-react';
 import AutoSaveIndicator from '../../components/ui/AutoSaveIndicator';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import ChangesDialog from '../../components/ui/changes-dialog';
@@ -86,6 +87,8 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
   const mode = (propMode === 'edit' || isEditRoute || !!params.id) ? 'edit' : 'create';
 
   const productId = mode === 'edit' ? params.id : null;
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.roles?.includes('admin') || user?.role === 'superadmin' || user?.roles?.includes('superadmin') || user?.role === 'super_admin' || user?.roles?.includes('super_admin');
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -352,7 +355,8 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
         flashSaleStart: '',
         flashSaleEnd: '',
         isDigital: false,
-        downloadUrl: ''
+        downloadUrl: '',
+        sellerId: product.sellerId || ''
       };
     }
 
@@ -409,7 +413,8 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
       flashSaleStart: '',
       flashSaleEnd: '',
       isDigital: false,
-      downloadUrl: ''
+      downloadUrl: '',
+      sellerId: ''
     };
 
     try {
@@ -1608,6 +1613,9 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
       if (isDraft) formDataToSend.append('draft', 'true');
       // Basic fields
       formDataToSend.append('name', formData.name || '');
+      if (isAdmin && formData.sellerId) {
+        formDataToSend.append('sellerId', formData.sellerId);
+      }
       formDataToSend.append('brand', formData.brand || '');
       formDataToSend.append('model', formData.model || '');
       formDataToSend.append('shortDescription', formData.shortDescription || '');
@@ -1968,6 +1976,28 @@ const ProductForm = ({ mode: propMode = 'create' }) => {
             ) : (
               /* Standard Product Form - always shown for regular catalog items */
               <form onSubmit={handleSubmit} className="space-y-6">
+                {isAdmin && (
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200/50 mb-6 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                        <Shield className="text-white w-4 h-4" />
+                      </div>
+                      <h3 className="text-sm font-black text-blue-900 uppercase tracking-wider">Administrative Overrides</h3>
+                    </div>
+                    <div>
+                      <Label htmlFor="sellerId" className="text-xs font-bold text-blue-700 uppercase">Seller ID (Act on behalf of)</Label>
+                      <Input
+                        id="sellerId"
+                        name="sellerId"
+                        value={formData.sellerId || ''}
+                        onChange={handleChange}
+                        placeholder="Enter Seller UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)"
+                        className="bg-white border-blue-200 focus:ring-blue-500 font-mono text-xs"
+                      />
+                      <p className="text-[10px] text-blue-600 mt-1 italic">Leave blank to create as yourself (Admin). Provide a valid User ID to assign this product to a specific seller.</p>
+                    </div>
+                  </div>
+                )}
                 {errorMsg && (
                   <div className="p-3 rounded bg-red-50 text-red-700 border border-red-200">
                     {errorMsg}

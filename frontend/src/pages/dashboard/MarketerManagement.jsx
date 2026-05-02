@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import api from '../../services/api';
-import { FaChevronDown, FaChevronUp, FaSearch, FaFilter } from 'react-icons/fa';
+import RoleEarningVerification from './components/RoleEarningVerification';
+import { FaChevronDown, FaChevronUp, FaSearch, FaFilter, FaMoneyBillWave } from 'react-icons/fa';
 
 // ─── Small stateless components ──────────────────────────────────────────────
 const Badge = ({ suspended, deactivated }) => {
@@ -733,12 +735,19 @@ function CommissionsTab({ marketers }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MarketerManagement() {
+  const { tab } = useParams();
   const [marketers, setMarketers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
-  const [activeTab, setActiveTab] = useState('all-marketers');
+  const [activeTab, setActiveTab] = useState(tab || 'all-marketers');
   const [profileMarketer, setProfileMarketer] = useState(null);
   const [expandedMarketerId, setExpandedMarketerId] = useState(null);
+
+  useEffect(() => {
+    if (tab) {
+      setActiveTab(tab);
+    }
+  }, [tab]);
 
   const toggleExpand = (id) => {
     setExpandedMarketerId(expandedMarketerId === id ? null : id);
@@ -808,7 +817,7 @@ export default function MarketerManagement() {
   const tabs = [
     { id: 'all-marketers', label: 'All Marketers', icon: '👥' },
     { id: 'performance', label: 'Performance', icon: '📈' },
-    { id: 'commissions', label: 'Commissions', icon: '💰' },
+    { id: 'earning-verification', label: 'Earning Verification', icon: '✅' },
   ];
 
   // Summary for All-marketers tab
@@ -993,9 +1002,10 @@ export default function MarketerManagement() {
         <PerformanceTab onViewProfile={setProfileMarketer} />
       )}
 
-      {/* ── Commissions Tab ── */}
-      {activeTab === 'commissions' && (
-        <CommissionsTab marketers={marketers} />
+
+      {/* ── Earning Verification Tab ── */}
+      {activeTab === 'earning-verification' && (
+        <RoleEarningVerification role="marketer" hideHeader />
       )}
     </div>
   );

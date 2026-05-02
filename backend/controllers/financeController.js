@@ -170,7 +170,11 @@ const getPendingPayouts = async (req, res) => {
 };
 
 // POST /api/finance/process-payout
-const processPayout = async (req, res) => {
+/**
+ * Verify and clear pending earnings, moving them from successBalance to withdrawable balance.
+ * This process is now termed 'Earning Verification' rather than 'Payout'.
+ */
+const verifyEarnings = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const { transactionIds, referenceNumber, proofUrl } = req.body; // Array of IDs + Proof
@@ -198,29 +202,30 @@ const processPayout = async (req, res) => {
             });
 
             if (tx && tx.status === 'success') {
+                // MOVE TO WITHDRAWABLE BALANCE
                 await moveToPaid(tx.userId, tx.amount, id, t);
 
-                // Attach proof to the transaction metadata
+                // Attach verification proof to the transaction metadata
                 const meta = tx.metadata ? (typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata) : {};
-                meta.payoutProofUrl = proofUrl || meta.payoutProofUrl;
-                meta.payoutReference = referenceNumber || meta.payoutReference;
-                meta.processedAt = new Date();
+                meta.verificationProofUrl = proofUrl || meta.verificationProofUrl;
+                meta.verificationReference = referenceNumber || meta.verificationReference;
+                meta.verifiedAt = new Date();
                 await tx.update({ metadata: JSON.stringify(meta) }, { transaction: t });
 
-                // NOTIFICATION: Notify user about successful payout
+                // NOTIFICATION: Notify user about verified earnings
                 try {
                     const user = await User.findByPk(tx.userId, { transaction: t });
                     if (user && user.phone) {
                         const { getDynamicMessage } = require('../utils/templateUtils');
                         const { sendMessage } = require('../utils/messageService');
-                        const msg = await getDynamicMessage('withdrawalStatus', 
-                            'Your withdrawal of KES {amount} has been processed successfully! 💰', 
+                        const msg = await getDynamicMessage('earningVerified', 
+                            'Great news! Your earnings of KES {amount} have been verified and added to your balance. 💰', 
                             { name: user.name || 'User', amount: tx.amount }
                         );
-                        sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send payout notification:', e.message));
+                        sendMessage(user.phone, msg, 'whatsapp').catch(e => console.error('Failed to send verification notification:', e.message));
                     }
                 } catch (notifyErr) {
-                    console.error('Error notifying user about payout:', notifyErr.message);
+                    console.error('Error notifying user about earning verification:', notifyErr.message);
                 }
 
                 // AUTOMATION: Claim system revenue for the associated task
@@ -265,7 +270,7 @@ const processPayout = async (req, res) => {
                     }
                 }
             } else if (tx && tx.type === 'debit' && tx.status === 'pending') {
-                // This is a manual withdrawal request from balance
+                // This is a manual withdrawal request from balance (Actual Payout)
 
                 const meta = tx.metadata ? (typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata) : {};
                 meta.payoutProofUrl = proofUrl || meta.payoutProofUrl;
@@ -351,35 +356,49 @@ const processPayout = async (req, res) => {
         // Record total platform revenue if any was collected
         if (totalSystemRevenue > 0) {
             await Transaction.create({
-                userId: req.user.id, // Admin who processed payout
+                userId: req.user.id, // Admin who processed verification
                 type: 'system_delivery_revenue',
                 amount: totalSystemRevenue,
                 status: 'completed',
-                description: `System revenue auto-collected from ${tasksClaimed} payouts`,
-                metadata: JSON.stringify({ source: 'auto_payout', payoutTxIds: transactionIds })
+                description: `System revenue auto-collected from ${tasksClaimed} verified earnings`,
+                metadata: JSON.stringify({ source: 'earning_verification', verificationTxIds: transactionIds })
             }, { transaction: t });
         }
 
         await t.commit();
         res.json({
-            message: 'Payouts processed successfully',
+            message: 'Earnings verified successfully',
             systemRevenueCollected: totalSystemRevenue,
             tasksSettled: tasksClaimed
         });
     } catch (error) {
         await t.rollback();
-        console.error('Error processing payouts:', error);
-        res.status(500).json({ error: 'Failed to process payouts', detail: error.message });
+        console.error('Error verifying earnings:', error);
+        res.status(500).json({ error: 'Failed to verify earnings', detail: error.message });
     }
 };
 
-// GET /api/finance/delivery-success-balances
-// Only returns agents who have successBalance > 0 (cleared funds awaiting payout)
-const getAgentSuccessBalances = async (req, res) => {
+// GET /api/finance/success-balances
+// Only returns users who have successBalance > 0 (cleared funds awaiting payout)
+// Optional ?role= query parameter
+const getSuccessBalances = async (req, res) => {
     try {
-        const agents = await User.findAll({
-            where: { role: 'delivery_agent' },
-            attributes: ['id', 'name', 'phone', 'email'],
+        const { role } = req.query;
+        const where = {};
+        if (role) {
+            const { Sequelize } = User.sequelize;
+            where[Op.or] = [
+                { role: role },
+                Sequelize.where(
+                    Sequelize.cast(Sequelize.col('User.roles'), 'CHAR'),
+                    { [Op.like]: `%"${role}"%` }
+                )
+            ];
+        }
+
+        const users = await User.findAll({
+            where,
+            attributes: ['id', 'name', 'phone', 'email', 'role'],
             include: [{
                 model: Wallet,
                 as: 'wallet',
@@ -391,10 +410,10 @@ const getAgentSuccessBalances = async (req, res) => {
                 [{ model: Wallet, as: 'wallet' }, 'successBalance', 'DESC']
             ]
         });
-        res.json(agents);
+        res.json(users);
     } catch (error) {
-        console.error('Error fetching agent success balances:', error);
-        res.status(500).json({ error: 'Failed to fetch agent success balances', detail: error.message });
+        console.error('Error fetching success balances:', error);
+        res.status(500).json({ error: 'Failed to fetch success balances', detail: error.message });
     }
 };
 
@@ -544,11 +563,14 @@ const collectSystemRevenue = async (req, res) => {
     }
 };
 
-// GET /api/finance/automatic-payout-status
+// GET /api/finance/automatic-payout-status?type=delivery|earning
 const getAutomaticPayoutStatus = async (req, res) => {
     try {
-        const config = await PlatformConfig.findOne({ where: { key: 'automatic_delivery_payout_enabled' } });
-        res.json({ enabled: config ? config.value === 'true' : false });
+        const { type = 'delivery' } = req.query;
+        const key = type === 'delivery' ? 'automatic_delivery_payout_enabled' : 'automatic_earning_verification_enabled';
+        
+        const config = await PlatformConfig.findOne({ where: { key } });
+        res.json({ enabled: config ? config.value === 'true' : false, type });
     } catch (error) {
         console.error('Error getting automatic payout status:', error);
         res.status(500).json({ error: 'Failed to fetch status' });
@@ -558,10 +580,11 @@ const getAutomaticPayoutStatus = async (req, res) => {
 // POST /api/finance/toggle-automatic-payout
 const toggleAutomaticPayout = async (req, res) => {
     try {
-        const { enabled } = req.body;
+        const { enabled, type = 'delivery' } = req.body;
+        const key = type === 'delivery' ? 'automatic_delivery_payout_enabled' : 'automatic_earning_verification_enabled';
 
         const [config, created] = await PlatformConfig.findOrCreate({
-            where: { key: 'automatic_delivery_payout_enabled' },
+            where: { key },
             defaults: { value: enabled ? 'true' : 'false' }
         });
 
@@ -570,22 +593,27 @@ const toggleAutomaticPayout = async (req, res) => {
             await config.save();
         }
 
-        res.json({ message: `Automatic payout ${enabled ? 'enabled' : 'disabled'}`, enabled });
+        const label = type === 'delivery' ? 'Automatic delivery payout' : 'Automatic earning verification';
+        res.json({ 
+            message: `${label} ${enabled ? 'enabled' : 'disabled'}`, 
+            enabled,
+            type
+        });
     } catch (error) {
         console.error('Error toggling automatic payout:', error);
         res.status(500).json({ error: 'Failed to toggle automatic payout' });
     }
 };
 
-// GET /api/finance/agent-success-transactions/:agentId
-const getAgentSuccessTransactions = async (req, res) => {
+// GET /api/finance/success-transactions/:userId
+const getSuccessTransactions = async (req, res) => {
     try {
-        const { agentId } = req.params;
+        const { userId } = req.params;
         const { DeliveryTask, OrderItem, Product, FastFood, Warehouse, PickupStation } = require('../models');
 
         const transactions = await Transaction.findAll({
             where: {
-                userId: agentId,
+                userId,
                 status: 'success'
             },
             include: [
@@ -596,7 +624,8 @@ const getAgentSuccessTransactions = async (req, res) => {
                         {
                             model: DeliveryTask,
                             as: 'deliveryTasks',
-                            where: { deliveryAgentId: agentId },
+                            // Try to match the task for this user if they are an agent
+                            where: { deliveryAgentId: userId },
                             required: false
                         },
                         {
@@ -618,8 +647,8 @@ const getAgentSuccessTransactions = async (req, res) => {
 
         res.json(transactions);
     } catch (error) {
-        console.error('Error fetching agent success transactions:', error);
-        res.status(500).json({ error: 'Failed to fetch agent success transactions' });
+        console.error('Error fetching success transactions:', error);
+        res.status(500).json({ error: 'Failed to fetch success transactions' });
     }
 };
 
@@ -767,18 +796,98 @@ const getDeliveryChargeSummary = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/finance/seller-sales-history
+ * Returns a history of sales (orders) for a specific seller with financial breakdown.
+ */
+const getSellerSalesHistory = async (req, res) => {
+    try {
+        const { sellerId } = req.query;
+
+        const page = parseInt(req.query.page || '1', 10);
+        const pageSize = parseInt(req.query.pageSize || '50', 10);
+        const offset = (page - 1) * pageSize;
+
+        const whereClause = {
+            paymentConfirmed: true,
+            status: { [Op.ne]: 'cancelled' }
+        };
+        if (sellerId) {
+            whereClause.sellerId = sellerId;
+        }
+
+        const { count, rows: orders } = await Order.findAndCountAll({
+            where: whereClause,
+            include: [
+                {
+                    model: OrderItem,
+                    as: 'OrderItems',
+                    attributes: ['id', 'quantity', 'price', 'total', 'commissionRate', 'commissionAmount'],
+                    include: [
+                        { model: Product, as: 'Product', attributes: ['id', 'name'], required: false },
+                        { model: FastFood, as: 'FastFood', attributes: ['id', 'name'], required: false }
+                    ]
+                },
+                { model: User, as: 'user', attributes: ['id', 'name', 'phone'] },
+                { model: User, as: 'seller', attributes: ['id', 'name', 'phone'], required: false }
+            ],
+            order: [['createdAt', 'DESC']],
+            limit: pageSize,
+            offset
+        });
+
+        const data = orders.map(order => {
+            const items = order.OrderItems || [];
+            const grossSale = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+            const totalCommission = items.reduce((sum, item) => sum + (parseFloat(item.commissionAmount) || 0), 0);
+            const netEarning = grossSale - totalCommission;
+
+            return {
+                id: order.id,
+                orderNumber: order.orderNumber,
+                seller: order.seller ? { name: order.seller.name, phone: order.seller.phone } : null,
+                customer: order.user ? { name: order.user.name, phone: order.user.phone } : null,
+                status: order.status,
+                createdAt: order.createdAt,
+                grossSale,
+                totalCommission,
+                netEarning,
+                itemCount: items.length,
+                items: items.map(i => ({
+                    name: i.Product?.name || i.FastFood?.name || 'Unknown Item',
+                    quantity: i.quantity,
+                    price: i.price,
+                    total: i.total
+                }))
+            };
+        });
+
+        res.json({
+            data,
+            total: count,
+            page,
+            pageSize,
+            totalPages: Math.ceil(count / pageSize)
+        });
+    } catch (error) {
+        console.error('Error fetching seller sales history:', error);
+        res.status(500).json({ error: 'Failed to fetch seller sales history', detail: error.message });
+    }
+};
+
 module.exports = {
     getDeliveryConfig,
     updateDeliveryConfig,
     getSystemIncome,
     getPendingPayouts,
-    processPayout,
-    getAgentSuccessBalances,
-    getAgentSuccessTransactions,
+    verifyEarnings,
+    getSuccessBalances,
+    getSuccessTransactions,
     getAutomaticPayoutStatus,
     toggleAutomaticPayout,
     getDeliveryTaskHistory,
     collectSystemRevenue,
     getDeliveryChargeLedger,
-    getDeliveryChargeSummary
+    getDeliveryChargeSummary,
+    getSellerSalesHistory
 };

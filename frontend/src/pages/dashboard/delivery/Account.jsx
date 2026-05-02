@@ -3,6 +3,7 @@ import { FaUserCog, FaPhone, FaEnvelope, FaMapMarkerAlt, FaTruck, FaStar, FaEdit
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import api from '../../../services/api';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../../utils/validation';
 
 const DeliveryAgentAccount = () => {
   const { user } = useAuth();
@@ -91,17 +92,27 @@ const DeliveryAgentAccount = () => {
       }
     }
 
+    // Phone format validation
+    if (!validateKenyanPhone(profile.phone)) {
+      setMessage({ type: 'error', text: `Phone Number: ${PHONE_VALIDATION_ERROR}` });
+      return;
+    }
+    if (!profile.emergencyContact || !validateKenyanPhone(profile.emergencyContact)) {
+      setMessage({ type: 'error', text: `Emergency Contact: ${PHONE_VALIDATION_ERROR}` });
+      return;
+    }
+
     // Additional Payment Validation
     if (profile.paymentMethod === 'mobile_money' && !profile.mobileMoneyNumber) {
       setMessage({ type: 'error', text: 'Missing required field: mobile money number' });
       return;
     }
-    if (profile.paymentMethod === 'bank' && (!profile.bankName || !profile.accountNumber)) {
-      setMessage({ type: 'error', text: 'Missing required field: bank name or account number' });
+    if (profile.paymentMethod === 'mobile_money' && !validateKenyanPhone(profile.mobileMoneyNumber)) {
+      setMessage({ type: 'error', text: `Mobile Money Number: ${PHONE_VALIDATION_ERROR}` });
       return;
     }
-    if (!profile.emergencyContact) {
-      setMessage({ type: 'error', text: 'Missing required field: emergency contact' });
+    if (profile.paymentMethod === 'bank' && (!profile.bankName || !profile.accountNumber)) {
+      setMessage({ type: 'error', text: 'Missing required field: bank name or account number' });
       return;
     }
 
@@ -250,12 +261,18 @@ const DeliveryAgentAccount = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-red-500">*</span></label>
                   {isEditing ? (
-                    <input
-                      type="tel"
-                      value={profile.phone || ''}
-                      onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
+                    <>
+                      <input
+                        type="tel"
+                        value={profile.phone || ''}
+                        onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                        onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                        placeholder="e.g. 0712345678 or +254712345678"
+                        maxLength={13}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
+                    </>
                   ) : (
                     <div className="p-3 bg-gray-50 rounded-lg flex items-center space-x-2">
                       <FaPhone className="text-gray-400" />
@@ -300,13 +317,18 @@ const DeliveryAgentAccount = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact <span className="text-red-500">*</span></label>
                   {isEditing ? (
-                    <input
-                      type="tel"
-                      value={profile.emergencyContact || ''}
-                      onChange={(e) => setProfile({ ...profile, emergencyContact: e.target.value })}
-                      placeholder="e.g. +254..."
-                      className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 ${!profile.emergencyContact ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
-                    />
+                    <>
+                      <input
+                        type="tel"
+                        value={profile.emergencyContact || ''}
+                        onChange={(e) => setProfile({ ...profile, emergencyContact: e.target.value })}
+                        onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                        placeholder="e.g. 0712345678 or +254712345678"
+                        maxLength={13}
+                        className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 ${!profile.emergencyContact ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
+                    </>
                   ) : (
                     <div className="p-3 bg-gray-50 rounded-lg">{profile.emergencyContact || 'Not set'}</div>
                   )}
@@ -539,12 +561,18 @@ const DeliveryAgentAccount = () => {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-red-500">*</span></label>
                       {isEditing ? (
-                        <input
-                          type="tel"
-                          value={profile.mobileMoneyNumber || ''}
-                          onChange={(e) => setProfile({ ...profile, mobileMoneyNumber: e.target.value })}
-                          className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 ${!profile.mobileMoneyNumber ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
-                        />
+                        <>
+                          <input
+                            type="tel"
+                            value={profile.mobileMoneyNumber || ''}
+                            onChange={(e) => setProfile({ ...profile, mobileMoneyNumber: e.target.value })}
+                            onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                            placeholder="e.g. 0712345678 or +254712345678"
+                            maxLength={13}
+                            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 ${!profile.mobileMoneyNumber ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
+                          />
+                          <p className="text-xs text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
+                        </>
                       ) : (
                         <div className="p-3 bg-gray-50 rounded-lg">{profile.mobileMoneyNumber || 'Not set'}</div>
                       )}

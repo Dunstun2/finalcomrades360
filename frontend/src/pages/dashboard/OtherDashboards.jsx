@@ -129,8 +129,8 @@ const OtherDashboards = () => {
             <FaCubes className="text-2xl text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Role-Based Dashboards</h1>
-            <p className="text-gray-600">Access fully functional role-based dashboards and management interfaces</p>
+            <h1 className="text-2xl font-bold text-gray-900">Assume Role (Bypass Mode)</h1>
+            <p className="text-gray-600">Access role-based dashboards with full administrative bypass of standard user restrictions.</p>
           </div>
         </div>
 
@@ -148,23 +148,23 @@ const OtherDashboards = () => {
           <div className="bg-blue-50 p-4 rounded-lg">
             <div className="flex items-center space-x-2">
               <FaCheckCircle className="text-blue-600" />
-              <span className="font-medium text-blue-900">Fully Functional</span>
+              <span className="font-medium text-blue-900">Bypass Mode Active</span>
             </div>
-            <p className="text-sm text-blue-700 mt-1">All dashboards include complete CRUD operations and real-time data</p>
+            <p className="text-sm text-blue-700 mt-1">Specialized dashboards are accessed with super-user privileges, bypassing maintenance and UI gates.</p>
           </div>
           <div className="bg-green-50 p-4 rounded-lg">
             <div className="flex items-center space-x-2">
               <FaUsers className="text-green-600" />
-              <span className="font-medium text-green-900">Role-Based Access</span>
+              <span className="font-medium text-green-900">Act as Any User</span>
             </div>
-            <p className="text-sm text-green-700 mt-1">Each dashboard provides specific functionality for different user roles</p>
+            <p className="text-sm text-green-700 mt-1">Manage listings and orders on behalf of sellers or marketers without switching accounts.</p>
           </div>
           <div className="bg-purple-50 p-4 rounded-lg">
             <div className="flex items-center space-x-2">
               <FaMedal className="text-purple-600" />
               <span className="font-medium text-purple-900">Admin Privileges</span>
             </div>
-            <p className="text-sm text-purple-700 mt-1">Super admin access to view operations from all user perspectives</p>
+            <p className="text-sm text-purple-700 mt-1">Full access to restricted tools like on-behalf product creation and advanced analytics.</p>
           </div>
         </div>
       </div>

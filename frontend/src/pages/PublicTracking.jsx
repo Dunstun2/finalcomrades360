@@ -7,9 +7,16 @@ import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft,
 const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   if (!rawStatus) return 'Processing';
   const s = rawStatus.toLowerCase().replace(/ /g, '_');
+  const orderObj = trackingObj?.order;
+  const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
   
   if (['delivered', 'completed'].includes(s)) return 'Delivered';
   if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+
+  if (isFastFood) {
+    if (s === 'super_admin_confirmed') return 'Preparing';
+    if (['in_transit', 'shipped'].includes(s)) return 'Out for Delivery';
+  }
 
   // Determine if this is the final transit leg
   let isTerminalLeg = false;
@@ -36,8 +43,10 @@ const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
 const STATUS_CONFIG = {
   'Order Placed':    { color: 'text-blue-600 bg-blue-50',   icon: FaClock },
   'Processing':      { color: 'text-yellow-600 bg-yellow-50', icon: FaClock },
+  'Preparing':       { color: 'text-orange-600 bg-orange-50', icon: FaClock },
   'Shipped':         { color: 'text-purple-600 bg-purple-50', icon: FaTruck },
   'In Transit':      { color: 'text-indigo-600 bg-indigo-50', icon: FaTruck },
+  'Out for Delivery':{ color: 'text-indigo-600 bg-indigo-50', icon: FaTruck },
   'Ready for Pickup':{ color: 'text-sky-600 bg-sky-50',     icon: FaBox },
   'Delivered':       { color: 'text-green-600 bg-green-50',  icon: FaCheckCircle },
   'Cancelled':       { color: 'text-red-600 bg-red-50',     icon: FaClock },
@@ -154,7 +163,9 @@ export default function PublicTracking() {
 
               {/* Timeline progress bar */}
               {(() => {
-                const steps = ['Order Placed', 'Processing', 'Shipped', 'In Transit', 'Delivered'];
+                const steps = tracking.order?.adminRoutingStrategy === 'direct_delivery' || tracking.order?.adminRoutingStrategy === 'fastfood_pickup_point'
+                  ? ['Order Placed', 'Preparing', 'Out for Delivery', 'Delivered']
+                  : ['Order Placed', 'Processing', 'Shipped', 'In Transit', 'Delivered'];
                 const idx = steps.indexOf(displayStatus);
                 return (
                   <div className="mt-4">

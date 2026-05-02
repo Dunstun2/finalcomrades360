@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { FaChevronRight } from 'react-icons/fa';
 import api from '../../services/api';
 import {
   Chart as ChartJS,
@@ -190,7 +192,12 @@ export default function AdvancedReports() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Advanced Reports & Analytics</h1>
+        <div className="flex items-center gap-4">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-800">Advanced Reports & Analytics</h1>
+        </div>
         <div className="flex gap-2">
           <div className="flex gap-2 items-center">
             <label className="text-sm">From:</label>

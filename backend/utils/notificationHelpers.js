@@ -178,8 +178,9 @@ async function createNotification(userId, title, message, type = 'info') {
  */
 async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrderNumber, optionalDeliveryType) {
     const agentId = typeof agentOrId === 'object' ? agentOrId.id : agentOrId;
-    const orderNumber = typeof orderOrId === 'object' ? orderOrId.orderNumber : (optionalOrderNumber || orderOrId);
-    const deliveryType = optionalDeliveryType || (typeof orderOrId === 'object' ? orderOrId.deliveryType : null);
+    const order = typeof orderOrId === 'object' ? orderOrId : null;
+    const orderNumber = order ? order.orderNumber : (optionalOrderNumber || orderOrId);
+    const deliveryType = optionalDeliveryType || (order ? order.deliveryType : null);
 
     const typeLabels = {
         'warehouse_to_customer': 'Warehouse → Customer',
@@ -192,9 +193,36 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         'pickup_station_to_warehouse': 'Pickup Station → Warehouse'
     };
 
+    // Extract extra details for the agent
+    let itemsList = 'N/A';
+    let totalAmount = '0';
+    let deliveryLocation = 'N/A';
+    let customerPhone = 'N/A';
+
+    if (order) {
+        if (order.OrderItems && order.OrderItems.length > 0) {
+            itemsList = order.OrderItems.map(i => `${i.name || 'Item'} x${i.quantity || 1}`).join(', ');
+        } else if (order.itemsCount) {
+            itemsList = `${order.itemsCount} items`;
+        }
+
+        totalAmount = order.total?.toLocaleString() || '0';
+        deliveryLocation = order.deliveryAddress || order.marketingDeliveryAddress || 'Selected Location';
+        customerPhone = order.customerPhone || order.user?.phone || 'N/A';
+    }
+
+    const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nLocation: {deliveryLocation}\nCustomer Phone: {customerPhone}`;
+
     const message = await getDynamicMessage('agentTaskAssigned', 
-        `You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}`,
-        { orderNumber, deliveryType: typeLabels[deliveryType] || deliveryType }
+        defaultTemplate,
+        { 
+            orderNumber, 
+            deliveryType: typeLabels[deliveryType] || deliveryType,
+            itemsList,
+            totalAmount,
+            deliveryLocation,
+            customerPhone
+        }
     );
 
     return await createNotification(
@@ -457,16 +485,20 @@ async function notifyCustomerGoogleSignup(user, tempPassword) {
 /**
  * Notify marketer that they have successfully placed an order for a customer
  */
-async function notifyMarketerOrderPlaced(order, marketer, customerName) {
+async function notifyMarketerOrderPlaced(order, marketer, customerName, commissionAmount) {
     if (!marketer || !order) return;
 
-    const defaultTemplate = `Success! 🚀 You have successfully placed order #{orderNumber} for {customerName}.\n\nTotal: KES {total}\nItems: {itemsCount}\n\nKeep growing your network on Comrades360!`;
+    const commission = commissionAmount || order.totalCommission || '0';
+    const total = order.total?.toLocaleString() || '0';
+
+    const defaultTemplate = `Success! 🚀 You have successfully placed order #{orderNumber} for {customerName}.\n\nTotal Amount: KES {total}\nYour Commission: KES {commission}\nItems: {itemsCount}\n\nKeep growing your network on Comrades360!`;
 
     await sendCustomerNotificationAcrossChannels('marketerOrderPlaced', {
         name: marketer.name || 'Marketer',
         orderNumber: order.orderNumber,
         customerName: customerName || order.customerName || 'your customer',
-        total: order.total?.toLocaleString() || '0',
+        total,
+        commission: Number(commission).toLocaleString(),
         itemsCount: order.itemsCount || 'the selected items',
         title: 'Order Placed Successfully! 🚀',
         type: 'success',

@@ -8,6 +8,9 @@ const { creditAgentByOrder } = require('../services/earningsService');
 const { normalizeKenyanPhone } = require('../middleware/validators');
 const autoDispatchService = require('../services/autoDispatchService');
 const { getOrderRoutePolicy } = require('../controllers/orderController');
+const { logAdminAction } = require('../middleware/auditLog');
+const { PlatformConfig } = require('../models');
+const bcrypt = require('bcryptjs');
 
 // Create payment record for an order
 const createPayment = async (req, res) => {
@@ -1459,6 +1462,134 @@ const initiateWalletPayment = async (req, res) => {
   }
 };
 
+/**
+ * Manually confirm a payment when automated callbacks fail.
+ * This should only be accessible by super-admins or authorized admins.
+ */
+const confirmManualPayment = async (req, res) => {
+  const { orderId, mpesaReceiptNumber, amount, adminPassword, reason } = req.body;
+  const adminId = req.user.id;
+
+  try {
+    // 1. Verify admin password
+    const adminUser = await User.findByPk(adminId);
+    const isMatch = await bcrypt.compare(adminPassword, adminUser.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid admin password' });
+    }
+
+    // 2. Find order
+    const order = await Order.findByPk(orderId, {
+      include: [{ model: User, as: 'user' }]
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (order.paymentConfirmed) return res.status(400).json({ success: false, message: 'Order already paid' });
+
+    // 3. Find or create payment record
+    let payment = await Payment.findOne({
+      where: { orderId, status: { [Op.ne]: 'completed' } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    const t = await sequelize.transaction();
+
+    try {
+      if (!payment) {
+        payment = await Payment.create({
+          orderId,
+          userId: order.userId,
+          paymentMethod: 'mpesa_manual',
+          paymentType: 'prepay',
+          amount: amount || order.total,
+          currency: 'KES',
+          status: 'pending',
+          initiatedAt: new Date(),
+          metadata: JSON.stringify({ manualConfirmation: true, reason, adminId })
+        }, { transaction: t });
+      }
+
+      // 4. Complete payment
+      const receipt = mpesaReceiptNumber || `MANUAL-${Date.now()}`;
+      await payment.update({
+        status: 'completed',
+        mpesaReceiptNumber: receipt,
+        mpesaTransactionId: receipt,
+        externalTransactionId: receipt,
+        paymentDate: new Date(),
+        completedAt: new Date(),
+        metadata: JSON.stringify({
+          ...payment.metadata ? JSON.parse(payment.metadata) : {},
+          manualConfirmation: true,
+          confirmedBy: adminId,
+          confirmationReason: reason,
+          confirmedAt: new Date().toISOString()
+        })
+      }, { transaction: t });
+
+      // 5. Update order status
+      const routePolicy = await getOrderRoutePolicy(order.id, t);
+      const nextStatus = (routePolicy.isFastFoodOnlyOrder && ['order_placed', 'super_admin_confirmed'].includes(order.status)) 
+        ? 'awaiting_delivery_assignment' 
+        : (['order_placed', 'super_admin_confirmed'].includes(order.status) ? 'paid' : order.status);
+
+      await order.update({
+        paymentConfirmed: true,
+        status: nextStatus
+      }, { transaction: t });
+
+      // 6. Handle Transition (Auto-Create Task)
+      const { autoCreateDeliveryTask } = require('./orderTransitionController');
+      await autoCreateDeliveryTask(order, order.status, nextStatus);
+
+      // 7. Handle Auto-Dispatch
+      const configRecord = await PlatformConfig.findOne({ where: { key: 'logistic_settings' }, transaction: t });
+      const settings = configRecord ? (typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value) : {};
+      if (settings.autoDispatchOrders && nextStatus === 'awaiting_delivery_assignment') {
+        autoDispatchService.runAutoDispatch(order.id).catch(err => console.error('[AutoDispatch] Failed:', err));
+      }
+
+      // 8. Create commission records
+      try {
+        await createCommissionRecords(order.id, order.primaryReferralCode, order.secondaryReferralCode, { transaction: t });
+      } catch (ce) {
+        console.warn('Manual Confirmation Commission Error:', ce);
+      }
+      
+      // 9. Credit agent if assigned
+      try {
+        await creditAgentByOrder(order.id, t);
+      } catch (ae) {
+        console.warn('Manual Confirmation Agent Credit Error:', ae);
+      }
+
+      // 10. Audit Log
+      await logAdminAction({
+        adminId: req.user.id,
+        adminName: req.user.name,
+        action: 'MANUAL_PAYMENT_CONFIRMATION',
+        targetType: 'Order',
+        targetId: order.id,
+        targetName: `Order #${order.id}`,
+        details: { amount: payment.amount, mpesaReceiptNumber: receipt, reason },
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+
+      await t.commit();
+
+      res.json({ success: true, message: 'Payment confirmed manually', order });
+
+    } catch (innerError) {
+      await t.rollback();
+      throw innerError;
+    }
+
+  } catch (error) {
+    console.error('[Payment] Manual confirmation error:', error);
+    res.status(500).json({ success: false, message: 'Failed to confirm payment manually' });
+  }
+};
+
 module.exports = {
   createPayment,
   initiateMpesaPayment,
@@ -1474,5 +1605,6 @@ module.exports = {
   getUserPayments,
   processRefund,
   initiateWalletPayment,
+  confirmManualPayment,
   mpesaSimulate // Keep existing function for backward compatibility
 };

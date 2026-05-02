@@ -9,7 +9,7 @@ import { useToast } from '../../../components/ui/use-toast';
 import { productApi, adminApi } from '../../../services/api';
 import { useCategories } from '../../../contexts/CategoriesContext';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, X, AlertCircle, Info, Cloud, Store } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, Video, Save, Check, Edit, X, AlertCircle, Info, Cloud, Store, Shield } from 'lucide-react';
 import { productExists, getProductEditUrl } from '../../../utils/productUtils';
 import { resolveImageUrl } from '../../../utils/imageUtils';
 import { recursiveParse, ensureArray, ensureObject } from '../../../utils/parsingUtils';
@@ -163,6 +163,8 @@ const ComradesProductForm = ({
   const hasValidId = id && id !== 'create';
   const isEditMode = (mode === 'edit' || isEditRoute || (!!hasValidId && !isListRoute && !isViewRoute)) && mode !== 'create_force';
   const isCreateMode = (!isEditMode && !isViewMode && !isListMode) || mode === 'create' || paramId === 'create';
+
+  const isSellerContext = location.pathname.startsWith('/seller');
 
   // CRITICAL FIX: Prioritize mode/pathname for detection
   const effectiveIsListMode = isListMode;
@@ -411,7 +413,7 @@ const ComradesProductForm = ({
           
           // Silently update the URL so refreshes work correctly, unless embedded
           if (!forcedSellerId) {
-            navigate(`/dashboard/products/comrades/${result.id}/edit`, { replace: true });
+            navigate(isSellerContext ? `/seller/products/${result.id}/edit` : `/dashboard/products/comrades/${result.id}/edit`, { replace: true });
           }
         } else if (id || data.id) {
           // Even in edit mode, update media urls if they changed (e.g. after upload)
@@ -660,7 +662,7 @@ const ComradesProductForm = ({
                 variant: 'default',
               });
               // navigate to create mode without the invalid ID
-              navigate('/dashboard/products/comrades/create', { replace: true });
+              navigate(isSellerContext ? '/seller/products/add' : '/dashboard/products/comrades/create', { replace: true });
               if (alive) setLoading(false);
               return;
             }
@@ -1991,7 +1993,7 @@ const ComradesProductForm = ({
           type: 'success',
           title: 'Product Listed Successfully!',
           description: 'Your product satisfies all requirements and is now live on the platform.',
-          onConfirm: () => navigate('/dashboard/products/comrades', { state: { updated: true, message: 'Product is now live!' } })
+          onConfirm: () => navigate(isSellerContext ? '/seller/products' : '/dashboard/products/comrades', { state: { updated: true, message: 'Product is now live!' } })
         });
         setShowModal(true);
         setLoading(false);
@@ -2057,7 +2059,7 @@ const ComradesProductForm = ({
             if (onSuccess) {
               onSuccess(savedData);
             } else {
-              navigate('/dashboard/products');
+              navigate(isSellerContext ? '/seller/products' : '/dashboard/products');
             }
           }
         });
@@ -2284,6 +2286,39 @@ const ComradesProductForm = ({
 
             {currentComponent === 'comrades' && (
               <form id="product-form" onSubmit={handleSubmit} className="space-y-4 pb-24">
+
+                {/* Admin-only Seller Selection Panel */}
+                {isAdmin && !effectiveIsViewMode && (
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200/50 mb-6 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                        <Shield className="text-white w-4 h-4" />
+                      </div>
+                      <h3 className="text-sm font-black text-blue-900 uppercase tracking-wider">Administrative Overrides</h3>
+                    </div>
+                    <div>
+                      <Label htmlFor="sellerId" className="text-xs font-bold text-blue-700 uppercase">
+                        Seller (Create on behalf of)
+                      </Label>
+                      <select
+                        id="sellerId"
+                        value={formData.sellerId || ''}
+                        onChange={(e) => handleFieldChange('sellerId', e.target.value)}
+                        className="w-full h-10 rounded-md border border-blue-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mt-1"
+                      >
+                        <option value="">Select Seller (Current: {formData.sellerId ? sellers.find(s => String(s.id) === String(formData.sellerId))?.name || formData.sellerId : 'Self / No Override'})</option>
+                        {sellers.map((seller) => (
+                          <option key={seller.id} value={seller.id}>
+                            {seller.name} ({seller.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-blue-600 mt-1 italic">
+                        Leave as "Select Seller" to keep the product under your admin account. Select a seller to assign ownership to them.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {(effectiveIsViewMode || (isAdmin && formData.seller)) && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pb-2">
@@ -3661,7 +3696,7 @@ const ComradesProductForm = ({
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => navigate('/dashboard/products')}
+                        onClick={() => navigate(isSellerContext ? '/seller/products' : '/dashboard/products')}
                         disabled={loading}
                         className="bg-white hover:bg-gray-50 border-gray-300 text-gray-700 hover:text-gray-900 px-6 py-2 font-medium relative z-20"
                       >

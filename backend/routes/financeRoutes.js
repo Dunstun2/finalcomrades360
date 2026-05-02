@@ -5,16 +5,21 @@ const {
     updateDeliveryConfig,
     getSystemIncome,
     getPendingPayouts,
-    processPayout,
-    getAgentSuccessBalances,
-    getAgentSuccessTransactions,
+    verifyEarnings,
+    getSuccessBalances,
+    getSuccessTransactions,
     getAutomaticPayoutStatus,
     toggleAutomaticPayout,
     getDeliveryTaskHistory,
     collectSystemRevenue,
     getDeliveryChargeLedger,
-    getDeliveryChargeSummary
+    getDeliveryChargeSummary,
+    getSellerSalesHistory
 } = require('../controllers/financeController');
+const { 
+    getPlatformWalletDetails, 
+    withdrawPlatformFunds 
+} = require('../controllers/adminController');
 
 const router = express.Router();
 const fs = require('fs');
@@ -38,11 +43,16 @@ router.get('/system-income', auth, checkRole('admin', 'superadmin', 'super_admin
 
 // Payouts only for admins
 router.get('/pending-payouts', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getPendingPayouts);
-router.post('/process-payout', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), processPayout);
+router.post('/verify-earnings', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), verifyEarnings);
+router.post('/process-payout', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), verifyEarnings);
 
-// Delivery Payout Auditing
-router.get('/delivery-success-balances', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getAgentSuccessBalances);
-router.get('/agent-success-transactions/:agentId', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getAgentSuccessTransactions);
+// Earning Verification (Unified Auditing)
+router.get('/success-balances', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSuccessBalances);
+router.get('/success-transactions/:userId', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSuccessTransactions);
+
+// Backward Compatibility for Delivery Auditing
+router.get('/delivery-success-balances', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSuccessBalances);
+router.get('/agent-success-transactions/:agentId', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSuccessTransactions);
 
 // Automatic Payout Mode
 router.get('/automatic-payout-status', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getAutomaticPayoutStatus);
@@ -53,7 +63,14 @@ router.get('/delivery-task-history', auth, checkRole('admin', 'superadmin', 'sup
 router.get('/delivery-charge-ledger', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager', 'logistics_manager'), getDeliveryChargeLedger);
 router.get('/delivery-charge-summary', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager', 'logistics_manager'), getDeliveryChargeSummary);
 
+// Seller Sales History — for unified verification ledger
+router.get('/seller-sales-history', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSellerSalesHistory);
+
 // Collect System Revenue from delivery tasks
 router.post('/collect-system-revenue', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), collectSystemRevenue);
+
+// Platform Wallet Details
+router.get('/platform-wallet', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getPlatformWalletDetails);
+router.post('/platform-wallet/withdraw', auth, checkRole('super_admin', 'superadmin'), withdrawPlatformFunds);
 
 module.exports = router;

@@ -18,6 +18,7 @@ const {
   ProductView,
   Wallet,
   Transaction: WalletTransaction,
+  ReferralTracking,
   sequelize
 } = require('../models');
 const { getIO } = require('../realtime/socket');
@@ -426,8 +427,8 @@ const getTopPerformingProducts = async (req, res) => {
     const topItems = await OrderItem.findAll({
       attributes: [
         'productId',
-        [fn('SUM', col('quantity')), 'totalQuantity'],
-        [fn('SUM', literal('price * quantity')), 'totalRevenue'],
+        [fn('SUM', col('OrderItem.quantity')), 'totalQuantity'],
+        [fn('SUM', literal('OrderItem.price * OrderItem.quantity')), 'totalRevenue'],
         [fn('COUNT', col('OrderItem.id')), 'orderCount']
       ],
       where: {
@@ -1085,7 +1086,27 @@ const getAllUsers = async (req, res) => {
       ];
     }
     if (role && role !== 'all') {
-      where.role = role;
+      const { Sequelize } = User.sequelize;
+      const roleConditions = [
+        { role: role },
+        Sequelize.where(
+          Sequelize.cast(Sequelize.col('roles'), 'CHAR'),
+          { [Op.like]: `%"${role}"%` }
+        )
+      ];
+
+      if (search) {
+        // If there was a search, where[Op.or] is already set to search conditions.
+        // We need to move both to Op.and
+        const searchConditions = where[Op.or];
+        delete where[Op.or];
+        where[Op.and] = [
+          { [Op.or]: searchConditions },
+          { [Op.or]: roleConditions }
+        ];
+      } else {
+        where[Op.or] = roleConditions;
+      }
     }
     if (status === 'active') {
       where.isDeactivated = false;

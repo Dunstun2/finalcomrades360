@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FaTimes, FaTruck, FaUser, FaPhone, FaClock, FaMapMarkerAlt, FaWarehouse, FaStore } from 'react-icons/fa';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
 
 export default function DispatchDetailsModal({ isOpen, onClose, onConfirm, order, initialEta }) {
     // Format initialEta (ISO string) for datetime-local input (YYYY-MM-DDThh:mm)
@@ -24,6 +25,10 @@ export default function DispatchDetailsModal({ isOpen, onClose, onConfirm, order
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!validateKenyanPhone(formData.dispatcherContact)) {
+            alert(PHONE_VALIDATION_ERROR);
+            return;
+        }
         setLoading(true);
         await onConfirm(formData);
         setLoading(false);
@@ -134,10 +139,12 @@ export default function DispatchDetailsModal({ isOpen, onClose, onConfirm, order
                                 <input
                                     required
                                     type="tel"
-                                    placeholder="e.g. 0712345678"
+                                    placeholder="e.g. 0712345678 or +254712345678"
+                                    maxLength={13}
                                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                                     value={formData.dispatcherContact}
                                     onChange={(e) => setFormData({ ...formData, dispatcherContact: e.target.value })}
+                                    onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
                                 />
                             </div>
                         </div>

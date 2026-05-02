@@ -327,6 +327,29 @@ exports.placeDirectOrder = async (req, res) => {
 
         // 1. Resolve User
         let user = await User.findOne({ where: { phone: customerPhone } });
+
+        // If user doesn't exist, they MUST have a verified OTP record
+        if (!user) {
+            const { Otp } = require('../models');
+            const otpRecord = await Otp.findOne({
+                where: {
+                    phone: customerPhone,
+                    isVerified: true,
+                    expiresAt: { [Op.gt]: new Date() }
+                }
+            });
+
+            if (!otpRecord) {
+                await t.rollback();
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'New customer phone number must be verified before placing an order.' 
+                });
+            }
+            
+            // Clean up the verified OTP record since it's now used
+            await otpRecord.destroy({ transaction: t });
+        }
         
         // 2. Calculate Pricing
         let unitPrice = parseFloat(item.discountPrice || item.displayPrice || item.basePrice || 0);
@@ -451,7 +474,7 @@ exports.placeDirectOrder = async (req, res) => {
             await notifyCustomerOrderPlaced(order, customerObj, 1, itemsList, refCode);
             
             if (isMarketer && !isAdmin) {
-                await notifyMarketerOrderPlaced(order, req.user, customerName);
+                await notifyMarketerOrderPlaced(order, req.user, customerName, order.totalCommission);
             }
         } catch (err) {
             console.warn('[directOrderController] Notification failed:', err.message);

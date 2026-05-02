@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import ComradesProductForm from './comrades/ComradesProductForm';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import {
   FaPlus,
   FaList,
@@ -16,7 +16,8 @@ import {
   FaTrash,
   FaEye,
   FaBan,
-  FaTrashRestore
+  FaTrashRestore,
+  FaChevronRight
 } from 'react-icons/fa';
 import DeleteConfirmationModal from '../../components/modals/DeleteConfirmationModal';
 import AdminPasswordDialog from '../../components/AdminPasswordDialog';
@@ -1298,9 +1299,14 @@ const Products = () => {
         {hubVisible && (
           <div className="w-full bg-white rounded-lg shadow p-2 md:p-3 sticky top-0 z-10 min-w-0">
             <div className="flex flex-wrap items-center justify-between mb-2 md:mb-3 px-1 md:px-2 gap-2">
-              <h3 className="font-bold text-gray-800 text-xl md:text-2xl flex items-center">
-                <FaList className="mr-2 text-blue-600" />
-                Product Hub
+              <h3 className="font-bold text-gray-800 text-xl md:text-2xl flex items-center gap-4">
+                <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+                  <FaChevronRight className="rotate-180" />
+                </Link>
+                <div className="flex items-center">
+                  <FaList className="mr-2 text-blue-600" />
+                  Product Hub
+                </div>
               </h3>
               <div className="flex items-center gap-2 md:gap-6 text-xs md:text-sm">
                 <div className="flex gap-2 md:gap-4 flex-wrap">

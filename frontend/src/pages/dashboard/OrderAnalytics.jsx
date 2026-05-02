@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { 
-  FaChartLine, FaShoppingCart, FaMoneyBillWave, FaUsers, FaBox, 
-  FaTruck, FaCheckCircle, FaTimes, FaCalendarAlt, FaDownload,
-  FaArrowRight, FaClock, FaPercent, FaMapMarkerAlt, FaHistory
+  FaArrowRight, FaClock, FaPercent, FaMapMarkerAlt, FaHistory,
+  FaChevronRight
 } from 'react-icons/fa';
 import { FiTrendingUp, FiTrendingDown } from 'react-icons/fi';
 import { 
@@ -206,9 +206,14 @@ export default function OrderAnalytics() {
     <div className="space-y-4 pb-10">
       {/* Premium Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl md:text-3xl font-black text-gray-900 tracking-tight">Order Console <span className="text-blue-600">.</span></h1>
-          <p className="text-gray-500 text-xs md:text-sm font-medium">Strategic commercial insights and performance tracking</p>
+        <div className="flex items-center gap-4">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <div>
+            <h1 className="text-xl md:text-3xl font-black text-gray-900 tracking-tight">Order Console <span className="text-blue-600">.</span></h1>
+            <p className="text-gray-500 text-xs md:text-sm font-medium">Strategic commercial insights and performance tracking</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="bg-white p-1 rounded-xl shadow-sm border border-gray-100 flex items-center">

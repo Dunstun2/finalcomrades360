@@ -146,6 +146,9 @@ export default function CustomerOrders() {
 
     // Processing states
     if (['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(actualStatus)) {
+        if (isFastFood && actualStatus === 'super_admin_confirmed') {
+          return { label: 'Preparing', icon: FaClock, color: 'text-orange-600', bg: 'bg-orange-50', step: 2 };
+        }
         return { label: 'Processing', icon: FaBox, color: 'text-blue-600', bg: 'bg-blue-100', step: 2 };
     }
 
@@ -154,6 +157,9 @@ export default function CustomerOrders() {
       ['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'en_route_to_pick_station', 'at_pick_station', 'shipped'].includes(actualStatus) ||
       (['in_transit'].includes(actualStatus) && !isTerminalLeg)
     ) {
+      if (isFastFood) {
+        return { label: 'Out for Delivery', icon: FaTruck, color: 'text-orange-600', bg: 'bg-orange-50', step: 3 };
+      }
       return { label: 'Shipped', icon: FaTruck, color: 'text-purple-600', bg: 'bg-purple-100', step: 2 };
     }
 
@@ -506,7 +512,7 @@ export default function CustomerOrders() {
                             Order #{order.orderNumber}
                           </button>
                           {/* Track Order button for eligible statuses */}
-                          {['in_transit', 'in_transit', 'processing', 'shipped', 'ready_for_pickup', 'at_pick_station', 'en_route_to_pick_station', 'at_warehouse', 'at_warehouse', 'Processing', 'Shipped'].includes(order.status) && (
+                          {!['cancelled', 'failed', 'returned', 'delivered', 'completed'].includes(String(order.status || '').toLowerCase()) && (
                             <button
                               className="ml-2 px-2 py-1 text-[10px] sm:text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors uppercase tracking-wider"
                               onClick={e => {

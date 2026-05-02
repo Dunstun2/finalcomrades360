@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, AlertCircle } from 'lucide-react';
+import { X, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import api from '../services/api';
@@ -17,6 +17,7 @@ const AdminPasswordDialog = ({
     const [reason, setReason] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -98,19 +99,28 @@ const AdminPasswordDialog = ({
                         <label className="block text-sm font-semibold text-gray-700 mb-2">
                             Enter your password to continue
                         </label>
-                        <Input
-                            type="password"
-                            value={password}
-                            onChange={(e) => {
-                                setPassword(e.target.value);
-                                setError('');
-                            }}
-                            placeholder="Your account password"
-                            className="w-full"
-                            autoFocus
-                            disabled={loading}
-                            required
-                        />
+                        <div className="relative">
+                            <Input
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onChange={(e) => {
+                                    setPassword(e.target.value);
+                                    setError('');
+                                }}
+                                placeholder="Your account password"
+                                className="w-full pr-10"
+                                autoFocus
+                                disabled={loading}
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Reason Input (shown only for Suspend/Delete) */}

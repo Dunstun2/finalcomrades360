@@ -123,6 +123,36 @@ Comrades360 Team`;
 });
 
 // GET /api/admin/users - Get all users with filters
+router.get('/users-test', async (req, res) => {
+  console.log('=== START /users-test route ===');
+  try {
+    const { search, role, status, page = 1, limit = 20 } = req.query;
+    const where = {};
+
+    if (role) {
+      const { Sequelize } = User.sequelize;
+      const roleConditions = [
+        { role: role },
+        Sequelize.where(
+          Sequelize.cast(Sequelize.col('roles'), 'CHAR'),
+          { [Op.like]: `%"${role}"%` }
+        )
+      ];
+      where[Op.or] = roleConditions;
+    }
+
+    const result = await User.findAndCountAll({
+      where,
+      attributes: ['id', 'name', 'role', 'roles'],
+      limit: parseInt(limit) || 20
+    });
+
+    return res.json({ success: true, users: result.rows, count: result.count });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/users', auth, adminOnly, async (req, res) => {
   console.log('=== START /users route ===');
   console.log('Request headers:', JSON.stringify(req.headers, null, 2));
@@ -144,10 +174,35 @@ router.get('/users', auth, adminOnly, async (req, res) => {
       console.log('Applied search filter:', where[Op.or]);
     }
 
-    // Add role filter
+    // Add role filter — check BOTH the primary 'role' column AND the JSON 'roles' array
+    // This ensures multi-role users (e.g. primary='customer', roles=['seller','marketer'])
+    // are correctly returned when filtering by a secondary role.
     if (role) {
-      where.role = role;
-      console.log('Applied role filter:', role);
+      const { Sequelize } = User.sequelize;
+      const roleConditions = [
+        { role: role },
+        Sequelize.where(
+          Sequelize.cast(Sequelize.col('roles'), 'CHAR'),
+          { [Op.like]: `%"${role}"%` }
+        )
+      ];
+
+      // If search is also active, we need to wrap both conditions properly
+      if (search) {
+        const searchConditions = [
+          { name: { [Op.like]: `%${search}%` } },
+          { email: { [Op.like]: `%${search}%` } },
+          { phone: { [Op.like]: `%${search}%` } }
+        ];
+        delete where[Op.or];
+        where[Op.and] = [
+          { [Op.or]: searchConditions },
+          { [Op.or]: roleConditions }
+        ];
+      } else {
+        where[Op.or] = roleConditions;
+      }
+      console.log('Applied role filter (primary + JSON array with CAST):', role);
     }
 
     // Add status filter
@@ -182,6 +237,7 @@ router.get('/users', auth, adminOnly, async (req, res) => {
     }
 
     // Fetch users with pagination
+    console.log('Final SQL WHERE clause:', JSON.stringify(where, null, 2));
     console.log('Fetching users from database...');
     let count, users;
 
@@ -189,9 +245,10 @@ router.get('/users', auth, adminOnly, async (req, res) => {
       const result = await User.findAndCountAll({
         where,
         attributes: [
-          'id', 'name', 'email', 'phone', 'role', 'isDeactivated', 'isFrozen',
+          'id', 'name', 'email', 'phone', 'role', 'roles', 'isDeactivated', 'isFrozen',
           'emailVerified', 'phoneVerified', 'county', 'town', 'estate', 'houseNumber',
-          'gender', 'campus', 'accessRestrictions', 'isVerified', 'createdAt', 'lastLogin'
+          'gender', 'campus', 'accessRestrictions', 'isVerified', 'createdAt', 'lastLogin',
+          'isSellerSuspended', 'isMarketerSuspended', 'isDeliverySuspended', 'suspendedRoles'
         ],
         order: [['createdAt', 'DESC']],
         limit: limitNum,
@@ -200,7 +257,10 @@ router.get('/users', auth, adminOnly, async (req, res) => {
 
       count = result.count;
       users = result.rows;
-      console.log(`✅ Successfully fetched ${users.length} of ${count} total users`);
+      console.log(`✅ Successfully fetched ${users.length} of ${count} total users for role ${role || 'any'}`);
+      if (users.length > 0) {
+        console.log('First user found:', { id: users[0].id, name: users[0].name, role: users[0].role, roles: users[0].roles });
+      }
 
     } catch (queryError) {
       console.error('❌ Database query failed:', queryError);

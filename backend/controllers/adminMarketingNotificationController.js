@@ -36,6 +36,9 @@ const getPotentialRecipients = async (req, res) => {
             ]
         };
 
+        // Only include orders that haven't received a thank you message
+        whereClause.thankYouSent = { [Op.not]: true };
+
         const includeItems = {
             model: OrderItem,
             as: 'OrderItems'
@@ -109,6 +112,8 @@ const sendBulkThankYouMessages = async (req, res) => {
                 }
 
                 await notifyCustomerOrderThankYou(order, detectedType);
+                order.thankYouSent = true;
+                await order.save();
                 successCount++;
             } catch (err) {
                 console.error(`Failed to send thank you to order ${order.orderNumber}:`, err);

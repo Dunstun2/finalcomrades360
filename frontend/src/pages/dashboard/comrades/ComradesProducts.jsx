@@ -8,6 +8,7 @@ import {
   Plus, Box, Clock, XCircle, ArrowLeft, Edit, Trash2, Search,
   Loader2, ChevronDown, ChevronUp, PackageSearch, EyeOff, Ban, AlertCircle, RefreshCw
 } from 'lucide-react';
+import { FaChevronRight } from 'react-icons/fa';
 import { useToast } from '../../../components/ui/use-toast';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -612,16 +613,11 @@ const ComradesProducts = ({ status: initialStatus }) => {
       {/* Main Cards */}
       <Card className="mb-6">
         <CardHeader>
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.history.back()}
-              className="h-8 w-8 p-0"
-              title="Go back"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-4">
+            <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+              <FaChevronRight className="rotate-180" />
+            </Link>
+            <h2 className="text-xl font-bold text-gray-800">Comrades Products Management</h2>
           </div>
         </CardHeader>
         <CardContent>

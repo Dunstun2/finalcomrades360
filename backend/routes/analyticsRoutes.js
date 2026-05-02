@@ -11,6 +11,7 @@ const {
   logSiteVisit,
   getTrafficStats
 } = require('../controllers/analyticsController');
+const { getRevenueAnalytics } = require('../controllers/adminController');
 const { auth, adminOnly, adminOrFinance } = require('../middleware/auth');
 
 const router = express.Router();
@@ -44,5 +45,8 @@ router.get('/growth-poster', adminOrFinance, getGrowthPosterData);
 
 // Traffic stats - admin/finance only
 router.get('/traffic/stats', adminOrFinance, getTrafficStats);
+
+// Revenue stats - admin/finance only
+router.get('/revenue', adminOrFinance, getRevenueAnalytics);
 
 module.exports = router;

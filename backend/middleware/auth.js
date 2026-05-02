@@ -88,6 +88,13 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found' });
     }
 
+    // Token version check — if admin has force-logged out this user, reject old tokens
+    if (decoded.tokenVersion !== undefined && user.tokenVersion !== undefined) {
+      if (decoded.tokenVersion !== user.tokenVersion) {
+        return res.status(401).json({ message: 'Session has been terminated by an administrator. Please log in again.', code: 'SESSION_INVALIDATED' });
+      }
+    }
+
     if (user.isDeactivated) {
       console.warn(`[auth] Account deactivated for user ID: ${decoded.id}`);
       return res.status(403).json({ message: 'Account is deactivated' });

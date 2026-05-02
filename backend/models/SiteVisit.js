@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
     isUnique: { type: DataTypes.BOOLEAN, defaultValue: false } // whether this was the first visit in the session
   }, {
     freezeTableName: true,
+    tableName: 'SiteVisit',
     timestamps: true,
     indexes: [
       { fields: ['createdAt'] },

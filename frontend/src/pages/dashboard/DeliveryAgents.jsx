@@ -1,5 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import api from '../../services/api';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import api, { adminApi } from '../../services/api';
+import RoleEarningVerification from './components/RoleEarningVerification';
 import AdminPasswordDialog from '../../components/AdminPasswordDialog';
 import { 
   Users, 
@@ -228,10 +230,20 @@ const DeliveryHistoryList = ({ agentId }) => {
 };
 
 export default function DeliveryAgents() {
+  const { tab } = useParams();
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [mainTab, setMainTab] = useState(tab === 'earning-verification' ? 'earning-verification' : 'agents');
+
+  useEffect(() => {
+    if (tab === 'earning-verification') {
+      setMainTab('earning-verification');
+    } else {
+      setMainTab('agents');
+    }
+  }, [tab]);
   
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -417,6 +429,23 @@ export default function DeliveryAgents() {
         </button>
       </div>
 
+      <div className="flex border-b border-gray-200 gap-1 mb-4">
+          <button
+              onClick={() => setMainTab('agents')}
+              className={`px-6 py-2.5 text-sm font-bold border-b-2 transition-all ${mainTab === 'agents' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+              🚚 Active Agents
+          </button>
+          <button
+              onClick={() => setMainTab('earning-verification')}
+              className={`px-6 py-2.5 text-sm font-bold border-b-2 transition-all ${mainTab === 'earning-verification' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+              💰 Earning Verification
+          </button>
+      </div>
+
+      {mainTab === 'agents' ? (
+        <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={<Users />} label="Total Agents" value={stats.total} color="blue" />
         <StatCard icon={<Navigation />} label="Active Now" value={stats.active} color="green" />
@@ -497,6 +526,12 @@ export default function DeliveryAgents() {
               <div className="p-4 bg-red-50 border-b border-red-100 flex items-center gap-3 text-red-600 text-sm">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                 {error}
+              </div>
+            )}
+            {success && (
+              <div className="p-4 bg-green-50 border-b border-green-100 flex items-center gap-3 text-green-600 text-sm">
+                <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                {success}
               </div>
             )}
             
@@ -602,6 +637,12 @@ export default function DeliveryAgents() {
           </div>
         </div>
       </div>
+      </>
+      ) : (
+        <div className="animate-fadeIn">
+            <RoleEarningVerification role="delivery_agent" hideHeader />
+        </div>
+      )}
 
       {/* Side Slider Drawer */}
       <div 

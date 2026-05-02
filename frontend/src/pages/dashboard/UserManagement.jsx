@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import api from '../../services/api';
-import { FaSync, FaUser, FaUserCheck, FaUserTimes, FaUserShield, FaTrash } from 'react-icons/fa';
+import { FaSync, FaUser, FaUserCheck, FaUserTimes, FaUserShield, FaTrash, FaChevronRight } from 'react-icons/fa';
 
 const StatCard = ({ icon: Icon, title, value, color, onClick }) => (
   <div 
@@ -124,9 +124,14 @@ export default function UserManagement() {
   return (
     <div className="space-y-6 p-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
-          <p className="text-sm text-gray-500">Manage user accounts and permissions</p>
+        <div className="flex items-center gap-4">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
+            <p className="text-sm text-gray-500">Manage user accounts and permissions</p>
+          </div>
         </div>
         <button 
           onClick={loadUsers}

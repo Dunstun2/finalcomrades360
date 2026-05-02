@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api'; // Adjust import based on your structure
-import { FaCheck, FaTimes, FaSearch, FaEye } from 'react-icons/fa';
+import { FaCheck, FaTimes, FaSearch, FaEye, FaChevronLeft } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
 const AdminIdVerification = () => {
@@ -72,8 +72,17 @@ const AdminIdVerification = () => {
     };
 
     return (
-        <div className="container mx-auto px-4 py-8">
-            <h1 className="text-2xl font-bold mb-6 text-gray-800 font-outfit">Pending Identity Verifications</h1>
+        <div className="container mx-auto px-4 py-8 max-w-7xl">
+            <div className="flex items-center gap-4 mb-6">
+                <button 
+                    onClick={() => window.history.back()} 
+                    className="p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors flex items-center justify-center shadow-sm"
+                    title="Go Back"
+                >
+                    <FaChevronLeft className="text-sm" />
+                </button>
+                <h1 className="text-2xl font-bold text-gray-800 font-outfit m-0">Pending Identity Verifications</h1>
+            </div>
 
             {loading ? (
                 <div className="flex flex-col items-center justify-center py-20">

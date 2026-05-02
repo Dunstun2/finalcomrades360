@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { validateKenyanPhone, PHONE_VALIDATION_ERROR, formatKenyanPhoneInput } from '../../utils/validation'
 import SystemFeedbackModal from '../ui/SystemFeedbackModal'
 import { getSocket } from '../../services/socket'
+import useWebOTP from '../../hooks/useWebOTP'
 
 import { Eye, EyeOff } from 'lucide-react'
 
@@ -58,35 +59,23 @@ export default function RegisterForm({ onSuccess, initialReferralCode, isModal =
     }, [resendCooldown])
 
     // ── Web OTP API — auto-capture SMS code on mobile ─────────────────────────
-    useEffect(() => {
-        if (step !== 'verify' || otpMethod !== 'sms') return
-        if (!('OTPCredential' in window)) return
-
-        const ac = new AbortController()
-        navigator.credentials.get({
-            otp: { transport: ['sms'] },
-            signal: ac.signal
-        }).then(credential => {
-            if (credential?.code) {
-                const digits = credential.code.replace(/\D/g, '').slice(0, 6).split('')
-                setOtp(digits)
-                // Automatically trigger verification
-                handleVerifyDirect(digits.join(''))
-            }
-        }).catch(() => { /* user cancelled or not supported — silent */ })
-
-        return () => ac.abort()
-    }, [step, otpMethod])
+    useWebOTP({
+        enabled: step === 'verify' && otpMethod === 'sms',
+        onCapture: (capturedCode) => {
+            const digits = capturedCode.split('')
+            setOtp(digits)
+            handleVerifyDirect(capturedCode)
+        }
+    })
     // ── Multi-channel OTP monitoring (SMS, WhatsApp, Email) ──────────────────
     useEffect(() => {
-        if (step !== 'verify') return
-
         const socket = getSocket()
         if (!socket) return
 
         const handleOtpReceived = (data) => {
-            console.log('[OTP-Monitor] Received code via socket:', data)
+            console.log('[OTP-Monitor] Received code via socket in RegisterForm:', data)
             if (data.otp && data.type === 'registration') {
+                console.log('[OTP-Monitor] Auto-filling registration code:', data.otp)
                 const digits = data.otp.toString().split('')
                 setOtp(digits)
                 // Automatically trigger verification
@@ -187,16 +176,25 @@ export default function RegisterForm({ onSuccess, initialReferralCode, isModal =
 
         setLoading(true)
         try {
+            const socket = getSocket();
             const payload = {
                 ...(type === 'email' ? { email: contact } : { phone: contact }),
-                socketId: getSocket()?.id
+                socketId: socket?.connected ? socket.id : null
+            };
+            
+            // Join specialized room for this contact to support cross-device prefilling
+            const { joinOtpRoom } = await import('../../services/socket');
+            joinOtpRoom(contact);
+
+            if (!payload.socketId) {
+                console.warn('[RegisterForm] Socket not connected, auto-fill might not work.');
             }
-            const { data } = await api.post('/auth/send-registration-otp', payload)
-            setRegisteredContact(contact)
-            setContactType(type)
-            setOtpMethod(data.method || type === 'email' ? 'email' : 'sms')
-            setStep('verify')
-            setResendCooldown(60)
+            const { data } = await api.post('/auth/send-registration-otp', payload);
+            setRegisteredContact(contact);
+            setContactType(type);
+            setOtpMethod(data.method || (type === 'email' ? 'email' : 'sms'));
+            setStep('verify');
+            setResendCooldown(60);
         } catch (err) {
             const data = err.response?.data
             let msg = data?.message || 'Failed to send verification code. Please try again.'

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { FaChevronRight, FaEye, FaEyeSlash } from 'react-icons/fa'
 import api from '../../services/api'
 import { getSocket } from '../../services/socket'
 
@@ -15,6 +17,7 @@ export default function SecuritySettings({ user }){
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showPassword, setShowPassword] = useState(false);
 
   const resetAlerts = () => { setError(''); setSuccess(''); }
 
@@ -153,7 +156,12 @@ export default function SecuritySettings({ user }){
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-lg shadow">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Super Admin Security Management</h1>
+        <div className="flex items-center gap-4 mb-2">
+          <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+            <FaChevronRight className="rotate-180" />
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-800">Super Admin Security Management</h1>
+        </div>
         <p className="text-gray-600">
           Change your email and password with multi-factor verification. This process requires verification via email token and phone OTP.
         </p>
@@ -195,14 +203,23 @@ export default function SecuritySettings({ user }){
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
               <div>
                 <label className="block text-sm font-medium mb-2">Current Password</label>
-                <input
-                  type="password"
-                  className="w-full border rounded p-2"
-                  placeholder="Enter current password"
-                  value={securityForm.currentPassword}
-                  onChange={(e) => setSecurityForm({...securityForm, currentPassword: e.target.value})}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="w-full border rounded p-2 pr-10"
+                    placeholder="Enter current password"
+                    value={securityForm.currentPassword}
+                    onChange={(e) => setSecurityForm({...securityForm, currentPassword: e.target.value})}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Email Token</label>
@@ -229,25 +246,43 @@ export default function SecuritySettings({ user }){
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">New Password</label>
-                <input
-                  type="password"
-                  className="w-full border rounded p-2"
-                  placeholder="Enter new password"
-                  value={securityForm.newPassword}
-                  onChange={(e) => setSecurityForm({...securityForm, newPassword: e.target.value})}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="w-full border rounded p-2 pr-10"
+                    placeholder="Enter new password"
+                    value={securityForm.newPassword}
+                    onChange={(e) => setSecurityForm({...securityForm, newPassword: e.target.value})}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                  </button>
+                </div>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium mb-2">Confirm New Password</label>
-                <input
-                  type="password"
-                  className="w-full border rounded p-2"
-                  placeholder="Confirm new password"
-                  value={securityForm.confirmPassword}
-                  onChange={(e) => setSecurityForm({...securityForm, confirmPassword: e.target.value})}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="w-full border rounded p-2 pr-10"
+                    placeholder="Confirm new password"
+                    value={securityForm.confirmPassword}
+                    onChange={(e) => setSecurityForm({...securityForm, confirmPassword: e.target.value})}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                  </button>
+                </div>
               </div>
             </div>
             <div className="flex gap-2">

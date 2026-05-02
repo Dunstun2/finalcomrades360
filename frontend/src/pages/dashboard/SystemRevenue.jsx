@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { adminApi } from '../../services/api';
 import {
-    FaMoneyBillWave, FaTruck, FaTimes, FaChevronRight, FaCogs, FaClock, FaArrowLeft, FaPercentage
+    FaMoneyBillWave, FaTruck, FaTimes, FaChevronRight, FaCogs, FaClock, FaArrowLeft, FaPercentage, FaMoneyCheck
 } from 'react-icons/fa';
 
 export default function SystemRevenue() {
@@ -103,9 +103,14 @@ export default function SystemRevenue() {
     const renderOverview = () => (
         <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-slate-200">
-                <div>
-                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter">System Revenue</h1>
-                    <p className="text-slate-500 mt-2 font-medium">Financial yield and partner distribution auditing.</p>
+                <div className="flex items-center gap-4">
+                    <Link to="/dashboard/admin-tools" className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors" title="Back to Admin Tools">
+                        <FaChevronRight className="rotate-180" />
+                    </Link>
+                    <div>
+                        <h1 className="text-4xl font-black text-slate-900 tracking-tighter">System Revenue</h1>
+                        <p className="text-slate-500 mt-2 font-medium">Financial yield and partner distribution auditing.</p>
+                    </div>
                 </div>
                 <div className="bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
@@ -206,10 +211,16 @@ export default function SystemRevenue() {
                 >
                     <FaArrowLeft className="group-hover:-translate-x-1 transition-transform" />
                 </button>
-                <div>
+                <div className="flex-1">
                     <h2 className="text-3xl font-black text-slate-900">Withdrawal Fee Ledger</h2>
                     <p className="text-slate-500 font-bold mt-1">All processed withdrawal transactions and fees collected.</p>
                 </div>
+                <Link 
+                    to="/dashboard/finance/payouts?tab=payouts"
+                    className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all active:scale-95"
+                >
+                    <FaMoneyCheck /> Process Pending
+                </Link>
             </div>
 
             <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden overflow-x-auto">
@@ -476,7 +487,7 @@ export default function SystemRevenue() {
                     <div className="bg-white w-full max-w-5xl h-full max-h-[90vh] rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
                         <div className="p-12 border-b bg-slate-50 flex justify-between items-center">
                             <div>
-                                <span className="px-5 py-1.5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-full">Auditing</span>
+                                <span className="px-5 py-1.5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-full">Earning Verification</span>
                                 <h2 className="text-4xl font-black text-slate-900 mt-4 tracking-tighter">Order #{selectedRevenueOrder.orderNumber}</h2>
                             </div>
                             <button

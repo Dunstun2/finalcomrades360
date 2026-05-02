@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import api from '../../services/api'
 import { getSocket } from '../../services/socket'
 import { formatKenyanPhoneInput } from '../../utils/validation'
+import { FaEye, FaEyeSlash } from 'react-icons/fa'
+import useWebOTP from '../../hooks/useWebOTP'
 
 function useQuery() {
     const { search } = useLocation()
@@ -20,6 +22,8 @@ export default function ForgotPasswordForm({ isModal = false }) {
     const [message, setMessage] = useState('')
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
     useEffect(() => {
         // Always open with a clean form state.
@@ -34,8 +38,6 @@ export default function ForgotPasswordForm({ isModal = false }) {
 
     // ── Multi-channel OTP monitoring (SMS, WhatsApp, Email) ──────────────────
     useEffect(() => {
-        if (step !== 'confirm') return
-
         const socket = getSocket()
         if (!socket) return
 
@@ -51,15 +53,30 @@ export default function ForgotPasswordForm({ isModal = false }) {
         return () => socket.off('otp:received', handleOtpReceived)
     }, [step])
 
+    // ── Web OTP API — auto-capture SMS code on mobile ─────────────────────────
+    useWebOTP({
+        enabled: step === 'confirm',
+        onCapture: (capturedCode) => {
+            setToken(capturedCode)
+            // Note: we don't auto-submit here because user still needs to enter password
+        }
+    })
+
     const handleRequest = async (e) => {
         e.preventDefault()
         setError('')
         setMessage('')
         setLoading(true)
         try {
+            const socket = getSocket()
+            
+            // Join specialized room for this contact to support cross-device prefilling
+            const { joinOtpRoom } = await import('../../services/socket')
+            joinOtpRoom(email)
+
             await api.post('/password-reset/request', { 
                 email,
-                socketId: getSocket()?.id
+                socketId: socket?.connected ? socket.id : null
             })
             setMessage('If that account exists, a reset code has been sent to your email and phone.')
             setStep('confirm')
@@ -156,7 +173,7 @@ export default function ForgotPasswordForm({ isModal = false }) {
                         <input
                             type="text"
                             value={token}
-                            autoComplete="off"
+                            autoComplete="one-time-code"
                             onChange={(e) => setToken(e.target.value)}
                             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             placeholder="Enter 6-digit code"
@@ -164,27 +181,51 @@ export default function ForgotPasswordForm({ isModal = false }) {
                             required
                         />
                     </div>
-                    <div className="mb-6">
+                    <div className="mb-4">
                         <label className="block mb-1 font-medium">New Password</label>
-                        <input
-                            type="password"
-                            value={newPassword}
-                            autoComplete="new-password"
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            required
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                value={newPassword}
+                                autoComplete="new-password"
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="w-full p-2 pr-10 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Enter new password"
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword((v) => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 focus:outline-none"
+                                tabIndex={-1}
+                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            >
+                                {showPassword ? <FaEyeSlash className="w-4 h-4" /> : <FaEye className="w-4 h-4" />}
+                            </button>
+                        </div>
                     </div>
                     <div className="mb-6">
                         <label className="block mb-1 font-medium">Confirm New Password</label>
-                        <input
-                            type="password"
-                            value={confirmPassword}
-                            autoComplete="new-password"
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            required
-                        />
+                        <div className="relative">
+                            <input
+                                type={showConfirmPassword ? 'text' : 'password'}
+                                value={confirmPassword}
+                                autoComplete="new-password"
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                className="w-full p-2 pr-10 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Confirm new password"
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowConfirmPassword((v) => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 focus:outline-none"
+                                tabIndex={-1}
+                                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                            >
+                                {showConfirmPassword ? <FaEyeSlash className="w-4 h-4" /> : <FaEye className="w-4 h-4" />}
+                            </button>
+                        </div>
                     </div>
                     <button type="submit" disabled={loading} className="w-full btn disabled:opacity-50 py-3 rounded-lg shadow-md text-white bg-blue-600 hover:bg-blue-700 transition-colors">
                         {loading ? 'Resetting...' : 'Reset Password'}
@@ -194,3 +235,4 @@ export default function ForgotPasswordForm({ isModal = false }) {
         </div>
     )
 }
+

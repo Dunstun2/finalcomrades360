@@ -33,6 +33,8 @@ export default function Seller() {
     { to: "/seller/wallet", label: "Wallet", icon: "💰" },
     { to: "/seller/reports", label: "Reports", icon: "📊" },
     { to: "/seller/recycle-bin", label: "Recycle Bin", icon: "🗑️" },
+    { to: "/seller/manual", label: "Seller Manual", icon: "📖" },
+    { to: "/seller/tools", label: "Account Tools", icon: "🛠️" },
     { to: "/seller/help", label: "Help", icon: "❓" },
   ];
 
@@ -153,6 +155,28 @@ export default function Seller() {
 
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar pb-20 lg:pb-0">
+          {isAdmin && (
+            <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-4 py-2.5 flex items-center justify-between shadow-md border-b border-white/10 sticky top-0 z-40 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+                  <span className="text-sm font-bold">🛠️</span>
+                </div>
+                <div>
+                  <h3 className="text-xs lg:text-sm font-black uppercase tracking-widest leading-none">Admin Bypass Mode Active</h3>
+                  <p className="text-[10px] text-white/70 font-medium mt-0.5">Bypassing standard seller restrictions & maintenance gates.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline-block text-[10px] bg-white/20 px-2 py-1 rounded font-bold uppercase tracking-tighter border border-white/20">Privileged Session</span>
+                <button 
+                  onClick={() => navigate('/dashboard/other-dashboards')}
+                  className="text-[10px] lg:text-xs font-black bg-white text-blue-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-all uppercase shadow-sm"
+                >
+                  Exit Bypass
+                </button>
+              </div>
+            </div>
+          )}
           <div className="w-full p-0 lg:p-4 min-h-full">
             <div className="bg-white lg:rounded-2xl lg:shadow-sm lg:border lg:border-gray-100 min-h-full p-0 lg:p-4">
               <Outlet />

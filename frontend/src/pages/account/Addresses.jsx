@@ -3,7 +3,7 @@ import { FaMapMarkerAlt, FaPhone, FaEnvelope, FaUser, FaEdit, FaSave, FaTimes } 
 import { useAuth } from '../../contexts/AuthContext';
 import userService from '../../services/userService';
 import { toast } from 'react-toastify';
-import { validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
+import { validateKenyanPhone, PHONE_VALIDATION_ERROR, formatKenyanPhoneInput } from '../../utils/validation';
 
 const Addresses = ({ setActiveTab, cameFromVerification }) => {
   const { user } = useAuth();
@@ -245,11 +245,14 @@ const Addresses = ({ setActiveTab, cameFromVerification }) => {
                   type="tel"
                   value={basicAddress.additionalPhone}
                   onChange={(e) => setBasicAddress(prev => ({ ...prev, additionalPhone: e.target.value }))}
+                  onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
                   readOnly={!isEditingBasic}
+                  maxLength={13}
                   className={`w-full px-3 py-2 border border-gray-300 rounded-md ${isEditingBasic ? 'focus:ring-2 focus:ring-blue-500 focus:border-transparent' : 'bg-gray-50 text-gray-600'
                     }`}
-                  placeholder="Enter additional phone number"
+                  placeholder="e.g. 0712345678 or +254712345678"
                 />
+                {isEditingBasic && <p className="text-xs text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>}
               </div>
             </div>
 

@@ -1,5 +1,5 @@
 const express = require('express');
-const { me, applyRole, verifyRolePhone, adminApproveRole, listPendingRoles, updateProfile, updateAddress, requestAccountDeletion, requestEmailChange, confirmEmailChange, requestPhoneOtp, confirmPhoneOtp, changePassword, adminSetUserRole, getFullProfile, listUsersByRole, getUserById } = require("../controllers/userController");
+const { me, applyRole, verifyRolePhone, adminApproveRole, listPendingRoles, updateProfile, updateAddress, requestAccountDeletion, requestEmailChange, confirmEmailChange, requestPhoneOtp, confirmPhoneOtp, changePassword, adminSetUserRole, getFullProfile, listUsersByRole, getUserById, adminCreateUser, adminSearchUserForVerify, adminForceVerify } = require("../controllers/userController");
 const { getUserWallet } = require("../controllers/walletController");
 const { auth, adminOnly } = require("../middleware/auth");
 const { uploadProfileImages } = require("../config/multer");
@@ -27,6 +27,9 @@ router.post('/roles/verify-phone', verifyRolePhone);
 router.get('/roles/pending', auth, adminOnly, listPendingRoles);
 router.post('/roles/approve', auth, adminOnly, adminApproveRole);
 router.post('/roles/set', auth, adminOnly, adminSetUserRole);
+router.post('/admin/create', auth, adminOnly, adminCreateUser);
+router.post('/admin/force-verify/search', auth, adminOnly, adminSearchUserForVerify);
+router.post('/admin/force-verify', auth, adminOnly, adminForceVerify);
 router.get('/admin/users/roles/:role', auth, adminOnly, listUsersByRole);
 
 // Address update for checkout

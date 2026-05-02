@@ -477,6 +477,9 @@ export const productApi = {
   updateSocialMediaAccount: (id, data) => api.put(`/social-media-accounts/${id}`, data),
   deleteSocialMediaAccount: (id) => api.delete(`/social-media-accounts/${id}`),
 
+  // Get all products for a specific seller (admin view)
+  getSellerProducts: (sellerId, params = {}) => api.get(`/admin-tools/products/by-seller/${sellerId}`, { params }),
+
 };
 
 // Role Applications API functions
@@ -497,50 +500,82 @@ export const adminApi = {
   getPendingRoleApplications: () => api.get('/roles/pending'),
 
   // Inventory management
-  getInventoryOverview: () => adminClient.get('/inventory/overview'),
-  getInventoryItems: (params = {}) => adminClient.get('/inventory/items', { params }),
-  getLowStockAlerts: () => adminClient.get('/inventory/low-stock-alerts'),
-  updateStockLevels: (productId, payload) => adminClient.patch(`/products/${productId}/stock`, payload),
+  getInventoryOverview: () => api.get('/inventory/overview'),
+  getInventoryItems: (params = {}) => api.get('/inventory/items', { params }),
+  getLowStockAlerts: () => api.get('/inventory/low-stock-alerts'),
+  updateStockLevels: (productId, payload) => api.patch(`/products/${productId}/stock`, payload),
   // Product analytics
-  getProductAnalytics: () => adminClient.get('/analytics/products'),
-  getTopPerformingProducts: () => adminClient.get('/analytics/top-products'),
-  getProductPerformanceMetrics: (productId) => adminClient.get(`/products/${productId}/performance`),
+  getProductAnalytics: () => api.get('/analytics/products'),
+  getTopPerformingProducts: () => api.get('/analytics/top-products'),
+  getProductPerformanceMetrics: (productId) => api.get(`/products/${productId}/performance`),
   // User management analytics
-  getUserAnalytics: () => adminClient.get('/analytics/users'),
-  getAllUsers: (params = {}) => adminClient.get('/users', { params }),
-  createUser: (userData) => adminClient.post('/users', userData),
+  getUserAnalytics: () => api.get('/analytics/users'),
+  getAllUsers: (params = {}) => api.get('/admin/users', { params }),
+  createUser: (userData) => api.post('/admin/users', userData),
+  adminDirectCreateUser: (userData) => api.post('/users/admin/create', userData),
+  adminSearchUserForVerify: (data) => api.post('/users/admin/force-verify/search', data),
+  adminForceVerify: (data) => api.post('/users/admin/force-verify', data),
+  
+  // Admin Tools
+  adminForceResetPassword: (userId) => api.post(`/admin-tools/users/force-reset-password`, { userId }),
+  adminMergeAccounts: (data) => api.post(`/admin-tools/users/merge-accounts`, data),
+  adminImpersonateUser: (userId) => api.post(`/admin-tools/users/impersonate`, { userId }),
+  adminWalletAdjust: (data) => api.post(`/admin-tools/users/wallet-adjust`, data),
+  adminGetUserActivity: (userId) => api.get(`/admin-tools/users/${userId}/activity`),
+  adminForceOrderStatus: (data) => api.post(`/admin-tools/orders/force-status`, data),
+  adminReassignDeliveryAgent: (data) => api.post(`/admin-tools/orders/reassign-agent`, data),
+  adminIssueRefund: (data) => api.post(`/admin-tools/orders/issue-refund`, data),
+  adminCloneOrder: (data) => api.post(`/admin-tools/orders/clone`, data),
+  adminForceShopStatus: (data) => api.post(`/admin-tools/products/force-shop-status`, data),
+  adminBulkToggleItems: (data) => api.post(`/admin-tools/products/bulk-toggle`, data),
+  adminGenerateOTP: (data) => api.post(`/admin-tools/comms/generate-otp`, data),
+  adminResendNotification: (data) => api.post(`/admin-tools/comms/resend-notification`, data),
+  adminBroadcastMessage: (data) => api.post(`/admin-tools/comms/broadcast`, data),
+  adminRunCleanup: (data) => api.post(`/admin-tools/system/cleanup`, data),
+  adminManualConfirmPayment: (data) => api.post(`/admin-tools/orders/manual-confirm-payment`, data),
+  adminGetAuditLogs: (params = {}) => api.get(`/admin-tools/audit-logs`, { params }),
+  adminSearchPayments: (params = {}) => api.get(`/admin-tools/orders/payments/search`, { params }),
+  adminGetBlockedIPs: () => api.get(`/admin-tools/security/ip-blocklist`),
+  adminBlockIP: (data) => api.post(`/admin-tools/security/ip-blocklist`, data),
+  adminUnblockIP: (id) => api.delete(`/admin-tools/security/ip-blocklist/${id}`),
+  adminGetAdvancedAnalytics: () => api.get(`/admin-tools/analytics/advanced`),
+  adminGetUserSessions: (userId) => api.get(`/admin-tools/users/${userId}/sessions`),
+  adminForceLogout: (data) => api.post(`/admin-tools/users/force-logout`, data),
+  adminGetTemplates: () => api.get(`/admin-tools/comms/templates`),
+  adminUpdateTemplate: (data) => api.put(`/admin-tools/comms/templates`, data),
+  adminGetOrder: (orderId) => api.get(`/orders/${orderId}`),
   getRoleApplications: (params = {}) => api.get('/role-applications/', { params }),
   updateApplicationStatus: (id, data) => api.put(`/role-applications/${id}/status`, data),
-  updateUserRole: (userId, role) => adminClient.patch(`/users/${userId}/role`, { role }),
-  updateUserStatus: (userId, isDeactivated) => adminClient.patch(`/users/${userId}/status`, { isDeactivated }),
-  updateUser: (userId, userData) => adminClient.patch(`/users/${userId}`, userData),
-  updateUserFrozen: (userId, isFrozen, adminPassword) => adminClient.patch(`/users/${userId}/freeze`, { isFrozen, adminPassword }),
-  updateUserVerification: (userId, verificationData) => adminClient.patch(`/users/${userId}/verification`, verificationData),
-  updateUserAccess: (userId, accessData) => adminClient.patch(`/users/${userId}/access`, accessData),
-  verifyAdminPassword: (password) => adminClient.post('/verify-password', { password }),
+  updateUserRole: (userId, role) => api.patch(`/admin/users/${userId}/role`, { role }),
+  updateUserStatus: (userId, isDeactivated) => api.patch(`/admin/users/${userId}/status`, { isDeactivated }),
+  updateUser: (userId, userData) => api.patch(`/admin/users/${userId}`, userData),
+  updateUserFrozen: (userId, isFrozen, adminPassword) => api.patch(`/admin/users/${userId}/freeze`, { isFrozen, adminPassword }),
+  updateUserVerification: (userId, verificationData) => api.patch(`/admin/users/${userId}/verification`, verificationData),
+  updateUserAccess: (userId, accessData) => api.patch(`/admin/users/${userId}/access`, accessData),
+  verifyAdminPassword: (password) => api.post('/admin/verify-password', { password }),
 
   // Role-specific suspension (Point to generic endpoints internally)
-  suspendMarketer: (userId, data) => adminClient.post(`/users/${userId}/roles/suspend`, { ...data, role: 'marketer' }),
-  reactivateMarketer: (userId) => adminClient.post(`/users/${userId}/roles/reactivate`, { role: 'marketer' }),
-  suspendSeller: (userId, data) => adminClient.post(`/users/${userId}/roles/suspend`, { ...data, role: 'seller' }),
-  reactivateSeller: (userId) => adminClient.post(`/users/${userId}/roles/reactivate`, { role: 'seller' }),
-  suspendDeliveryAgent: (userId, data) => adminClient.post(`/users/${userId}/roles/suspend`, { ...data, role: 'delivery_agent' }),
-  reactivateDeliveryAgent: (userId) => adminClient.post(`/users/${userId}/roles/reactivate`, { role: 'delivery_agent' }),
+  suspendMarketer: (userId, data) => api.post(`/admin/users/${userId}/roles/suspend`, { ...data, role: 'marketer' }),
+  reactivateMarketer: (userId) => api.post(`/admin/users/${userId}/roles/reactivate`, { role: 'marketer' }),
+  suspendSeller: (userId, data) => api.post(`/admin/users/${userId}/roles/suspend`, { ...data, role: 'seller' }),
+  reactivateSeller: (userId) => api.post(`/admin/users/${userId}/roles/reactivate`, { role: 'seller' }),
+  suspendDeliveryAgent: (userId, data) => api.post(`/admin/users/${userId}/roles/suspend`, { ...data, role: 'delivery_agent' }),
+  reactivateDeliveryAgent: (userId) => api.post(`/admin/users/${userId}/roles/reactivate`, { role: 'delivery_agent' }),
 
   // Generic role suspension (For any role like warehouse_manager, finance_manager, etc.)
-  suspendUserRole: (userId, role, adminPassword) => adminClient.post(`/users/${userId}/roles/suspend`, { role, adminPassword }),
-  reactivateUserRole: (userId, role) => adminClient.post(`/users/${userId}/roles/reactivate`, { role }),
+  suspendUserRole: (userId, role, adminPassword) => api.post(`/admin/users/${userId}/roles/suspend`, { role, adminPassword }),
+  reactivateUserRole: (userId, role) => api.post(`/admin/users/${userId}/roles/reactivate`, { role }),
 
   bulkUserOperation(userIds, action) {
-    return adminClient.post('/users/bulk', { userIds, action });
+    return api.post('/admin/users/bulk', { userIds, action });
   },
   sendBulkNotification(data) {
-    return adminClient.post('/notifications/bulk', data);
+    return api.post('/notifications/bulk', data);
   },
 
   // Export user data to CSV
   exportUserReport() {
-    return adminClient.get('/users/export', {
+    return api.get('/admin/users/export', {
       responseType: 'blob', // Important for file downloads
       headers: {
         'Accept': 'text/csv',
@@ -550,41 +585,41 @@ export const adminApi = {
   },
 
   // User Profile Management APIs - Verification Focused
-  getProfileManagementStats: () => adminClient.get('/profile-management/stats'),
-  getUsersWithCompletion: (params) => adminClient.get('/profile-management/users', { params }),
-  sendProfileReminder: (userId, data) => adminClient.post(`/profile-management/users/${userId}/remind`, data),
-  markSectionComplete: (userId, data) => adminClient.post(`/profile-management/users/${userId}/mark-complete`, data),
-  waiveRequirement: (userId, data) => adminClient.post(`/profile-management/users/${userId}/waive`, data),
+  getProfileManagementStats: () => api.get('/profile-management/stats'),
+  getUsersWithCompletion: (params) => api.get('/profile-management/users', { params }),
+  sendProfileReminder: (userId, data) => api.post(`/profile-management/users/${userId}/remind`, data),
+  markSectionComplete: (userId, data) => api.post(`/profile-management/users/${userId}/mark-complete`, data),
+  waiveRequirement: (userId, data) => api.post(`/profile-management/users/${userId}/waive`, data),
 
   // Requirements & Settings
-  getProfileRequirements: () => adminClient.get('/profile-management/requirements'),
-  updateProfileRequirement: (data) => adminClient.post('/profile-management/requirements', data),
+  getProfileRequirements: () => api.get('/profile-management/requirements'),
+  updateProfileRequirement: (data) => api.post('/profile-management/requirements', data),
 
   // Document Verification
-  getDocumentsForVerification: (params) => adminClient.get('/profile-management/documents', { params }),
-  approveDocument: (docId) => adminClient.post(`/profile-management/documents/${docId}/approve`),
-  rejectDocument: (docId, data) => adminClient.post(`/profile-management/documents/${docId}/reject`, data),
-  bulkApproveDocuments: () => adminClient.post('/profile-management/documents/bulk-approve'),
+  getDocumentsForVerification: (params) => api.get('/profile-management/documents', { params }),
+  approveDocument: (docId) => api.post(`/profile-management/documents/${docId}/approve`),
+  rejectDocument: (docId, data) => api.post(`/profile-management/documents/${docId}/reject`, data),
+  bulkApproveDocuments: () => api.post('/profile-management/documents/bulk-approve'),
 
   // Change Requests
-  getChangeRequests: (params) => adminClient.get('/profile-management/change-requests', { params }),
-  approveChangeRequest: (requestId) => adminClient.post(`/profile-management/change-requests/${requestId}/approve`),
-  rejectChangeRequest: (requestId, data) => adminClient.post(`/profile-management/change-requests/${requestId}/reject`, data),
+  getChangeRequests: (params) => api.get('/profile-management/change-requests', { params }),
+  approveChangeRequest: (requestId) => api.post(`/profile-management/change-requests/${requestId}/approve`),
+  rejectChangeRequest: (requestId, data) => api.post(`/profile-management/change-requests/${requestId}/reject`, data),
 
   // Policies & Automation
-  getProfilePolicies: () => adminClient.get('/profile-management/policies'),
-  updateProfilePolicy: (data) => adminClient.post('/profile-management/policies', data),
+  getProfilePolicies: () => api.get('/profile-management/policies'),
+  updateProfilePolicy: (data) => api.post('/profile-management/policies', data),
 
   // Legacy APIs (keep for backward compatibility)
-  deleteUser: (userId) => adminClient.delete(`/users/${userId}`),
-  restoreUser: (userId) => adminClient.post(`/users/${userId}/restore`),
-  approvePendingEmail: (userId) => adminClient.post(`/users/${userId}/approve-email`),
-  rejectPendingEmail: (userId) => adminClient.post(`/users/${userId}/reject-email`),
-  approvePendingPhone: (userId) => adminClient.post(`/users/${userId}/approve-phone`),
-  rejectPendingPhone: (userId) => adminClient.post(`/users/${userId}/reject-phone`),
-  getRevenueAnalytics: () => adminClient.get('/analytics/revenue'),
-  getPlatformWalletDetails: () => adminClient.get('/finance/platform-wallet'),
-  withdrawPlatformFunds: (data) => adminClient.post('/finance/platform-wallet/withdraw', data),
+  deleteUser: (userId) => api.delete(`/admin/users/${userId}`),
+  restoreUser: (userId) => api.post(`/admin/users/${userId}/restore`),
+  approvePendingEmail: (userId) => api.post(`/admin/users/${userId}/approve-email`),
+  rejectPendingEmail: (userId) => api.post(`/admin/users/${userId}/reject-email`),
+  approvePendingPhone: (userId) => api.post(`/admin/users/${userId}/approve-phone`),
+  rejectPendingPhone: (userId) => api.post(`/admin/users/${userId}/reject-phone`),
+  getRevenueAnalytics: () => api.get('/analytics/revenue'),
+  getPlatformWalletDetails: () => api.get('/finance/platform-wallet'),
+  withdrawPlatformFunds: (data) => api.post('/finance/platform-wallet/withdraw', data),
   
   // Orders & Products
   getAllOrders: (params = {}) => api.get('/orders', { params }),
@@ -598,4 +633,13 @@ export const supportApi = {
   getSummary: () => api.get('/support/summary'),
   markAsRead: (messageId) => api.patch(`/support/${messageId}/read`),
   sendBulkMessages: (data) => api.post('/support/bulk', data)
+};
+
+export const fastFoodApi = {
+  // Get all fast food items for a specific vendor (used by admin bulk tools)
+  getVendorProducts: (vendorId, params = {}) => api.get(`/admin-tools/products/fastfood-by-vendor/${vendorId}`, { params }),
+  // Get all fast food items (public listing)
+  getAll: (params = {}) => api.get('/fastfood', { params }),
+  // Get a single fast food item by ID
+  getById: (id) => api.get(`/fastfood/${id}`),
 };

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { getSocket } from '../../services/socket';
+import useWebOTP from '../../hooks/useWebOTP';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
 
 // ── Small reusable components ──────────────────────────────────────────────────
 
@@ -72,8 +75,37 @@ const Section = ({ title, subtitle, icon, children }) => (
 
 // ── OTP / Token entry widget ───────────────────────────────────────────────────
 
-const OtpConfirm = ({ label, placeholder, buttonLabel, loading, onConfirm, onCancel }) => {
+const OtpConfirm = ({ label, placeholder, buttonLabel, loading, onConfirm, onCancel, method }) => {
   const [code, setCode] = useState('');
+
+  // Auto-capture SMS codes on mobile
+  useWebOTP({
+    enabled: method === 'sms',
+    onCapture: (capturedCode) => {
+      setCode(capturedCode);
+      onConfirm(capturedCode);
+    }
+  });
+
+  // Socket mirroring for same-device detection
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleOtpReceived = (data) => {
+      console.log('[OTP-Monitor] Received code via socket in ProfileSettings:', data);
+      if (data.otp) {
+        console.log('[OTP-Monitor] Auto-filling code:', data.otp);
+        setCode(data.otp.toString());
+        // For phone/email change, we can auto-submit since no other fields are needed
+        onConfirm(data.otp.toString());
+      }
+    };
+
+    socket.on('otp:received', handleOtpReceived);
+    return () => socket.off('otp:received', handleOtpReceived);
+  }, [onConfirm]);
+
   return (
     <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg space-y-3">
       <p className="text-sm text-blue-800 font-medium">📩 {label}</p>
@@ -81,6 +113,7 @@ const OtpConfirm = ({ label, placeholder, buttonLabel, loading, onConfirm, onCan
         type="text"
         maxLength={8}
         value={code}
+        autoComplete="one-time-code"
         onChange={e => setCode(e.target.value.trim())}
         placeholder={placeholder || 'Enter code'}
         className={`${inputCls} font-mono tracking-widest text-center`}
@@ -107,6 +140,7 @@ const ProfileSettings = () => {
   const [profileForm, setProfileForm] = useState({ name: '', bio: '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState({ type: '', text: '' });
+  const [showDashPassword, setShowDashPassword] = useState(false);
 
   useEffect(() => {
     if (user) setProfileForm({ name: user.name || '', bio: user.bio || '' });
@@ -145,10 +179,23 @@ const ProfileSettings = () => {
       setPhoneMsg({ type: 'error', text: 'Please enter a phone number.' });
       return;
     }
+    if (!validateKenyanPhone(newPhone.trim())) {
+      setPhoneMsg({ type: 'error', text: PHONE_VALIDATION_ERROR });
+      return;
+    }
     setPhoneLoading(true);
     setPhoneMsg({ type: '', text: '' });
     try {
-      const res = await api.post('/users/me/phone-otp/request', { newPhone: newPhone.trim(), method: phoneMethod });
+      const socket = getSocket();
+      // Join specialized room for this contact to support cross-device prefilling
+      const { joinOtpRoom } = await import('../../services/socket');
+      joinOtpRoom(newPhone.trim());
+
+      const res = await api.post('/users/me/phone-otp/request', { 
+        newPhone: newPhone.trim(), 
+        method: phoneMethod,
+        socketId: socket?.connected ? socket.id : null
+      });
       setPhoneMsg({ type: 'success', text: res.data.message });
       setPhoneStep('awaiting_otp');
     } catch (err) {
@@ -208,7 +255,15 @@ const ProfileSettings = () => {
     setEmailLoading(true);
     setEmailMsg({ type: '', text: '' });
     try {
-      const res = await api.post('/users/me/email-change/request', { newEmail: newEmail.trim() });
+      const socket = getSocket();
+      // Join specialized room for this contact to support cross-device prefilling
+      const { joinOtpRoom } = await import('../../services/socket');
+      joinOtpRoom(newEmail.trim());
+
+      const res = await api.post('/users/me/email-change/request', { 
+        newEmail: newEmail.trim(),
+        socketId: socket?.connected ? socket.id : null
+      });
       setEmailMsg({ type: 'success', text: res.data.message });
       setEmailStep('awaiting_token');
     } catch (err) {
@@ -369,6 +424,7 @@ const ProfileSettings = () => {
             loading={phoneLoading}
             onConfirm={confirmPhoneOtp}
             onCancel={resetPhone}
+            method={phoneMethod}
           />
         ) : (
           <div className="space-y-4">
@@ -377,7 +433,9 @@ const ProfileSettings = () => {
                 type="tel"
                 value={newPhone}
                 onChange={e => setNewPhone(e.target.value)}
-                placeholder="+254 7XX XXX XXX"
+                onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                placeholder="e.g. 0712345678 or +254712345678"
+                maxLength={13}
                 className={inputCls}
               />
             </InputRow>
@@ -426,6 +484,7 @@ const ProfileSettings = () => {
             loading={emailLoading}
             onConfirm={confirmEmailToken}
             onCancel={resetEmail}
+            method="email"
           />
         ) : (
           <div className="space-y-4">
@@ -467,33 +526,60 @@ const ProfileSettings = () => {
               <Alert type={dashMsg.type} text={dashMsg.text} />
               <form onSubmit={handleDashSubmit} className="space-y-4">
                 <InputRow label="Current Account Password">
-                  <input
-                    type="password"
-                    required
-                    value={dashForm.currentPassword}
-                    onChange={e => setDashForm(p => ({ ...p, currentPassword: e.target.value }))}
-                    placeholder="Your main account password"
-                    className={inputCls}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showDashPassword ? "text" : "password"}
+                      required
+                      value={dashForm.currentPassword}
+                      onChange={e => setDashForm(p => ({ ...p, currentPassword: e.target.value }))}
+                      placeholder="Your main account password"
+                      className={`${inputCls} pr-10`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowDashPassword(!showDashPassword)}
+                      className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
+                    >
+                      {showDashPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                    </button>
+                  </div>
                 </InputRow>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <InputRow label="New Dashboard Password">
-                    <input
-                      type="password"
-                      required
-                      value={dashForm.dashboardPassword}
-                      onChange={e => setDashForm(p => ({ ...p, dashboardPassword: e.target.value }))}
-                      className={inputCls}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showDashPassword ? "text" : "password"}
+                        required
+                        value={dashForm.dashboardPassword}
+                        onChange={e => setDashForm(p => ({ ...p, dashboardPassword: e.target.value }))}
+                        className={`${inputCls} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDashPassword(!showDashPassword)}
+                        className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
+                      >
+                        {showDashPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                      </button>
+                    </div>
                   </InputRow>
                   <InputRow label="Confirm Dashboard Password">
-                    <input
-                      type="password"
-                      required
-                      value={dashForm.confirmDashboardPassword}
-                      onChange={e => setDashForm(p => ({ ...p, confirmDashboardPassword: e.target.value }))}
-                      className={inputCls}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showDashPassword ? "text" : "password"}
+                        required
+                        value={dashForm.confirmDashboardPassword}
+                        onChange={e => setDashForm(p => ({ ...p, confirmDashboardPassword: e.target.value }))}
+                        className={`${inputCls} pr-10`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDashPassword(!showDashPassword)}
+                        className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
+                      >
+                        {showDashPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                      </button>
+                    </div>
                   </InputRow>
                 </div>
                 <div className="flex gap-3 pt-1">

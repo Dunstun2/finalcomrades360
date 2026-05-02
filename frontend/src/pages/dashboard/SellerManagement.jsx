@@ -1,19 +1,28 @@
 import React, { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { adminApi } from '../../services/api';
+import RoleEarningVerification from './components/RoleEarningVerification';
 
 export default function SellerManagement() {
+    const { tab } = useParams();
     const [sellers, setSellers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [activeTab, setActiveTab] = useState('all-sellers');
+    const [activeTab, setActiveTab] = useState(tab || 'all-sellers');
+
+    useEffect(() => {
+        if (tab) {
+            setActiveTab(tab);
+        }
+    }, [tab]);
 
     const resetAlerts = () => { setError(''); setSuccess(''); };
 
     const loadSellers = async () => {
         try {
             setLoading(true);
-            const r = await adminApi.getAllUsers({ role: 'seller' });
+            const r = await adminApi.getAllUsers({ role: 'seller', limit: 1000 });
             setSellers(r.data.users || []);
         } catch (e) {
             setError('Failed to load sellers');
@@ -52,8 +61,7 @@ export default function SellerManagement() {
 
     const tabs = [
         { id: 'all-sellers', name: 'All Sellers', icon: '🏪' },
-        { id: 'inventory', name: 'Inventory', icon: '📦' },
-        { id: 'sales', name: 'Sales', icon: '💰' }
+        { id: 'earning-verification', name: 'Earning Verification', icon: '✅' },
     ];
 
     const renderTabContent = () => {
@@ -128,6 +136,12 @@ export default function SellerManagement() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                );
+            case 'earning-verification':
+                return (
+                    <div className="animate-fadeIn">
+                        <RoleEarningVerification role="seller" hideHeader />
                     </div>
                 );
             default:

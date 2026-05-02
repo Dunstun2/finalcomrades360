@@ -40,6 +40,7 @@ const ServiceProviderDashboard = () => {
     { id: 'reviews', icon: <FaStar />, label: 'Reviews', path: '/dashboard/services/reviews' },
     { id: 'revenue', icon: <FaMoneyBillWave />, label: 'Revenue', path: '/dashboard/service-provider/revenue' },
     { id: 'wallet', icon: <FaWallet />, label: 'Service Wallet', path: '/dashboard/service-provider/wallet' },
+    { id: 'manual', icon: <FaClipboardList />, label: 'Provider Manual', path: '/dashboard/service-provider/manual' },
   ];
 
   return (

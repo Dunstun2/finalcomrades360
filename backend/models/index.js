@@ -62,9 +62,14 @@ const ContactMessage = require('./ContactMessage')(sequelize, Sequelize.DataType
 const ContactReply = require('./ContactReply')(sequelize, Sequelize.DataTypes);
 const SupportMessage = require('./SupportMessage')(sequelize, Sequelize.DataTypes);
 const SiteVisit = require('./SiteVisit')(sequelize, Sequelize.DataTypes);
+const AdminAuditLog = require('./AdminAuditLog')(sequelize, Sequelize.DataTypes);
+const BlockedIP = require('./BlockedIP')(sequelize, Sequelize.DataTypes);
+const VerifiedContact = require('./VerifiedContact')(sequelize, Sequelize.DataTypes);
+
 
 const models = {
   User,
+  AdminAuditLog,
   Product,
   Category,
   Subcategory,
@@ -124,7 +129,9 @@ const models = {
   ContactReply,
   ProductInquiryReply,
   SupportMessage,
-  SiteVisit
+  SiteVisit,
+  BlockedIP,
+  VerifiedContact
 };
 
 // Set up associations
@@ -197,6 +204,9 @@ module.exports = {
   ContactReply,
   SupportMessage,
   SiteVisit,
+  AdminAuditLog,
+  BlockedIP,
+  VerifiedContact,
   sequelize,
   Sequelize,
   Op: Sequelize.Op

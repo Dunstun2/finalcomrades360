@@ -98,7 +98,8 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
-    originalTextBlock: { type: DataTypes.TEXT, allowNull: true, comment: 'Original text block used to create this direct order' }
+    originalTextBlock: { type: DataTypes.TEXT, allowNull: true, comment: 'Original text block used to create this direct order' },
+    thankYouSent: { type: DataTypes.BOOLEAN, defaultValue: false, comment: 'Whether the automated thank you message has been sent' }
   }, {
     freezeTableName: true,  // disables automatic pluralization
     timestamps: true,

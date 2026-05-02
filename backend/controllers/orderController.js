@@ -1114,7 +1114,7 @@ const createOrderFromCart = async (req, res) => {
             logNotify(`📢 [Marketer Notif] Notifying marketer ID=${order.marketerId}`);
             const marketerUser = await User.findByPk(order.marketerId);
             if (marketerUser) {
-              notifyMarketerOrderPlaced(order, marketerUser, (customer?.name || order.customerName)).catch(e => console.error('Marketer notification failed:', e.message));
+              notifyMarketerOrderPlaced(order, marketerUser, (customer?.name || order.customerName), order.totalCommission).catch(e => console.error('Marketer notification failed:', e.message));
             }
           }
           

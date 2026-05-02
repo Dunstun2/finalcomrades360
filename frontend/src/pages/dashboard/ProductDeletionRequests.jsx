@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { FaChevronRight } from 'react-icons/fa';
 import api from '../../services/api';
 import { useToast } from '../../components/ui/use-toast';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
@@ -57,7 +59,12 @@ export default function ProductDeletionRequests() {
     return (
         <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold text-gray-800">Product Deletion Requests</h1>
+                <div className="flex items-center gap-4">
+                    <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+                        <FaChevronRight className="rotate-180" />
+                    </Link>
+                    <h1 className="text-2xl font-bold text-gray-800">Product Deletion Requests</h1>
+                </div>
                 <button
                     onClick={fetchRequests}
                     className="text-sm bg-white border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 font-medium"

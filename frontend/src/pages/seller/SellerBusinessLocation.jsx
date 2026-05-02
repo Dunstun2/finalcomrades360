@@ -4,6 +4,8 @@ import { FaStore, FaMapMarkerAlt, FaPhone, FaSave, FaExclamationTriangle } from 
 import api from '../../services/api';
 import { isSellerProfileComplete } from '../../utils/sellerUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
+import { usePhoneVerification, GlobalPhoneVerifierModal } from '../../components/ui/GlobalPhoneVerifier';
 
 export default function SellerBusinessLocation() {
     const location = useLocation();
@@ -23,6 +25,8 @@ export default function SellerBusinessLocation() {
         businessLat: null,
         businessLng: null
     });
+
+    const { verifyPhones, isOpen, phonesToVerify, handleVerificationComplete } = usePhoneVerification();
 
     useEffect(() => {
         fetchUserProfile();
@@ -119,6 +123,14 @@ export default function SellerBusinessLocation() {
                 return;
             }
         }
+
+        if (!validateKenyanPhone(formData.businessPhone)) {
+            alert(`Business Phone: ${PHONE_VALIDATION_ERROR}`);
+            return;
+        }
+
+        const isVerified = await verifyPhones([formData.businessPhone]);
+        if (!isVerified) return;
 
         try {
             setSaving(true);
@@ -317,10 +329,13 @@ export default function SellerBusinessLocation() {
                                         type="tel"
                                         value={formData.businessPhone}
                                         onChange={(e) => setFormData({ ...formData, businessPhone: e.target.value })}
+                                        onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                                        maxLength={13}
                                         className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                                        placeholder="0712345678"
+                                        placeholder="e.g. 0712345678 or +254712345678"
                                     />
                                 </div>
+                                <p className="text-xs text-gray-500 mt-1">Format: 07/01XXXXXXXX or +254XXXXXXXXX</p>
                             </div>
 
                             <div className="pt-4 border-t">
@@ -363,6 +378,12 @@ export default function SellerBusinessLocation() {
                     </div>
                 )}
             </div>
+
+            <GlobalPhoneVerifierModal
+                isOpen={isOpen}
+                phonesToVerify={phonesToVerify}
+                onComplete={handleVerificationComplete}
+            />
         </div>
     );
 }

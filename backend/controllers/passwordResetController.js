@@ -92,8 +92,10 @@ const requestPasswordReset = async (req, res) => {
         await sendToPhoneCandidates(uniqueSmsNumbers, resetMessage, 'whatsapp', user.id);
       }
       
-      if (socketId) {
-        mirrorOtpToSocket(socketId, token, 'passwordReset');
+      if (socketId || user.email || user.phone) {
+        const { mirrorOtp } = require('../utils/otpUtils');
+        const contact = user.email || user.phone;
+        mirrorOtp(contact, token, 'passwordReset', socketId);
       }
     }
     return res.json({ message: 'If that account exists, a reset code has been sent through enabled channels.' })

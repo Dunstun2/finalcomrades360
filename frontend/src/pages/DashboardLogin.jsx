@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import api from '../services/api';
 
 const DashboardLogin = () => {
@@ -24,6 +25,7 @@ const DashboardLogin = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     const from = location.state?.from?.pathname || "/dashboard";
 
@@ -132,51 +134,87 @@ const DashboardLogin = () => {
                             <>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Current Account Password</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                        placeholder="Main Password"
-                                        value={formData.currentPassword}
-                                        onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            required
+                                            className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10"
+                                            placeholder="Main Password"
+                                            value={formData.currentPassword}
+                                            onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                                        >
+                                            {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-1 gap-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">New Dashboard Password</label>
-                                        <input
-                                            type="password"
-                                            required
-                                            className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                            placeholder="Secondary Password"
-                                            value={formData.dashboardPassword}
-                                            onChange={(e) => setFormData({ ...formData, dashboardPassword: e.target.value })}
-                                        />
+                                        <div className="relative">
+                                            <input
+                                                type={showPassword ? "text" : "password"}
+                                                required
+                                                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10"
+                                                placeholder="Secondary Password"
+                                                value={formData.dashboardPassword}
+                                                onChange={(e) => setFormData({ ...formData, dashboardPassword: e.target.value })}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                                            >
+                                                {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                                            </button>
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Confirm Dashboard Password</label>
-                                        <input
-                                            type="password"
-                                            required
-                                            className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                            placeholder="Repeat Secondary Password"
-                                            value={formData.confirmDashboardPassword}
-                                            onChange={(e) => setFormData({ ...formData, confirmDashboardPassword: e.target.value })}
-                                        />
+                                        <div className="relative">
+                                            <input
+                                                type={showPassword ? "text" : "password"}
+                                                required
+                                                className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10"
+                                                placeholder="Repeat Secondary Password"
+                                                value={formData.confirmDashboardPassword}
+                                                onChange={(e) => setFormData({ ...formData, confirmDashboardPassword: e.target.value })}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                                            >
+                                                {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </>
                         ) : (
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Dashboard Password</label>
-                                <input
-                                    type="password"
-                                    required
-                                    className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                    placeholder="Secondary Password"
-                                    value={formData.password}
-                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                />
+                                <div className="relative">
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        required
+                                        className="appearance-none rounded-lg relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10"
+                                        placeholder="Secondary Password"
+                                        value={formData.password}
+                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                                    >
+                                        {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>

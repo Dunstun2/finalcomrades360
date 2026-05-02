@@ -4,6 +4,8 @@ import { FaUserGraduate, FaUserTie, FaIdCard, FaUpload, FaArrowLeft, FaSave, FaS
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import SystemFeedbackModal from '../../components/ui/SystemFeedbackModal';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
+import { usePhoneVerification, GlobalPhoneVerifierModal } from '../../components/ui/GlobalPhoneVerifier';
 
 // List of Kenyan universities and colleges
 const KENYAN_INSTITUTIONS = [
@@ -83,6 +85,8 @@ export default function RoleApplicationForm() {
   const [showSaveNotification, setShowSaveNotification] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalConfig, setModalConfig] = useState({ type: 'success', title: '', description: '', onConfirm: null });
+
+  const { verifyPhones, isOpen, phonesToVerify, handleVerificationComplete } = usePhoneVerification();
 
   // Fetch job opening if missing
   useEffect(() => {
@@ -353,26 +357,8 @@ export default function RoleApplicationForm() {
     return () => clearTimeout(timeoutId);
   }, [formData, studentIdFront, studentIdBack, saveDraft]);
 
-  const validatePhone = (phone) => {
-    const s = String(phone).replace(/\s|-/g, '');
-    if (/^\+254[17]\d{8}$/.test(s)) return true;
-    if (/^0[17]\d{8}$/.test(s)) return true;
-    return false;
-  };
-
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-
-    // Strict restriction for phone fields
-    if (name.toLowerCase().includes('phone')) {
-      // Only allow numbers and plus
-      const cleanValue = value.replace(/[^\d+]/g, '');
-      // Max length for +254 format is 13
-      if (cleanValue.length > 13) return;
-
-      setFormData(prev => ({ ...prev, [name]: cleanValue }));
-      return;
-    }
 
     setFormData(prev => ({
       ...prev,
@@ -436,8 +422,13 @@ export default function RoleApplicationForm() {
       return;
     }
 
-    if (!validatePhone(r1Phone) || !validatePhone(r2Phone)) {
-      setError('Referees phone numbers must be exactly 10 digits (07...) or 13 characters (+254...).');
+    if (!validateKenyanPhone(formData.phone)) {
+      setError(`Your Phone: ${PHONE_VALIDATION_ERROR}`);
+      return;
+    }
+
+    if (!validateKenyanPhone(r1Phone) || !validateKenyanPhone(r2Phone)) {
+      setError(`Referees: ${PHONE_VALIDATION_ERROR}`);
       return;
     }
 
@@ -452,7 +443,10 @@ export default function RoleApplicationForm() {
       }
     }
 
-
+    // VERIFY PHONES
+    const phonesToCheck = [formData.phone, r1Phone, r2Phone];
+    const isVerified = await verifyPhones(phonesToCheck);
+    if (!isVerified) return; // User cancelled OTP modal
 
     try {
       setIsSubmitting(true);
@@ -512,9 +506,11 @@ export default function RoleApplicationForm() {
     }
   };
 
-  // Removed custom success view as it's now handled by the modal
-
   // Success rendering handled by modal now
+
+  if (modalConfig && showModal) {
+    return <SystemFeedbackModal {...modalConfig} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -599,7 +595,9 @@ export default function RoleApplicationForm() {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="Phone Number (+254...)"
+                  onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                  maxLength={13}
+                  placeholder="Phone Number (e.g. 0712345678)"
                   className="w-full border-2 p-4 rounded-xl focus:border-blue-500 outline-none transition-all"
                   disabled={!!user}
                 />
@@ -700,7 +698,9 @@ export default function RoleApplicationForm() {
                     name="referee1Phone"
                     value={formData.referee1Phone}
                     onChange={handleChange}
-                    placeholder="Phone Number"
+                    onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                    maxLength={13}
+                    placeholder="e.g. 0712345678"
                     className="w-full border-2 p-3 rounded-lg focus:border-blue-500"
                   />
                 </div>
@@ -719,7 +719,9 @@ export default function RoleApplicationForm() {
                     name="referee2Phone"
                     value={formData.referee2Phone}
                     onChange={handleChange}
-                    placeholder="Phone Number"
+                    onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                    maxLength={13}
+                    placeholder="e.g. 0712345678"
                     className="w-full border-2 p-3 rounded-lg focus:border-blue-500"
                   />
                 </div>
@@ -762,6 +764,12 @@ export default function RoleApplicationForm() {
         description={modalConfig.description}
         onConfirm={modalConfig.onConfirm}
         confirmLabel={modalConfig.confirmLabel}
+      />
+
+      <GlobalPhoneVerifierModal
+        isOpen={isOpen}
+        phonesToVerify={phonesToVerify}
+        onComplete={handleVerificationComplete}
       />
     </div>
   );

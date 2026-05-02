@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { FaBox, FaHistory, FaCheckCircle, FaTimes, FaSearch, FaTruck, FaEye, FaMapMarkerAlt, FaUserPlus, FaMoneyBillWave, FaWarehouse, FaStore, FaRoute, FaSpinner, FaPlus } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
+import { FaBox, FaHistory, FaCheckCircle, FaTimes, FaSearch, FaTruck, FaEye, FaMapMarkerAlt, FaUserPlus, FaMoneyBillWave, FaWarehouse, FaStore, FaRoute, FaSpinner, FaPlus, FaChevronRight } from 'react-icons/fa';
 import api from '../../services/api';
 import { formatPrice } from '../../utils/currency';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
@@ -236,9 +237,14 @@ export default function AdminReturnsList() {
     return (
         <div className="p-4 sm:p-6 space-y-6 bg-gray-50/50 min-h-screen">
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                    <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Return Management</h1>
-                    <p className="text-sm text-gray-500 font-bold uppercase tracking-widest">Assign logistics & process refunds</p>
+                <div className="flex items-center gap-4">
+                    <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+                        <FaChevronRight className="rotate-180" />
+                    </Link>
+                    <div>
+                        <h1 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Return Management</h1>
+                        <p className="text-sm text-gray-500 font-bold uppercase tracking-widest">Assign logistics & process refunds</p>
+                    </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">

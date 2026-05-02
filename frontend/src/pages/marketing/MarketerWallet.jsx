@@ -4,6 +4,7 @@ import { formatPrice } from '../../utils/currency';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { useToast } from '../../components/ui/use-toast';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
 
 const MarketerWallet = () => {
     const { toast } = useToast();
@@ -58,6 +59,10 @@ const MarketerWallet = () => {
         }
         if (paymentMethod === 'mpesa' && !mpesaNumber) {
             toast({ title: 'Missing Details', description: 'Please enter your M-Pesa number.', variant: 'destructive' });
+            return;
+        }
+        if (paymentMethod === 'mpesa' && !validateKenyanPhone(mpesaNumber)) {
+            toast({ title: 'Invalid Phone', description: PHONE_VALIDATION_ERROR, variant: 'destructive' });
             return;
         }
         if (paymentMethod === 'bank' && (!bankName || !accountNumber)) {
@@ -345,10 +350,13 @@ const MarketerWallet = () => {
                                                 type="tel"
                                                 value={mpesaNumber}
                                                 onChange={(e) => setMpesaNumber(e.target.value)}
-                                                placeholder="e.g. 2547XXXXXXXX"
+                                                onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                                                placeholder="e.g. 0712345678 or +254712345678"
+                                                maxLength={13}
                                                 required
                                                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:border-purple-500 transition-all font-mono"
                                             />
+                                            <p className="text-[10px] text-gray-400 mt-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
                                         </div>
                                     )}
 

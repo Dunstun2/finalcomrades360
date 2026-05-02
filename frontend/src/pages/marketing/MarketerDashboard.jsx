@@ -6,7 +6,8 @@ import {
   FaCog, FaUserPlus, FaCrown, FaMousePointer, FaChartLine,
   FaCheckCircle, FaExclamationTriangle, FaTimes, FaHistory, FaArrowRight, FaQrcode,
   FaUser, FaBox, FaClock, FaMapMarkerAlt, FaUsers, FaPhone, FaEnvelope, FaGlobe, FaLock, FaShareAlt,
-  FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars, FaCheck, FaShieldAlt, FaHome
+  FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars, FaCheck, FaShieldAlt, FaHome,
+  FaTools, FaBookOpen
 } from 'react-icons/fa';
 import { FaTiktok } from 'react-icons/fa6';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,6 +22,9 @@ import ShareProducts from './ShareProducts';
 import { resolveImageUrl } from '../../utils/imageUtils';
 import { copyToClipboard } from '../../utils/clipboard';
 import { QRCodeCanvas } from 'qrcode.react';
+import RoleToolbox from '../../components/dashboard/RoleToolbox';
+import PhoneVerification from '../../components/PhoneVerification';
+import { formatKenyanPhoneInput, validateKenyanPhone, PHONE_VALIDATION_ERROR } from '../../utils/validation';
 
 import html2canvas from 'html2canvas';
 
@@ -30,6 +34,7 @@ const DirectOrders = lazy(() => import('../dashboard/DirectOrders'));
 const MarketerDashboard = () => {
   const location = useLocation();
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.roles?.includes('admin') || user?.role === 'superadmin' || user?.roles?.includes('superadmin') || user?.role === 'super_admin' || user?.roles?.includes('super_admin');
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toast } = useToast();
@@ -257,16 +262,54 @@ const MarketerDashboard = () => {
   });
   const [submittingUser, setSubmittingUser] = useState(false);
   const [addUserSuccess, setAddUserSuccess] = useState(null);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+  const [phoneExists, setPhoneExists] = useState(true);
+  const [checkingPhone, setCheckingPhone] = useState(false);
 
   const handleAddUserChange = (e) => {
     const { name, value } = e.target;
     setAddUserForm(prev => ({ ...prev, [name]: value }));
+    if (name === 'phone') {
+      setIsPhoneVerified(false);
+      setPhoneExists(true);
+    }
   };
+
+  // Check if phone exists
+  useEffect(() => {
+    if (activeTab !== 'add-user' || !addUserForm.phone || addUserForm.phone.length < 9) {
+      setPhoneExists(true);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setCheckingPhone(true);
+      try {
+        const res = await api.get(`/verification/check-phone?phone=${addUserForm.phone}`);
+        if (res.data.success) {
+          setPhoneExists(res.data.exists);
+          if (res.data.exists) setIsPhoneVerified(true);
+          else setIsPhoneVerified(false);
+        }
+      } catch (err) {
+        console.error('Phone check failed:', err);
+      } finally {
+        setCheckingPhone(false);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [addUserForm.phone, activeTab]);
 
   const handleAddUserSubmit = async (e) => {
     e.preventDefault();
     if (!addUserForm.email && !addUserForm.phone) {
       toast({ title: 'Missing Info', description: 'Please provide either an email or phone number.', variant: 'destructive' });
+      return;
+    }
+
+    if (addUserForm.phone && !phoneExists && !isPhoneVerified && !isAdmin) {
+      toast({ title: 'Verification Required', description: 'Please verify the phone number before registering.', variant: 'destructive' });
       return;
     }
 
@@ -638,8 +681,26 @@ const MarketerDashboard = () => {
     { id: 'add-user', name: 'Add Customer', icon: <FaUserPlus className="w-4 h-4" /> },
     { id: 'my-customers', name: 'My Customers', icon: <FaUsers className="w-4 h-4" /> },
     { id: 'leaderboard', name: 'Leaderboard', icon: <FaCrown className="w-4 h-4" /> },
-    { id: 'direct-orders', name: 'Direct Orders', icon: <FaShoppingCart className="w-4 h-4" /> }
+    { id: 'direct-orders', name: 'Direct Orders', icon: <FaShoppingCart className="w-4 h-4" /> },
+    { id: 'tools', name: 'Marketing Tools', icon: <FaTools className="w-4 h-4" /> },
+    { id: 'manual', name: 'Marketer Manual', icon: <FaBookOpen className="w-4 h-4" /> }
   ];
+
+  const renderManual = () => (
+    <Suspense fallback={<div className="p-8 text-center">Loading manual...</div>}>
+      <DashboardManual role="marketer" />
+    </Suspense>
+  );
+
+  const renderTools = () => (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+        <h1 className="text-2xl font-bold text-gray-800 uppercase tracking-tight">Marketing Studio</h1>
+        <p className="text-sm text-gray-500">Advanced utilities to boost your referral performance.</p>
+      </div>
+      <RoleToolbox role="marketer" user={user} />
+    </div>
+  );
 
   // State for selected customer orders expansion
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
@@ -673,6 +734,8 @@ const MarketerDashboard = () => {
       fetchLeaderboardData();
     }
   }, [activeTab]);
+
+
 
   const renderLeaderboard = () => (
     <div className="space-y-6">
@@ -773,6 +836,7 @@ const MarketerDashboard = () => {
   const renderOverview = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Marketing Overview</h2>
+      
 
       {marketerData && (
         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
@@ -1580,6 +1644,8 @@ const MarketerDashboard = () => {
         return renderOrders();
       case 'leaderboard':
         return renderLeaderboard();
+      case 'tools':
+        return renderTools();
       case 'direct-orders':
         return (
           <Suspense fallback={<div>Loading Direct Orders...</div>}>
@@ -1658,11 +1724,29 @@ const MarketerDashboard = () => {
                       name="phone"
                       value={addUserForm.phone}
                       onChange={handleAddUserChange}
-                      placeholder="+254 7XX XXX XXX"
+                      onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                      placeholder="e.g. 0712345678 or +254712345678"
+                      maxLength={13}
                       className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white/50 focus:bg-white transition-all"
                     />
+                    <p className="text-[10px] text-gray-400 mt-1 pl-1">Format: 07/01XXXXXXXX (10 digits) or +254XXXXXXXXX</p>
                   </div>
                 </div>
+
+                {/* Verification Gate */}
+                {!phoneExists && !isPhoneVerified && addUserForm.phone && (
+                  <div className="bg-amber-50 rounded-xl border-2 border-dashed border-amber-200 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <FaShieldAlt className="w-4 h-4" />
+                      <p className="text-[11px] font-black uppercase tracking-wider">Identity Verification Required</p>
+                    </div>
+                    <PhoneVerification 
+                      mode="guest" 
+                      currentPhone={addUserForm.phone} 
+                      onVerified={() => setIsPhoneVerified(true)} 
+                    />
+                  </div>
+                )}
 
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50 flex gap-3 mt-4">
                   <FaShieldAlt className="text-blue-400 w-5 h-5 flex-shrink-0" />
@@ -1857,6 +1941,9 @@ const MarketerDashboard = () => {
           </div>
         );
 
+      case 'manual':
+        return renderManual();
+
       default:
         return renderOverview();
     }
@@ -1982,6 +2069,28 @@ const MarketerDashboard = () => {
 
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar">
+          {isAdmin && (
+            <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-4 py-2.5 flex items-center justify-between shadow-md border-b border-white/10 sticky top-0 z-[100] backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
+                  <span className="text-sm font-bold">🛠️</span>
+                </div>
+                <div>
+                  <h3 className="text-xs lg:text-sm font-black uppercase tracking-widest leading-none">Admin Bypass Mode Active</h3>
+                  <p className="text-[10px] text-white/70 font-medium mt-0.5">Bypassing standard marketer restrictions & campaign gates.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline-block text-[10px] bg-white/20 px-2 py-1 rounded font-bold uppercase tracking-tighter border border-white/20">Privileged Session</span>
+                <button 
+                  onClick={() => navigate('/dashboard/other-dashboards')}
+                  className="text-[10px] lg:text-xs font-black bg-white text-blue-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-all uppercase shadow-sm"
+                >
+                  Exit Bypass
+                </button>
+              </div>
+            </div>
+          )}
           <div className="max-w-7xl mx-auto w-full p-1 sm:p-4 min-h-full pb-20 lg:pb-0">
             {/* Page Header — desktop only */}
             <div className="hidden lg:flex flex-row items-center justify-between gap-4 mb-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">

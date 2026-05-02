@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState, useMemo } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { initPerformanceMonitoring } from './utils/performance';
@@ -158,6 +158,7 @@ const ReturnRequestPage = lazy(() => import('./pages/customer/ReturnRequestPage'
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const UserApplications = lazy(() => import('./pages/dashboard/UserApplications'));
 const UserManagementOverview = lazy(() => import('./pages/dashboard/UserManagementOverview'));
+const AuditLogViewer = lazy(() => import('./pages/dashboard/AuditLogViewer'));
 const MarketerManagement = lazy(() => import('./pages/dashboard/MarketerManagement'));
 const CreateService = lazy(() => import('./pages/dashboard/services/CreateService'));
 const MyServices = lazy(() => import('./pages/dashboard/services/MyServices'));
@@ -200,14 +201,17 @@ const ProductDeletionRequests = lazy(() => import('./pages/dashboard/ProductDele
 const SystemRevenue = lazy(() => import('./pages/dashboard/SystemRevenue'));
 const PendingPayouts = lazy(() => import('./pages/dashboard/PendingPayouts'));
 const AdminLiveMap = lazy(() => import('./pages/dashboard/AdminLiveMap'));
-const DeliveryAuditing = lazy(() => import('./pages/dashboard/delivery/DeliveryAuditing'));
+const DeliveryEarningVerification = lazy(() => import('./pages/dashboard/delivery/DeliveryEarningVerification'));
 const BatchSystem = lazy(() => import('./pages/dashboard/BatchSystem'));
 const CustomerReturnsList = lazy(() => import('./pages/customer/CustomerReturnsList'));
 const FastFoodPickupPoints = lazy(() => import('./pages/dashboard/FastFoodPickupPoints'));
 const ContactMessages = lazy(() => import('./pages/dashboard/ContactMessages'));
 const AdminOnBehalfCreation = lazy(() => import('./pages/dashboard/AdminOnBehalfCreation'));
+const RoleTools = lazy(() => import('./pages/dashboard/RoleTools'));
 const DirectOrders = lazy(() => import('./pages/dashboard/DirectOrders'));
 const MarketingNotifications = lazy(() => import('./pages/dashboard/MarketingNotifications'));
+const AdminTools = lazy(() => import('./pages/dashboard/AdminTools'));
+const DashboardManual = lazy(() => import('./components/dashboard/DashboardManual'));
 
 // Delivery Agent Sub-components
 const DeliveryAgentOrders = lazy(() => import('./pages/dashboard/delivery/Orders'));
@@ -243,7 +247,6 @@ const AppWithProviders = () => (
   </ErrorBoundary>
 );
 
-// Main content component with auth context
 const AppContent = () => {
   const { user, loading, verificationRequired } = useAuth();
   const location = useLocation();
@@ -255,24 +258,26 @@ const AppContent = () => {
   const [bannerDismissed, setBannerDismissed] = useState(localStorage.getItem('referrerBannerDismissed') === 'true');
 
   const { settings, loading: settingsLoading } = usePlatform();
+  const isAdmin = useMemo(() => {
+    const adminRoles = ['admin', 'super_admin', 'superadmin'];
+    return adminRoles.includes(user?.role) || user?.roles?.some(r => adminRoles.includes(r));
+  }, [user]);
 
   // On app load, fire one quick API call; if we get 503+maintenance redirect immediately
   useEffect(() => {
     // Never redirect away from admin, maintenance, or login paths
-    const adminRoles = ['admin', 'super_admin', 'superadmin'];
     const adminPaths = ['/dashboard', '/dashboard-login', '/maintenance', '/login'];
     const isAdminPath = adminPaths.some(p => window.location.pathname.startsWith(p));
     
     if (isAdminPath) return;
 
     if (settings.maintenance?.enabled) {
-      const isAdmin = adminRoles.includes(user?.role) || user?.roles?.some(r => adminRoles.includes(r));
       if (!isAdmin) {
         if (settings.maintenance?.message) sessionStorage.setItem('maintenance_message', settings.maintenance.message);
         window.location.href = '/maintenance';
       }
     }
-  }, [settings.maintenance, user]);
+  }, [settings.maintenance, isAdmin]);
 
   // Handle referral links and marketing mode from URL
   useEffect(() => {
@@ -367,13 +372,16 @@ const AppContent = () => {
                        location.pathname.startsWith('/fastfood/') || 
                        location.pathname.startsWith('/service/');
 
+  // Simplified and robust padding logic
   let topPadding = "pt-[128px]"; // Default for home/search (Navbar + Search bar)
-  if (isDetailRoute) {
-    topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
-  } else if (isDashboardRoute) {
-    topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
+  if (isDetailRoute || isDashboardRoute) {
+    topPadding = "pt-14 md:pt-16"; // 56px/64px to clear Navbar (no search bar)
   }
-  let paddingClass = hideNavbar ? "" : `${topPadding} lg:pt-16`;
+  
+  // If we have a referrer banner, we need extra space
+  const hasReferrerBanner = !hideNavbar && !isMarketingMode && referrerName && !bannerDismissed;
+  
+  let paddingClass = hideNavbar ? "" : topPadding;
   if (isMarketingMode) {
     paddingClass += " pb-14 lg:pb-0";
   }
@@ -406,17 +414,19 @@ const AppContent = () => {
 
         {/* Catch-all route for Main App layout */}
         <Route path="*" element={
-          <div className="min-h-screen bg-gray-50">
+          <div className="min-h-screen bg-gray-50 flex flex-col">
             {!hideNavbar && (isMarketingMode ? <MarketingNavbar /> : <Navbar />)}
-            {!hideNavbar && !isMarketingMode && referrerName && !bannerDismissed && (
+            
+            {hasReferrerBanner && (
               <div className={paddingClass}>
                 <ReferrerBanner referrerName={referrerName} onClear={handleClearReferrer} />
               </div>
             )}
-            <main className={!isMarketingMode && referrerName ? "" : paddingClass}>
+            
+            <main className={(hasReferrerBanner) ? "flex-1" : `flex-1 ${paddingClass}`}>
               <Routes>
                 {/* Public Routes */}
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<Home isMarketingMode={isMarketingMode} />} />
                 <Route path="/category/:id" element={<Category />} />
                 <Route path="/product/:id" element={<ProductDetails />} />
                 <Route path="/search" element={<Search />} />
@@ -466,8 +476,11 @@ const AppContent = () => {
                   <Route path="users/role-applications" element={<RoleApplicationsManager />} />
                   <Route path="users/role-applications/:tab" element={<RoleApplicationsManager />} />
                   <Route path="users/marketers" element={<MarketerManagement />} />
+                  <Route path="users/marketers/:tab" element={<MarketerManagement />} />
                   <Route path="users/delivery-agents" element={<DeliveryAgents />} />
+                  <Route path="users/delivery-agents/:tab" element={<DeliveryAgents />} />
                   <Route path="users/sellers" element={<SellerManagement />} />
+                  <Route path="users/sellers/:tab" element={<SellerManagement />} />
                   <Route path="users/service-providers" element={<ServiceProviderManagement />} />
                   <Route path="users/customers" element={<CustomerManagement />} />
                   <Route path="users/verifications" element={<AdminIdVerification />} />
@@ -535,10 +548,13 @@ const AppContent = () => {
                   <Route path="contact-messages" element={<ContactMessages />} />
                   <Route path="support/service" element={<CustomerService />} />
                   <Route path="delivery/live-map" element={<AdminLiveMap />} />
-                  <Route path="delivery/auditing" element={<DeliveryAuditing />} />
+                  <Route path="delivery/auditing" element={<DeliveryEarningVerification />} />
                   <Route path="on-behalf-creation" element={<AdminOnBehalfCreation />} />
                   <Route path="direct-orders" element={<DirectOrders />} />
                   <Route path="other-dashboards" element={<OtherDashboards />} />
+                  <Route path="admin-tools" element={<AdminTools />} />
+                  <Route path="admin-tools/audit-log" element={<AuditLogViewer />} />
+                  <Route path="manual" element={<DashboardManual role="admin" />} />
                   {/* Logistics Manager entry point */}
                   <Route path="logistics" element={<Navigate to="/dashboard/orders" replace />} />
                 </Route>
@@ -559,6 +575,7 @@ const AppContent = () => {
                   <Route path="commissions" element={<Commissions />} />
                   <Route path="wallet" element={<MarketerWallet />} />
                   <Route path="direct-orders" element={<DirectOrders />} />
+                  <Route path="manual" element={<DashboardManual role="marketer" />} />
                 </Route>
 
                 {/* Seller Dashboard */}
@@ -571,8 +588,8 @@ const AppContent = () => {
                 }>
                   <Route index element={<SellerOverview />} />
                   <Route path="products" element={<SellerProducts />} />
-                  <Route path="products/add" element={<ProductForm />} />
-                  <Route path="products/:id/edit" element={<ProductForm mode="edit" />} />
+                  <Route path="products/add" element={isAdmin ? <ComradesProductForm /> : <ProductForm />} />
+                  <Route path="products/:id/edit" element={isAdmin ? <ComradesProductForm mode="edit" /> : <ProductForm mode="edit" />} />
                   <Route path="products/view/:id" element={<SellerProductView />} />
                   <Route path="orders" element={<SellerOrders />} />
                   <Route path="earnings" element={<SellerEarnings />} />
@@ -586,6 +603,7 @@ const AppContent = () => {
                   <Route path="inventory" element={<InventoryManagement onBack={() => window.history.back()} />} />
                   <Route path="help" element={<SellerHelp />} />
                   <Route path="direct-orders" element={<DirectOrders />} />
+                  <Route path="manual" element={<DashboardManual role="seller" />} />
 
                   {/* Fast Food Management Routes for Sellers */}
                   <Route path="fast-food" element={<FastFoodManagement />} />
@@ -593,6 +611,7 @@ const AppContent = () => {
                   <Route path="fast-food/new" element={<FastFoodForm isSellerContext={true} />} />
                   <Route path="fast-food/edit/:id" element={<FastFoodForm mode="edit" isSellerContext={true} />} />
                   <Route path="fast-food/view/:id" element={<SellerFastFoodView />} />
+                  <Route path="tools" element={<RoleTools role="seller" />} />
                 </Route>
 
                 {/* Operations Dashboard */}
@@ -620,10 +639,14 @@ const AppContent = () => {
                   </ProtectedRoute>
                 } />
 
-                {/* Station Manager Dashboard */}
                 <Route path="/station" element={
                   <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
                     <StationManagerDashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="/station/manual" element={
+                  <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
+                    <DashboardManual role="station" />
                   </ProtectedRoute>
                 } />
 
@@ -648,6 +671,7 @@ const AppContent = () => {
                   <Route path="applications" element={<MyApplications />} />
                   <Route path="work-with-us" element={<WorkWithUs />} />
                   <Route path="apply/:role" element={<RoleApplicationForm />} />
+                  <Route path="manual" element={<DashboardManual role="customer" />} />
                 </Route>
 
                 {/* Redirects for legacy /work-with-us and /apply/:role links */}
@@ -675,8 +699,10 @@ const AppContent = () => {
                   <Route path="wallet" element={<DeliveryWallet />} />
                   <Route path="notifications" element={<DeliveryNotifications />} />
                   <Route path="support" element={<DeliverySupport />} />
-                  <Route path="settings" element={<DeliverySettings />} />
+                   <Route path="settings" element={<DeliverySettings />} />
                   <Route path="map" element={<DeliveryLiveMap />} />
+                  <Route path="tools" element={<RoleTools role="delivery" />} />
+                  <Route path="manual" element={<DashboardManual role="delivery" />} />
                 </Route>
 
                 {/* Service Provider Dashboard - Standalone route outside main dashboard */}
@@ -702,6 +728,7 @@ const AppContent = () => {
                   <Route path="reviews" element={<div>Reviews Page</div>} />
                   <Route path="revenue" element={<div>Revenue Page</div>} />
                   <Route path="wallet" element={<ServiceProviderWallet />} />
+                  <Route path="manual" element={<DashboardManual role="service_provider" />} />
                 </Route>
               </Routes>
             </main>

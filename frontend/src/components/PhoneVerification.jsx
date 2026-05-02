@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 import { toast } from 'react-toastify';
+import useWebOTP from '../hooks/useWebOTP';
 
-const PhoneVerification = ({ currentPhone, onVerified }) => {
+const PhoneVerification = ({ currentPhone, onVerified, mode = 'authenticated' }) => {
   const [phoneNumber, setPhoneNumber] = useState(currentPhone || '');
   const [verificationCode, setVerificationCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,30 +14,16 @@ const PhoneVerification = ({ currentPhone, onVerified }) => {
   const [errorMsg, setErrorMsg] = useState('');
   
   // ── Web OTP API — auto-capture SMS code on mobile ─────────────────────────
-  useEffect(() => {
-    if (step !== 2 || method !== 'sms') return;
-    if (!('OTPCredential' in window)) return;
-
-    const ac = new AbortController();
-    navigator.credentials.get({
-        otp: { transport: ['sms'] },
-        signal: ac.signal
-    }).then(credential => {
-        if (credential?.code) {
-            const code = credential.code.replace(/\D/g, '').slice(0, 6);
-            setVerificationCode(code);
-            // Automatically trigger verification
-            handleVerifyDirect(code);
-        }
-    }).catch(() => { /* user cancelled or not supported — silent */ });
-
-    return () => ac.abort();
-  }, [step, method]);
+  useWebOTP({
+    enabled: step === 2 && method === 'sms',
+    onCapture: (capturedCode) => {
+      setVerificationCode(capturedCode);
+      handleVerifyDirect(capturedCode);
+    }
+  });
 
   // ── Multi-channel OTP monitoring (SMS, WhatsApp, Email) ──────────────────
   useEffect(() => {
-    if (step !== 2) return;
-
     const socket = getSocket();
     if (!socket) return;
 
@@ -61,7 +48,8 @@ const PhoneVerification = ({ currentPhone, onVerified }) => {
       if (!formattedPhone.startsWith('+')) {
          formattedPhone = `+254${formattedPhone.replace(/^0/, '')}`;
       }
-      const response = await api.post('/users/me/phone-otp/confirm', { 
+      const endpoint = mode === 'guest' ? '/verification/verify-guest-otp' : '/users/me/phone-otp/confirm';
+      const response = await api.post(endpoint, { 
         otp: code,
         phone: formattedPhone
       });
@@ -97,11 +85,17 @@ const PhoneVerification = ({ currentPhone, onVerified }) => {
 
       console.log(`Attempting to send OTP via ${method} to:`, formattedPhone);
       
-      const response = await api.post('/users/me/phone-otp/request', { 
-        newPhone: formattedPhone,
-        method: method,
-        socketId: getSocket()?.id
-      });
+      const socket = getSocket();
+      // Join specialized room for this contact to support cross-device prefilling
+      const { joinOtpRoom } = await import('../services/socket');
+      joinOtpRoom(formattedPhone);
+
+      const endpoint = mode === 'guest' ? '/verification/request-guest-otp' : '/users/me/phone-otp/request';
+      const payload = mode === 'guest' 
+        ? { phone: formattedPhone, method, socketId: socket?.connected ? socket.id : null }
+        : { newPhone: formattedPhone, method, socketId: socket?.connected ? socket.id : null };
+
+      const response = await api.post(endpoint, payload);
 
       if (response.data) {
         setStep(2);
@@ -135,7 +129,8 @@ const PhoneVerification = ({ currentPhone, onVerified }) => {
          formattedPhone = `+254${formattedPhone.replace(/^0/, '')}`;
       }
 
-      const response = await api.post('/users/me/phone-otp/confirm', { 
+      const endpoint = mode === 'guest' ? '/verification/verify-guest-otp' : '/users/me/phone-otp/confirm';
+      const response = await api.post(endpoint, { 
         otp: verificationCode,
         phone: formattedPhone
       });

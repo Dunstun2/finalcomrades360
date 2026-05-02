@@ -6,8 +6,9 @@ import FastFoodForm from './FastFoodForm';
 import ServiceForm from '../../components/services/ServiceForm';
 import AdminCreatedItemsTable from './components/AdminCreatedItemsTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from '../../components/ui/use-toast';
+import { FaChevronRight } from 'react-icons/fa';
 
 const AdminOnBehalfCreation = () => {
     const [selectedEntity, setSelectedEntity] = useState(null);
@@ -34,12 +35,17 @@ const AdminOnBehalfCreation = () => {
     return (
         <div className="container mx-auto p-2 sm:p-6 space-y-6 max-w-7xl">
             <header className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-                        <span className="bg-blue-100 p-2 rounded-lg text-blue-600">🛡️</span>
-                        Admin On-Behalf Creation
-                    </h1>
-                    <p className="text-gray-500 mt-1 font-medium italic">Create and instantly approve items for vendors</p>
+                <div className="flex items-center gap-4">
+                    <Link to="/dashboard/admin-tools" className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors" title="Back to Admin Tools">
+                        <FaChevronRight className="rotate-180" />
+                    </Link>
+                    <div>
+                        <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+                            <span className="bg-blue-100 p-2 rounded-lg text-blue-600">🛡️</span>
+                            Admin On-Behalf Creation
+                        </h1>
+                        <p className="text-gray-500 mt-1 font-medium italic">Create and instantly approve items for vendors</p>
+                    </div>
                 </div>
                 <div className="flex gap-2">
                     <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold uppercase tracking-wider flex items-center">

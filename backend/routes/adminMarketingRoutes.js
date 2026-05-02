@@ -1,7 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const { getPotentialRecipients, sendBulkThankYouMessages } = require('../controllers/adminMarketingNotificationController');
+const { getSummary, getMarketersLeaderboard, getMarketerProfile } = require('../controllers/adminMarketingController');
 const { auth, adminOnly } = require('../middleware/auth');
+
+/**
+ * @route GET /api/admin/marketing/summary
+ * @desc Get aggregated marketing KPIs
+ */
+router.get('/summary', auth, adminOnly, getSummary);
+
+/**
+ * @route GET /api/admin/marketing/marketers
+ * @desc Get marketers leaderboard / list
+ */
+router.get('/marketers', auth, adminOnly, getMarketersLeaderboard);
+
+/**
+ * @route GET /api/admin/marketing/marketers/:id
+ * @desc Get detailed profile for a single marketer
+ */
+router.get('/marketers/:id', auth, adminOnly, getMarketerProfile);
 
 /**
  * @route GET /api/admin/marketing/potential-recipients

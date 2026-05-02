@@ -64,6 +64,14 @@ const adminMenuItems = [
     roles: ['admin', 'superadmin', 'super_admin'],
     children: [
       { name: 'All Users', path: '/dashboard/users', icon: <FaUsers className="mr-2" /> },
+      {
+        name: 'Seller Management',
+        icon: <FaStore className="mr-2" />,
+        children: [
+          { name: 'All Sellers', path: '/dashboard/users/sellers', icon: <FaStore className="mr-2" /> },
+          { name: 'Seller Earning Verification', path: '/dashboard/users/sellers/earning-verification', icon: <FaMoneyBillWave className="mr-2" /> },
+        ]
+      },
       { name: 'Role Applications', path: '/dashboard/users/role-applications', icon: <FaFileAlt className="mr-2" /> },
       { name: 'ID Verifications', path: '/dashboard/users/verifications', icon: <FaShieldAlt className="mr-2" /> },
       { name: 'Job Openings', path: '/dashboard/users/job-openings', icon: <FaUserTie className="mr-2" /> }
@@ -98,8 +106,9 @@ const adminMenuItems = [
       { name: 'Pickup Stations', path: '/dashboard/delivery/pickup-stations', icon: <FaMapMarkerAlt className="mr-2" /> },
       { name: 'Fastfood Pickup Points', path: '/dashboard/fastfood/pickup-points', icon: <FaUtensils className="mr-2" /> },
       { name: 'Delivery Agents', path: '/dashboard/users/delivery-agents', icon: <FaTruck className="mr-2" /> },
+      { name: 'Agent Earning Verification', path: '/dashboard/users/delivery-agents/earning-verification', icon: <FaMoneyBillWave className="mr-2" /> },
       { name: 'Delivery Settings', path: '/dashboard/delivery/settings', icon: <FaTools className="mr-2" /> },
-      { name: 'Auditing & Payouts', path: '/dashboard/delivery/auditing', icon: <FaMoneyBill className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin', 'finance_manager'] }
+      { name: 'Delivery Earning Verification', path: '/dashboard/delivery/earning-verification', icon: <FaMoneyBill className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin', 'finance_manager'] }
     ]
   },
   {
@@ -123,6 +132,7 @@ const adminMenuItems = [
     roles: ['admin', 'superadmin', 'super_admin', 'marketer'],
     children: [
       { name: 'Marketers', path: '/dashboard/users/marketers', icon: <FaBullhorn className="mr-2" /> },
+      { name: 'Marketer Earning Verification', path: '/dashboard/users/marketers/earning-verification', icon: <FaMoneyBillWave className="mr-2" /> },
       { name: 'Product Promo Requests', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" /> },
       { name: 'FastFood Promo Requests', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" /> },
       { name: 'Daily Thank You Messages', path: '/dashboard/marketing/thank-you', icon: <FaComments className="mr-2" /> },
@@ -141,6 +151,12 @@ const adminMenuItems = [
       { name: 'Custom Reports', path: '/dashboard/analytics/custom', icon: <FaFileAlt className="mr-2" /> },
       { name: 'Advanced Reports', path: '/dashboard/analytics/advanced', icon: <FaFileAlt className="mr-2" /> }
     ]
+  },
+  {
+    name: 'Admin Tools',
+    path: '/dashboard/admin-tools',
+    icon: <FaTools className="mr-3" />,
+    roles: ['admin', 'superadmin', 'super_admin'],
   },
   {
     name: 'System Settings',
@@ -168,7 +184,7 @@ const adminMenuItems = [
     name: 'Role-Based Dashboards',
     path: '/dashboard/other-dashboards',
     icon: <FaCubes className="mr-3" />,
-    roles: ['superadmin', 'super_admin'],
+    roles: ['admin', 'superadmin', 'super_admin'],
     children: [
       { name: 'Delivery Dashboard', path: '/delivery/orders', icon: <FaTruck className="mr-2" /> },
       { name: 'Service Provider', path: '/dashboard/service-provider', icon: <FaUserTie className="mr-2" /> },
@@ -185,6 +201,12 @@ const adminMenuItems = [
     path: '/notifications',
     icon: <FaBullhorn className="mr-3" />,
     roles: ['admin', 'superadmin', 'super_admin', 'logistics_manager', 'delivery_agent', 'finance_manager', 'marketer', 'support', 'ops_manager']
+  },
+  {
+    name: 'System Manual',
+    path: '/dashboard/manual',
+    icon: <FaFileAlt className="mr-3" />,
+    roles: ['admin', 'superadmin', 'super_admin']
   },
 ];
 
@@ -242,6 +264,12 @@ const customerMenuItems = [
     name: 'Notifications & Alerts',
     path: '/notifications',
     icon: <FaBullhorn className="mr-3" />,
+    roles: ['customer']
+  },
+  {
+    name: 'User Guide',
+    path: '/customer/manual',
+    icon: <FaFileAlt className="mr-3" />,
     roles: ['customer']
   }
 ];
@@ -391,6 +419,54 @@ const Sidebar = ({ onClose }) => {
                         .filter((child) => !child.roles || child.roles.some((role) => userRoles.includes(role)))
                         .map((child) => {
                           const isChildExactActive = location.pathname === child.path;
+                          const hasSubChildren = child.children && child.children.length > 0;
+
+                          if (hasSubChildren) {
+                            return (
+                              <li key={child.name} className="mt-1">
+                                <button
+                                  onClick={() => toggleExpanded(child.name)}
+                                  className={`flex items-center w-full py-2 px-3 rounded-lg text-xs lg:text-[13px] font-medium transition-all ${expandedItems.has(child.name)
+                                    ? 'text-blue-600 bg-blue-50/20'
+                                    : 'text-gray-500 hover:bg-gray-50 hover:text-blue-600'
+                                    }`}
+                                >
+                                  <span className="mr-2 opacity-70">{child.icon}</span>
+                                  {child.name}
+                                  <svg
+                                    className={`w-3 h-3 ml-auto transition-transform ${expandedItems.has(child.name) ? 'rotate-90' : ''}`}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                                {expandedItems.has(child.name) && (
+                                  <ul className="ml-4 mt-1 border-l border-gray-100 pl-2 space-y-1">
+                                    {child.children
+                                      .filter((sub) => !sub.roles || sub.roles.some((role) => userRoles.includes(role)))
+                                      .map((sub) => (
+                                        <li key={sub.path}>
+                                          <Link
+                                            to={sub.path}
+                                            onClick={onClose}
+                                            className={`flex items-center py-1.5 px-3 rounded-lg text-[11px] lg:text-[12px] font-medium transition-all ${location.pathname === sub.path
+                                              ? 'text-blue-600 bg-blue-50/30'
+                                              : 'text-gray-400 hover:bg-gray-50 hover:text-blue-600'
+                                              }`}
+                                          >
+                                            <span className="mr-2 opacity-60">{sub.icon}</span>
+                                            {sub.name}
+                                          </Link>
+                                        </li>
+                                      ))}
+                                  </ul>
+                                )}
+                              </li>
+                            );
+                          }
+
                           return (
                             <li key={child.path}>
                               <Link

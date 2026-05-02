@@ -287,73 +287,44 @@ apiRouter.use('/commissions', require('./routes/commissionRoutes'));
 apiRouter.use('/admin', require('./routes/adminRoutes'));
 apiRouter.use('/verification', require('./routes/verificationRoutes'));
 apiRouter.use('/social-media-accounts', require('./routes/socialMediaAccountRoutes'));
-console.error('🚀 MOUNTING NEW ROUTES...');
-app.use('/api/analytics', require('./routes/analyticsRoutes'));
-app.use('/api/admin/marketing', require('./routes/adminMarketingRoutes'));
+
+// 2. Secondary / Extended Modules
+apiRouter.use('/analytics', require('./routes/analyticsRoutes'));
+apiRouter.use('/admin/marketing', require('./routes/adminMarketingRoutes'));
+apiRouter.use('/password-reset', require('./routes/passwordResetRoutes'));
+apiRouter.use('/platform', require('./routes/platformRoutes'));
+apiRouter.use('/role-management', require('./routes/roleManagementRoutes'));
+apiRouter.use('/admin/categories', require('./routes/adminCategoryRoutes'));
+apiRouter.use('/upload', require('./routes/uploadRoutes'));
+apiRouter.use('/admin/users', require('./routes/userManagementRoutes'));
+apiRouter.use('/role-applications', require('./routes/roleApplicationRoutes'));
+apiRouter.use('/admin-tools', require('./routes/adminToolRoutes'));
+apiRouter.use('/profile', require('./routes/profileRoutes'));
+apiRouter.use('/contact', require('./routes/contactRoutes'));
+apiRouter.use('/product-inquiries', require('./routes/productInquiryRoutes'));
+apiRouter.use('/batches', require('./routes/batchRoutes'));
+apiRouter.use('/image', require('./routes/imageRoutes'));
+apiRouter.use('/images', require('./routes/imageRoutes')); // Alias
+apiRouter.use('/job-openings', require('./routes/jobOpeningRoutes'));
+apiRouter.use('/seller', require('./routes/sellerRoutes'));
+apiRouter.use('/cache', require('./routes/cacheRoutes'));
+apiRouter.use('/search', require('./routes/searchRoutes'));
+apiRouter.use('/wallet', require('./routes/walletRoutes'));
+apiRouter.use('/payment-enhancements', require('./routes/paymentEnhancementsRoutes'));
+apiRouter.use('/handover', require('./routes/handoverRoutes'));
+apiRouter.use('/delivery-messages', require('./routes/deliveryMessageRoutes'));
+apiRouter.use('/returns', require('./routes/returnRoutes'));
+apiRouter.use('/sharing', require('./routes/sharingRoutes'));
+apiRouter.use('/superadmin', require('./routes/superAdminSecurityRoutes'));
+apiRouter.use('/2fa', require('./routes/twoFactorAuthRoutes'));
+apiRouter.use('/fast-food', require('./routes/fastFoodRoutes')); // Alias
 
 // Mount the API router on both prefixes for maximum compatibility
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
-  app.use('/api/password-reset', require('./routes/passwordResetRoutes'));
   
-  console.error('ℹ️ Registering extended API modules...');
-  app.use('/api/platform', require('./routes/platformRoutes'));
-  app.use('/api/products', require('./routes/productRoutes'));
-  app.use('/api/role-management', require('./routes/roleManagementRoutes'));
-  app.use('/api/hero-promotions', require('./routes/heroPromotionRoutes'));
-  app.use('/api/admin/categories', require('./routes/adminCategoryRoutes'));
-  app.use('/api/orders', require('./routes/orderRoutes'));
-  app.use('/api/notifications', require('./routes/notificationRoutes'));
-  app.use('/api/upload', require('./routes/uploadRoutes'));
-  app.use('/api/admin/users', require('./routes/userManagementRoutes'));
-  app.use('/api/role-applications', require('./routes/roleApplicationRoutes'));
-  app.use('/api/admin', require('./routes/adminRoutes'));
-  app.use('/api/services', require('./routes/serviceRoutes'));
-  app.use('/api/profile', require('./routes/profileRoutes'));
-  app.use('/api/contact', require('./routes/contactRoutes'));
-  app.use('/api/product-inquiries', require('./routes/productInquiryRoutes'));
-  console.log('--- MOUNTING SUPPORT ROUTES ---');
-  app.use('/api/support', require('./routes/supportRoutes'));
-  
-  // SUPPORT BOTH HYPHENATED AND NON-HYPHENATED FASTFOOD PATHS
-  const fastFoodRoutes = require('./routes/fastFoodRoutes');
-  app.use('/api/fast-food', fastFoodRoutes);
-  app.use('/api/fastfood', fastFoodRoutes);
-  app.use('/api/batches', require('./routes/batchRoutes'));
 
-  app.use('/api/marketing', require('./routes/marketingRoutes'));
-  app.use('/api/image', require('./routes/imageRoutes'));
-  app.use('/api/job-openings', require('./routes/jobOpeningRoutes'));
-  app.use('/api/seller', require('./routes/sellerRoutes'));
-  app.use('/api/cache', require('./routes/cacheRoutes'));
-  app.use('/api/search', require('./routes/searchRoutes'));
-  // app.use('/api/verification', require('./routes/verificationRoutes')); (Moved to apiRouter)
-  app.use('/api/wallet', require('./routes/walletRoutes'));
-  app.use('/api/delivery', require('./routes/deliveryRoutes'));
-  app.use('/api/warehouse', require('./routes/warehouseRoutes'));
-  app.use('/api/warehouses', require('./routes/warehouseRoutes'));
-  app.use('/api/pickup-station', require('./routes/pickupStationRoutes'));
-  app.use('/api/pickup-stations', require('./routes/pickupStationRoutes'));
-  app.use('/api/station-manager', require('./routes/stationManagerRoutes'));
-  
-  // Final heavy route modules
-  app.use('/api/finance', require('./routes/financeRoutes'));
-  app.use('/api/payments', require('./routes/paymentRoutes'));
-  app.use('/api/inventory', require('./routes/inventoryRoutes'));
-  app.use('/api/payment-enhancements', require('./routes/paymentEnhancementsRoutes'));
-  app.use('/api/handover', require('./routes/handoverRoutes'));
-  app.use('/api/images', require('./routes/imageRoutes'));
-
-  // Newly mounted forgotten modules
-  app.use('/api/commissions', require('./routes/commissionRoutes'));
-  app.use('/api/delivery-messages', require('./routes/deliveryMessageRoutes'));
-  app.use('/api/returns', require('./routes/returnRoutes'));
-  app.use('/api/sharing', require('./routes/sharingRoutes'));
-  app.use('/api/superadmin', require('./routes/superAdminSecurityRoutes'));
-  app.use('/api/2fa', require('./routes/twoFactorAuthRoutes'));
-  app.use('/api/social-media-accounts', require('./routes/socialMediaAccountRoutes'));
-
-  console.error('✅ 35+ Route modules successfully lazy-loaded.');
+  console.error('✅ All route modules consolidated into apiRouter.');
 
 // Final Middleware Function (Deferred to stay at end of stack)
 function finalizeMiddleware(app) {
@@ -551,6 +522,13 @@ function setupSocketHandlers(io) {
       console.log('Admin connected to admin room');
     });
 
+    socket.on('join_room', (room) => {
+      if (room) {
+        socket.join(room);
+        console.log(`Socket ${socket.id} joined room: ${room}`);
+      }
+    });
+
     socket.on('delivery_message_send', async (data) => {
       const { receiverId } = data;
       io.to(`user_${receiverId}`).emit('delivery_message_receive', data);
@@ -677,3 +655,5 @@ if (global.__serverStarted) {
 
 // Export for cPanel/Passenger
 module.exports = server;
+
+// Trigger nodemon restart

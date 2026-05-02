@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowLeft } from 'react-icons/fa';
+import { FaArrowLeft, FaEye, FaEyeSlash } from 'react-icons/fa';
 import api from '../services/api';
 import PhoneVerification from '../components/PhoneVerification';
 
@@ -28,6 +28,7 @@ export default function EditAccount() {
   const [newPassword, setNewPassword] = useState('');
   const [pwdMsg, setPwdMsg] = useState(null);
   const [pwdLoading, setPwdLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Submit: name only
   const onSaveName = async (e) => {
@@ -224,11 +225,41 @@ export default function EditAccount() {
         <form onSubmit={changePassword} className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-gray-700">Current Password</label>
-            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="mt-1 w-full border rounded px-3 py-2" placeholder="Current password" />
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                value={currentPassword} 
+                onChange={(e) => setCurrentPassword(e.target.value)} 
+                className="mt-1 w-full border rounded px-3 py-2 pr-10" 
+                placeholder="Current password" 
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3 pt-1 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+              >
+                {showPassword ? <FaEyeSlash /> : <FaEye />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">New Password</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="mt-1 w-full border rounded px-3 py-2" placeholder="New password" />
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)} 
+                className="mt-1 w-full border rounded px-3 py-2 pr-10" 
+                placeholder="New password" 
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3 pt-1 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+              >
+                {showPassword ? <FaEyeSlash /> : <FaEye />}
+              </button>
+            </div>
           </div>
           <button type="submit" disabled={pwdLoading} className="btn">{pwdLoading ? 'Saving...' : 'Update Password'}</button>
         </form>
