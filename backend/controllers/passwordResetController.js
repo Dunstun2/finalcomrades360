@@ -100,6 +100,7 @@ const requestPasswordReset = async (req, res) => {
     }
     return res.json({ message: 'If that account exists, a reset code has been sent through enabled channels.' })
   } catch (e) {
+    console.error('[password-reset] Error requesting reset:', e);
     return res.status(500).json({ message: 'Server error requesting password reset.', error: e.message })
   }
 }
@@ -119,6 +120,7 @@ const confirmPasswordReset = async (req, res) => {
     await pr.save()
     return res.json({ message: 'Password has been reset successfully.' })
   } catch (e) {
+    console.error('[password-reset] Error confirming reset:', e);
     return res.status(500).json({ message: 'Server error confirming password reset.', error: e.message })
   }
 }
