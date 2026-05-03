@@ -100,15 +100,22 @@ const RoleToolbox = ({ role, user }) => {
   const currentTools = tools[role] || [];
 
   const getGeneratedLink = () => {
-    const base = window.location.origin + '/api/marketing/r';
+    // Priority: 1. Environment Variable, 2. Current Origin
+    const envUrl = import.meta.env.VITE_API_URL;
+    const origin = (envUrl && envUrl.startsWith('http')) 
+      ? envUrl.replace(/\/api\/?$/, '') 
+      : window.location.origin;
+    
+    const base = `${origin}/api/marketing/r`;
     const ref = user?.referralCode || 'PROMO';
+    
     if (linkData.type === 'category') {
       return `${base}?categoryId=${linkData.value}&ref=${ref}`;
     }
     if (linkData.type === 'search') {
       return `${base}?search=${encodeURIComponent(linkData.search)}&ref=${ref}`;
     }
-    return `${window.location.origin}/?ref=${ref}`;
+    return `${origin}/?ref=${ref}`;
   };
 
   const handleCopy = async () => {

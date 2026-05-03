@@ -35,7 +35,7 @@ const MarketingBottomNav = () => {
     ];
 
     return (
-        <nav className="fixed bottom-0 inset-x-0 z-[100] bg-white border-t border-gray-200 shadow-[0_-2px_15px_rgba(0,0,0,0.1)] flex items-stretch lg:hidden animate-in slide-in-from-bottom duration-300 min-h-[56px]">
+        <nav className="fixed bottom-0 inset-x-0 z-[250] bg-white border-t border-gray-200 shadow-[0_-2px_15px_rgba(0,0,0,0.1)] flex items-stretch lg:hidden animate-in slide-in-from-bottom duration-300 min-h-[56px]">
             {tabs.map((tab) => (
                 <button
                     key={tab.id}

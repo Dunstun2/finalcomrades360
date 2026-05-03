@@ -253,7 +253,9 @@ const AppContent = () => {
   useTrafficTracker();
   const isStationUser = user?.role === 'station_manager' || user?.roles?.includes('station_manager') || user?.roles?.includes('warehouse_manager') || user?.roles?.includes('pickup_station_manager');
   const hideNavbar = ['/login', '/register', '/forgot-password', '/menu', '/station/login'].includes(location.pathname);
-  const [isMarketingMode, setIsMarketingMode] = useState(localStorage.getItem('marketing_mode') === 'true');
+  const [isMarketingMode, setIsMarketingMode] = useState(() => {
+    return localStorage.getItem('marketing_mode') === 'true' || window.location.pathname.startsWith('/marketing');
+  });
   const [referrerName, setReferrerName] = useState(localStorage.getItem('referrerName') || '');
   const [bannerDismissed, setBannerDismissed] = useState(localStorage.getItem('referrerBannerDismissed') === 'true');
 
@@ -286,16 +288,21 @@ const AppContent = () => {
     const marketingParam = params.get('marketing');
 
     if (marketingParam === 'true' || location.pathname.startsWith('/marketing')) {
-      localStorage.setItem('marketing_mode', 'true');
-      setIsMarketingMode(true);
-    } else if (refCode && marketingParam !== 'true') {
-
-      // If we have a referral code but NO marketing tag, ensure we are NOT in marketing mode
+      if (!isMarketingMode) {
+        console.log('[App] Enabling Marketing Mode');
+        localStorage.setItem('marketing_mode', 'true');
+        setIsMarketingMode(true);
+      }
+    } else if (marketingParam === 'false') {
+      console.log('[App] Explicitly Disabling Marketing Mode');
       localStorage.removeItem('marketing_mode');
       setIsMarketingMode(false);
     }
+    // Note: We NO LONGER disable marketing mode just because a ref code is present.
+    // This allows marketers to test their own links without losing their dashboard mode.
 
     if (refCode) {
+      console.log('[App] Referral code detected:', refCode);
       localStorage.setItem('referrerCode', refCode);
       // When a new referral link is used, reset the dismissal flag so the banner shows again
       localStorage.removeItem('referrerBannerDismissed');
@@ -313,7 +320,7 @@ const AppContent = () => {
           console.error('Failed to fetch marketer details:', err);
         });
     }
-  }, [location.search]);
+  }, [location.pathname, location.search]);
 
   // Keep marketing mode in sync with localStorage after in-app transitions.
   useEffect(() => {

@@ -135,16 +135,23 @@ const MarketerDashboard = () => {
   };
 
   const getDeepLink = (item) => {
-    const origin = window.location.origin;
+    // Priority: 1. Environment Variable, 2. Current Origin
+    const envUrl = import.meta.env.VITE_API_URL;
+    const origin = (envUrl && envUrl.startsWith('http')) 
+      ? envUrl.replace(/\/api\/?$/, '') 
+      : window.location.origin;
+    
     const ref = user?.referralCode || 'PROMO';
     if (!item) return `${origin}/?ref=${ref}`;
 
-    let path = '/';
-    if (item.type === 'product') path = `/product/${item.id}`;
-    else if (item.type === 'service') path = `/service/${item.id}`;
-    else if (item.type === 'fastfood') path = `/fastfood/${item.id}`;
+    const base = `${origin}/api/marketing/r`;
+    let params = `?ref=${ref}`;
+    
+    if (item.type === 'product') params += `&productId=${item.id}`;
+    else if (item.type === 'service') params += `&serviceId=${item.id}`;
+    else if (item.type === 'fastfood') params += `&fastfoodId=${item.id}`;
 
-    return `${origin}${path}?ref=${ref}`;
+    return `${base}${params}`;
   };
 
   const sharePosterAndLink = async () => {
@@ -2135,7 +2142,7 @@ const MarketerDashboard = () => {
 
 
         {/* Dynamic Content */}
-        <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar">
+        <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar pb-24 lg:pb-0">
           {isAdmin && (
             <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-4 py-2.5 flex items-center justify-between shadow-md border-b border-white/10 sticky top-0 z-[100] backdrop-blur-sm">
               <div className="flex items-center gap-3">
