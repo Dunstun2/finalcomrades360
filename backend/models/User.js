@@ -151,11 +151,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
-    tokenVersion: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0,
-      comment: 'Used for force-logout/session invalidation'
-    },
     // Address fields for delivery
     county: {
       type: DataTypes.STRING,
