@@ -603,12 +603,29 @@ export default function DeliveryAgents() {
                             />
                           </td>
                           <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                            <button 
-                              onClick={() => openAgent(agent.id)}
-                              className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all text-gray-400 hover:text-blue-600"
-                            >
-                              <ChevronRight className="w-5 h-5" />
-                            </button>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {!agent.isDeliverySuspended ? (
+                                <button
+                                  onClick={() => toggleStatus(agent.id, false)}
+                                  className="px-2.5 py-1 bg-yellow-50 text-yellow-700 border border-yellow-200 text-xs font-medium rounded-lg hover:bg-yellow-100 transition-colors"
+                                >
+                                  Suspend
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => toggleStatus(agent.id, true)}
+                                  className="px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 text-xs font-medium rounded-lg hover:bg-green-100 transition-colors"
+                                >
+                                  Reactivate
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => openAgent(agent.id)}
+                                className="px-2.5 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-xs font-medium rounded-lg hover:bg-gray-100 transition-colors"
+                              >
+                                View Profile
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {expandedAgentId === agent.id && (

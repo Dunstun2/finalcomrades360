@@ -10,6 +10,7 @@ export default function SellerManagement() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [activeTab, setActiveTab] = useState(tab || 'all-sellers');
+    const [profileSeller, setProfileSeller] = useState(null);
 
     useEffect(() => {
         if (tab) {
@@ -86,47 +87,58 @@ export default function SellerManagement() {
                                 <div className="overflow-x-auto">
                                     <table className="min-w-full text-sm">
                                         <thead>
-                                            <tr className="text-left border-b">
-                                                <th className="p-3">Name</th>
-                                                <th className="p-3">Email</th>
-                                                <th className="p-3">Phone</th>
-                                                <th className="p-3">Status</th>
-                                                <th className="p-3">Products</th>
-                                                <th className="p-3">Actions</th>
+                                            <tr className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                                                <th className="p-3 text-left">Seller Name</th>
+                                                <th className="p-3 text-left">Email</th>
+                                                <th className="p-3 text-left">Phone</th>
+                                                <th className="p-3 text-left">Status</th>
+                                                <th className="p-3 text-left">Sales (KES)</th>
+                                                <th className="p-3 text-left">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {sellers.map(seller => (
-                                                <tr key={seller.id} className="border-b hover:bg-gray-50">
-                                                    <td className="p-3 font-medium">{seller.name}</td>
-                                                    <td className="p-3">{seller.email}</td>
-                                                    <td className="p-3">{seller.phone}</td>
+                                                <tr key={seller.id} className="border-b hover:bg-gray-50 transition-colors">
                                                     <td className="p-3">
-                                                        <span className={`px-2 py-1 rounded text-xs ${!seller.isSellerSuspended && !seller.isDeactivated
-                                                                ? 'bg-green-100 text-green-800'
-                                                                : 'bg-red-100 text-red-800'
+                                                        <div className="font-bold text-gray-800">{seller.name}</div>
+                                                        <div className="text-xs text-gray-500 italic">{seller.businessName || 'No business name'}</div>
+                                                    </td>
+                                                    <td className="p-3 text-gray-600">{seller.email}</td>
+                                                    <td className="p-3 text-gray-600 font-medium">{seller.phone}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${!seller.isSellerSuspended && !seller.isDeactivated
+                                                                ? 'bg-green-100 text-green-700 border border-green-200'
+                                                                : 'bg-red-100 text-red-700 border border-red-200'
                                                             }`}>
-                                                            {seller.isSellerSuspended ? 'Seller Suspended' : seller.isDeactivated ? 'Global Deactivated' : 'Active'}
+                                                            {seller.isSellerSuspended ? 'Suspended' : seller.isDeactivated ? 'Global Deactivated' : 'Active'}
                                                         </span>
                                                     </td>
-                                                    <td className="p-3 text-gray-500 italic">N/A</td>
+                                                    <td className="p-3 font-bold text-green-600">
+                                                        KES {(seller.wallet?.successBalance || 0).toLocaleString()}
+                                                    </td>
                                                     <td className="p-3">
                                                         <div className="flex gap-2">
                                                             {!seller.isSellerSuspended ? (
                                                                 <button
-                                                                    className="btn-warning btn-xs"
+                                                                    className="px-2.5 py-1 bg-yellow-50 text-yellow-700 border border-yellow-200 text-xs font-medium rounded-lg hover:bg-yellow-100 transition-colors"
                                                                     onClick={() => suspendSeller(seller.id)}
                                                                 >
                                                                     Suspend
                                                                 </button>
                                                             ) : (
                                                                 <button
-                                                                    className="btn-success btn-xs"
+                                                                    className="px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 text-xs font-medium rounded-lg hover:bg-green-100 transition-colors"
                                                                     onClick={() => reactivateSeller(seller.id)}
                                                                 >
                                                                     Reactivate
                                                                 </button>
                                                             )}
+                                                            <button
+                                                                className="px-2.5 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-xs font-medium rounded-lg hover:bg-gray-100 transition-colors"
+                                                                onClick={() => setProfileSeller(seller)}
+                                                            >
+                                                                View Profile
+                                                            </button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -175,6 +187,73 @@ export default function SellerManagement() {
                 </div>
             </div>
             {renderTabContent()}
+
+            {profileSeller && (
+                <SellerProfileModal
+                    seller={profileSeller}
+                    onClose={() => setProfileSeller(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+function SellerProfileModal({ seller, onClose }) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="sticky top-0 bg-white/80 backdrop-blur-md z-10 flex items-center justify-between p-6 border-b border-gray-100">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xl uppercase">
+                            {seller.name.charAt(0)}
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900">{seller.name}</h2>
+                            <p className="text-sm text-gray-500">Seller ID: {seller.id} • {seller.businessName || 'Independent Seller'}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500">✕</button>
+                </div>
+
+                <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                            <div className="text-xs font-bold text-orange-400 uppercase mb-1">Sales Balance</div>
+                            <div className="text-2xl font-black text-orange-600">KES {(seller.wallet?.successBalance || 0).toLocaleString()}</div>
+                        </div>
+                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                            <div className="text-xs font-bold text-blue-400 uppercase mb-1">Pending Balance</div>
+                            <div className="text-2xl font-black text-blue-600">KES {(seller.wallet?.pendingBalance || 0).toLocaleString()}</div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="font-bold text-gray-900 border-b pb-2">Business Information</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <InfoRow label="Email" value={seller.email} />
+                            <InfoRow label="Phone" value={seller.phone} />
+                            <InfoRow label="Business Address" value={seller.businessAddress || 'N/A'} />
+                            <InfoRow label="Location" value={`${seller.businessCounty || '--'}, ${seller.businessTown || '--'}`} />
+                            <InfoRow label="ID Status" value={seller.nationalIdStatus} highlight />
+                        </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                        <button onClick={onClose} className="px-6 py-2 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 transition-all">
+                            Close Profile
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function InfoRow({ label, value, highlight }) {
+    return (
+        <div>
+            <div className="text-xs text-gray-400 uppercase font-bold">{label}</div>
+            <div className={`mt-0.5 font-medium ${highlight ? 'text-blue-600' : 'text-gray-900'}`}>{value || 'Not provided'}</div>
         </div>
     );
 }

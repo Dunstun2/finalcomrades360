@@ -30,31 +30,43 @@ export default function AdminOverview() {
     const fetchStats = async () => {
       try {
         setLoading(true);
-        const [usersRes, analyticsRes, ordersRes, productsRes] = await Promise.all([
-          adminApi.getAllUsers({ limit: 1000 }),
+        
+        // Use allSettled so one failing endpoint doesn't break the whole dashboard
+        const results = await Promise.allSettled([
+          adminApi.getAllUsers({ limit: 1 }),
           adminApi.getUserAnalytics(),
           adminApi.getAllOrders({ limit: 1 }),
           adminApi.getAllProducts({ limit: 1 })
-        ]).catch(err => {
-          console.warn('Some stats failed to load, falling back:', err);
-          return [{}, {}, { data: { total: 0 } }, { data: { total: 0 } }];
+        ]);
+
+        const [usersRes, analyticsRes, ordersRes, productsRes] = results.map(r => 
+          r.status === 'fulfilled' ? r.value : null
+        );
+
+        // Debug logging for failures
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            const names = ['getAllUsers', 'getUserAnalytics', 'getAllOrders', 'getAllProducts'];
+            console.error(`AdminOverview: ${names[i]} failed:`, r.reason);
+          }
         });
 
-        const users = usersRes?.data?.users || [];
         const analytics = analyticsRes?.data || {};
+        const userList = usersRes?.data?.users || [];
+        const totalUserCount = analytics.totalUsers ?? usersRes?.data?.pagination?.total ?? userList.length;
 
         setStats({
-          totalUsers: analytics.totalUsers || users.length,
-          activeUsers: analytics.activeUsers || users.filter(u => !u.isDeactivated).length,
-          inactiveUsers: analytics.deactivatedUsers || users.filter(u => u.isDeactivated).length,
+          totalUsers: totalUserCount,
+          activeUsers: analytics.activeUsers ?? userList.filter(u => !u.isDeactivated).length,
+          inactiveUsers: analytics.deactivatedUsers ?? userList.filter(u => u.isDeactivated).length,
           pendingApprovals: analytics.pendingApplications || 0,
-          admins: analytics.roleCounts?.admin ?? users.filter(u => u.role === 'admin' || u.role === 'super_admin').length,
-          totalOrders: ordersRes?.data?.total || ordersRes?.headers?.['x-total-count'] || 0,
-          totalProducts: productsRes?.data?.total || productsRes?.headers?.['x-total-count'] || 0
+          admins: analytics.roleCounts?.admin ?? userList.filter(u => u.role === 'admin' || u.role === 'super_admin').length,
+          totalOrders: ordersRes?.data?.pagination?.total || ordersRes?.data?.total || 0,
+          totalProducts: productsRes?.data?.pagination?.total || productsRes?.data?.total || 0
         });
       } catch (err) {
         console.error('Error fetching stats:', err);
-        setError('Failed to load some dashboard statistics');
+        setError('Failed to load dashboard statistics');
       } finally {
         setLoading(false);
       }

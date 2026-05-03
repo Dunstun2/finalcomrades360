@@ -1864,8 +1864,8 @@ const adminListDeliveryAgents = async (req, res) => {
         [
           sequelize.literal(`(
             SELECT COUNT(*)
-            FROM "Order" AS o
-            WHERE o.deliveryAgentId = "User".id
+            FROM \`Order\` AS o
+            WHERE o.deliveryAgentId = User.id
             AND o.status NOT IN ('delivered', 'cancelled')
           )`),
           'activeAssignments'
@@ -1874,7 +1874,7 @@ const adminListDeliveryAgents = async (req, res) => {
           sequelize.literal(`(
             SELECT COUNT(*)
             FROM DeliveryTask AS t
-            WHERE t.deliveryAgentId = "User".id
+            WHERE t.deliveryAgentId = User.id
             AND t.status IN ('assigned', 'accepted', 'in_progress')
           )`),
           'activeTasks'

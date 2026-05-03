@@ -1147,6 +1147,7 @@ const getAllUsers = async (req, res) => {
     const { count, rows: userRows } = await User.findAndCountAll({
       where,
       attributes: { exclude: ['password'] },
+      include: [{ model: Wallet, as: 'wallet' }],
       order: [['createdAt', 'DESC']],
       limit: limitNum,
       offset: offset,
@@ -1441,18 +1442,29 @@ const restoreUser = async (req, res) => {
 // User Analytics (Centralized)
 const getUserAnalytics = async (req, res) => {
   try {
-    const totalUsers = await User.count();
-    const activeUsers = await User.count({ where: { isDeactivated: false } });
-    const deactivatedUsers = await User.count({ where: { isDeactivated: true } });
+    let totalUsers = 0, activeUsers = 0, deactivatedUsers = 0, pendingApplications = 0;
+    const roleCounts = {};
+
+    try { totalUsers = await User.count(); } catch (e) { console.error('[getUserAnalytics] Error counting total users:', e.message); }
+    try { activeUsers = await User.count({ where: { isDeactivated: false } }); } catch (e) { console.error('[getUserAnalytics] Error counting active users:', e.message); }
+    try { deactivatedUsers = await User.count({ where: { isDeactivated: true } }); } catch (e) { console.error('[getUserAnalytics] Error counting deactivated users:', e.message); }
 
     // Count by role
     const roles = ['customer', 'marketer', 'seller', 'delivery_agent', 'service_provider', 'admin', 'super_admin'];
-    const roleCounts = {};
     for (const role of roles) {
-      roleCounts[role] = await User.count({ where: { role } });
+      try {
+        roleCounts[role] = await User.count({ where: { role } });
+      } catch (e) {
+        roleCounts[role] = 0;
+        console.error(`[getUserAnalytics] Error counting role ${role}:`, e.message);
+      }
     }
 
-    const pendingApplications = await RoleApplication.count({ where: { status: 'pending' } });
+    try { 
+      pendingApplications = await RoleApplication.count({ where: { status: 'pending' } }); 
+    } catch (e) { 
+      console.error('[getUserAnalytics] Error counting pending applications:', e.message); 
+    }
 
     res.json({
       totalUsers,
