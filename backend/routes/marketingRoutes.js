@@ -1,6 +1,6 @@
 const express = require('express');
 const { auth, checkRole } = require('../middleware/auth');
-const { getShareUrl, redirectTracker, trackShare, myStats, lookupCustomer, getMarketerPublicDetails, getMyCustomers, getCustomerOrders } = require('../controllers/marketingController');
+const { getShareUrl, redirectTracker, trackShare, myStats, lookupCustomer, getMarketerPublicDetails, getMyCustomers, getCustomerOrders, getLeaderboard, getMyCommissions } = require('../controllers/marketingController');
 const { getMarketerWallet } = require('../controllers/marketerWalletController');
 const { withdraw } = require('../controllers/walletController');
 // const {
@@ -64,5 +64,7 @@ router.get('/test-ok', (req, res) => res.json({ ok: true }));
 // My Customers
 router.get('/my-customers', auth, checkRole('marketer'), getMyCustomers);
 router.get('/customers/:customerId/orders', auth, checkRole('marketer'), getCustomerOrders);
+router.get('/leaderboard', auth, getLeaderboard);
+router.get('/commissions', auth, checkRole('marketer'), getMyCommissions);
 
 module.exports = router;

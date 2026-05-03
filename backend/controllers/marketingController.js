@@ -67,50 +67,46 @@ const getShareUrl = async (req, res) => {
 const redirectTracker = async (req, res) => {
   try {
     const productId = parseInt(req.query.productId, 10);
+    const categoryId = parseInt(req.query.categoryId, 10);
+    const searchQuery = String(req.query.search || '').trim();
     const referralCode = String(req.query.ref || '').trim();
     const platform = String(req.query.platform || 'unknown').toLowerCase();
-    if (!productId || !referralCode) return res.status(400).json({ error: 'Missing productId or ref' });
 
-    const product = await Product.findByPk(productId);
-    if (!product || !product.approved) return res.status(404).json({ error: 'Product not found' });
+    if (!referralCode) return res.status(400).json({ error: 'Missing ref' });
 
+    // Find referrer
     const marketer = await User.findOne({ where: { referralCode, role: 'marketer' } });
     const referrerId = marketer ? marketer.id : null;
 
     const ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || req.ip;
     const userAgent = req.headers['user-agent'];
 
-    // Create click tracking record
-    try {
-      await ReferralTracking.create({
-        referrerId: referrerId || 0,
-        referredUserId: null,
-        productId,
-        orderId: null,
-        referralCode,
-        clickedAt: new Date(),
-        ipAddress,
-        userAgent,
-        socialPlatform: platform
-      });
-    } catch (_) { }
-
+    // Track the click
     try {
       await MarketingAnalytics.create({
         marketerId: referrerId || 0,
-        productId,
+        productId: productId || null,
         platform,
         actionType: 'click',
         userId: null,
         ipAddress,
         userAgent,
         referralCode,
-        shareUrl: `${backendBaseFromReq(req)}/api/marketing/r?productId=${productId}&ref=${encodeURIComponent(referralCode)}&platform=${platform}`,
-        metadata: {}
+        metadata: { categoryId, searchQuery }
       });
     } catch (_) { }
 
-    const target = `${FRONTEND_BASE}/product/${productId}?ref=${encodeURIComponent(referralCode)}`;
+    // Determine target URL
+    let target = `${FRONTEND_BASE}/`;
+    if (productId) {
+      target = `${FRONTEND_BASE}/product/${productId}`;
+    } else if (categoryId) {
+      target = `${FRONTEND_BASE}/category/${categoryId}`;
+    } else if (searchQuery) {
+      target = `${FRONTEND_BASE}/?search=${encodeURIComponent(searchQuery)}`;
+    }
+
+    target += (target.includes('?') ? '&' : '?') + `ref=${encodeURIComponent(referralCode)}`;
     res.redirect(302, target);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -425,6 +421,71 @@ const getCustomerOrders = async (req, res) => {
   }
 };
 
+// GET /api/marketing/leaderboard
+// Returns top 20 marketers based on earnings/conversions
+const getLeaderboard = async (req, res) => {
+  try {
+    // We'll aggregate from commissions to get top performers
+    const leaderboardData = await Commission.findAll({
+      attributes: [
+        'marketerId',
+        [Commission.sequelize.fn('SUM', Commission.sequelize.col('commissionAmount')), 'earnings'],
+        [Commission.sequelize.fn('COUNT', Commission.sequelize.col('Commission.id')), 'conversions']
+      ],
+      include: [{
+        model: User,
+        as: 'marketer',
+        attributes: ['id', 'name', 'referralCode'],
+        required: true
+      }],
+      group: ['Commission.marketerId', 'marketer.id', 'marketer.name', 'marketer.referralCode'],
+      order: [[Commission.sequelize.fn('SUM', Commission.sequelize.col('commissionAmount')), 'DESC']],
+      limit: 20,
+      subQuery: false
+    });
+
+    const leaderboard = leaderboardData.map((item, index) => {
+      const earnings = parseFloat(item.get('earnings') || 0);
+      return {
+        rank: index + 1,
+        id: item.marketerId,
+        name: item.marketer?.name || 'Anonymous Marketer',
+        earnings: earnings,
+        conversions: parseInt(item.get('conversions') || 0),
+        level: earnings > 50000 ? 'Gold' : earnings > 10000 ? 'Silver' : 'Bronze',
+        isCurrentUser: item.marketerId === req.user?.id
+      };
+    });
+
+    res.json(leaderboard);
+  } catch (e) {
+    console.error('Leaderboard error:', e);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+};
+
+// GET /api/marketing/commissions
+// Returns all commissions earned by the logged-in marketer
+const getMyCommissions = async (req, res) => {
+  try {
+    const marketerId = req.user?.id;
+    const commissions = await Commission.findAll({
+      where: { marketerId },
+      include: [
+        { model: Product, as: 'product', attributes: ['id', 'name', 'coverImage'] },
+        { model: Order, as: 'order', attributes: ['id', 'orderNumber', 'status', 'paymentConfirmed', 'actualDelivery'] }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: 100
+    });
+
+    res.json({ success: true, commissions });
+  } catch (e) {
+    console.error('Error fetching marketer commissions:', e);
+    res.status(500).json({ error: 'Failed to fetch commissions' });
+  }
+};
+
 module.exports = {
   getShareUrl,
   redirectTracker,
@@ -433,6 +494,8 @@ module.exports = {
   lookupCustomer,
   getMarketerPublicDetails,
   getMyCustomers,
-  getCustomerOrders
+  getCustomerOrders,
+  getLeaderboard,
+  getMyCommissions
 };
 

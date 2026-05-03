@@ -103,7 +103,7 @@ export default function Customer() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto no-scrollbar lg:custom-scrollbar mt-2">
-          <ul className="flex flex-col space-y-1 px-3 pb-4">
+          <ul className="flex flex-col space-y-1 px-3 pb-24">
             {menuItems.map((item) => (
               <li key={item.label}>
                 {item.isParent ? (

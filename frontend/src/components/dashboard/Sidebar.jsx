@@ -377,7 +377,7 @@ const Sidebar = ({ onClose }) => {
 
   return (
     <nav className="h-full">
-      <ul className="flex flex-col space-y-1 px-3 py-4 items-stretch">
+      <ul className="flex flex-col space-y-1 px-3 pt-4 pb-24 items-stretch">
         {menuItems.map((item) => {
           const isExactActive = location.pathname === item.path;
           const isChildActive = item.children && item.children.some(child => 

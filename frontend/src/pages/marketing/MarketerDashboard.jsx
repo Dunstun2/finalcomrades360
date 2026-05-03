@@ -7,7 +7,7 @@ import {
   FaCheckCircle, FaExclamationTriangle, FaTimes, FaHistory, FaArrowRight, FaQrcode,
   FaUser, FaBox, FaClock, FaMapMarkerAlt, FaUsers, FaPhone, FaEnvelope, FaGlobe, FaLock, FaShareAlt,
   FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars, FaCheck, FaShieldAlt, FaHome,
-  FaTools, FaBookOpen
+  FaTools, FaBookOpen, FaDollarSign, FaChartBar
 } from 'react-icons/fa';
 import { FaTiktok } from 'react-icons/fa6';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +30,7 @@ import html2canvas from 'html2canvas';
 
 const MarketerWallet = lazy(() => import('./MarketerWallet'));
 const DirectOrders = lazy(() => import('../dashboard/DirectOrders'));
+const DashboardManual = lazy(() => import('../../components/dashboard/DashboardManual'));
 
 const MarketerDashboard = () => {
   const location = useLocation();
@@ -38,6 +39,9 @@ const MarketerDashboard = () => {
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toast } = useToast();
+  const formatPrice = (price) => {
+    return `KES ${Number(price || 0).toLocaleString()}`;
+  };
 
   const marketerBottomNavItems = [
     { icon: <FaHome />, label: 'Home', path: '/marketing?tab=overview', onClick: () => setActiveTab('overview'), end: true },
@@ -433,6 +437,7 @@ const MarketerDashboard = () => {
 
       if (data.success || response.status === 200) {
         alert(`Order placed successfully for customer! Order Number: ${data.order?.orderNumber || 'N/A'}`);
+        navigate('/marketing?tab=orders');
         setActiveTab('orders'); // Auto-switch to orders tab to see the new entry
         // Store a lightweight summary of the last marketer-created order
         setLastNewOrder({
@@ -479,7 +484,7 @@ const MarketerDashboard = () => {
             console.error('❌ Products API error:', err);
             return { data: { products: [] } };
           }),
-          api.get(`/services?limit=20&page=${pageNum}${searchParam}`).catch(err => {
+          api.get(`/services?limit=20&marketing=true&page=${pageNum}${searchParam}`).catch(err => {
             console.error('❌ Services API error:', err);
             return { data: { services: [] } };
           }),
@@ -841,49 +846,57 @@ const MarketerDashboard = () => {
       {marketerData && (
         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
 
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center">
-              <FaMoneyBillWave className="w-8 h-8 text-green-600 mr-3" />
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                <FaMoneyBillWave className="w-5 h-5 text-green-600" />
+              </div>
               <div>
-                <p className="text-sm text-gray-600">Total Earnings</p>
-                <p className="text-2xl font-bold text-gray-900">KES {marketerData.totalEarnings?.toLocaleString() || '0'}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Earnings</p>
+                <p className="text-lg font-black text-gray-900 leading-tight">KES {marketerData.totalEarnings?.toLocaleString() || '0'}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center">
-              <FaMousePointer className="w-8 h-8 text-blue-600 mr-3" />
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <FaMousePointer className="w-5 h-5 text-blue-600" />
+              </div>
               <div>
-                <p className="text-sm text-gray-600">Total Clicks</p>
-                <p className="text-2xl font-bold text-gray-900">{marketerData.totalClicks || '0'}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Clicks</p>
+                <p className="text-lg font-black text-gray-900 leading-tight">{marketerData.totalClicks || '0'}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center">
-              <FaChartLine className="w-8 h-8 text-purple-600 mr-3" />
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                <FaChartLine className="w-5 h-5 text-purple-600" />
+              </div>
               <div>
-                <p className="text-sm text-gray-600">Conversions</p>
-                <p className="text-2xl font-bold text-gray-900">{marketerData.totalConversions || '0'}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Conversions</p>
+                <p className="text-lg font-black text-gray-900 leading-tight">{marketerData.totalConversions || '0'}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <div className="flex items-center">
-              <FaCrown className="w-8 h-8 text-yellow-600 mr-3" />
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center flex-shrink-0">
+                <FaCrown className="w-5 h-5 text-yellow-600" />
+              </div>
               <div>
-                <p className="text-sm text-gray-600">Level</p>
-                <p className="text-lg font-bold text-gray-900">{marketerData.level}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Level</p>
+                <p className="text-lg font-black text-gray-900 leading-tight">{marketerData.level}</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-lg shadow-lg p-6 text-white mb-8">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-md p-4 text-white mb-6">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex-1">
             <h3 className="text-xl font-bold mb-2">My Referral Link</h3>
@@ -927,9 +940,35 @@ const MarketerDashboard = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-        <h3 className="text-lg font-medium mb-4">Recent Activity</h3>
-        <p className="text-gray-500">No recent activity to display.</p>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+          <FaHistory className="mr-2 text-blue-500" />
+          Recent Activity
+        </h3>
+        <div className="space-y-4">
+          {marketerData?.recentTransactions?.length > 0 ? (
+            marketerData.recentTransactions.slice(0, 5).map(tx => (
+              <div key={tx.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${tx.type === 'credit' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                    {tx.type === 'credit' ? <FaDollarSign size={14} /> : <FaHistory size={14} />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{tx.description}</p>
+                    <p className="text-[10px] text-gray-500">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <p className={`text-sm font-bold ${tx.type === 'credit' ? 'text-green-600' : 'text-blue-600'}`}>
+                  {tx.type === 'credit' ? '+' : ''}{formatPrice(tx.amount)}
+                </p>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-6">
+              <p className="text-gray-500 text-sm italic">No recent activity to display.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -973,21 +1012,21 @@ const MarketerDashboard = () => {
       <h2 className="text-2xl font-bold text-gray-800">Earnings & Payouts</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <h3 className="text-lg font-medium mb-4">This Week</h3>
           <p className="text-3xl font-bold text-green-600">
             KES {marketerData?.weeklyEarnings?.toLocaleString() || '0'}
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <h3 className="text-lg font-medium mb-4">This Month</h3>
           <p className="text-3xl font-bold text-blue-600">
             KES {marketerData?.monthlyEarnings?.toLocaleString() || '0'}
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <h3 className="text-lg font-medium mb-4">Pending Payouts</h3>
           <p className="text-3xl font-bold text-orange-600">
             KES {marketerData?.pendingPayouts?.toLocaleString() || '0'}
@@ -995,7 +1034,7 @@ const MarketerDashboard = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             <FaHistory className="mr-2 text-purple-500" />
@@ -1024,7 +1063,7 @@ const MarketerDashboard = () => {
                 </div>
                 <div className="text-right">
                   <p className={`text-sm font-black ${tx.type === 'credit' ? 'text-green-600' : 'text-red-500'}`}>
-                    {tx.type === 'credit' ? '+' : '-'}{tx.amount?.toLocaleString()}
+                    {tx.type === 'credit' ? '+' : '-'}{formatPrice(tx.amount)}
                   </p>
                   <span className="text-[9px] uppercase font-black text-gray-400">{tx.status}</span>
                 </div>
@@ -1211,7 +1250,7 @@ const MarketerDashboard = () => {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Configure Settings</h2>
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <h3 className="text-lg font-medium mb-4">Social Media Accounts</h3>
 
         {loadingAccounts ? (
@@ -1221,6 +1260,31 @@ const MarketerDashboard = () => {
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+              <div className="space-y-4">
+                {marketerData.recentTransactions && marketerData.recentTransactions.length > 0 ? (
+                  marketerData.recentTransactions.slice(0, 5).map((tx, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${tx.type === 'commission' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                          <FaChartBar size={14} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{tx.description}</p>
+                          <p className="text-xs text-gray-500">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <p className={`text-sm font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {tx.amount > 0 ? '+' : ''}{formatPrice(tx.amount)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-500 italic">No recent activity to display</p>
+                )}
+              </div>
+            </div>
             {socialAccounts.length === 0 ? (
               <p className="text-gray-500">No social media accounts connected.</p>
             ) : (
@@ -1280,7 +1344,7 @@ const MarketerDashboard = () => {
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <h3 className="text-lg font-medium mb-4">Marketing Preferences</h3>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -2003,7 +2067,7 @@ const MarketerDashboard = () => {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto no-scrollbar lg:custom-scrollbar mt-2">
-          <ul className="flex flex-col space-y-1 px-3 pb-4">
+          <ul className="flex flex-col space-y-1 px-3 pb-24">
             {tabs.map((tab) => (
               <li key={tab.id}>
                 <button
@@ -2013,6 +2077,9 @@ const MarketerDashboard = () => {
                       localStorage.setItem('marketing_mode', 'true');
                       window.location.href = '/';
                     } else {
+                      // CRITICAL FIX: Use navigate to update the URL
+                      // This ensures the URL sync useEffect doesn't revert the tab state
+                      navigate(`/marketing?tab=${tab.id}`);
                       setActiveTab(tab.id);
                     }
                   }}
@@ -2210,11 +2277,6 @@ const MarketerDashboard = () => {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
       `}} />
 
-      {/* Mobile Bottom Navigation */}
-      <BottomNavbar 
-        items={marketerBottomNavItems} 
-        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-      />
     </div>
   );
 };

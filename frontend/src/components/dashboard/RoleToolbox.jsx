@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { 
   FaTools, FaTags, FaChartLine, FaWhatsapp, FaLink, 
   FaCalculator, FaImage, FaBiking, FaFire, FaExclamationTriangle,
-  FaChevronRight, FaTimes, FaCheck, FaPhoneAlt
+  FaChevronRight, FaTimes, FaCheck, FaPhoneAlt, FaDownload
 } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
+import { useCategories } from '../../contexts/CategoriesContext';
 
 const RoleToolbox = ({ role, user }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -91,7 +92,217 @@ const RoleToolbox = ({ role, user }) => {
     ]
   };
 
+  const { categories } = useCategories();
+  const [linkData, setLinkData] = useState({ type: 'category', value: '', search: '' });
+  const [projection, setProjection] = useState({ orders: 50, aov: 1500, rate: 5 });
+  const [copied, setCopied] = useState(false);
+
   const currentTools = tools[role] || [];
+
+  const getGeneratedLink = () => {
+    const base = window.location.origin + '/api/marketing/r';
+    const ref = user?.referralCode || 'PROMO';
+    if (linkData.type === 'category') {
+      return `${base}?categoryId=${linkData.value}&ref=${ref}`;
+    }
+    if (linkData.type === 'search') {
+      return `${base}?search=${encodeURIComponent(linkData.search)}&ref=${ref}`;
+    }
+    return `${window.location.origin}/?ref=${ref}`;
+  };
+
+  const handleCopy = async () => {
+    const link = getGeneratedLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const renderModalContent = () => {
+    switch (activeModal) {
+      case 'linkStudio':
+        return (
+          <div className="space-y-6">
+            <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+              <button 
+                onClick={() => setLinkData({ ...linkData, type: 'category' })}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${linkData.type === 'category' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
+              >
+                Category Link
+              </button>
+              <button 
+                onClick={() => setLinkData({ ...linkData, type: 'search' })}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${linkData.type === 'search' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
+              >
+                Search Result
+              </button>
+            </div>
+
+            {linkData.type === 'category' ? (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Select Category</label>
+                <select 
+                  value={linkData.value}
+                  onChange={(e) => setLinkData({ ...linkData, value: e.target.value })}
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold"
+                >
+                  <option value="">Choose a destination...</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Search Keyword</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. sneakers, electronics..."
+                  value={linkData.search}
+                  onChange={(e) => setLinkData({ ...linkData, search: e.target.value })}
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold"
+                />
+              </div>
+            )}
+
+            <div className="p-5 bg-blue-50/50 rounded-[1.5rem] border border-blue-100/50">
+              <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-2">Generated Referral Link</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 text-[11px] font-mono font-bold text-blue-900 truncate bg-white p-2 rounded-lg border border-blue-100">
+                  {getGeneratedLink()}
+                </div>
+                <button 
+                  onClick={handleCopy}
+                  className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all active:scale-90"
+                >
+                  {copied ? <FaCheck /> : <FaLink />}
+                </button>
+              </div>
+            </div>
+
+            <a 
+              href={`https://wa.me/?text=${encodeURIComponent(`Check out these awesome finds on Comrades360: ${getGeneratedLink()}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-4 bg-[#25D366] text-white rounded-2xl font-black uppercase tracking-widest hover:brightness-95 transition-all shadow-xl flex items-center justify-center gap-2"
+            >
+              <FaWhatsapp size={18} /> Share to WhatsApp
+            </a>
+          </div>
+        );
+
+      case 'earningsPro':
+        const estimatedEarnings = Math.round(projection.orders * projection.aov * (projection.rate / 100));
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Target Orders</label>
+                <input 
+                  type="number"
+                  value={projection.orders}
+                  onChange={(e) => setProjection({ ...projection, orders: parseInt(e.target.value) || 0 })}
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none text-sm font-bold"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Avg. Order Value</label>
+                <input 
+                  type="number"
+                  value={projection.aov}
+                  onChange={(e) => setProjection({ ...projection, aov: parseInt(e.target.value) || 0 })}
+                  className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none text-sm font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Commission Rate ({projection.rate}%)</label>
+              </div>
+              <input 
+                type="range"
+                min="1"
+                max="15"
+                value={projection.rate}
+                onChange={(e) => setProjection({ ...projection, rate: parseInt(e.target.value) })}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+              />
+            </div>
+
+            <div className="p-8 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-[2rem] text-white shadow-xl relative overflow-hidden">
+              <FaCalculator className="absolute -right-4 -bottom-4 text-white/10 text-8xl rotate-12" />
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-100 mb-1">Projected Earnings</p>
+              <h2 className="text-4xl font-black mb-1">KES {estimatedEarnings.toLocaleString()}</h2>
+              <p className="text-[10px] text-indigo-200 font-bold uppercase">Potential payout for {projection.orders} conversions</p>
+            </div>
+
+            <p className="text-[10px] text-gray-400 text-center font-medium px-4 italic">
+              *Disclaimer: This is an estimate. Actual earnings depend on product-specific commission rates and approved orders.
+            </p>
+          </div>
+        );
+
+      case 'assetHub':
+        const assets = [
+          { name: 'Official Logo Pack', size: '2.4 MB', type: 'ZIP' },
+          { name: 'WhatsApp Status Templates', size: '5.1 MB', type: 'JPG' },
+          { name: 'Marketer Handbook PDF', size: '1.2 MB', type: 'PDF' },
+          { name: 'Brand Color Guide', size: '0.5 MB', type: 'PDF' }
+        ];
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500 font-medium px-2">Professional branding materials to make your promotions stand out.</p>
+            <div className="space-y-2">
+              {assets.map((asset, i) => (
+                <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-pink-200 hover:bg-pink-50/30 transition-all cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-white rounded-xl shadow-sm text-pink-500">
+                      <FaImage />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900 group-hover:text-pink-600 transition-colors">{asset.name}</p>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{asset.type} • {asset.size}</p>
+                    </div>
+                  </div>
+                  <button className="p-2 bg-gray-100 text-gray-400 rounded-lg group-hover:bg-pink-600 group-hover:text-white transition-all">
+                    <FaDownload size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="p-6 bg-pink-50 rounded-[1.5rem] border border-pink-100 text-center">
+              <p className="text-xs text-pink-700 font-bold">Need custom graphics for a campaign?</p>
+              <p className="text-[10px] text-pink-600/70 mb-4">Contact our support team for specialized assets.</p>
+              <button className="text-[10px] font-black uppercase text-pink-700 underline tracking-widest">Request Assets</button>
+            </div>
+          </div>
+        );
+
+      default:
+        return (
+          <div className="p-10 text-center">
+            <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-white shadow-xl ring-1 ring-blue-100">
+              <FaTools className="text-blue-600 text-3xl animate-pulse" />
+            </div>
+            <h4 className="text-xl font-black text-gray-900 mb-2 uppercase tracking-tight">Feature Integration in Progress</h4>
+            <p className="text-sm text-gray-500 font-medium max-w-xs mx-auto mb-8">
+              We are currently connecting this tool to the live backend engine. Check back shortly for full capability.
+            </p>
+            <button 
+              onClick={() => setActiveModal(null)}
+              className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95"
+            >
+              Close & Return
+            </button>
+          </div>
+        );
+    }
+  };
 
   if (currentTools.length === 0) return null;
 
@@ -127,6 +338,7 @@ const RoleToolbox = ({ role, user }) => {
               tool.color === 'indigo' ? 'bg-indigo-600' :
               tool.color === 'purple' ? 'bg-purple-600' :
               tool.color === 'red' ? 'bg-red-600' :
+              tool.color === 'pink' ? 'bg-pink-600' :
               'bg-orange-600'
             }`} />
 
@@ -156,16 +368,40 @@ const RoleToolbox = ({ role, user }) => {
 
       {/* Simple Modal Framework */}
       {activeModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-gray-100">
-            <div className="px-8 py-6 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
+        <div 
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
+          onClick={() => setActiveModal(null)}
+        >
+          <div 
+            className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-gray-100 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-8 py-6 border-b border-gray-50 flex items-center justify-between bg-gray-50/50 flex-shrink-0">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-600 rounded-xl">
-                  <FaTools className="text-white" />
+                <div className={`p-2 rounded-xl ${
+                  activeModal === 'linkStudio' ? 'bg-indigo-600' :
+                  activeModal === 'earningsPro' ? 'bg-purple-600' :
+                  activeModal === 'assetHub' ? 'bg-pink-600' :
+                  'bg-blue-600'
+                }`}>
+                  {activeModal === 'linkStudio' ? <FaLink className="text-white" /> :
+                   activeModal === 'earningsPro' ? <FaCalculator className="text-white" /> :
+                   activeModal === 'assetHub' ? <FaImage className="text-white" /> :
+                   <FaTools className="text-white" />}
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-gray-900 uppercase">Utility Tool</h3>
-                  <p className="text-xs text-gray-500 font-bold">Admin-Standard Interface</p>
+                  <h3 className="text-lg font-black text-gray-900 uppercase">
+                    {activeModal === 'linkStudio' ? 'Deep-Link Studio' :
+                     activeModal === 'earningsPro' ? 'Earnings Projection' :
+                     activeModal === 'assetHub' ? 'Promo Asset Hub' :
+                     'Utility Tool'}
+                  </h3>
+                  <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">
+                    {activeModal === 'linkStudio' ? 'Marketing Utility' :
+                     activeModal === 'earningsPro' ? 'Revenue Calculator' :
+                     activeModal === 'assetHub' ? 'Brand Resources' :
+                     'Admin Interface'}
+                  </p>
                 </div>
               </div>
               <button 
@@ -176,21 +412,8 @@ const RoleToolbox = ({ role, user }) => {
               </button>
             </div>
             
-            <div className="p-10 text-center">
-              <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-white shadow-xl ring-1 ring-blue-100">
-                <FaTools className="text-blue-600 text-3xl animate-pulse" />
-              </div>
-              <h4 className="text-xl font-black text-gray-900 mb-2 uppercase tracking-tight">Feature Integration in Progress</h4>
-              <p className="text-sm text-gray-500 font-medium max-w-xs mx-auto mb-8">
-                We are currently connecting this tool to the live backend engine. Check back shortly for full capability.
-              </p>
-              
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95"
-              >
-                Close & Return
-              </button>
+            <div className="p-8 overflow-y-auto custom-scrollbar">
+              {renderModalContent()}
             </div>
           </div>
         </div>

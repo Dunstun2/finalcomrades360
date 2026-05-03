@@ -1,67 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { FaDollarSign, FaChartBar, FaDownload, FaFilter } from 'react-icons/fa';
 import { formatPrice } from '../../utils/currency';
+import api from '../../services/api';
 
 const Commissions = () => {
   const [commissions, setCommissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
-  const [dateRange, setDateRange] = useState('this-month');
+  const [dateRange, setDateRange] = useState('all');
 
   useEffect(() => {
-    // Simulate API call
-    const mockCommissions = [
-      {
-        id: 1,
-        affiliateName: 'John Doe',
-        productName: 'Premium Wireless Headphones',
-        amount: 125.50,
-        rate: '10%',
-        orderId: 'ORD-001',
-        date: '2024-01-15',
-        status: 'paid',
-        paymentMethod: 'Bank Transfer'
-      },
-      {
-        id: 2,
-        affiliateName: 'Jane Smith',
-        productName: 'Smart Fitness Tracker',
-        amount: 89.25,
-        rate: '15%',
-        orderId: 'ORD-002',
-        date: '2024-01-14',
-        status: 'pending',
-        paymentMethod: 'PayPal'
-      },
-      {
-        id: 3,
-        affiliateName: 'Mike Johnson',
-        productName: 'Bluetooth Speaker',
-        amount: 67.80,
-        rate: '12%',
-        orderId: 'ORD-003',
-        date: '2024-01-13',
-        status: 'paid',
-        paymentMethod: 'Bank Transfer'
-      },
-      {
-        id: 4,
-        affiliateName: 'Sarah Wilson',
-        productName: 'Wireless Charger',
-        amount: 45.60,
-        rate: '8%',
-        orderId: 'ORD-004',
-        date: '2024-01-12',
-        status: 'processing',
-        paymentMethod: 'PayPal'
-      }
-    ];
+    const fetchCommissions = async () => {
+      setLoading(true);
+      try {
+        const response = await api.get('/marketing/commissions');
+        if (response.data?.success) {
+          const mappedCommissions = (response.data.commissions || []).map(comm => {
+            const order = comm.order || {};
+            const isDelivered = order.status === 'delivered';
+            const isPaid = order.paymentConfirmed;
+            const returnPeriodElapsed = order.actualDelivery ? 
+              (new Date() - new Date(order.actualDelivery)) > 7 * 24 * 60 * 60 * 1000 : 
+              false;
+            
+            let status = 'pending';
+            if (isDelivered && isPaid && returnPeriodElapsed) status = 'paid';
+            else if (isDelivered) status = 'processing';
 
-    setTimeout(() => {
-      setCommissions(mockCommissions);
-      setLoading(false);
-    }, 1000);
-  }, [filter, dateRange]);
+            return {
+              id: comm.id,
+              affiliateName: 'You',
+              productName: comm.product?.name || 'Item Commission',
+              amount: parseFloat(comm.commissionAmount || 0),
+              rate: `${comm.commissionRate || 0}%`,
+              orderId: order.orderNumber || comm.orderId,
+              date: new Date(comm.createdAt).toISOString().split('T')[0],
+              status: status,
+              paymentMethod: 'Wallet'
+            };
+          });
+          setCommissions(mappedCommissions);
+        }
+      } catch (error) {
+        console.error('Failed to fetch commissions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCommissions();
+  }, []);
 
   const filteredCommissions = commissions.filter(commission => {
     if (filter === 'all') return true;
@@ -70,11 +58,11 @@ const Commissions = () => {
 
   const totalCommissions = filteredCommissions.reduce((sum, commission) => sum + commission.amount, 0);
   const paidCommissions = filteredCommissions.filter(c => c.status === 'paid').reduce((sum, commission) => sum + commission.amount, 0);
-  const pendingCommissions = filteredCommissions.filter(c => c.status === 'pending').reduce((sum, commission) => sum + commission.amount, 0);
+  const pendingCommissions = filteredCommissions.filter(c => c.status === 'pending' || c.status === 'processing').reduce((sum, commission) => sum + commission.amount, 0);
 
   const handleExport = () => {
-    // TODO: Implement export functionality
     console.log('Exporting commissions data...');
+    // Implementation for export could go here
   };
 
   if (loading) {
@@ -89,10 +77,9 @@ const Commissions = () => {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Commissions Management</h1>
-        <p className="text-gray-600">Track and manage affiliate commission payments</p>
+        <p className="text-gray-600">Track and manage your affiliate commission payments</p>
       </div>
 
-      {/* Filters */}
       <div className="mb-6 flex flex-wrap gap-4">
         <select
           value={filter}
@@ -110,10 +97,10 @@ const Commissions = () => {
           onChange={(e) => setDateRange(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
+          <option value="all">All Time</option>
           <option value="this-month">This Month</option>
           <option value="last-month">Last Month</option>
           <option value="this-year">This Year</option>
-          <option value="all">All Time</option>
         </select>
 
         <button
@@ -125,7 +112,6 @@ const Commissions = () => {
         </button>
       </div>
 
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
@@ -158,7 +144,6 @@ const Commissions = () => {
         </div>
       </div>
 
-      {/* Commissions Table */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-medium text-gray-900">Commission Records</h2>
@@ -168,65 +153,30 @@ const Commissions = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Affiliate
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Product
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Order ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Commission
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rate
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment Method
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredCommissions.map((commission) => (
                 <tr key={commission.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{commission.productName}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{commission.orderId}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{formatPrice(commission.amount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{commission.rate}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{commission.date}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{commission.affiliateName}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{commission.productName}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{commission.orderId}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{formatPrice(commission.amount)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{commission.rate}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{commission.date}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${commission.status === 'paid'
-                        ? 'bg-green-100 text-green-800'
-                        : commission.status === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      commission.status === 'paid' ? 'bg-green-100 text-green-800' :
+                      commission.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
                       {commission.status}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{commission.paymentMethod}</div>
                   </td>
                 </tr>
               ))}
@@ -238,4 +188,4 @@ const Commissions = () => {
   );
 };
 
-export default Commissions;
+export default Commissions;
