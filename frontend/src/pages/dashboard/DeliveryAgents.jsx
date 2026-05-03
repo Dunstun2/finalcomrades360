@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import api, { adminApi } from '../../services/api';
+import { toast } from 'react-toastify';
 import RoleEarningVerification from './components/RoleEarningVerification';
 import AdminPasswordDialog from '../../components/AdminPasswordDialog';
 import { 
@@ -357,6 +358,24 @@ export default function DeliveryAgents() {
     }
   };
 
+  const handleImpersonate = async (userId) => {
+    if (!window.confirm('Are you sure you want to impersonate this delivery agent? You will be logged out of your admin account.')) return;
+    try {
+      const res = await adminApi.adminImpersonateUser(userId);
+      const currentToken = localStorage.getItem('token');
+      if (currentToken) {
+        localStorage.setItem('admin_token_backup', currentToken);
+      }
+      localStorage.setItem('token', res.data.token);
+      toast.success('Impersonation started. Redirecting...');
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1500);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Impersonation failed');
+    }
+  };
+
   const stats = useMemo(() => {
     const total = agents.length;
     const active = agents.filter(a => a.deliveryProfile?.isActive).length;
@@ -624,6 +643,13 @@ export default function DeliveryAgents() {
                                 className="px-2.5 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-xs font-medium rounded-lg hover:bg-gray-100 transition-colors"
                               >
                                 View Profile
+                              </button>
+                              <button 
+                                onClick={() => handleImpersonate(agent.id)}
+                                className="px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+                                title="Login as this agent"
+                              >
+                                Impersonate
                               </button>
                             </div>
                           </td>

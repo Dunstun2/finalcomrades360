@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { adminApi } from '../../services/api';
+import { toast } from 'react-toastify';
 import RoleEarningVerification from './components/RoleEarningVerification';
 
 export default function SellerManagement() {
@@ -57,6 +58,24 @@ export default function SellerManagement() {
             loadSellers();
         } catch (e) {
             setError(e.response?.data?.message || 'Failed to reactivate seller');
+        }
+    };
+
+    const handleImpersonate = async (userId) => {
+        if (!window.confirm('Are you sure you want to impersonate this seller? You will be logged out of your admin account.')) return;
+        try {
+            const res = await adminApi.adminImpersonateUser(userId);
+            const currentToken = localStorage.getItem('token');
+            if (currentToken) {
+                localStorage.setItem('admin_token_backup', currentToken);
+            }
+            localStorage.setItem('token', res.data.token);
+            toast.success('Impersonation started. Redirecting...');
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1500);
+        } catch (e) {
+            toast.error(e.response?.data?.message || 'Impersonation failed');
         }
     };
 
@@ -138,6 +157,13 @@ export default function SellerManagement() {
                                                                 onClick={() => setProfileSeller(seller)}
                                                             >
                                                                 View Profile
+                                                            </button>
+                                                            <button
+                                                                className="px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 text-xs font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+                                                                onClick={() => handleImpersonate(seller.id)}
+                                                                title="Login as this seller"
+                                                            >
+                                                                Impersonate
                                                             </button>
                                                         </div>
                                                     </td>

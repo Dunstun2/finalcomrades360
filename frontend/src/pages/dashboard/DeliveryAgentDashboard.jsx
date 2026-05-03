@@ -23,7 +23,7 @@ const DeliveryAgentDashboard = () => {
   const [lastUpdate, setLastUpdate] = useState(Date.now());
 
   const deliveryBottomNavItems = [
-    { icon: <FaBoxOpen />, label: 'Available', path: '/delivery/available', end: true },
+    { label: 'Available', path: '/delivery/available', end: true },
     { icon: <FaMotorcycle />, label: 'Tasks', path: '/delivery/orders' },
     { icon: <FaHistory />, label: 'History', path: '/delivery/logistics' },
     { icon: <FaUser />, label: 'Account', path: '/delivery/account' },
@@ -147,7 +147,7 @@ const DeliveryAgentDashboard = () => {
     {
       name: 'Available Orders',
       path: '/delivery/available',
-      icon: <FaBoxOpen className="lg:mr-3 text-gray-500" />,
+      icon: null,
       key: 'available'
     },
     {
@@ -208,7 +208,7 @@ const DeliveryAgentDashboard = () => {
     {
       name: 'Delivery Manual',
       path: '/delivery/manual',
-      icon: <FaBoxOpen className="lg:mr-3 text-gray-500" />,
+      icon: null,
       key: 'manual'
     }
   ];
@@ -277,9 +277,11 @@ const DeliveryAgentDashboard = () => {
                     : 'text-gray-500 hover:bg-gray-100 hover:text-blue-600'
                     }`}
                 >
-                  <span className="text-sm lg:text-base opacity-90 transition-colors">
-                    {React.cloneElement(item.icon, { className: 'h-4 w-4 mr-0 text-current' })}
-                  </span>
+                  {item.icon && (
+                    <span className="text-sm lg:text-base opacity-90 transition-colors">
+                      {React.cloneElement(item.icon, { className: 'h-4 w-4 mr-0 text-current' })}
+                    </span>
+                  )}
                   <span>{item.name}</span>
                 </Link>
               </li>

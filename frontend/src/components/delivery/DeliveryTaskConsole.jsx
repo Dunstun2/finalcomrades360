@@ -390,9 +390,7 @@ const DeliveryTaskConsole = ({
                             {checkbox}
                         </div>
                     )}
-                    <div className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-inner ${statusInfo.color.split(' ')[0]} bg-opacity-10 flex items-center justify-center text-lg sm:text-xl`}>
-                        {React.cloneElement(statusInfo.icon, { className: statusInfo.color.includes('text-white') ? 'text-white' : statusInfo.color.split(' ')[1] })}
-                    </div>
+
                     <div>
                         <div className="flex items-center gap-2 mb-1">
                             <h3 className="text-base sm:text-lg font-black text-gray-900 tracking-tight">{order.orderNumber}</h3>
@@ -406,6 +404,12 @@ const DeliveryTaskConsole = ({
                             </span>
                             • {orderItems.length || 0} items
                         </p>
+                        {order.deliveryAddress && (
+                            <p className="mt-1 text-[10px] sm:text-xs text-blue-600 font-semibold flex items-center gap-1 truncate max-w-xs">
+                                <FaMapMarkedAlt className="flex-shrink-0 text-blue-400" />
+                                {order.deliveryAddress}
+                            </p>
+                        )}
                     </div>
                 </div>
 
