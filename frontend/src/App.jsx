@@ -254,7 +254,9 @@ const AppContent = () => {
   const isStationUser = user?.role === 'station_manager' || user?.roles?.includes('station_manager') || user?.roles?.includes('warehouse_manager') || user?.roles?.includes('pickup_station_manager');
   const hideNavbar = ['/login', '/register', '/forgot-password', '/menu', '/station/login'].includes(location.pathname);
   const [isMarketingMode, setIsMarketingMode] = useState(() => {
-    return localStorage.getItem('marketing_mode') === 'true' || window.location.pathname.startsWith('/marketing');
+    const isMode = localStorage.getItem('marketing_mode') === 'true' || window.location.pathname.startsWith('/marketing');
+    if (isMode) localStorage.setItem('marketing_mode', 'true');
+    return isMode;
   });
   const [referrerName, setReferrerName] = useState(localStorage.getItem('referrerName') || '');
   const [bannerDismissed, setBannerDismissed] = useState(localStorage.getItem('referrerBannerDismissed') === 'true');
@@ -288,9 +290,9 @@ const AppContent = () => {
     const marketingParam = params.get('marketing');
 
     if (marketingParam === 'true' || location.pathname.startsWith('/marketing')) {
+      console.log('[App] Ensuring Marketing Mode Persistence');
+      localStorage.setItem('marketing_mode', 'true');
       if (!isMarketingMode) {
-        console.log('[App] Enabling Marketing Mode');
-        localStorage.setItem('marketing_mode', 'true');
         setIsMarketingMode(true);
       }
     } else if (marketingParam === 'false') {

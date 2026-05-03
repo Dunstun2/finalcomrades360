@@ -279,8 +279,13 @@ export default function Cart() {
           >
             <FaArrowLeft className="mr-2" /> Back
           </button>
-          <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mr-4 md:mr-0">
-            {cartScope === 'fastfood' ? 'Fastfood Cart' : 'Products Cart'}
+          <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mr-4 md:mr-0 flex flex-col items-end">
+            <span className={localStorage.getItem('marketing_mode') === 'true' ? 'text-purple-600 font-black' : ''}>
+              {localStorage.getItem('marketing_mode') === 'true' ? 'Marketing Partition' : 'Personal Partition'}
+            </span>
+            <span>
+              {cartScope === 'fastfood' ? 'Fastfood Cart' : 'Products Cart'}
+            </span>
           </div>
         </div>
 

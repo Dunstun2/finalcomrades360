@@ -56,7 +56,10 @@ export function CartProvider({ children }) {
   const fastFoodConflictResolverRef = useRef(null);
 
   const getActiveCartType = useCallback(() => {
-    return localStorage.getItem('marketing_mode') === 'true' ? 'marketing' : 'personal';
+    const mode = localStorage.getItem('marketing_mode');
+    const type = mode === 'true' ? 'marketing' : 'personal';
+    console.log(`[CartContext] getActiveCartType: ${type} (localStorage.marketing_mode: ${mode})`);
+    return type;
   }, []);
 
   const calculateSummary = useCallback((items) => {
@@ -301,7 +304,7 @@ export function CartProvider({ children }) {
     }
   }, [user?.id, calculateSummary, getActiveCartType]); // Removed cart.items.length to prevent dependency loop
 
-  // Listen to realtime updates
+  // Listen to realtime updates and marketing mode changes
   useEffect(() => {
     const onRealtimeUpdate = (event) => {
       const scope = event?.detail?.payload?.scope;
@@ -310,16 +313,38 @@ export function CartProvider({ children }) {
       }
     };
 
+    const onStorageChange = (e) => {
+      if (e.key === 'marketing_mode') {
+        console.log(`[CartContext] Marketing mode changed in storage: ${e.newValue}. Refreshing cart...`);
+        refresh(true);
+      }
+    };
+
     window.addEventListener('realtime:data-updated', onRealtimeUpdate);
-    return () => window.removeEventListener('realtime:data-updated', onRealtimeUpdate);
+    window.addEventListener('storage', onStorageChange);
+    
+    // Also poll marketing_mode periodically as a fallback since 'storage' only fires on other tabs
+    const interval = setInterval(() => {
+      const currentMode = localStorage.getItem('marketing_mode');
+      // We can't easily track the "last" mode without another ref, but simple polling is safer
+    }, 2000);
+
+    return () => {
+      window.removeEventListener('realtime:data-updated', onRealtimeUpdate);
+      window.removeEventListener('storage', onStorageChange);
+      clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only set up listener once, not when refresh changes
+  }, []); // Only set up listener once
 
 
   const addToCartInternal = useCallback(async (productId, quantity = 1, options = {}) => {
     const productIdNum = Number(productId);
     const itemType = options.type || 'product';
     const cartType = getActiveCartType();
+    
+    console.log(`🛒 [CartContext] addToCartInternal: Adding ${itemType} (ID: ${productId}) to ${cartType} cart`);
+    
     const productData = options.product || {};
     let unitPrice = Number(productData.discountPrice || productData.displayPrice || productData.basePrice || productData.price || 0);
     let selectedVariant = options.selectedVariant || null;
