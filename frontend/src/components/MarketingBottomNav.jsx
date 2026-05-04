@@ -29,7 +29,7 @@ const MarketingBottomNav = () => {
     const tabs = [
         { id: 'overview',  icon: <FaChartLine size={18} />,    label: 'Overview',  path: '/marketing?tab=overview' },
         { id: 'products',  icon: <FaShoppingCart size={18} />, label: 'Browse',    path: '/marketing?tab=products' },
-        { id: 'new-order', icon: <FaBox size={18} />,          label: 'New Order', path: '/' },
+        { id: 'new-order', icon: <FaBox size={18} />,          label: 'New Order', path: '/marketing?tab=new-order' },
         { id: 'orders',    icon: <FaHistory size={18} />,      label: 'My Sales',  path: '/marketing?tab=orders' },
         { id: 'wallet',    icon: <FaWallet size={18} />,       label: 'Wallet',    path: '/marketing?tab=wallet' },
     ];
@@ -40,9 +40,7 @@ const MarketingBottomNav = () => {
                 <button
                     key={tab.id}
                     onClick={() => {
-                        if (tab.path === '/') {
-                            localStorage.setItem('marketing_mode', 'true');
-                        }
+                        localStorage.setItem('marketing_mode', 'true');
                         navigate(tab.path);
                     }}
                     className={`flex-1 flex flex-col items-center justify-center py-1.5 gap-0.5 text-[10px] font-bold uppercase tracking-tighter transition-all active:scale-95 ${
@@ -62,8 +60,13 @@ const MarketingBottomNav = () => {
             
             <button
                 onClick={() => {
-                    const event = new CustomEvent('toggle-marketing-sidebar');
-                    window.dispatchEvent(event);
+                    if (location.pathname.startsWith('/marketing')) {
+                        const event = new CustomEvent('toggle-marketing-sidebar');
+                        window.dispatchEvent(event);
+                    } else {
+                        // If not on dashboard, go there and request sidebar open
+                        navigate('/marketing?openSidebar=true');
+                    }
                 }}
                 className="flex-1 flex flex-col items-center justify-center py-1.5 gap-0.5 text-[10px] font-bold uppercase tracking-tighter text-gray-400 hover:text-gray-600 transition-all active:scale-95 border-l border-gray-100"
             >

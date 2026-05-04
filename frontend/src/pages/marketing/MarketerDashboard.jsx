@@ -64,12 +64,21 @@ const MarketerDashboard = () => {
     if (tabParam && tabParam !== activeTab) {
       setActiveTab(tabParam);
     }
-  }, [location.search, activeTab]);
+    
+    // Support opening sidebar via URL (e.g. from global bottom nav 'More' button)
+    if (params.get('openSidebar') === 'true') {
+      setIsSidebarOpen(true);
+      // Clean up the URL so it doesn't keep opening on every re-render
+      const newParams = new URLSearchParams(location.search);
+      newParams.delete('openSidebar');
+      navigate(`${location.pathname}?${newParams.toString()}`, { replace: true });
+    }
+  }, [location.search, activeTab, navigate]);
 
   
   // Listen for global toggle-marketing-sidebar event
   useEffect(() => {
-    const handleToggle = () => setIsSidebarOpen(true);
+    const handleToggle = () => setIsSidebarOpen(prev => !prev);
     window.addEventListener('toggle-marketing-sidebar', handleToggle);
     return () => window.removeEventListener('toggle-marketing-sidebar', handleToggle);
   }, []);
@@ -352,17 +361,33 @@ const MarketerDashboard = () => {
   const [myCustomers, setMyCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [customersError, setCustomersError] = useState(null);
+  const [customersPage, setCustomersPage] = useState(1);
+  const [hasMoreCustomers, setHasMoreCustomers] = useState(true);
+  const [totalCustomers, setTotalCustomers] = useState(0);
+  const [loadingMoreCustomers, setLoadingMoreCustomers] = useState(false);
 
-  const fetchMyCustomers = async () => {
+  const fetchMyCustomers = async (pageNum = 1) => {
     try {
-      setLoadingCustomers(true);
-      const res = await api.get('/marketing/my-customers');
-      setMyCustomers(res.data?.customers || []);
+      if (pageNum === 1) setLoadingCustomers(true);
+      else setLoadingMoreCustomers(true);
+      
+      const res = await api.get(`/marketing/my-customers?page=${pageNum}&limit=10`);
+      
+      if (pageNum === 1) {
+        setMyCustomers(res.data?.customers || []);
+      } else {
+        setMyCustomers(prev => [...prev, ...(res.data?.customers || [])]);
+      }
+      
+      setTotalCustomers(res.data?.total || 0);
+      setHasMoreCustomers(res.data?.hasMore || false);
+      setCustomersPage(pageNum);
     } catch (err) {
       console.error('Error fetching customers:', err);
       setCustomersError('Failed to load customers');
     } finally {
       setLoadingCustomers(false);
+      setLoadingMoreCustomers(false);
     }
   };
 
@@ -665,21 +690,9 @@ const MarketerDashboard = () => {
 
   // Load My Customers when tab is active
   useEffect(() => {
-    if (activeTab !== 'my-customers') return;
-    const loadMyCustomers = async () => {
-      try {
-        setLoadingCustomers(true);
-        setCustomersError(null);
-        const response = await api.get('/marketing/my-customers');
-        setMyCustomers(response.data?.customers || []);
-      } catch (err) {
-        console.error('Error loading my customers:', err);
-        setCustomersError(err.response?.data?.message || 'Failed to load customers');
-      } finally {
-        setLoadingCustomers(false);
-      }
-    };
-    loadMyCustomers();
+    if (activeTab === 'my-customers') {
+      fetchMyCustomers(1);
+    }
   }, [activeTab]);
 
   const tabs = [
@@ -1858,16 +1871,24 @@ const MarketerDashboard = () => {
       case 'my-customers':
         return (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <div>
-                <h2 className="text-xl font-bold text-gray-800">My Customers</h2>
-                <p className="text-sm text-gray-500 mt-0.5">Click a row to view their orders</p>
+                <h2 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                  My Associated Customers
+                  {totalCustomers > 0 && (
+                    <span className="ml-2 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold uppercase tracking-widest">
+                      Total: {totalCustomers}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-sm text-gray-500 font-medium">Track your network and their order activity</p>
               </div>
               <button
                 onClick={() => setActiveTab('add-user')}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all shadow-sm"
+                className="px-6 py-2.5 bg-blue-600 text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200 active:scale-95 uppercase tracking-widest"
               >
-                <FaUserPlus /> Add Customer
+                <FaUserPlus />
+                Add Customer
               </button>
             </div>
 
@@ -2006,6 +2027,23 @@ const MarketerDashboard = () => {
                       </tbody>
                     </table>
                   </div>
+
+                  {hasMoreCustomers && (
+                    <div className="p-4 border-t border-gray-100 bg-gray-50/30 flex justify-center">
+                      <button
+                        onClick={() => fetchMyCustomers(customersPage + 1)}
+                        disabled={loadingMoreCustomers}
+                        className="px-6 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl hover:bg-gray-50 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 uppercase tracking-widest"
+                      >
+                        {loadingMoreCustomers ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600" />
+                        ) : (
+                          <FaArrowRight className="w-3 h-3" />
+                        )}
+                        Load More Customers
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2082,13 +2120,9 @@ const MarketerDashboard = () => {
                     setIsSidebarOpen(false);
                     if (tab.id === 'new-order') {
                       localStorage.setItem('marketing_mode', 'true');
-                      window.location.href = '/';
-                    } else {
-                      // CRITICAL FIX: Use navigate to update the URL
-                      // This ensures the URL sync useEffect doesn't revert the tab state
-                      navigate(`/marketing?tab=${tab.id}`);
-                      setActiveTab(tab.id);
                     }
+                    navigate(`/marketing?tab=${tab.id}`);
+                    setActiveTab(tab.id);
                   }}
                   className={`w-full flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-[9px] lg:text-[15px] font-bold uppercase tracking-tight ${
                     activeTab === tab.id
@@ -2204,6 +2238,14 @@ const MarketerDashboard = () => {
       </div>
 
 
+
+      {/* Mobile Bottom Navigation */}
+      <div className="lg:hidden">
+        <BottomNavbar 
+          items={marketerBottomNavItems} 
+          onMenuClick={() => setIsSidebarOpen(prev => !prev)}
+        />
+      </div>
 
       {/* Modals remain same but use backdrop blur */}
       {showShareModal && sharingItem && (

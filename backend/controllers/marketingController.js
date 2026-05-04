@@ -8,7 +8,7 @@ const {
   Commission
 } = require('../models');
 
-const FRONTEND_BASE = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
+const FRONTEND_BASE = process.env.FRONTEND_URL || 'https://comrades360.shop';
 
 const backendBaseFromReq = (req) => {
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -342,7 +342,11 @@ const getMyCustomers = async (req, res) => {
       });
     }
 
-    const customers = Object.values(customerMap)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const allCustomers = Object.values(customerMap)
       .map(c => ({
         ...c,
         orderCount: c.id ? (orderStats[c.id]?.orderCount || 0) : 0,
@@ -350,7 +354,17 @@ const getMyCustomers = async (req, res) => {
       }))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    res.json({ success: true, customers });
+    const total = allCustomers.length;
+    const customers = allCustomers.slice(offset, offset + limit);
+
+    res.json({ 
+      success: true, 
+      customers, 
+      total,
+      page,
+      limit,
+      hasMore: offset + limit < total
+    });
   } catch (e) {
     console.error('Error fetching my customers:', e);
     res.status(500).json({ error: e.message });

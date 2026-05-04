@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FaShoppingCart, FaSignOutAlt, FaSearch, FaLink, FaCheck } from 'react-icons/fa';
 import { useCart } from '../contexts/CartContext';
 import { useCategories } from '../contexts/CategoriesContext';
@@ -9,12 +9,16 @@ import { copyToClipboard } from '../utils/clipboard';
 
 export default function MarketingNavbar() {
     const { cart } = useCart();
-    // Marketing navbar always lives on the products context
+    const location = useLocation();
+    const navigate = useNavigate();
+    
+    const cartScope = location.pathname.startsWith('/fastfood') ? 'fastfood' : 'products';
+    const cartLink = `/cart?scope=${cartScope}`;
+
     const cartBadgeCount = useMemo(() => {
         const items = Array.isArray(cart?.items) ? cart.items : [];
-        return items.filter((item) => item?.itemType !== 'fastfood').length;
-    }, [cart?.items]);
-    const navigate = useNavigate();
+        return items.filter((item) => (cartScope === 'fastfood' ? item.itemType === 'fastfood' : item.itemType !== 'fastfood')).length;
+    }, [cart?.items, cartScope]);
     const { getCategoriesWithSubcategories } = useCategories();
     const categoriesWithSubcategories = getCategoriesWithSubcategories();
 
@@ -254,7 +258,7 @@ export default function MarketingNavbar() {
                     <div className="flex items-center space-x-1 sm:space-x-3 flex-shrink-0">
                         {/* Cart Icon */}
                         <Link
-                            to="/cart"
+                            to={cartLink}
                             className="relative flex items-center space-x-1 p-2 text-blue-100 hover:text-white transition-colors"
                             title="View Cart"
                         >

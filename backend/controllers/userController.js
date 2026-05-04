@@ -552,7 +552,7 @@ const updateProfile = async (req, res, next) => {
       message: 'Profile updated.',
       user: {
         ...payload,
-        profileImage: `${process.env.BASE_URL || 'http://localhost:5000'}${user.profileImage || ''}`
+        profileImage: `${process.env.BASE_URL || backendBaseFromReq(req)}${user.profileImage || ''}`
       }
     });
   } catch (e) {

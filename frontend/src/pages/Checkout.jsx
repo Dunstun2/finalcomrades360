@@ -823,7 +823,7 @@ function Checkout() {
         // Step 3: Send order creation request to backend
         console.log('🚀 Step 3: Sending order creation request...');
 
-        // Use axios client configured in ../services/api to hit http://localhost:5000/api
+        // Use axios client configured in ../services/api to hit the API base URL
         const response = await api.post('/orders', orderData);
         const data = response.data;
 

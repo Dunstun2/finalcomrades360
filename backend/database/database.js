@@ -320,11 +320,11 @@ const testConnection = async () => {
             server: {
               port: process.env.PORT || 4000,
               nodeEnv: process.env.NODE_ENV || 'development',
-              baseUrl: process.env.BASE_URL || 'http://localhost:4000',
+              baseUrl: process.env.BASE_URL || 'https://comrades360.shop',
               apiUrl: '/api'
             },
             app: {
-              frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+              frontendUrl: process.env.FRONTEND_URL || 'https://comrades360.shop',
               supportEmail: 'support@comrades360.com'
             },
             database: {
