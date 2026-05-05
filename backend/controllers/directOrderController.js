@@ -328,27 +328,14 @@ exports.placeDirectOrder = async (req, res) => {
         // 1. Resolve User
         let user = await User.findOne({ where: { phone: customerPhone } });
 
-        // If user doesn't exist, they MUST have a verified OTP record
-        if (!user) {
-            const { Otp } = require('../models');
-            const otpRecord = await Otp.findOne({
-                where: {
-                    phone: customerPhone,
-                    isVerified: true,
-                    expiresAt: { [Op.gt]: new Date() }
-                }
+        // For Direct Orders placed by Admins or Marketers, we bypass the OTP verification
+        // as they are using the "Confirm Phone Number" field to ensure accuracy.
+        if (!isAdmin && !isMarketer) {
+            await t.rollback();
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Unauthorized. Only Admins and Marketers can place direct orders.' 
             });
-
-            if (!otpRecord) {
-                await t.rollback();
-                return res.status(403).json({ 
-                    success: false, 
-                    message: 'New customer phone number must be verified before placing an order.' 
-                });
-            }
-            
-            // Clean up the verified OTP record since it's now used
-            await otpRecord.destroy({ transaction: t });
         }
         
         // 2. Calculate Pricing

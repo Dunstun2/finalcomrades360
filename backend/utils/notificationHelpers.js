@@ -269,12 +269,14 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         ? (order.pickStation || 'N/A') 
         : (order.deliveryAddress || order.marketingDeliveryAddress || 'N/A');
 
-    const deliveryFee = order.deliveryFee?.toLocaleString() || '0';
-    const paymentMethodLabel = order.paymentMethod || order.paymentType || 'Not Specified';
+    const deliveryFeeVal = Number(order.deliveryFee || 0);
+    const deliveryFee = deliveryFeeVal > 0 ? deliveryFeeVal.toLocaleString() : 'Free';
+    const paymentMethodLabel = `${order.paymentMethod || 'N/A'} - ${order.paymentType || 'N/A'}`;
     const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
     const trackUrl = `${siteUrl}/track/${order.orderNumber}${referralCode ? `?ref=${referralCode}` : ''}`;
 
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`;
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
+
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
         name: name,

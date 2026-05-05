@@ -209,6 +209,21 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: 'Longitude for seller business location calculation'
     },
+
+    // Auto-confirm settings for sellers/vendors
+    autoConfirmFastFood: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    autoConfirmProducts: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    defaultProductShippingType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Default shipping type for auto-confirmed product orders (collected_from_seller or seller_to_warehouse)'
+    },
     // Personal information fields
     gender: {
       type: DataTypes.ENUM('male', 'female', 'other'),

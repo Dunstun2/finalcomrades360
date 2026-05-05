@@ -205,7 +205,8 @@ const DirectOrders = () => {
   const [matches, setMatches] = useState([]);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [userExists, setUserExists] = useState(false);
-  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(true); // Default to true as we use confirmation instead of OTP
+  const [confirmPhone, setConfirmPhone] = useState('');
   const [suggestedPickupStation, setSuggestedPickupStation] = useState(null);
   const [orderResult, setOrderResult] = useState(null);
 
@@ -241,9 +242,9 @@ const DirectOrders = () => {
       if (data.success) {
         setParsedData(data.parsedData);
         setMatches(data.matches);
-        setMatches(data.matches);
         setUserExists(data.userExists);
-        setIsPhoneVerified(data.userExists); // If they exist, no verification needed
+        setIsPhoneVerified(true); // Bypassing OTP for Direct Orders
+        setConfirmPhone(data.parsedData.customerPhone || '');
         setSuggestedPickupStation(data.suggestedPickupStation);
         setSelectedItemId(data.matches.length === 1 ? data.matches[0].id : null);
         setStep('review');
@@ -277,8 +278,8 @@ const DirectOrders = () => {
       toast({ title: 'Selection Required', description: 'Please select the correct item from the matches.', variant: 'destructive' });
       return;
     }
-    if (!userExists && !isPhoneVerified) {
-      toast({ title: 'Verification Required', description: 'Please verify the new customer\'s phone number before placing the order.', variant: 'destructive' });
+    if (parsedData.customerPhone !== confirmPhone) {
+      toast({ title: 'Phone Mismatch', description: 'Phone number and confirmation do not match.', variant: 'destructive' });
       return;
     }
     setLoading(true);
@@ -312,7 +313,8 @@ const DirectOrders = () => {
     setParsedData(null);
     setMatches([]);
     setSelectedItemId(null);
-    setIsPhoneVerified(false);
+    setIsPhoneVerified(true);
+    setConfirmPhone('');
     setOrderResult(null);
   };
 
@@ -433,14 +435,26 @@ const DirectOrders = () => {
                       <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
                         <Phone className="w-3 h-3" />
                       </div>
-                      <input
-                        type="text"
-                        value={parsedData.customerPhone || ''}
-                        onChange={(e) => setParsedData({ ...parsedData, customerPhone: e.target.value })}
-                        placeholder="Phone Number"
-                        className="flex-1 text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                      />
-                      {userExists && <span className="text-[9px] text-green-600 font-bold shrink-0">Existing</span>}
+                      <div className="flex-1 space-y-2">
+                        <input
+                          type="text"
+                          value={parsedData.customerPhone || ''}
+                          onChange={(e) => setParsedData({ ...parsedData, customerPhone: e.target.value })}
+                          placeholder="Phone Number"
+                          className={`w-full text-sm font-bold bg-gray-50 border ${parsedData.customerPhone === confirmPhone ? 'border-gray-200' : 'border-amber-300'} rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all`}
+                        />
+                        <input
+                          type="text"
+                          value={confirmPhone}
+                          onChange={(e) => setConfirmPhone(e.target.value)}
+                          placeholder="Confirm Phone Number"
+                          className={`w-full text-sm font-bold bg-gray-50 border ${parsedData.customerPhone === confirmPhone ? 'border-gray-200' : 'border-red-300'} rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all`}
+                        />
+                        {parsedData.customerPhone !== confirmPhone && confirmPhone.length > 0 && (
+                          <p className="text-[9px] text-red-500 font-bold uppercase tracking-tighter">Numbers do not match</p>
+                        )}
+                        {userExists && <span className="text-[9px] text-green-600 font-bold block shrink-0">Existing Customer Found</span>}
+                      </div>
                     </div>
                     <div className="flex items-start gap-2 pt-1">
                       <div className="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
@@ -517,19 +531,7 @@ const DirectOrders = () => {
                 </div>
               </div>
 
-              {!userExists && !isPhoneVerified && parsedData?.customerPhone && (
-                <div className="bg-white rounded-2xl border-2 border-dashed border-amber-200 p-4">
-                  <div className="flex items-center gap-2 mb-4 text-amber-700">
-                    <Shield className="w-5 h-5" />
-                    <p className="text-sm font-black uppercase">Phone Verification Required</p>
-                  </div>
-                  <PhoneVerification 
-                    mode="guest" 
-                    currentPhone={parsedData.customerPhone} 
-                    onVerified={() => setIsPhoneVerified(true)} 
-                  />
-                </div>
-              )}
+              {/* Phone Verification Bypassed for Direct Orders */}
 
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
                 <div className="flex items-center justify-between">

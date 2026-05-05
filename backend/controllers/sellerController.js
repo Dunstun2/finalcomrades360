@@ -701,6 +701,33 @@ const getOverview = async (req, res, next) => {
   }
 };
 
+const updateSellerSettings = async (req, res, next) => {
+  try {
+    const { autoConfirmFastFood, autoConfirmProducts, defaultProductShippingType } = req.body;
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const updates = {};
+    if (autoConfirmFastFood !== undefined) updates.autoConfirmFastFood = !!autoConfirmFastFood;
+    if (autoConfirmProducts !== undefined) updates.autoConfirmProducts = !!autoConfirmProducts;
+    if (defaultProductShippingType !== undefined) updates.defaultProductShippingType = defaultProductShippingType;
+
+    await user.update(updates);
+
+    res.json({
+      success: true,
+      message: 'Seller settings updated successfully',
+      settings: {
+        autoConfirmFastFood: user.autoConfirmFastFood,
+        autoConfirmProducts: user.autoConfirmProducts,
+        defaultProductShippingType: user.defaultProductShippingType
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 module.exports = {
   getMyProducts,
   getMyKpis,
@@ -708,5 +735,7 @@ module.exports = {
   updateMyProduct,
   getMyOrders,
   duplicateCheck,
-  getOverview
+  getOverview,
+  updateSellerSettings
 };
+

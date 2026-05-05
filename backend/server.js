@@ -276,6 +276,7 @@ apiRouter.use('/fastfood', require('./routes/fastFoodRoutes'));
 // apiRouter.use('/tickets', require('./routes/ticketRoutes'));
 // apiRouter.use('/config', require('./routes/configRoutes'));
 apiRouter.use('/warehouse', require('./routes/warehouseRoutes'));
+apiRouter.use('/warehouses', require('./routes/warehouseRoutes'));
 apiRouter.use('/pickup-stations', require('./routes/pickupStationRoutes'));
 apiRouter.use('/station-managers', require('./routes/stationManagerRoutes'));
 apiRouter.use('/support', require('./routes/supportRoutes'));

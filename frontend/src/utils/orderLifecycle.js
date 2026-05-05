@@ -56,8 +56,29 @@ export const buildOrderLifecycleSteps = (order) => {
   const includePickStation = hasPickStationSignals;
   const customerDropOff = deliveryMethod === 'home_delivery' || directRoute || status === 'delivered' || status === 'completed';
 
-  const adminConfirmedDone = !!order?.superAdminConfirmed || status !== 'order_placed';
-  const sellerConfirmedDone = !!order?.sellerConfirmed || adminConfirmedDone;
+  const adminConfirmedDone = !!order?.superAdminConfirmed || [
+    'super_admin_confirmed',
+    'en_route_to_warehouse',
+    'at_warehouse',
+    'en_route_to_pick_station',
+    'at_pick_station',
+    'ready_for_pickup',
+    'in_transit',
+    'delivered',
+    'completed'
+  ].includes(status);
+
+  const sellerConfirmedDone = !!order?.sellerConfirmed || [
+    'seller_confirmed',
+    'en_route_to_warehouse',
+    'at_warehouse',
+    'en_route_to_pick_station',
+    'at_pick_station',
+    'ready_for_pickup',
+    'in_transit',
+    'delivered',
+    'completed'
+  ].includes(status);
 
   const steps = [
     { label: 'Placed', status: 'order_placed', done: true },

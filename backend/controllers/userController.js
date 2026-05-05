@@ -4,7 +4,7 @@ const { User, UserRole, Notification, Order, Otp } = require("../models");
 const { isValidEmail, normalizeKenyanPhone } = require("../middleware/validators");
 const { sendEmail } = require("../utils/mailer");
 const { sendMessage } = require("../utils/messageService");
-const { sanitizeUserPayload } = require("../utils/userUtils");
+const { sanitizeUserPayload, backendBaseFromReq } = require("../utils/userUtils");
 const { getDynamicMessage } = require("../utils/templateUtils");
 const { mirrorOtpToSocket } = require("../utils/otpUtils");
 
@@ -12,6 +12,8 @@ const { uploadProfileImages } = require("../config/multer");
 const { geocodeAddress } = require("../utils/geocodingUtils");
 const { deleteFiles } = require('../utils/fileCleanup');
 const genPublic = async () => { const y = new Date().getFullYear(); const seq = `${Math.floor(Math.random() * 1e6)}`.padStart(6, "0"); return `C360-${y}-${seq}`; };
+
+
 
 // Admin: directly set a user's role (e.g., to 'delivery_agent')
 const adminSetUserRole = async (req, res, next) => {

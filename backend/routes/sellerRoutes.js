@@ -1,6 +1,6 @@
 const express = require('express');
 const { auth, checkRole, checkSellerProfile } = require('../middleware/auth');
-const { getMyOrders, getMyProducts, getMyProductById, updateMyProduct, duplicateCheck, getMyKpis, getOverview } = require('../controllers/sellerController');
+const { getMyOrders, getMyProducts, getMyProductById, updateMyProduct, duplicateCheck, getMyKpis, getOverview, updateSellerSettings } = require('../controllers/sellerController');
 const { getSellerWallet } = require('../controllers/sellerWalletController');
 const { withdraw } = require('../controllers/walletController');
 const { uploadProductMedia } = require('../config/multer');
@@ -11,6 +11,7 @@ const router = express.Router()
 // Seller-only routes - All require profile completeness
 router.get('/overview', auth, checkRole('seller', 'admin'), checkSellerProfile, getOverview)
 router.get('/products', auth, checkRole('seller', 'admin'), checkSellerProfile, getMyProducts)
+router.patch('/settings', auth, checkRole('seller', 'admin', 'fastfood_vendor'), updateSellerSettings)
 router.get('/products/duplicate-check', auth, checkRole('seller', 'admin'), checkSellerProfile, duplicateCheck)
 router.get('/products/:id', auth, checkRole('seller', 'admin'), checkSellerProfile, getMyProductById)
 router.patch('/products/:id', auth, checkRole('seller', 'admin'), checkSellerProfile, uploadProductMedia.fields([

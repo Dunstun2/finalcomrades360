@@ -830,6 +830,26 @@ function Checkout() {
         if (data.success || response.status === 200) {
           console.log('✅ Step 4: Order created successfully');
 
+          // AUTO-SAVE ADDRESS TO PROFILE: 
+          // If the user is logged in and NOT in marketing mode, automatically save their 
+          // delivery details to their permanent profile so they don't have to enter them next time.
+          if (!isMarketingMode && user && formData.deliveryMethod === 'home_delivery') {
+            const addressData = {
+              county: formData.editedCounty,
+              town: formData.editedTown,
+              estate: formData.editedEstate,
+              houseNumber: formData.editedHouseNumber
+            };
+            
+            // Only trigger if at least the core location fields are present
+            if (addressData.county && addressData.town) {
+              console.log('💾 [Checkout] Auto-saving address to user profile...', addressData);
+              userService.updateAddress(addressData).catch(err => {
+                console.warn('[Checkout] Background address auto-save failed:', err.message);
+              });
+            }
+          }
+
           // Step 5: Show success dialog immediately to prevent "empty cart" redirect
           setCreatedOrder(data.order);
           setIsSuccessDialogOpen(true);

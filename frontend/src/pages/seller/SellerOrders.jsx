@@ -35,6 +35,15 @@ export default function SellerOrders() {
   const [currentPage, setCurrentPage] = useState(1)
   const [processingOrderId, setProcessingOrderId] = useState(null)
   const [expandedOrderId, setExpandedOrderId] = useState(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState([])
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [sellerSettings, setSellerSettings] = useState({
+    autoConfirmFastFood: false,
+    autoConfirmProducts: false,
+    defaultProductShippingType: 'collected_from_seller'
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
   const hasFetchedRef = useRef(false)
   const pageSize = 15;
 
@@ -84,8 +93,41 @@ export default function SellerOrders() {
       }
     }
     loadLogisticsData()
+    fetchSellerProfile()
     return () => { alive = false }
   }, [])
+
+  const fetchSellerProfile = async () => {
+    try {
+      const res = await api.get('/auth/me');
+      if (res.data) {
+        setSellerSettings({
+          autoConfirmFastFood: res.data.autoConfirmFastFood || false,
+          autoConfirmProducts: res.data.autoConfirmProducts || false,
+          defaultProductShippingType: res.data.defaultProductShippingType || 'collected_from_seller'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch seller settings:', err);
+    }
+  };
+
+  const handleSaveSettings = async (newSettings) => {
+    try {
+      setIsSavingSettings(true);
+      const res = await api.patch('/seller/settings', newSettings);
+      if (res.data.success) {
+        setSellerSettings(res.data.settings);
+        setShowSettingsModal(false);
+        alert('Settings saved successfully!');
+      }
+    } catch (err) {
+      alert('Failed to save settings: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
 
   const isFetchingRef = useRef(false);
 
@@ -145,6 +187,7 @@ export default function SellerOrders() {
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setCurrentPage(1);
+    setSelectedOrderIds([]); // Clear selection on tab change
   };
 
   useEffect(() => {
@@ -218,6 +261,21 @@ export default function SellerOrders() {
     }
   }, [selectedOrder])
 
+  const toggleOrderSelection = (id) => {
+    setSelectedOrderIds(prev => 
+      prev.includes(id) ? prev.filter(oid => oid !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllSelection = () => {
+    const confirmableOnPage = rows.filter(o => o.status === 'super_admin_confirmed' && !o.sellerConfirmed).map(o => o.id);
+    if (selectedOrderIds.length === confirmableOnPage.length && confirmableOnPage.length > 0) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(confirmableOnPage);
+    }
+  };
+
   const handleUpdateStatus = async (orderId, newStatus, notes = '') => {
     if (processingOrderId === orderId) return
     setProcessingOrderId(orderId)
@@ -240,33 +298,54 @@ export default function SellerOrders() {
   }
 
   const handleConfirmOrder = async (orderId) => {
-    if (processingOrderId === orderId) return
-    setProcessingOrderId(orderId)
+    if (processingOrderId === 'bulk' || processingOrderId === orderId) return
+    const isBulk = Array.isArray(orderId);
+    setProcessingOrderId(isBulk ? 'bulk' : orderId)
     try {
+      // For bulk, we use the first selected order to determine fastFoodOnly (simplification)
       const fastFoodOnly = isFastFoodOnlyOrder(selectedOrder);
 
-      const res = await api.post(`/orders/${orderId}/seller-confirm`, {
+      const payload = {
         shippingType: fastFoodOnly ? null : shippingType,
         warehouseId: fastFoodOnly ? null : ((shippingType === 'shipped_from_seller' && destinationType === 'warehouse') ? selectedWarehouseId : null),
         pickupStationId: fastFoodOnly ? null : ((shippingType === 'shipped_from_seller' && destinationType === 'pickup_station') ? selectedPickupStationId : null),
         submissionDeadline: fastFoodOnly ? null : (shippingType === 'shipped_from_seller' ? submissionDeadline : null),
         message: message || null
-      })
+      };
+
+      let res;
+      if (isBulk) {
+        res = await api.post('/orders/bulk-seller-confirm', {
+          orderIds: orderId,
+          ...payload
+        });
+      } else {
+        res = await api.post(`/orders/${orderId}/seller-confirm`, payload);
+      }
+
       if (res.data.success) {
-        // Update the order status in the list
-        setRows(rows.map(order =>
-          order.id === orderId
-            ? { ...order, ...res.data.order }
+        const successIds = isBulk ? res.data.results.success : [orderId];
+        
+        setRows(prevRows => prevRows.map(order =>
+          successIds.includes(order.id)
+            ? { ...order, sellerConfirmed: true, status: fastFoodOnly ? 'awaiting_delivery_assignment' : 'seller_confirmed' }
             : order
-        ))
+        ));
+        
         setShowConfirmModal(false)
         setMessage('')
-        setShippingType('shipped_from_seller') // Reset
+        setShippingType('shipped_from_seller')
         setSelectedWarehouseId('')
         setSelectedPickupStationId('')
         setDestinationType('warehouse')
         setSubmissionDeadline(null)
-        toast({ title: 'Confirmed', description: 'Order confirmed successfully!' })
+        setSelectedOrderIds([])
+        
+        const msg = isBulk 
+          ? `Successfully confirmed ${successIds.length} orders!${res.data.results.failed.length > 0 ? ` (${res.data.results.failed.length} failed)` : ''}` 
+          : 'Order confirmed successfully!';
+        
+        toast({ title: isBulk ? 'Bulk Confirmation' : 'Confirmed', description: msg })
       }
     } catch (error) {
       toast({ title: 'Error', description: error.response?.data?.message || error.message, variant: 'destructive' })
@@ -387,7 +466,20 @@ export default function SellerOrders() {
   return (
     <div className="w-full h-full flex flex-col">
       <div className="p-0 sm:p-6 flex flex-col flex-1">
-      <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight mb-6">My Sales Management</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">My Sales Management</h1>
+        <button
+          onClick={() => setShowSettingsModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-black text-gray-700 shadow-sm hover:bg-gray-50 transition-all active:scale-95"
+        >
+          <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Logistics Settings
+        </button>
+      </div>
+
 
       {/* Tabs */}
       <div className="flex space-x-4 mb-6 border-b border-gray-200">
@@ -423,6 +515,16 @@ export default function SellerOrders() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-gray-700">
             <tr>
+              <th className="p-3 w-10">
+                {activeTab === 'pending' && (
+                  <input 
+                    type="checkbox" 
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    checked={selectedOrderIds.length > 0 && selectedOrderIds.length === rows.filter(o => o.status === 'super_admin_confirmed' && !o.sellerConfirmed).length}
+                    onChange={toggleAllSelection}
+                  />
+                )}
+              </th>
               <th className="text-left p-3">Order #</th>
               <th className="text-left p-3">Status</th>
               <th className="text-left p-3">Items</th>
@@ -454,9 +556,21 @@ export default function SellerOrders() {
                 return (
                   <React.Fragment key={o.id}>
                     <tr 
-                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''} ${selectedOrderIds.includes(o.id) ? 'bg-blue-50/50' : ''}`}
                       onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
                     >
+                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                        {o.status === 'super_admin_confirmed' && !o.sellerConfirmed ? (
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            checked={selectedOrderIds.includes(o.id)}
+                            onChange={() => toggleOrderSelection(o.id)}
+                          />
+                        ) : (
+                          <div className="w-4 h-4" />
+                        )}
+                      </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
@@ -709,6 +823,44 @@ export default function SellerOrders() {
         </div>
       </div>
 
+      {/* Floating Selection Bar */}
+      {selectedOrderIds.length > 0 && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-10 duration-300">
+          <div className="bg-white border-2 border-blue-600 shadow-2xl rounded-2xl px-6 py-4 flex items-center gap-6 min-w-[300px]">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Selected Items</span>
+              <span className="text-lg font-black text-gray-900">{selectedOrderIds.length} Orders</span>
+            </div>
+            <div className="h-10 w-[1px] bg-gray-100" />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const firstSelected = rows.find(r => r.id === selectedOrderIds[0]);
+                  setSelectedOrder(firstSelected);
+                  const fastFoodOnly = isFastFoodOnlyOrder(firstSelected);
+                  if (firstSelected.adminRoutingStrategy === 'warehouse' && firstSelected.destinationWarehouseId) {
+                    setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(firstSelected.destinationWarehouseId);
+                  } else if (firstSelected.adminRoutingStrategy === 'pick_station' && firstSelected.destinationPickStationId) {
+                    setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(firstSelected.destinationPickStationId);
+                  }
+                  const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
+                  setShowConfirmModal(true);
+                }}
+                className="px-6 py-2.5 bg-green-600 text-white text-xs font-black uppercase rounded-xl shadow-lg shadow-green-600/20 hover:bg-green-700 active:scale-95 transition-all"
+              >
+                Confirm All
+              </button>
+              <button
+                onClick={() => setSelectedOrderIds([])}
+                className="px-4 py-2.5 bg-gray-100 text-gray-600 text-xs font-black uppercase rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Pagination Controls */}
       {meta.totalPages > 1 && (
         <div className="mt-8 flex items-center justify-center gap-2">
@@ -757,7 +909,9 @@ export default function SellerOrders() {
               const requiresHubDestination = !fastFoodOnly && shippingType === 'shipped_from_seller' && selectedOrder.adminRoutingStrategy !== 'direct_delivery';
               return (
                 <>
-            <h3 className="text-lg font-semibold mb-4">Confirm Order {selectedOrder.orderNumber}</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {selectedOrderIds.length > 1 ? `Bulk Confirm ${selectedOrderIds.length} Orders` : `Confirm Order ${selectedOrder.orderNumber}`}
+            </h3>
 
             {/* Admin Routing Info Banner */}
             {selectedOrder.adminRoutingStrategy && (
@@ -935,21 +1089,19 @@ export default function SellerOrders() {
                 placeholder="Any special instructions..."
               />
             </div>
-            <div className="flex gap-2 justify-end">
+            <div className="mt-6 flex gap-3">
               <button
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                onClick={() => handleConfirmOrder(selectedOrderIds.length > 1 ? selectedOrderIds : selectedOrder.id)}
+                disabled={!!processingOrderId}
+                className="flex-1 py-3 bg-green-600 text-white font-black uppercase rounded-xl shadow-lg hover:bg-green-700 disabled:opacity-50 transition-all"
               >
-                Cancel
+                {processingOrderId ? 'Confirming...' : (selectedOrderIds.length > 1 ? `Confirm ${selectedOrderIds.length} Orders` : 'Confirm Order')}
               </button>
               <button
-                onClick={() => handleConfirmOrder(selectedOrder.id)}
-                disabled={processingOrderId === selectedOrder.id || (requiresHubDestination && !(destinationType === 'warehouse' ? selectedWarehouseId : selectedPickupStationId))}
-                className={`px-4 py-2 rounded font-bold text-white transition-all ${processingOrderId === selectedOrder.id || (requiresHubDestination && !(destinationType === 'warehouse' ? selectedWarehouseId : selectedPickupStationId))
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700 active:scale-95'}`}
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-600 font-black uppercase rounded-xl hover:bg-gray-200 transition-all"
               >
-                {processingOrderId === selectedOrder.id ? 'Processing...' : 'Confirm & Proceed'}
+                Cancel
               </button>
             </div>
                 </>
@@ -1311,6 +1463,89 @@ export default function SellerOrders() {
         </div>
       )}
 
+      {/* Logistics Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
+
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">Logistics Settings</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Automate your fulfillment workflow</p>
+              </div>
+              <button onClick={() => setShowSettingsModal(false)} className="p-2 hover:bg-white rounded-xl transition-colors shadow-sm border border-transparent hover:border-gray-100">
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="flex items-center justify-between p-4 bg-orange-50/30 rounded-2xl border border-orange-100/50">
+                <div>
+                  <h4 className="text-sm font-black text-orange-900 uppercase">Auto-Confirm FastFood</h4>
+                  <p className="text-[10px] text-orange-700/70 font-bold uppercase tracking-tighter mt-1">Accept meal orders instantly</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only peer" 
+                    checked={sellerSettings.autoConfirmFastFood}
+                    onChange={(e) => setSellerSettings({...sellerSettings, autoConfirmFastFood: e.target.checked})}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50">
+                  <div>
+                    <h4 className="text-sm font-black text-blue-900 uppercase">Auto-Confirm Products</h4>
+                    <p className="text-[10px] text-blue-700/70 font-bold uppercase tracking-tighter mt-1">Accept product orders instantly</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="sr-only peer" 
+                      checked={sellerSettings.autoConfirmProducts}
+                      onChange={(e) => setSellerSettings({...sellerSettings, autoConfirmProducts: e.target.checked})}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {sellerSettings.autoConfirmProducts && (
+                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 animate-in slide-in-from-top-2 duration-300">
+                    <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Default Product Routing</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSellerSettings({...sellerSettings, defaultProductShippingType: 'collected_from_seller'})}
+                        className={`p-3 rounded-xl border text-[10px] font-black uppercase transition-all ${sellerSettings.defaultProductShippingType === 'collected_from_seller' ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-600 hover:border-blue-200'}`}
+                      >
+                        Request Collection
+                      </button>
+                      <button
+                        onClick={() => setSellerSettings({...sellerSettings, defaultProductShippingType: 'seller_to_warehouse'})}
+                        className={`p-3 rounded-xl border text-[10px] font-black uppercase transition-all ${sellerSettings.defaultProductShippingType === 'seller_to_warehouse' ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-600 hover:border-blue-200'}`}
+                      >
+                        Drop at Warehouse
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-6 bg-gray-50/50 border-t border-gray-100 flex gap-3">
+              <button onClick={() => setShowSettingsModal(false)} className="flex-1 px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-50 transition-all">Cancel</button>
+              <button onClick={() => handleSaveSettings(sellerSettings)} disabled={isSavingSettings} className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50">
+                {isSavingSettings ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dispatch Details Modal */}
       <DispatchDetailsModal
         isOpen={showDispatchModal}
@@ -1334,6 +1569,8 @@ export default function SellerOrders() {
         }}
       />
       </div>
+
+
     </div>
   )
 }

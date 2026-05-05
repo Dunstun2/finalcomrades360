@@ -9,12 +9,9 @@ const {
 } = require('../models');
 
 const FRONTEND_BASE = process.env.FRONTEND_URL || 'https://comrades360.shop';
+const { sanitizeUserPayload, backendBaseFromReq } = require('../utils/userUtils');
 
-const backendBaseFromReq = (req) => {
-  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  const host = req.get('host');
-  return `${proto}://${host}`;
-};
+
 
 // GET /api/marketing/share-url/:productId
 const getShareUrl = async (req, res) => {

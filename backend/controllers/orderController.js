@@ -49,7 +49,7 @@ const parseMaybeJson = (value, fallback) => {
 };
 
 const resolveVariantDetails = (product, type, variantId, comboId) => {
-  const result = { variantName: null, comboName: null, variantPrice: null };
+  const result = { variantName: null, comboName: null, variantPrice: null, variantBasePrice: null };
   if (!product) return result;
 
   if (variantId) {
@@ -75,6 +75,7 @@ const resolveVariantDetails = (product, type, variantId, comboId) => {
     if (matched) {
       result.variantName = matched.name || matched.size || matched.sku || variantId;
       result.variantPrice = Number(matched.discountPrice || matched.displayPrice || matched.basePrice || 0) || null;
+      result.variantBasePrice = Number(matched.basePrice || 0) || null;
     } else {
       result.variantName = variantId;
     }
@@ -778,6 +779,7 @@ const createOrderFromCart = async (req, res) => {
     console.log(`✅ Order created with ID: ${order.id}. Step 6: Creating OrderItems...`);
     // Step 6: Create OrderItems with sellerId populated from product
     let orderSubtotal = 0;
+    let orderBaseSubtotal = 0;
     let orderDeliveryFee = 0;
     let fastFoodPickupPointFee = null;
     let totalOrderCommission = 0;
@@ -786,10 +788,16 @@ const createOrderFromCart = async (req, res) => {
     for (const cartItem of cartItems) {
       const product = cartItem.product;
       const sellerId = product.sellerId || product.vendor || product.userId;
-      const { variantName, comboName, variantPrice } = resolveVariantDetails(product, cartItem.type || 'product', cartItem.variantId, cartItem.comboId);
+      const { variantName, comboName, variantPrice, variantBasePrice } = resolveVariantDetails(product, cartItem.type || 'product', cartItem.variantId, cartItem.comboId);
+      
       const productFallbackPrice = Number(product.discountPrice || product.displayPrice || product.basePrice || 0);
       const price = Number(cartItem.price || variantPrice || productFallbackPrice);
       const itemQtyTotal = price * cartItem.quantity;
+
+      const productFallbackBasePrice = Number(product.basePrice || 0);
+      const basePrice = Number(cartItem.basePrice || variantBasePrice || productFallbackBasePrice);
+      const itemBaseTotal = basePrice * cartItem.quantity;
+      orderBaseSubtotal += itemBaseTotal;
 
       // Delivery fee logic
       let itemDeliveryFee = Number(cartItem.deliveryFee);
@@ -823,10 +831,10 @@ const createOrderFromCart = async (req, res) => {
         orderDeliveryFee += itemDeliveryFee;
       }
 
-      // Track seller earnings
+      // Track seller earnings (using basePrice)
       if (sellerId) {
         if (!sellerEarnings[sellerId]) sellerEarnings[sellerId] = 0;
-        sellerEarnings[sellerId] += itemQtyTotal;
+        sellerEarnings[sellerId] += itemBaseTotal;
       }
 
       await OrderItem.create({
@@ -953,11 +961,29 @@ const createOrderFromCart = async (req, res) => {
     }
 
     console.log('🚀 Step 7: Updating order total and commission...');
-    // If fastfood pickup point routing was NOT already determined, check if we need to apply pickup point fee
-    if (!adminRoutingStrategy && deliveryMethod === 'pick_station' && pickStation) {
-      // For non-fastfood, we might have different logic, but let's ensure we don't break existing behavior
-      // This is a placeholder for any future routing logic
+    
+    // Apply pickup point fee if applicable (Fast Food)
+    if (adminRoutingStrategy === 'fastfood_pickup_point' && fastFoodPickupPointFee !== null) {
+      orderDeliveryFee = fastFoodPickupPointFee;
+    } else if (deliveryMethod === 'pick_station' && (orderDeliveryFee === 0)) {
+      // Regular orders: If fee is still 0, try to fetch from PickupStation model
+      try {
+        let station = null;
+        if (req.body.pickStationId) {
+          station = await PickupStation.findByPk(req.body.pickStationId, { transaction: t });
+        } else if (pickStation) {
+          station = await PickupStation.findOne({ where: { name: pickStation }, transaction: t });
+        }
+        
+        if (station) {
+          orderDeliveryFee = Number(station.price || 0);
+          console.log(`🚚 Backend: Applied station fee: ${orderDeliveryFee} for station: ${station.name}`);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch pickup station fee:', err.message);
+      }
     }
+
     const orderTotal = orderSubtotal + orderDeliveryFee;
     await order.update({
       total: orderTotal,
@@ -1152,6 +1178,10 @@ const createOrderFromCart = async (req, res) => {
     });
 
     // Step 13: Return unified order response
+    setImmediate(() => {
+      triggerAutoConfirmation(order.id).catch(err => console.error('[Background AutoConfirm] Error:', err));
+    });
+
     res.status(201).json({
       success: true,
       message: 'Order placed successfully',
@@ -1180,7 +1210,7 @@ const createOrderFromCart = async (req, res) => {
     // PERSIST TO FILE FOR DEBUGGING
     const fs = require('fs');
     const path = require('path');
-    const logPath = 'C:\\Users\\user\\Desktop\\comrades360-main\\checkout_error_final.log';
+    const logPath = path.join(__dirname, '../checkout_error.log');
     
     let fkViolations = [];
     try {
@@ -2561,6 +2591,59 @@ const getOrderTracking = async (req, res) => {
     console.error('Error getting order tracking:', error);
     return res.status(500).json({ error: 'Failed to get order tracking' });
   }
+};
+
+const bulkSellerConfirm = async (req, res) => {
+  const { orderIds, warehouseId, pickupStationId, submissionDeadline, shippingType, message } = req.body;
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'orderIds array is required' });
+  }
+
+  const results = {
+    success: [],
+    failed: []
+  };
+
+  for (const orderId of orderIds) {
+    try {
+      // We simulate a request object for each individual confirmation
+      const fakeReq = {
+        params: { orderId },
+        body: { warehouseId, pickupStationId, submissionDeadline, shippingType, message },
+        user: req.user
+      };
+      
+      let responseData = null;
+      const fakeRes = {
+        status: (code) => ({
+          json: (data) => {
+            responseData = { code, data };
+            return fakeRes;
+          }
+        }),
+        json: (data) => {
+          responseData = { code: 200, data };
+          return fakeRes;
+        }
+      };
+
+      await sellerConfirmOrder(fakeReq, fakeRes);
+
+      if (responseData && (responseData.code === 200 || responseData.data.success)) {
+        results.success.push(orderId);
+      } else {
+        results.failed.push({ orderId, error: responseData?.data?.error || responseData?.data?.message || 'Unknown error' });
+      }
+    } catch (err) {
+      results.failed.push({ orderId, error: err.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Processed ${orderIds.length} orders`,
+    results
+  });
 };
 
 const sellerUpdateStatus = async (req, res) => {
@@ -4522,6 +4605,85 @@ const getOrdersByBatch = async (req, res) => {
   }
 };
 
+const triggerAutoConfirmation = async (orderId) => {
+  try {
+    const { Order, OrderItem, Product, FastFood, User } = require('../models');
+    const order = await Order.findByPk(orderId, {
+      include: [{ 
+        model: OrderItem, 
+        as: 'OrderItems',
+        include: [
+          { model: Product, attributes: ['id', 'sellerId'] },
+          { model: FastFood, attributes: ['id', 'vendor'] }
+        ]
+      }]
+    });
+
+    if (!order || order.status !== 'order_placed') return;
+
+    // Get the primary seller/vendor
+    // Note: Multi-seller support might need more granular item-level confirmation in the future
+    const sellerId = order.sellerId;
+    if (!sellerId) return;
+
+    const seller = await User.findByPk(sellerId);
+    if (!seller) return;
+
+    const hasFastFood = order.OrderItems.some(item => !!item.FastFood);
+    const hasProducts = order.OrderItems.some(item => !!item.Product);
+
+    let shouldConfirm = false;
+    let shippingType = order.shippingType;
+
+    // Fast Food Auto-Confirm
+    if (hasFastFood && seller.autoConfirmFastFood) {
+      shouldConfirm = true;
+    }
+
+    // Product Auto-Confirm
+    if (hasProducts && seller.autoConfirmProducts) {
+      shouldConfirm = true;
+      if (seller.defaultProductShippingType) {
+        shippingType = seller.defaultProductShippingType;
+      }
+    }
+
+    if (shouldConfirm) {
+      console.log(`[AutoConfirm] Automatically confirming order ${order.orderNumber} for seller ${seller.name || sellerId}`);
+      
+      await order.update({
+        status: 'seller_confirmed',
+        sellerConfirmed: true,
+        sellerConfirmedAt: new Date(),
+        shippingType: shippingType
+      });
+
+      // Add tracking update
+      try {
+        const { addOrderTrackingUpdate } = require('../utils/orderHelpers');
+        await addOrderTrackingUpdate(order.id, 'seller_confirmed', `Order automatically confirmed via seller preferences.`, 'System');
+      } catch (trackErr) {
+        console.error('[AutoConfirm] Tracking update error:', trackErr);
+      }
+
+      // Notify via Socket if available
+      try {
+        const { getIO } = require('../socket');
+        const io = getIO();
+        if (io) {
+          const { formatOrderSocketData, ORDER_SOCKET_INCLUDES } = require('../utils/orderHelpers');
+          const updatedOrder = await Order.findByPk(order.id, { include: ORDER_SOCKET_INCLUDES });
+          io.emit('orderUpdate', formatOrderSocketData(updatedOrder));
+        }
+      } catch (socketErr) {
+        // Ignore socket errors in background task
+      }
+    }
+  } catch (error) {
+    console.error('[AutoConfirm] Global error:', error);
+  }
+};
+
 module.exports = {
   createOrderFromCart,
   myOrders,
@@ -4555,10 +4717,13 @@ module.exports = {
   bulkUpdateOrderStatus,
   bulkAssignDeliveryAgent,
   bulkMarkReadyAtPickupStation,
+  bulkSellerConfirm,
   sellerHandoverOrder,
   getOrderPayments,
   acquireOrderActionLock,
   releaseOrderActionLock,
   getOrderAnalysis,
-  getOrdersByBatch
+  getOrdersByBatch,
+  triggerAutoConfirmation
 };
+

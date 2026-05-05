@@ -1,5 +1,5 @@
 const express = require('express');
-const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
+const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, bulkSellerConfirm, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
 const { auth, optionalAuth, adminOnly, requirePermission } = require('../middleware/auth');
 const { transitionOrderStatus, getValidTransitions } = require('../controllers/orderTransitionController');
 const { parseDirectOrder, placeDirectOrder, listDirectOrders } = require('../controllers/directOrderController');
@@ -52,6 +52,7 @@ router.post('/:orderId/rate-delivery', auth, rateDelivery);
 
 // Seller confirmation workflow
 router.post('/:orderId/seller-confirm', auth, sellerConfirmOrder);
+router.post('/bulk-seller-confirm', auth, bulkSellerConfirm);
 router.post('/:orderId/seller-handover', auth, sellerHandoverOrder);
 router.post('/:orderId/super-admin-confirm', auth, superAdminConfirmOrder);
 router.patch('/:orderId/seller-status', auth, sellerUpdateStatus);
