@@ -5,6 +5,7 @@ const { sendMessage } = require('./messageService');
 const { getDynamicMessage, getEnabledChannels } = require('./templateUtils');
 const { sendEmail } = require('./mailer');
 const { getIO } = require('../realtime/socket');
+const siteUrl = process.env.FRONTEND_URL || 'https://comrades360.shop';
 /**
  * File-based diagnostic logging
  */
@@ -268,17 +269,18 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         ? (order.pickStation || 'N/A') 
         : (order.deliveryAddress || order.marketingDeliveryAddress || 'N/A');
 
-    const paymentMethod = order.paymentType === 'cash_on_delivery' ? 'Cash on Delivery' : 'Paid';
-
-    const siteUrl = process.env.FRONTEND_URL || 'https://comrades360.shop';
+    const deliveryFee = order.deliveryFee?.toLocaleString() || '0';
+    const subtotal = order.subtotal?.toLocaleString() || '0';
     const trackUrl = `${siteUrl}/track/${order.orderNumber}${referralCode ? `?ref=${referralCode}` : ''}`;
 
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}`;
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`;
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
         name: name,
         orderNumber: order.orderNumber,
         itemsList: itemNames || `${itemsCount} items`,
+        subtotal,
+        deliveryFee,
         total: order.total?.toLocaleString() || '0',
         paymentMethod,
         deliveryMethod,
@@ -596,6 +598,29 @@ async function notifyCustomerOrderThankYou(order, type = 'all') {
     }, { id: order.userId, name, phone: order.customerPhone, email: order.customerEmail }, order);
 }
 
+/**
+ * Notify seller that they have received a new order
+ */
+async function notifySellerOrderPlaced(order, seller, sellerAmount, itemsList) {
+    if (!seller || !order) return;
+
+    const amount = sellerAmount || '0';
+    const orderNumber = order.orderNumber;
+
+    const defaultTemplate = `🛍️ New Order Received!\n\nHello {name}, you have a new order #{orderNumber}.\n\nItems: {itemsList}\nTotal Earning: KES {amount}\n\nPlease log in to your dashboard to confirm and prepare the items: {dashboardUrl}\n\nThank you for selling with Comrades360!`;
+
+    await sendCustomerNotificationAcrossChannels('sellerOrderPlaced', {
+        name: seller.businessName || seller.name || 'Seller',
+        orderNumber,
+        itemsList,
+        amount: Number(amount).toLocaleString(),
+        dashboardUrl: `${siteUrl}/seller/orders`,
+        title: 'New Order Received! 🛍️',
+        type: 'success',
+        defaultTemplate
+    }, seller, null);
+}
+
 module.exports = {
     createNotification,
     notifyDeliveryAgentAssignment,
@@ -609,9 +634,9 @@ module.exports = {
     notifyCustomerMarketerCreated,
     notifyCustomerGoogleSignup,
     notifyMarketerOrderPlaced,
-    notifySellerStockEvent,
     notifyUserIdStatusUpdate,
     notifyCustomerOrderThankYou,
+    notifySellerOrderPlaced,
     logNotify,
     sendCustomerNotificationAcrossChannels
 };

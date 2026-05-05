@@ -228,7 +228,7 @@ const testConnection = async () => {
             metaAccessToken: '',
             metaPhoneNumberId: '',
             templates: {
-              orderPlaced: 'Hi {name}, your order #{orderNumber} has been received! Total: KES {total}.',
+              orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`,
               orderInTransit: 'Good news! Your order #{orderNumber} has been collected by {agentName} and is in transit. 🚚',
               orderReadyPickup: 'Your order #{orderNumber} is ready for collection at {stationName}! 📦',
               orderDelivered: 'Hi {name}, your order #{orderNumber} has been delivered. Thank you!',

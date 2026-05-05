@@ -34,6 +34,7 @@ export default function SellerOrders() {
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 })
   const [currentPage, setCurrentPage] = useState(1)
   const [processingOrderId, setProcessingOrderId] = useState(null)
+  const [expandedOrderId, setExpandedOrderId] = useState(null)
   const hasFetchedRef = useRef(false)
   const pageSize = 15;
 
@@ -424,7 +425,7 @@ export default function SellerOrders() {
             <tr>
               <th className="text-left p-3">Order #</th>
               <th className="text-left p-3">Status</th>
-              <th className="text-right p-3">Items</th>
+              <th className="text-left p-3">Items</th>
               <th className="text-right p-3">Total (KES)</th>
               <th className="text-left p-3">Date</th>
               <th className="text-left p-3">Actions</th>
@@ -447,182 +448,120 @@ export default function SellerOrders() {
                 </td>
               </tr>
             ) : (
-              <></>
-            )}
-              {filteredRows.map(o => {
+              filteredRows.map(o => {
                 const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
+                const isExpanded = expandedOrderId === o.id;
                 return (
-                <tr key={o.id} className="border-t">
-                  <td className="p-3 font-medium">{o.orderNumber}</td>
-
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(o.status)}`}>
-                      {o.status.replace(/_/g, ' ').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right">{(o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0)}</td>
-                  <td className="p-3 text-right font-semibold">{o.sellerTotal}</td>
-                  <td className="p-3">{new Date(o.createdAt).toLocaleString()}</td>
-                  <td className="p-3">
-                    <div className="flex gap-2">
-                      {o.status === 'order_placed' && (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 text-xs rounded font-bold">
-                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                          </svg>
-                          Awaiting Admin Confirmation
-                        </span>
-                      )}
-                      {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(o)
-                            // Pre-populate routing from admin decision
-                            if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
-                              setShippingType('shipped_from_seller')
-                              setDestinationType('warehouse')
-                              setSelectedWarehouseId(o.destinationWarehouseId)
-                            } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
-                              setShippingType('shipped_from_seller')
-                              setDestinationType('pickup_station')
-                              setSelectedPickupStationId(o.destinationPickStationId)
-                            } else if (directDeliveryOrder) {
-                              setShippingType('collected_from_seller')
-                            } else {
-                              setShippingType('shipped_from_seller')
-                            }
-                            const dl = new Date()
-                            dl.setHours(dl.getHours() + 24)
-                            setSubmissionDeadline(dl.toISOString())
-                            setShowConfirmModal(true)
-                          }}
-                          className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
-                        >
-                          Confirm
-                        </button>
-                      )}
-                      {o.status !== 'order_placed' && directDeliveryOrder && !o.sellerHandoverConfirmed && (
-                        (o.deliveryTasks || []).some(t => ['arrived_at_pickup', 'in_progress', 'completed'].includes(t.status))
-                          ? <div className="flex flex-col gap-1">
-                              <HandoverCodeWidget
-                                mode="giver"
-                                handoverType="seller_to_agent"
-                                orderId={o.id}
-                                taskId={(o.deliveryTasks || []).find(t => ['arrived_at_pickup', 'in_progress', 'completed'].includes(t.status))?.id}
-                                buttonLabel="Generate Handover Code"
-                                onConfirmed={() => {
-                                  setRows(rows.map(order =>
-                                    order.id === o.id ? { ...order, sellerHandoverConfirmed: true } : order
-                                  ));
-                                  toast({ title: '✅ Handover Confirmed', description: 'The delivery agent has confirmed collection.' });
-                                }}
-                              />
-                            </div>
-                          : <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2 text-center">
-                              <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">⏳ Waiting for agent…</span>
-                            </div>
-                      )}
-
-                      {o.status !== 'order_placed' && o.shippingType === 'collected_from_seller' && !directDeliveryOrder && !o.sellerHandoverConfirmed && (
-                        (o.deliveryTasks || []).some(t => ['arrived_at_pickup', 'in_progress'].includes(t.status))
-                          ? <HandoverCodeWidget
-                              mode="giver"
-                              handoverType="seller_to_agent"
-                              orderId={o.id}
-                              buttonLabel="Confirm"
-                              taskId={(o.deliveryTasks || []).find(t => ['arrived_at_pickup', 'in_progress'].includes(t.status))?.id}
-                              onConfirmed={() => {
-                                setRows(rows.map(order =>
-                                  order.id === o.id ? { ...order, sellerHandoverConfirmed: true } : order
-                                ));
-                                toast({ title: '✅ Handover Confirmed', description: 'The delivery agent has confirmed collection.' });
-                              }}
-                            />
-                          : <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2 text-center">
-                              <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">⏳ Waiting for agent…</span>
-                            </div>
-                      )}
-                      {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
-                        <div className="flex flex-col items-center">
-                          {(() => {
-                            const task = (o.deliveryTasks || []).find(t => ['accepted', 'in_progress'].includes(t.status));
-                            
-                            if (task) {
-                              return (
-                                <HandoverCodeWidget
-                                  mode="giver"
-                                  handoverType="seller_to_agent"
-                                  orderId={o.id}
-                                  taskId={task.id}
-                                  buttonLabel="Handover to Driver"
-                                  onConfirmed={() => {
-                                    setRows(rows.map(order =>
-                                      order.id === o.id ? { ...order, sellerHandoverConfirmed: true } : order
-                                    ));
-                                    toast({ title: '✅ Handover Confirmed', description: 'The delivery agent has confirmed collection.' });
-                                  }}
-                                />
-                              );
-                            }
-
-                            return (
-                              <>
-                                {!o.selfDispatcherName && (
-                                  <span className="text-[10px] text-orange-600 font-bold mb-1 animate-pulse">Waiting for Driver...</span>
-                                )}
-                                <button
-                                  disabled={processingOrderId === o.id}
-                                  onClick={() => {
-                                    setSelectedOrder(o);
-                                    setShowDispatchModal(true);
-                                  }}
-                                  className={`px-3 py-1 text-white text-xs rounded font-bold transition-all bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-gray-400`}
-                                  title="Click when you have dispatched the item to the warehouse"
-                                >
-                                  {processingOrderId === o.id ? 'Processing...' : 'Dispatch'}
-                                </button>
-                              </>
-                            );
-                          })()}
+                  <React.Fragment key={o.id}>
+                    <tr 
+                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                      onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
+                    >
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </span>
+                          <span className="font-black text-gray-900">{o.orderNumber}</span>
                         </div>
-                      )}
-
-                      {o.status === 'en_route_to_warehouse' && o.shippingType === 'shipped_from_seller' && (
-                        <HandoverCodeWidget
-                          orderId={o.id}
-                          handoverType={((o.deliveryTasks || []).some(t => ['accepted', 'in_progress'].includes(t.status))) ? "seller_to_agent" : "seller_to_warehouse"}
-                          mode="giver"
-                          buttonLabel="Handover code"
-                          title="Collection Confirmation"
-                          containerClass="rounded-xl border-2 border-teal-100 bg-teal-50"
-                        />
-                      )}
-                      <button
-                        onClick={() => {
-                          setSelectedOrder(o)
-                          setShowMessageModal(true)
-                          loadCommunicationLog(o.id)
-                        }}
-                        className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                      >
-                        Chat
-                      </button>
-                      <button
-                        onClick={() => {
-
-                          setSelectedOrder(o)
-                          setShowDetailsModal(true)
-                        }}
-                        className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700"
-                      >
-                        Details
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-
-              )})}
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-black uppercase tracking-tight ${getStatusBadge(o.status)}`}>
+                          {o.status.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="p-3 font-bold">{(o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0)}</td>
+                      <td className="p-3 text-right font-black text-blue-600">KES {Number(o.sellerTotal || 0).toLocaleString()}</td>
+                      <td className="p-3 text-[11px] font-bold text-gray-500 uppercase">{new Date(o.createdAt).toLocaleString()}</td>
+                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex gap-2">
+                          {o.status === 'order_placed' && (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 text-[10px] rounded font-bold uppercase tracking-tight">
+                              Awaiting Admin Confirmation
+                            </span>
+                          )}
+                          {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
+                            <button
+                              onClick={() => {
+                                setSelectedOrder(o)
+                                if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
+                                  setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(o.destinationWarehouseId);
+                                } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
+                                  setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(o.destinationPickStationId);
+                                } else if (directDeliveryOrder) {
+                                  setShippingType('collected_from_seller');
+                                }
+                                const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
+                                setShowConfirmModal(true)
+                              }}
+                              className="px-3 py-1 bg-green-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-green-700 active:scale-95 transition-all"
+                            >
+                              Confirm
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
+                            }}
+                            className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-blue-700 active:scale-95 transition-all"
+                          >
+                            Chat
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedOrder(o); setShowDetailsModal(true);
+                            }}
+                            className="px-3 py-1 bg-gray-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-gray-700 active:scale-95 transition-all"
+                          >
+                            Details
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-blue-50/30">
+                        <td colSpan="6" className="p-4">
+                          <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4 animate-in slide-in-from-top-2 duration-300">
+                            <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-4">Ordered Items</h4>
+                            <div className="grid grid-cols-1 gap-3">
+                              {(o.OrderItems || []).map((item) => (
+                                <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50/50 rounded-xl border border-gray-100">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-white rounded-lg overflow-hidden border border-gray-100 flex-shrink-0">
+                                      <img
+                                        src={resolveImageUrl(getOrderItemImage(item))}
+                                        alt={item.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-black text-gray-900">{item.itemLabel || item.name || item.Product?.name || item.FastFood?.name}</p>
+                                      <p className="text-[10px] text-gray-500 font-bold uppercase">Qty: {item.quantity} × KES {Number(item.Product?.basePrice || item.FastFood?.basePrice || 0).toLocaleString()}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-sm font-black text-blue-600">KES {Number((item.Product?.basePrice || item.FastFood?.basePrice || 0) * item.quantity).toLocaleString()}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            {o.deliveryInstructions && (
+                              <div className="mt-4 p-3 bg-orange-50 border border-orange-100 rounded-xl">
+                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1">Special Instructions</p>
+                                <p className="text-xs font-medium text-orange-800 italic">"{o.deliveryInstructions}"</p>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
+            )}
             </tbody>
           </table>
         </div>
@@ -644,27 +583,75 @@ export default function SellerOrders() {
             <div className="grid grid-cols-2 gap-2">
               {filteredRows.map(o => {
                 const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
+                const isExpanded = expandedOrderId === o.id;
                 return (
-                  <div key={o.id} className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex flex-col relative active:scale-[0.98] transition-all">
+                  <div 
+                    key={o.id} 
+                    className={`bg-white rounded-2xl border transition-all duration-300 ${isExpanded ? 'border-blue-200 shadow-lg scale-[1.02] z-10 ring-4 ring-blue-50' : 'border-gray-100 shadow-sm'} p-3 flex flex-col relative overflow-hidden`}
+                    onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
+                  >
+                    {/* Background Accent */}
+                    {isExpanded && <div className="absolute top-0 left-0 w-1 h-full bg-blue-600" />}
+
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-[11px] font-black text-gray-900">#{o.orderNumber}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase ${getStatusBadge(o.status)}`}>
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-black text-gray-900 flex items-center gap-1">
+                          #{o.orderNumber}
+                          <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                            <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </span>
+                        </span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">{new Date(o.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight ${getStatusBadge(o.status)}`}>
                         {o.status.replace(/_/g, ' ')}
                       </span>
                     </div>
 
-                    <div className="flex-1 mb-3">
-                      <div className="flex items-baseline gap-1 mb-1">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase">Total:</span>
-                        <span className="text-xs font-black text-blue-600">KES {o.sellerTotal}</span>
+                    <div className="flex justify-between items-end mb-3">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Total Earning</span>
+                        <span className="text-sm font-black text-blue-600">KES {Number(o.sellerTotal || 0).toLocaleString()}</span>
                       </div>
-                      <div className="text-[9px] text-gray-400 font-bold uppercase">
-                        {new Date(o.createdAt).toLocaleDateString()}
+                      <div className="text-right">
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Items</span>
+                        <p className="text-xs font-black text-gray-800">{(o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0)} Units</p>
                       </div>
                     </div>
 
+                    {/* Expanded Items Section */}
+                    {isExpanded && (
+                      <div className="mt-2 pt-3 border-t border-blue-50 space-y-2 animate-in fade-in zoom-in-95 duration-300">
+                        <h4 className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Order Contents</h4>
+                        {(o.OrderItems || []).map((item) => (
+                          <div key={item.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-xl border border-gray-100">
+                            <div className="w-10 h-10 bg-white rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
+                              <img
+                                src={resolveImageUrl(getOrderItemImage(item))}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-black text-gray-900 truncate">{item.itemLabel || item.name || item.Product?.name || item.FastFood?.name}</p>
+                              <p className="text-[9px] text-gray-500 font-bold uppercase">{item.quantity} Unit(s) • KES {Number(item.Product?.basePrice || item.FastFood?.basePrice || 0).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        ))}
+                        {o.deliveryInstructions && (
+                          <div className="p-2 bg-orange-50 border border-orange-100 rounded-lg">
+                            <p className="text-[8px] font-black text-orange-600 uppercase mb-0.5">Special Instructions</p>
+                            <p className="text-[10px] text-orange-800 italic">"{o.deliveryInstructions}"</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Actions Grid */}
-                    <div className="grid grid-cols-1 gap-1.5 pt-2 border-t border-gray-50">
+                    <div className="grid grid-cols-1 gap-1.5 pt-3 mt-2 border-t border-gray-50" onClick={(e) => e.stopPropagation()}>
                       {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
                         <button
                           onClick={() => {
@@ -679,18 +666,18 @@ export default function SellerOrders() {
                             const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
                             setShowConfirmModal(true);
                           }}
-                          className="w-full py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-sm"
+                          className="w-full py-2.5 bg-green-600 text-white text-[10px] font-black uppercase rounded-xl shadow-md active:scale-95 transition-all"
                         >
                           Confirm Order
                         </button>
                       )}
 
-                      <div className="flex gap-1">
+                      <div className="flex gap-1.5">
                         <button
                           onClick={() => {
                             setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
                           }}
-                          className="flex-1 py-1.5 bg-blue-50 text-blue-600 text-[9px] font-black uppercase rounded-lg border border-blue-100"
+                          className="flex-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black uppercase rounded-xl border border-blue-100 active:scale-95 transition-all"
                         >
                           Chat
                         </button>
@@ -698,7 +685,7 @@ export default function SellerOrders() {
                           onClick={() => {
                             setSelectedOrder(o); setShowDetailsModal(true);
                           }}
-                          className="flex-1 py-1.5 bg-gray-50 text-gray-600 text-[9px] font-black uppercase rounded-lg border border-gray-100"
+                          className="flex-1 py-2 bg-gray-50 text-gray-600 text-[10px] font-black uppercase rounded-xl border border-gray-100 active:scale-95 transition-all"
                         >
                           Details
                         </button>
@@ -708,9 +695,9 @@ export default function SellerOrders() {
                       {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
                         <button
                           onClick={() => { setSelectedOrder(o); setShowDispatchModal(true); }}
-                          className="w-full py-1.5 bg-indigo-600 text-white text-[9px] font-black uppercase rounded-lg"
+                          className="w-full py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl shadow-md active:scale-95 transition-all"
                         >
-                          Dispatch
+                          Dispatch Item
                         </button>
                       )}
                     </div>

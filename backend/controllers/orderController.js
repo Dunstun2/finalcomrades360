@@ -995,14 +995,36 @@ const createOrderFromCart = async (req, res) => {
 
       for (const sellerId of uniqueSellers) {
         const sellerAmount = sellerEarnings[sellerId] || 0;
+        
+        // Gather items for this specific seller
+        const sellerItems = cartItems.filter(item => {
+          const product = item.product;
+          const sId = product.sellerId || product.vendor || product.userId;
+          return String(sId) === String(sellerId);
+        });
+        
+        const itemsList = sellerItems.map(i => `${i.quantity}x ${i.product?.name || 'Item'}`).join(', ');
+        const truncatedItems = itemsList.length > 100 ? itemsList.substring(0, 97) + '...' : itemsList;
+
         await Notification.create({
           userId: sellerId,
-          title: 'New Order Received',
+          title: '🛍️ New Order Received',
           message: isFastFoodOnly 
-            ? `You have a new fast food order ${orderNumber} totaling ${sellerAmount} KES. Please confirm to proceed.`
-            : `You have items in order ${orderNumber} totaling ${sellerAmount} KES. Please confirm to proceed.`,
+            ? `You have a new fast food order ${orderNumber} (${truncatedItems}) totaling ${sellerAmount} KES. Confirm here: https://comrades360.shop/seller/orders`
+            : `You have items in order ${orderNumber} (${truncatedItems}) totaling ${sellerAmount} KES. Confirm here: https://comrades360.shop/seller/orders`,
           type: 'order_update'
         }, { transaction: t });
+
+        // Also trigger external notification (WhatsApp/SMS) if helper exists
+        try {
+          const { notifySellerOrderPlaced } = require('../utils/notificationHelpers');
+          const sellerUser = await User.findByPk(sellerId, { transaction: t });
+          if (sellerUser && notifySellerOrderPlaced) {
+            notifySellerOrderPlaced(order, sellerUser, sellerAmount, itemsList).catch(e => console.warn('Seller external notification failed:', e.message));
+          }
+        } catch (e) {
+          console.warn('Failed to trigger seller external notification:', e.message);
+        }
       }
 
       if (!isFastFoodOnly) {

@@ -181,16 +181,27 @@ const MarketerDashboard = () => {
       const shareUrl = getDeepLink(sharingItem);
       const shareText = `Check out ${sharingItem.name || sharingItem.title} on Comrades360!`;
 
-      if (navigator.share && navigator.canShare({ files: [file] })) {
-        // Send the image and text together in one unit
+      const shareData = {
+        files: [file],
+        title: 'Comrades360 Promotion',
+        text: `Check out ${sharingItem.name || sharingItem.title} on Comrades360!`,
+        url: shareUrl
+      };
+
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        // Keep auto-copy as a handy fallback for the user
+        await navigator.clipboard.writeText(`${shareData.text}\n\nShop here: ${shareUrl}`);
+        toast({ title: 'Shared Successfully', description: 'Promo image and link shared!' });
+      } else if (navigator.share) {
+        // Fallback for browsers that support sharing but maybe not files+url together
         await navigator.share({
           files: [file],
           title: 'Comrades360 Promotion',
           text: `Check out ${sharingItem.name || sharingItem.title} on Comrades360!\n\nShop here: ${shareUrl}`
         });
-        // Keep auto-copy as a handy fallback for the user
-        await navigator.clipboard.writeText(`Check out ${sharingItem.name || sharingItem.title} on Comrades360!\n\nShop here: ${shareUrl}`);
-        toast({ title: 'Shared Successfully', description: 'Promo image and link shared together!' });
+        await navigator.clipboard.writeText(`${shareData.text}\n\nShop here: ${shareUrl}`);
+        toast({ title: 'Shared', description: 'Promo image and link shared!' });
       } else {
         // Fallback: Download and copy link separately
         const dataUrl = canvas.toDataURL('image/png', 1.0);
