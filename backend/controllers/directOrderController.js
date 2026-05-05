@@ -405,7 +405,7 @@ exports.placeDirectOrder = async (req, res) => {
             superAdminConfirmedAt: isFastFoodOrder ? now : null,
             superAdminConfirmedBy: isFastFoodOrder ? req.user.id : null,
             // Pre-set FastFood routing strategy so seller confirmation can proceed immediately.
-            adminRoutingStrategy: isFastFoodOrder ? 'fastfood_direct_delivery' : null,
+            adminRoutingStrategy: isFastFoodOrder ? 'direct_delivery' : null,
             deliveryType: isFastFoodOrder ? 'seller_to_customer' : null,
             sellerId: sellerId,
             marketerId: req.user.id, // Set for both Admin and Marketer for referral tracking
