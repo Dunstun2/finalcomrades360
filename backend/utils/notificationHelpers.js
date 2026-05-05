@@ -634,6 +634,7 @@ module.exports = {
     notifyCustomerMarketerCreated,
     notifyCustomerGoogleSignup,
     notifyMarketerOrderPlaced,
+    notifySellerStockEvent,
     notifyUserIdStatusUpdate,
     notifyCustomerOrderThankYou,
     notifySellerOrderPlaced,
