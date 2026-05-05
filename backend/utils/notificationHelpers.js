@@ -51,7 +51,14 @@ async function sendCustomerNotificationAcrossChannels(templateKey, data, custome
             }
         }
 
-        const message = await getDynamicMessage(templateKey, data.defaultTemplate || '', data);
+        let message = await getDynamicMessage(templateKey, data.defaultTemplate || '', data);
+
+        // --- Tracking Link Guarantee ---
+        // If a trackUrl was provided but the DB template didn't include {trackUrl},
+        // always append it so customers always receive the link regardless of template customizations.
+        if (data.trackUrl && !message.includes(data.trackUrl)) {
+            message += `\n\n🔍 Track your order: ${data.trackUrl}`;
+        }
         
         // Priority for phone/email: 
         // 1. Order direct (Guest/Marketing) -> This is critical as Marketing orders use req.body fields
@@ -273,7 +280,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
     const deliveryFee = deliveryFeeVal > 0 ? deliveryFeeVal.toLocaleString() : 'Free';
     const paymentMethodLabel = `${order.paymentMethod || 'N/A'} - ${order.paymentType || 'N/A'}`;
     const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
-    const trackUrl = `${siteUrl}/track/${order.orderNumber}${referralCode ? `?ref=${referralCode}` : ''}`;
+    const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
 
     const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
 
@@ -302,12 +309,14 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
  */
 async function notifyCustomerSellerConfirmed(order, seller) {
     const sellerName = seller?.businessName || seller?.name || 'The Seller';
-    const defaultTemplate = `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`;
+    const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
+    const defaultTemplate = `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you once it is handed over to our delivery agent.\n\n🔍 Track your order:\n{trackUrl}\n\nThank you for choosing Comrades360!`;
 
     await sendCustomerNotificationAcrossChannels('sellerConfirmed', {
         name: order.User?.name || order.customerName || 'Customer',
         orderNumber: order.orderNumber,
         sellerName,
+        trackUrl,
         title: 'Order Confirmed! 🥗',
         type: 'success',
         defaultTemplate
@@ -318,7 +327,8 @@ async function notifyCustomerSellerConfirmed(order, seller) {
  * Notify customer that driver is out for delivery
  */
 async function notifyCustomerOutForDelivery(order, agent) {
-    const defaultTemplate = `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\nPlease stay reachable for a smooth delivery!`;
+    const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
+    const defaultTemplate = `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\n🔍 Live tracking:\n{trackUrl}\n\nPlease stay reachable for a smooth delivery!`;
 
     await sendCustomerNotificationAcrossChannels('orderInTransit', {
         name: order.User?.name || order.customerName || 'Customer',
@@ -327,6 +337,7 @@ async function notifyCustomerOutForDelivery(order, agent) {
         agentPhone: agent.phone || 'N/A',
         deliveryMethod: order.deliveryMethod === 'pick_station' ? 'Pickup Station' : 'Home Delivery',
         deliveryAddress: order.deliveryAddress || order.marketingDeliveryAddress || 'Selected Location',
+        trackUrl,
         title: 'Order In Transit 🚚',
         type: 'info',
         defaultTemplate
@@ -337,7 +348,8 @@ async function notifyCustomerOutForDelivery(order, agent) {
  * Notify customer that order is ready at pick station
  */
 async function notifyCustomerReadyForPickupStation(order, station) {
-    const defaultTemplate = `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\nSee you soon at Comrades360!`;
+    const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
+    const defaultTemplate = `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\n🔍 View order status:\n{trackUrl}\n\nSee you soon at Comrades360!`;
 
     await sendCustomerNotificationAcrossChannels('orderReadyPickup', {
         name: order.User?.name || order.customerName || 'Customer',
@@ -345,6 +357,7 @@ async function notifyCustomerReadyForPickupStation(order, station) {
         stationName: station.name,
         stationLocation: station.location || station.address || 'N/A',
         stationPhone: station.phone || 'N/A',
+        trackUrl,
         type: 'success',
         defaultTemplate,
         phone: order.customerPhone,
@@ -388,28 +401,7 @@ async function notifyCustomerOrderCancelled(order, reason) {
     }, { id: order.userId, name: order.customerName, phone: order.customerPhone, email: order.customerEmail }, order);
 }
 
-/**
- * Notify customer that the order is out for delivery
- */
-async function notifyCustomerOutForDelivery(order, agent) {
-    const name = order.User?.name || order.customerName || 'Customer';
-    const agentName = agent?.name || 'our delivery agent';
-    const agentPhone = agent?.phone || 'N/A';
-    
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} is out for delivery! 🚚\n\nAgent {agentName} (${agentPhone}) is on the way to your location.\n\nPlease keep your phone reachable. Thank you!`;
 
-    await sendCustomerNotificationAcrossChannels('orderOutForDelivery', {
-        name: name,
-        agentName: agentName,
-        agentPhone: agentPhone,
-        orderNumber: order.orderNumber,
-        title: 'Out for Delivery 🚚',
-        type: 'info',
-        defaultTemplate,
-        phone: order.customerPhone,
-        email: order.customerEmail
-    }, { id: order.userId, name: order.customerName, phone: order.customerPhone, email: order.customerEmail }, order);
-}
 
 /**
  * Notify customer about delivery status update (Legacy generic fallback)

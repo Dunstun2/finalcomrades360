@@ -1,7 +1,7 @@
 const { Product, FastFood, User, Order, OrderItem, Commission, PickupStation, DeliveryCharge, PlatformConfig } = require('../models');
 const { Op } = require('sequelize');
 const { calculateItemCommission } = require('../utils/commissionUtils');
-const { notifyCustomerOrderPlaced } = require('../utils/notificationHelpers');
+const { notifyCustomerOrderPlaced, notifyMarketerOrderPlaced, notifySellerOrderPlaced } = require('../utils/notificationHelpers');
 const { sequelize } = require('../database/database');
 
 /**
@@ -102,10 +102,13 @@ const parseTextBlock = (text) => {
         } else if (!customerEmail && emailRegex.test(line)) {
             customerEmail = line;
         } else {
-            const itemMatch = line.match(/^(.+?)(?:\s*\(\s*(\d+)\s*\)\s*)?$/);
+            // Updated regex to support: Item(Qty), Item (Qty), Item Qty, or just Item
+            // Matches "Bhajia(2)", "Bhajia (2)", "Bhajia 2" or "Bhajia"
+            const itemMatch = line.match(/^(.+?)(?:\s*(?:\(\s*(\d+)\s*\)|(\d+))\s*)?$/);
+            
             candidates.push({
                 name: itemMatch ? itemMatch[1].trim() : line,
-                quantity: (itemMatch && itemMatch[2]) ? parseInt(itemMatch[2], 10) : 1,
+                quantity: (itemMatch && (itemMatch[2] || itemMatch[3])) ? parseInt(itemMatch[2] || itemMatch[3], 10) : 1,
                 original: line
             });
         }
@@ -215,21 +218,45 @@ exports.parseDirectOrder = async (req, res) => {
             detectedItem = parsed.candidates[0]; // Fallback to first line
         }
 
-        // 3. Heuristic for Customer Name and Address from remaining lines
+        // 3. Smart Heuristic for Customer Name and Address
         const remaining = parsed.candidates.filter(c => c.original !== detectedItem.original).map(c => c.original);
         let customerName = '';
         let addressLines = [];
 
         if (remaining.length > 0) {
-            // Heuristic: The shorter line is usually the name
-            const sortedByLength = [...remaining].sort((a, b) => a.length - b.length);
-            customerName = sortedByLength[0];
-            addressLines = remaining.filter(line => line !== customerName);
+            const ADDRESS_KEYWORDS = ['nyayo', 'km', 'hostel', 'room', 'house', 'apt', 'unit', 'block', 'estate', 'gate', 'stage', 'shop', 'market', 'plaza', 'building', 'floor', 'hall'];
+            
+            // Separate into likely addresses and likely names
+            const likelyAddresses = [];
+            const likelyNames = [];
+
+            remaining.forEach(line => {
+                const lower = line.toLowerCase();
+                // If it contains an address keyword or has a digit (e.g., "Nyayo 4"), it's likely an address
+                if (ADDRESS_KEYWORDS.some(k => lower.includes(k)) || /\d/.test(line)) {
+                    likelyAddresses.push(line);
+                } else {
+                    likelyNames.push(line);
+                }
+            });
+
+            if (likelyNames.length > 0) {
+                // If we have names, the shortest non-numeric line is usually the name
+                likelyNames.sort((a, b) => a.length - b.length);
+                customerName = likelyNames[0];
+                // Rest of names go back to address if not used
+                addressLines = [...likelyAddresses, ...likelyNames.slice(1)];
+            } else if (likelyAddresses.length > 0) {
+                // If we only have addresses, take the first as name (last resort) or leave name empty
+                // In "Bhajia \n Nyayo4", "Nyayo4" is address, Name is empty
+                addressLines = likelyAddresses;
+                customerName = ''; // Better to leave empty than use address as name
+            }
         }
 
         const finalParsed = {
             itemName: detectedItem.name,
-            quantity: detectedItem.quantity,
+            quantity: Number(detectedItem.quantity || 1),
             customerPhone: parsed.customerPhone,
             customerName: customerName,
             customerEmail: parsed.customerEmail,
@@ -342,13 +369,15 @@ exports.placeDirectOrder = async (req, res) => {
         let unitPrice = parseFloat(item.discountPrice || item.displayPrice || item.basePrice || 0);
         let itemName = item.name;
 
-        if (variantId && type === 'fastfood') {
+        if (variantId) {
             let sizeVariants = [];
             try { sizeVariants = typeof item.sizeVariants === 'string' ? JSON.parse(item.sizeVariants) : (item.sizeVariants || []); } catch(e){}
             const v = sizeVariants.find(v => (v.id || v.name || v.size || '') == variantId);
             if (v) {
                 unitPrice = parseFloat(v.discountPrice || v.displayPrice || v.basePrice || unitPrice);
-                itemName = `${item.name} (${v.name || v.size || variantId})`;
+                const vName = v.name || v.size || variantId;
+                // Use just the variant name if it's descriptive, otherwise combine
+                itemName = (vName.length > 5 || vName.toLowerCase().includes(item.name.toLowerCase())) ? vName : `${item.name} (${vName})`;
             }
         } else if (comboId && type === 'fastfood') {
             let comboOptions = [];
@@ -356,7 +385,9 @@ exports.placeDirectOrder = async (req, res) => {
             const c = comboOptions.find(c => (c.id || c.name || c.title || '') == comboId);
             if (c) {
                 unitPrice = parseFloat(c.discountPrice || c.displayPrice || c.basePrice || unitPrice);
-                itemName = `${item.name} (${c.name || c.title || comboId})`;
+                const cName = c.name || c.title || comboId;
+                // Use just the combo name if it's descriptive
+                itemName = (cName.length > 5 || cName.toLowerCase().includes(item.name.toLowerCase())) ? cName : `${item.name} (${cName})`;
             }
         }
 
@@ -453,13 +484,24 @@ exports.placeDirectOrder = async (req, res) => {
 
         await t.commit();
 
-        // Optional: Notify customer
+        // Optional: Notify customer, seller, and marketer
         try {
             const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : null;
             const itemsList = `• ${itemName} x${quantity}`;
             const refCode = req.user.referralCode || 'PROMO';
+
+            // 1. Notify Customer
             await notifyCustomerOrderPlaced(order, customerObj, 1, itemsList, refCode);
-            
+
+            // 2. Notify Seller
+            if (sellerId) {
+                const seller = await User.findByPk(sellerId);
+                if (seller) {
+                    await notifySellerOrderPlaced(order, seller, subtotal.toLocaleString(), itemsList);
+                }
+            }
+
+            // 3. Notify Marketer (only if they placed it, not admin)
             if (isMarketer && !isAdmin) {
                 await notifyMarketerOrderPlaced(order, req.user, customerName, order.totalCommission);
             }
