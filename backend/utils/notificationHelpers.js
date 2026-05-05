@@ -270,7 +270,8 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         : (order.deliveryAddress || order.marketingDeliveryAddress || 'N/A');
 
     const deliveryFee = order.deliveryFee?.toLocaleString() || '0';
-    const subtotal = order.subtotal?.toLocaleString() || '0';
+    const paymentMethodLabel = order.paymentMethod || order.paymentType || 'Not Specified';
+    const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
     const trackUrl = `${siteUrl}/track/${order.orderNumber}${referralCode ? `?ref=${referralCode}` : ''}`;
 
     const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`;
@@ -282,7 +283,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         subtotal,
         deliveryFee,
         total: order.total?.toLocaleString() || '0',
-        paymentMethod,
+        paymentMethod: paymentMethodLabel,
         deliveryMethod,
         deliveryLocation,
         trackUrl,
@@ -501,7 +502,7 @@ async function notifyMarketerOrderPlaced(order, marketer, customerName, commissi
         customerName: customerName || order.customerName || 'your customer',
         total,
         commission: Number(commission).toLocaleString(),
-        itemsCount: order.itemsCount || 'the selected items',
+        itemsCount: order.items || order.itemsCount || 'the selected items',
         title: 'Order Placed Successfully! 🚀',
         type: 'success',
         defaultTemplate
@@ -614,7 +615,7 @@ async function notifySellerOrderPlaced(order, seller, sellerAmount, itemsList) {
         orderNumber,
         itemsList,
         amount: Number(amount).toLocaleString(),
-        dashboardUrl: `${siteUrl}/seller/orders`,
+        dashboardUrl: `${siteUrl}/dashboard-login?redirect=/seller/orders`,
         title: 'New Order Received! 🛍️',
         type: 'success',
         defaultTemplate

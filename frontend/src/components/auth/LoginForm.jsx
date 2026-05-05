@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatKenyanPhoneInput } from '../../utils/validation'
 import SystemFeedbackModal from '../ui/SystemFeedbackModal'
@@ -10,6 +10,7 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
     const { login, googleLogin, loginWithGoogle } = useAuth()
     const navigate = useNavigate();
     const location = useLocation();
+    const [searchParams] = useSearchParams();
     const [form, setForm] = useState({ identifier: '', password: '' })
     const [loginMode, setLoginMode] = useState(initialMode)
 
@@ -75,8 +76,17 @@ export default function LoginForm({ onSuccess, isModal = false, initialMode = 'u
             if (onSuccess) {
                 onSuccess(loggedInUser, { hasFastFood: hasGuestFastFood });
             } else {
-                // Default navigation if not handled by parent (e.g. not in modal)
-                if (loggedInUser?.role === 'station_manager') {
+                // Priority 1: ?redirect= query param (used by external links e.g. WhatsApp notifications)
+                const redirectTo = searchParams.get('redirect');
+                // Priority 2: location.state.from (set by DashboardLogin when bouncing unauthenticated users)
+                const fromState = location.state?.from;
+                const fromPath = fromState ? (fromState.pathname + (fromState.search || '')) : null;
+
+                if (redirectTo) {
+                    navigate(redirectTo, { replace: true });
+                } else if (fromPath) {
+                    navigate(fromPath, { replace: true });
+                } else if (loggedInUser?.role === 'station_manager') {
                     navigate('/station');
                 } else if (hasGuestFastFood) {
                     navigate('/fastfood');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import api from '../services/api';
@@ -27,7 +27,8 @@ const DashboardLogin = () => {
     const [success, setSuccess] = useState(null);
     const [showPassword, setShowPassword] = useState(false);
 
-    const from = location.state?.from?.pathname || "/dashboard";
+    const [searchParams] = useSearchParams();
+    const from = searchParams.get('redirect') || location.state?.from?.pathname || "/dashboard";
 
     const handleSubmit = async (e) => {
         e.preventDefault();
