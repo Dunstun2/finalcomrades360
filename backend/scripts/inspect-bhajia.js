@@ -26,7 +26,7 @@ async function inspectBhajia() {
       console.log(`ID: ${item.id}`);
       console.log(`Name: ${item.name}`);
       console.log(`Status: ${item.status} | Review: ${item.reviewStatus} | Approved: ${item.approved} | Active: ${item.isActive}`);
-      console.log(`Vendor: ${item.vendorDetail?.name} (Status: ${item.vendorDetail?.status})`);
+      console.log(`Vendor: ${item.vendorDetail?.name} (Verified: ${item.vendorDetail?.isVerified} | AppStatus: ${item.vendorDetail?.applicationStatus})`);
       console.log(`Price: Base=${item.basePrice} | Display=${item.displayPrice}`);
       
       try {
