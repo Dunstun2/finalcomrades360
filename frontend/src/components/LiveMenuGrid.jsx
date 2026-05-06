@@ -23,7 +23,12 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
             if (!isOpen) return false;
 
             // Also check standard active status
-            if (!item.isActive || item.status !== 'active') return false;
+            // Relaxed: allow both 'active' and 'approved' statuses
+            const status = item.status?.toLowerCase();
+            const reviewStatus = item.reviewStatus?.toLowerCase();
+            const isApproved = item.approved || status === 'approved' || status === 'active' || reviewStatus === 'approved' || reviewStatus === 'active';
+            
+            if (!item.isActive || !isApproved) return false;
 
             const matchesCategory = selectedCategory === 'all' ||
                 item.category === selectedCategory ||
@@ -37,25 +42,25 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
     }, [items, selectedCategory, searchTerm]);
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-30">
-            {/* Stats Bar */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
+        <div className="max-w-7xl mx-auto px-0 md:px-4 relative z-30">
+            {/* Stats Bar (More Compact) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8 px-4 md:px-0">
                 {[
                     { icon: <FaUtensils className="text-orange-500" />, label: "Freshly Made", desc: "Served Hot" },
                     { icon: <FaClock className="text-blue-500" />, label: "Avg Prep Time", desc: "15-20 Mins" },
                     { icon: <FaMotorcycle className="text-green-500" />, label: "Swift Delivery", desc: "Campus-wide" },
                     { icon: <FaStar className="text-yellow-500" />, label: "Top Rated", desc: "Campus Choice" }
                 ].map((stat, i) => (
-                    <div key={i} className="bg-white p-6 rounded-3xl shadow-xl shadow-gray-200/50 flex flex-col items-center text-center gap-2 border border-white hover:border-orange-100 transition-colors">
-                        <div className="text-2xl mb-1">{stat.icon}</div>
-                        <span className="font-black text-gray-900 text-sm uppercase tracking-tight">{stat.label}</span>
-                        <span className="text-xs text-gray-500 font-medium">{stat.desc}</span>
+                    <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center gap-1 hover:border-orange-100 transition-colors">
+                        <div className="text-xl mb-1">{stat.icon}</div>
+                        <span className="font-bold text-gray-900 text-[10px] uppercase tracking-tight">{stat.label}</span>
+                        <span className="text-[10px] text-gray-400">{stat.desc}</span>
                     </div>
                 ))}
             </div>
 
             {/* Top Navigation Category Bar */}
-            <div className="mb-10">
+            <div className="mb-6 px-4 md:px-0">
                 <div className="flex items-center gap-2 mb-4">
                     <FaFilter className="text-orange-500" />
                     <h2 className="font-black text-gray-900 uppercase tracking-tight text-sm">Filter by Category</h2>
@@ -64,8 +69,8 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
                 <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide snap-x touch-pan-x">
                     <button
                         onClick={() => setSelectedCategory('all')}
-                        className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all shadow-sm whitespace-nowrap flex-shrink-0 snap-start ${selectedCategory === 'all'
-                            ? 'bg-orange-600 text-white shadow-orange-200 ring-2 ring-orange-600 ring-offset-2'
+                        className={`px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-sm whitespace-nowrap flex-shrink-0 snap-start ${selectedCategory === 'all'
+                            ? 'bg-orange-600 text-white shadow-orange-200'
                             : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
                             }`}
                     >
@@ -76,8 +81,8 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
                         <button
                             key={sub.id}
                             onClick={() => setSelectedCategory(sub.name)}
-                            className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 whitespace-nowrap flex-shrink-0 snap-start ${selectedCategory === sub.name
-                                ? 'bg-orange-600 text-white shadow-orange-200 ring-2 ring-orange-600 ring-offset-2'
+                            className={`px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2 whitespace-nowrap flex-shrink-0 snap-start ${selectedCategory === sub.name
+                                ? 'bg-orange-600 text-white shadow-orange-200'
                                 : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
                                 }`}
                         >
@@ -89,23 +94,20 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
             </div>
 
             {/* Main Content Area */}
-            <div className="pb-20">
-                <div className="flex items-center justify-between mb-8">
+            <div className="pb-20 px-0 md:px-0">
+                <div className="flex items-center justify-between mb-6 px-4 md:px-0">
                     <div>
-                        <h2 className="text-3xl font-black text-gray-900 leading-none">
+                        <h2 className="text-2xl font-black text-gray-900 leading-none">
                             {selectedCategory === 'all' ? 'Today\'s Specials' : selectedCategory}
                         </h2>
-                        <p className="text-gray-500 mt-2 font-medium">
-                            Showing {filteredItems.length} delicious choices
+                        <p className="text-gray-400 mt-2 text-xs font-medium uppercase tracking-wider">
+                            {filteredItems.length} items open now
                         </p>
-                    </div>
-                    <div className="hidden md:flex gap-2">
-                        <span className="px-4 py-2 bg-gray-100 rounded-full text-xs font-bold text-gray-600 uppercase">Real-time status</span>
                     </div>
                 </div>
 
                 {filteredItems.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
                         {filteredItems.map((item) => (
                             <FastFoodCard
                                 key={item.id}

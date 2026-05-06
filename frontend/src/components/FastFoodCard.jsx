@@ -192,12 +192,6 @@ export default function FastFoodCard({
               </span>
             )}
 
-            {item.distance !== undefined && item.distance !== null && (
-              <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg flex items-center shadow-md border ${item.distance < 1 ? 'bg-blue-600 text-white border-blue-500' : 'bg-white text-gray-700 border-gray-200'}`}>
-                <FaLocationArrow className={`mr-1.5 ${item.distance < 1 ? 'animate-pulse' : ''}`} size={8} />
-                {item.distance < 1 ? 'NEARBY' : `${item.distance}km`}
-              </span>
-            )}
           </div>
         )}
 

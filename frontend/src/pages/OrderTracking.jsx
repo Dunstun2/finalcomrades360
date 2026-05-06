@@ -192,7 +192,7 @@ export default function OrderTracking() {
 
                       if (isFastFood) {
                         if (s === 'super_admin_confirmed') return 'Preparing';
-                        if (['in_transit', 'shipped'].includes(s)) return 'Out for Delivery';
+                        if (['in_transit', 'shipped', 'out_for_delivery'].includes(s)) return 'Out for Delivery';
                       }
 
                       const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
@@ -200,15 +200,15 @@ export default function OrderTracking() {
                           const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
                           const isToStation = orderObj?.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
                           return (isToCustomer || isToStation) && task.status === 'in_progress';
-                      }) || ['in_transit'].includes(s);
+                      }) || s === 'in_transit' || s === 'out_for_delivery';
 
-                      if (isTerminalLeg || (['in_transit', 'shipped'].includes(s) && isTerminalLeg)) {
+                      if (isTerminalLeg || (['in_transit', 'shipped', 'out_for_delivery'].includes(s) && isTerminalLeg)) {
                           return 'In Transit';
                       }
                       
                       if (s === 'order_placed') return 'Order Placed';
                       if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
-                      if (['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
+                      if (['at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
                       
                       return 'Processing';
                     };

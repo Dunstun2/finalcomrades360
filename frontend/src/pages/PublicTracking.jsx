@@ -7,35 +7,39 @@ import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft,
 const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   if (!rawStatus) return 'Processing';
   const s = rawStatus.toLowerCase().replace(/ /g, '_');
+  
+  // Use the order metadata if available (now provided by backend)
   const orderObj = trackingObj?.order;
-  const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+  const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || 
+                     orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || 
+                     orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
   
   if (['delivered', 'completed'].includes(s)) return 'Delivered';
   if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
 
   if (isFastFood) {
     if (s === 'super_admin_confirmed') return 'Preparing';
-    if (['in_transit', 'shipped'].includes(s)) return 'Out for Delivery';
+    if (['in_transit', 'shipped', 'out_for_delivery'].includes(s)) return 'Out for Delivery';
   }
 
   // Determine if this is the final transit leg
   let isTerminalLeg = false;
-  if (trackingObj && trackingObj.order) {
-    const tasks = Array.isArray(trackingObj.order.deliveryTasks) ? trackingObj.order.deliveryTasks : [];
+  if (orderObj) {
+    const tasks = Array.isArray(orderObj.deliveryTasks) ? orderObj.deliveryTasks : [];
     isTerminalLeg = tasks.some(task => {
         const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
-        const isToStation = trackingObj.order.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
+        const isToStation = orderObj.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
         return (isToCustomer || isToStation) && task.status === 'in_progress';
     });
   }
   
-  if (isTerminalLeg || ['in_transit'].includes(s) || (['in_transit', 'shipped'].includes(s) && isTerminalLeg)) {
+  if (isTerminalLeg || s === 'in_transit' || (['in_transit', 'shipped', 'out_for_delivery'].includes(s) && isTerminalLeg)) {
       return 'In Transit';
   }
 
   if (s === 'order_placed') return 'Order Placed';
   if (s === 'ready_for_pickup') return 'Ready for Pickup';
-  if (['at_warehouse', 'at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
+  if (['at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
   
   return 'Processing';
 };
@@ -163,7 +167,12 @@ export default function PublicTracking() {
 
               {/* Timeline progress bar */}
               {(() => {
-                const steps = tracking.order?.adminRoutingStrategy === 'direct_delivery' || tracking.order?.adminRoutingStrategy === 'fastfood_pickup_point'
+                const orderObj = tracking.order;
+                const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || 
+                                   orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || 
+                                   orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                
+                const steps = isFastFood
                   ? ['Order Placed', 'Preparing', 'Out for Delivery', 'Delivered']
                   : ['Order Placed', 'Processing', 'Shipped', 'In Transit', 'Delivered'];
                 const idx = steps.indexOf(displayStatus);

@@ -73,10 +73,19 @@ const DeliveryTrackingMap = ({
     const defaultCenter = { lat: -1.2921, lng: 36.8219 };
 
     // Resolve effective locations (handle missing data with defaults/simulation)
-    const effectivePickup = pickupLocation?.lat ? pickupLocation : { ...defaultCenter, name: 'Restaurant' };
+    // Parse to float to handle potential string inputs from backend (common in MySQL DECIMAL)
+    const effectivePickup = (pickupLocation?.lat && pickupLocation?.lng) ? { 
+        lat: parseFloat(pickupLocation.lat), 
+        lng: parseFloat(pickupLocation.lng), 
+        name: pickupLocation.name || 'Restaurant' 
+    } : { ...defaultCenter, name: 'Restaurant' };
 
     // Simulate dropoff if missing lat/lng (offset by ~1km)
-    const effectiveDropoff = dropoffLocation?.lat ? dropoffLocation : {
+    const effectiveDropoff = (dropoffLocation?.lat && dropoffLocation?.lng) ? {
+        lat: parseFloat(dropoffLocation.lat),
+        lng: parseFloat(dropoffLocation.lng),
+        name: dropoffLocation?.name || 'Customer Address'
+    } : {
         lat: effectivePickup.lat - 0.008,
         lng: effectivePickup.lng + 0.008,
         name: dropoffLocation?.name || 'Customer Address'
@@ -86,26 +95,31 @@ const DeliveryTrackingMap = ({
     const simulationRef = useRef(null);
 
     // Final location to display
-    const currentDriverLocation = agentLocation?.lat ? agentLocation : simulatedLocation;
+    const currentDriverLocation = (agentLocation?.lat && agentLocation?.lng) ? {
+        lat: parseFloat(agentLocation.lat),
+        lng: parseFloat(agentLocation.lng)
+    } : simulatedLocation;
 
     // Simulation Logic (Only if live agentLocation is missing)
     useEffect(() => {
         if (agentLocation?.lat) return;
 
+        const s = status?.toLowerCase().replace(/ /g, '_');
+
         // If delivered, driver is at dropoff
-        if (status === 'delivered') {
+        if (['delivered', 'completed'].includes(s)) {
             setSimulatedLocation(effectiveDropoff);
             return;
         }
 
         // If not started or cancelled, driver might be at pickup or undefined
-        if (['order_placed', 'seller_confirmed', 'processing', 'ready_for_pickup', 'cancelled'].includes(status)) {
+        if (['order_placed', 'super_admin_confirmed', 'seller_confirmed', 'processing', 'ready_for_pickup', 'cancelled'].includes(s)) {
             setSimulatedLocation(effectivePickup);
             return;
         }
 
         // Active delivery: Simulate movement
-        if (['in_transit', 'en_route_to_warehouse', 'transit', 'in_transit'].includes(status)) {
+        if (['in_transit', 'en_route_to_warehouse', 'transit', 'shipped', 'out_for_delivery'].includes(s)) {
             const start = effectivePickup;
             const end = effectiveDropoff;
             const speed = 0.00005; // Simulation speed
@@ -134,13 +148,19 @@ const DeliveryTrackingMap = ({
         };
     }, [status, effectivePickup.lat, effectivePickup.lng, effectiveDropoff.lat, effectiveDropoff.lng, agentLocation]);
 
-    // Build Journey Flow
-    const journeyPoints = [
-        [effectivePickup.lat, effectivePickup.lng]
-    ];
-    if (pois.warehouse?.lat) journeyPoints.push([pois.warehouse.lat, pois.warehouse.lng]);
-    if (pois.pickupStation?.lat) journeyPoints.push([pois.pickupStation.lat, pois.pickupStation.lng]);
-    journeyPoints.push([effectiveDropoff.lat, effectiveDropoff.lng]);
+    // Build Journey Flow (Sanitized for Leaflet)
+    const journeyPoints = [];
+    if (!isNaN(effectivePickup.lat)) journeyPoints.push([effectivePickup.lat, effectivePickup.lng]);
+    
+    if (pois.warehouse?.lat && !isNaN(parseFloat(pois.warehouse.lat))) {
+        journeyPoints.push([parseFloat(pois.warehouse.lat), parseFloat(pois.warehouse.lng)]);
+    }
+    
+    if (pois.pickupStation?.lat && !isNaN(parseFloat(pois.pickupStation.lat))) {
+        journeyPoints.push([parseFloat(pois.pickupStation.lat), parseFloat(pois.pickupStation.lng)]);
+    }
+    
+    if (!isNaN(effectiveDropoff.lat)) journeyPoints.push([effectiveDropoff.lat, effectiveDropoff.lng]);
 
     return (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-[400px] relative z-0">

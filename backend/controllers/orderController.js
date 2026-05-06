@@ -2386,7 +2386,8 @@ const publicTrackOrder = async (req, res) => {
     const include = [
       { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone'] },
       { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
-      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
+      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] },
+      { model: OrderItem, as: 'OrderItems' }
     ];
 
     const order = await Order.findOne({
@@ -2412,6 +2413,12 @@ const publicTrackOrder = async (req, res) => {
       orderNumber: order.orderNumber || order.checkoutOrderNumber,
       trackingNumber: order.trackingNumber,
       status: order.status,
+      // Metadata for friendly status / progress bar
+      order: {
+        adminRoutingStrategy: order.adminRoutingStrategy,
+        deliveryMethod: order.deliveryMethod,
+        OrderItems: order.OrderItems || []
+      },
       estimatedDelivery: order.estimatedDelivery || null,
       actualDelivery: order.actualDelivery || null,
       trackingUpdates,
