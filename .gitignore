@@ -72,3 +72,6 @@ files_with_user.txt
 # User uploads and production dynamic content
 backend/uploads/
 
+# Local scripts
+backend/scripts/seed-bhajia-local.js
+

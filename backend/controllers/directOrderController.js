@@ -490,23 +490,31 @@ exports.placeDirectOrder = async (req, res) => {
             const itemsList = `• ${itemName} x${quantity}`;
             const refCode = req.user.referralCode || 'PROMO';
 
+            console.log(`[DirectOrder] Notifying customer for ${order.orderNumber}`);
             // 1. Notify Customer
             await notifyCustomerOrderPlaced(order, customerObj, 1, itemsList, refCode);
 
+            console.log(`[DirectOrder] Checking seller notification for ${order.orderNumber}. sellerId: ${sellerId}`);
             // 2. Notify Seller
             if (sellerId) {
                 const seller = await User.findByPk(sellerId);
                 if (seller) {
+                    console.log(`[DirectOrder] Notifying seller ${seller.id} for ${order.orderNumber}`);
                     await notifySellerOrderPlaced(order, seller, subtotal.toLocaleString(), itemsList);
+                } else {
+                    console.log(`[DirectOrder] Seller with ID ${sellerId} not found`);
                 }
             }
 
+            console.log(`[DirectOrder] Checking marketer notification for ${order.orderNumber}. isMarketer: ${isMarketer}, isAdmin: ${isAdmin}`);
             // 3. Notify Marketer (only if they placed it, not admin)
             if (isMarketer && !isAdmin) {
+                console.log(`[DirectOrder] Notifying marketer ${req.user.id} for ${order.orderNumber}`);
                 await notifyMarketerOrderPlaced(order, req.user, customerName, order.totalCommission);
             }
         } catch (err) {
             console.warn('[directOrderController] Notification failed:', err.message);
+            console.error(err);
         }
 
         res.json({
