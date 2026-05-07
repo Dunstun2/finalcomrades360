@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { orderApi } from '../../utils/api';
+import api, { orderApi } from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   ClipboardList, Send, CheckCircle2, AlertCircle, Loader2, Phone, MapPin, 
@@ -208,6 +208,8 @@ const DirectOrders = () => {
   const [isPhoneVerified, setIsPhoneVerified] = useState(true); // Default to true as we use confirmation instead of OTP
   const [confirmPhone, setConfirmPhone] = useState('');
   const [suggestedPickupStation, setSuggestedPickupStation] = useState(null);
+  const [selectedPickupStationId, setSelectedPickupStationId] = useState(null);
+  const [pickupStations, setPickupStations] = useState([]);
   const [orderResult, setOrderResult] = useState(null);
 
   // --- Manage Orders State ---
@@ -231,6 +233,18 @@ const DirectOrders = () => {
     if (activeTab === 'manage') fetchOrders();
   }, [activeTab, fetchOrders]);
 
+  useEffect(() => {
+    const fetchStations = async () => {
+      try {
+        const { data } = await api.get('/pickup-stations?activeOnly=true');
+        setPickupStations(data.stations || []);
+      } catch (err) {
+        console.error('Failed to fetch pickup stations', err);
+      }
+    };
+    if (canPlace) fetchStations();
+  }, [canPlace]);
+
   const handleParse = async () => {
     if (!textBlock.trim()) {
       toast({ title: 'Error', description: 'Please paste the order text block.', variant: 'destructive' });
@@ -246,6 +260,7 @@ const DirectOrders = () => {
         setIsPhoneVerified(true); // Bypassing OTP for Direct Orders
         setConfirmPhone(data.parsedData.customerPhone || '');
         setSuggestedPickupStation(data.suggestedPickupStation);
+        setSelectedPickupStationId(data.suggestedPickupStation?.id || null);
         setSelectedItemId(data.matches.length === 1 ? data.matches[0].id : null);
         setStep('review');
       }
@@ -278,8 +293,16 @@ const DirectOrders = () => {
       toast({ title: 'Selection Required', description: 'Please select the correct item from the matches.', variant: 'destructive' });
       return;
     }
+    if (!parsedData.customerPhone || parsedData.customerPhone.length < 5) {
+      toast({ title: 'Phone Required', description: 'A valid customer phone number is required.', variant: 'destructive' });
+      return;
+    }
     if (parsedData.customerPhone !== confirmPhone) {
       toast({ title: 'Phone Mismatch', description: 'Phone number and confirmation do not match.', variant: 'destructive' });
+      return;
+    }
+    if (!parsedData.deliveryAddress || parsedData.deliveryAddress === 'N/A' || parsedData.deliveryAddress.trim().length < 3) {
+      toast({ title: 'Address Required', description: 'A valid delivery address is required.', variant: 'destructive' });
       return;
     }
     setLoading(true);
@@ -290,7 +313,7 @@ const DirectOrders = () => {
         quantity: parsedData.quantity,
         customerPhone: parsedData.customerPhone,
         deliveryAddress: parsedData.deliveryAddress,
-        pickupStationId: suggestedPickupStation?.id,
+        pickupStationId: selectedPickupStationId,
         customerName: parsedData.customerName,
         customerEmail: parsedData.customerEmail,
         originalTextBlock: textBlock
@@ -390,7 +413,7 @@ const DirectOrders = () => {
                 <textarea
                   value={textBlock}
                   onChange={e => setTextBlock(e.target.value)}
-                  placeholder={"Example:\nOmena(2)\nJohn Doe\n0757588395\nNyayo 1"}
+                  placeholder={"Example:\nOmena(2)\nJohn Doe\n0757588395\nNyayo 1\nPickup: Nyayo Gate"}
                   className="w-full h-44 p-4 bg-gray-50 border border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono text-sm resize-none"
                 />
 
@@ -405,7 +428,7 @@ const DirectOrders = () => {
               </div>
               <div className="bg-amber-50 p-3 border-t border-amber-100 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 font-medium">Supports multiple lines. The system will auto-detect Name, Phone, Email and Address.</p>
+                <p className="text-xs text-amber-700 font-medium">Supports multiple lines. Auto-detects Name, Phone, Address. Use <b>Pickup: [Name]</b> to set a specific point.</p>
               </div>
             </div>
           )}
@@ -468,7 +491,26 @@ const DirectOrders = () => {
                           rows={2}
                           className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
                         />
-                        {suggestedPickupStation && <p className="text-[10px] text-green-600 font-bold mt-1">→ Suggested: {suggestedPickupStation.name}</p>}
+                        <div className="mt-2 space-y-1">
+                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Select Pickup Point</label>
+                          <select
+                            value={selectedPickupStationId || ''}
+                            onChange={(e) => setSelectedPickupStationId(e.target.value || null)}
+                            className="w-full text-[10px] font-bold bg-blue-50/50 border border-blue-100 rounded-lg px-2 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                          >
+                            <option value="">No Pickup Point (Standard Delivery)</option>
+                            {pickupStations.map(station => (
+                              <option key={station.id} value={station.id}>
+                                {station.name} (KES {station.price || 0})
+                              </option>
+                            ))}
+                          </select>
+                          {suggestedPickupStation && !selectedPickupStationId && (
+                            <p className="text-[10px] text-green-600 font-bold">
+                              → Auto-detected: {suggestedPickupStation.name} (Click to select)
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -520,15 +562,6 @@ const DirectOrders = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  <button onClick={handlePlaceOrder} disabled={loading || !selectedItemId} className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-bold hover:shadow-lg hover:shadow-green-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-                    Finalize Order
-                  </button>
-                  <button onClick={() => setStep('input')} className="py-3 bg-gray-100 text-gray-600 rounded-2xl text-xs font-bold hover:bg-gray-200 transition-all">
-                    ← Edit Block
-                  </button>
-                </div>
               </div>
 
               {/* Phone Verification Bypassed for Direct Orders */}
@@ -566,6 +599,23 @@ const DirectOrders = () => {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-3 pt-2">
+                <button 
+                  onClick={handlePlaceOrder} 
+                  disabled={loading || !selectedItemId} 
+                  className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-bold hover:shadow-lg hover:shadow-green-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 order-2"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                  Finalize Order
+                </button>
+                <button 
+                  onClick={() => setStep('input')} 
+                  className="px-8 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all text-sm order-1"
+                >
+                  ← Edit Block
+                </button>
               </div>
             </div>
           )}

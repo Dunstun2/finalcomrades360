@@ -37,13 +37,23 @@ const connectSocket = () => {
 
   // Create new socket connection
   socket = io(WS_URL, {
-    transports: ['polling', 'websocket'], // Default to polling first, upgrade to websocket if possible (fixes proxy/cPanel issues)
+    // Attempt websocket first for performance, fallback to polling if proxy blocks upgrades
+    transports: ['websocket', 'polling'], 
+    upgrade: true,
+    rememberUpgrade: true,
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
     reconnectionDelay: RECONNECT_DELAY,
+    reconnectionDelayMax: 10000,
+    randomizationFactor: 0.5,
     withCredentials: true,
-    path: '/socket.io/', // Default Socket.IO path
+    path: '/socket.io/',
+    timeout: 60000, // Increased to 60s to match server timeout
+    // Add additional options for better handshake reliability
+    extraHeaders: {
+      "X-Requested-With": "XMLHttpRequest"
+    }
   });
 
   // Connection event handlers

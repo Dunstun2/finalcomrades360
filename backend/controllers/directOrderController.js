@@ -94,13 +94,17 @@ const parseTextBlock = (text) => {
 
     let customerPhone = '';
     let customerEmail = '';
+    let pickupPoint = '';
     const candidates = [];
 
     for (const line of lines) {
+        const lower = line.toLowerCase();
         if (!customerPhone && phoneRegex.test(line.replace(/\s+/g, ''))) {
             customerPhone = line.replace(/\s+/g, '').match(phoneRegex)[0];
         } else if (!customerEmail && emailRegex.test(line)) {
             customerEmail = line;
+        } else if (!pickupPoint && (lower.startsWith('pickup:') || lower.startsWith('station:') || lower.startsWith('point:'))) {
+            pickupPoint = line.split(':')[1].trim();
         } else {
             // Updated regex to support: Item(Qty), Item (Qty), Item Qty, or just Item
             // Matches "Bhajia(2)", "Bhajia (2)", "Bhajia 2" or "Bhajia"
@@ -123,6 +127,7 @@ const parseTextBlock = (text) => {
         candidates,
         customerPhone,
         customerEmail,
+        pickupPoint,
         allLines: lines
     };
 };
@@ -266,12 +271,24 @@ exports.parseDirectOrder = async (req, res) => {
         // Check if user exists
         const user = await User.findOne({ where: { phone: finalParsed.customerPhone } });
 
-        // Try to find a delivery fee match
-        const pickupStation = await PickupStation.findOne({
-            where: {
-                name: { [Op.like]: `%${finalParsed.deliveryAddress}%` }
-            }
-        });
+        // 271: Try to find a delivery fee match
+        let pickupStation = null;
+        if (parsed.pickupPoint) {
+            pickupStation = await PickupStation.findOne({
+                where: {
+                    name: { [Op.like]: `%${parsed.pickupPoint}%` }
+                }
+            });
+        }
+        
+        // Fallback to searching based on delivery address if no specific point matched
+        if (!pickupStation) {
+            pickupStation = await PickupStation.findOne({
+                where: {
+                    name: { [Op.like]: `%${finalParsed.deliveryAddress}%` }
+                }
+            });
+        }
 
         res.json({
             success: true,
@@ -301,6 +318,16 @@ exports.placeDirectOrder = async (req, res) => {
             customerEmail,
             originalTextBlock
         } = req.body;
+
+        if (!customerPhone || customerPhone.length < 5) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Valid customer phone number is required.' });
+        }
+
+        if (!deliveryAddress || deliveryAddress === 'N/A' || deliveryAddress.trim().length < 3) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Valid delivery address is required.' });
+        }
 
         const role = req.user.role;
         const roles = req.user.roles || [];
@@ -394,15 +421,25 @@ exports.placeDirectOrder = async (req, res) => {
         const subtotal = unitPrice * quantity;
         const sellerId = type === 'fastfood' ? item.vendor : item.sellerId;
         
-        // Default delivery fee if no station matched
+        // Delivery fee resolution priority:
+        // 1. If a pickup station was matched → use station.price (PickupStation field is 'price' not 'deliveryFee')
+        // 2. Otherwise → use the item's own deliveryFee (set by superadmin during listing)
+        // 3. Fallback → platform config 'default_delivery_fee'
+        // 4. Last resort → 0 (never 100 hardcoded)
         let deliveryFee = 0;
         if (pickupStationId) {
             const station = await PickupStation.findByPk(pickupStationId);
-            deliveryFee = station ? (station.deliveryFee || 0) : 0;
+            deliveryFee = station ? parseFloat(station.price || 0) : 0;
         } else {
-            // Fallback to platform default delivery fee
-            const config = await PlatformConfig.findOne({ where: { key: 'default_delivery_fee' } });
-            deliveryFee = config ? parseFloat(config.value) : 100; // Default 100 if not set
+            // Use the item's own delivery fee if set by superadmin
+            const itemDeliveryFee = parseFloat(item.deliveryFee);
+            if (!isNaN(itemDeliveryFee) && itemDeliveryFee >= 0) {
+                deliveryFee = itemDeliveryFee;
+            } else {
+                // Fallback to platform default delivery fee
+                const config = await PlatformConfig.findOne({ where: { key: 'default_delivery_fee' } });
+                deliveryFee = config ? parseFloat(config.value) : 0;
+            }
         }
 
         const total = subtotal + deliveryFee;
