@@ -39,6 +39,33 @@ const MarketerDashboard = () => {
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toast } = useToast();
+
+  // ── Maintenance / Platform Settings ─────────────────────────────────────────
+  // Read from localStorage (kept in sync by PlatformContext + RealtimeSync).
+  const [maintenance, setMaintenance] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('maintenance_settings') || '{}'); } catch { return {}; }
+  });
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      const data = e.detail || (e.key === 'maintenance_settings' ? JSON.parse(e.newValue || '{}') : null);
+      if (data) setMaintenance(data);
+    };
+    window.addEventListener('maintenance-settings-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('maintenance-settings-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  // Admins always see all sections; everyone else respects the maintenance gate.
+  const isSectionVisible = (sectionKey) => {
+    if (isAdmin) return true;
+    const settings = maintenance.sections?.[sectionKey];
+    return !settings?.enabled;
+  };
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const formatPrice = (price) => {
     return `KES ${Number(price || 0).toLocaleString()}`;
   };
@@ -46,7 +73,7 @@ const MarketerDashboard = () => {
   const marketerBottomNavItems = [
     { icon: <FaHome />, label: 'Home', path: '/marketing?tab=overview', onClick: () => setActiveTab('overview'), end: true },
     { icon: <FaUsers />, label: 'Customers', path: '/marketing?tab=my-customers', onClick: () => setActiveTab('my-customers') },
-    { icon: <FaShoppingCart />, label: 'Shop', path: '/marketing?tab=new-order', onClick: () => setActiveTab('new-order') },
+    { icon: <FaShoppingCart />, label: 'Shop', path: '/', onClick: () => { localStorage.setItem('marketing_mode', 'true'); navigate('/'); } },
     { icon: <FaWallet />, label: 'Wallet', path: '/marketing?tab=wallet', onClick: () => setActiveTab('wallet') },
   ];
   const [activeTab, setActiveTab] = useState(() => {
@@ -54,8 +81,8 @@ const MarketerDashboard = () => {
     const tabParam = params.get('tab');
     if (tabParam) return tabParam;
 
-    // If we are in marketing mode, default to the 'new-order' tab to maintain flow
-    return localStorage.getItem('marketing_mode') === 'true' ? 'new-order' : 'overview';
+    // Default to overview tab
+    return 'overview';
   });
   // Sync tab with URL parameter changes
   useEffect(() => {
@@ -94,6 +121,18 @@ const MarketerDashboard = () => {
   const [commissions, setCommissions] = useState([]);
   const [referralCode, setReferralCode] = useState('');
   const [browseSubTab, setBrowseSubTab] = useState('product'); // 'product', 'service', 'fastfood'
+
+  // Auto-switch browseSubTab if its section goes offline
+  useEffect(() => {
+    const currentSectionKey = browseSubTab === 'fastfood' ? 'fastfood' : browseSubTab === 'service' ? 'services' : 'products';
+    if (!isSectionVisible(currentSectionKey)) {
+      // Fall back to the first visible section
+      if (isSectionVisible('products')) setBrowseSubTab('product');
+      else if (isSectionVisible('services')) setBrowseSubTab('service');
+      else if (isSectionVisible('fastfood')) setBrowseSubTab('fastfood');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maintenance]);
 
   // Social media accounts state
   const [socialAccounts, setSocialAccounts] = useState([]);
@@ -1113,12 +1152,19 @@ const MarketerDashboard = () => {
   );
 
   const renderProducts = () => {
-    // Filter items based on the active sub-tab and search query
+    // Section-level maintenance gate: map browseSubTab -> section key
+    const subtabSectionKey = browseSubTab === 'fastfood' ? 'fastfood' : browseSubTab === 'service' ? 'services' : 'products';
+    const currentSectionOffline = !isSectionVisible(subtabSectionKey);
+
+    // Filter items based on the active sub-tab, search query AND section visibility
     const filteredItems = products.filter(item => {
       const matchesTab = item.type === browseSubTab;
       const itemName = (item.name || item.title || '').toLowerCase();
       const matchesSearch = !searchQuery || itemName.includes(searchQuery.toLowerCase());
-      return matchesTab && matchesSearch;
+      // Respect maintenance: hide items belonging to an offline section
+      const sectionKey = item.type === 'fastfood' ? 'fastfood' : item.type === 'service' ? 'services' : 'products';
+      const sectionOnline = isSectionVisible(sectionKey);
+      return matchesTab && matchesSearch && sectionOnline;
     });
 
     return (
@@ -1127,39 +1173,52 @@ const MarketerDashboard = () => {
         {/* Category Tabs — forced onto one line on mobile */}
         <div className="flex flex-nowrap items-center gap-2 border-b border-gray-200 pb-1 overflow-x-auto scrollbar-hide">
 
+          {isSectionVisible('products') && (
+            <button
+              onClick={() => setBrowseSubTab('product')}
+              className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'product'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Products
+            </button>
+          )}
 
-          <button
-            onClick={() => setBrowseSubTab('product')}
-            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'product'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            Products
-          </button>
+          {isSectionVisible('services') && (
+            <button
+              onClick={() => setBrowseSubTab('service')}
+              className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'service'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Services
+            </button>
+          )}
 
-          <button
-            onClick={() => setBrowseSubTab('service')}
-            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'service'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            Services
-          </button>
-
-          <button
-            onClick={() => setBrowseSubTab('fastfood')}
-            className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'fastfood'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-          >
-            Fastfood
-          </button>
+          {isSectionVisible('fastfood') && (
+            <button
+              onClick={() => setBrowseSubTab('fastfood')}
+              className={`px-3 sm:px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 -mb-[2px] ${browseSubTab === 'fastfood'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+            >
+              Fastfood
+            </button>
+          )}
 
         </div>
 
+        {/* Offline section notice */}
+        {currentSectionOffline ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+            <span className="text-3xl mb-3 block">🔧</span>
+            <h3 className="text-base font-bold text-amber-800 mb-1">Section Under Maintenance</h3>
+            <p className="text-sm text-amber-600">This section is temporarily offline. Please check back soon.</p>
+          </div>
+        ) : (
         <div className="bg-white rounded-lg shadow border border-gray-100 p-1 sm:p-2 mt-2">
           <div className="mb-4">
             <input
@@ -1273,6 +1332,7 @@ const MarketerDashboard = () => {
           )}
 
         </div>
+        )} {/* end currentSectionOffline ternary */}
       </div>
     );
   };
@@ -1715,6 +1775,14 @@ const MarketerDashboard = () => {
     </div>
   );
 
+  // Redirect to home page when new-order tab is active (home page handles marketing mode)
+  useEffect(() => {
+    if (activeTab === 'new-order') {
+      localStorage.setItem('marketing_mode', 'true');
+      navigate('/', { replace: true });
+    }
+  }, [activeTab]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview':
@@ -1722,7 +1790,16 @@ const MarketerDashboard = () => {
       case 'links':
         return renderSharedLinks();
       case 'new-order':
-        return renderProducts();
+        // This case is handled by the useEffect redirect above,
+        // but we provide a fallback in case the redirect hasn't fired yet.
+        return (
+          <div className="flex items-center justify-center py-16">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">Redirecting to shop...</p>
+            </div>
+          </div>
+        );
       case 'earnings':
         return renderEarnings();
       case 'wallet':
@@ -2131,6 +2208,8 @@ const MarketerDashboard = () => {
                     setIsSidebarOpen(false);
                     if (tab.id === 'new-order') {
                       localStorage.setItem('marketing_mode', 'true');
+                      navigate('/');
+                      return;
                     }
                     navigate(`/marketing?tab=${tab.id}`);
                     setActiveTab(tab.id);
