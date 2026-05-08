@@ -5,7 +5,7 @@ deployment:
     - /bin/mkdir -p /home/vdranjxy/comrades-master
     
     # 1. Sync Frontend to public_html
-    - /usr/bin/rsync -avz --delete frontend/dist/ /home/vdranjxy/public_html/
+    - /usr/bin/rsync -avz frontend/dist/ /home/vdranjxy/public_html/
     - /bin/cp .htaccess /home/vdranjxy/public_html/.htaccess
     
     # 2. Sync Backend to comrades-master (the runtime root)
