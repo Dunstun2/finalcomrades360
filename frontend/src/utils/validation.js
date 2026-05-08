@@ -28,6 +28,17 @@ export const validateKenyanPhone = (phone) => {
 
 export const PHONE_VALIDATION_ERROR = "Phone number must be 10 digits starting with 07/01, or 13 characters starting with +254.";
 
+export const normalizeKenyanPhone = (phone) => {
+    if (!phone) return null;
+    const cleaned = String(phone).replace(/[\s\-\(\)]/g, '');
+
+    if (/^\+254[17]\d{8}$/.test(cleaned)) return cleaned;
+    if (/^0[17]\d{8}$/.test(cleaned)) return '+254' + cleaned.slice(1);
+    if (/^254[17]\d{8}$/.test(cleaned)) return '+' + cleaned;
+
+    return null;
+};
+
 /**
  * Restricts phone input to valid Kenyan format as user types
  * - Starts with 07 or 01: allows max 10 digits total

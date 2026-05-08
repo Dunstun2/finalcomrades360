@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api, { orderApi } from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { normalizeKenyanPhone } from '../../utils/validation';
 import { 
   ClipboardList, Send, CheckCircle2, AlertCircle, Loader2, Phone, MapPin, 
   ShoppingCart, UserCheck, UserPlus, ArrowRight, RefreshCw, Package,
-  Clock, ChevronDown, ChevronRight, PlusCircle, ListOrdered, Store, User, Shield, Mail
+  Clock, ChevronDown, ChevronRight, PlusCircle, ListOrdered, Store, User, Shield, Mail, Trash2, Copy
 } from 'lucide-react';
 import { toast } from '../../components/ui/use-toast';
 import PhoneVerification from '../../components/PhoneVerification';
@@ -201,11 +202,10 @@ const DirectOrders = () => {
   const [type, setType] = useState('fastfood');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState('input');
-  const [parsedData, setParsedData] = useState(null);
-  const [matches, setMatches] = useState([]);
-  const [selectedItemId, setSelectedItemId] = useState(null);
+  const [parsedData, setParsedData] = useState({ items: [] });
   const [userExists, setUserExists] = useState(false);
-  const [isPhoneVerified, setIsPhoneVerified] = useState(true); // Default to true as we use confirmation instead of OTP
+  const [userConflict, setUserConflict] = useState(false);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(true); 
   const [confirmPhone, setConfirmPhone] = useState('');
   const [suggestedPickupStation, setSuggestedPickupStation] = useState(null);
   const [selectedPickupStationId, setSelectedPickupStationId] = useState(null);
@@ -253,16 +253,30 @@ const DirectOrders = () => {
     setLoading(true);
     try {
       const { data } = await orderApi.parseDirect({ textBlock, type });
+      console.log('[DirectOrder] Backend Response:', data);
+      
       if (data.success) {
         setParsedData(data.parsedData);
-        setMatches(data.matches);
         setUserExists(data.userExists);
-        setIsPhoneVerified(true); // Bypassing OTP for Direct Orders
+        setUserConflict(data.userConflict);
+        setIsPhoneVerified(true);
         setConfirmPhone(data.parsedData.customerPhone || '');
         setSuggestedPickupStation(data.suggestedPickupStation);
         setSelectedPickupStationId(data.suggestedPickupStation?.id || null);
-        setSelectedItemId(data.matches.length === 1 ? data.matches[0].id : null);
         setStep('review');
+
+        const missing = [];
+        if (data.parsedData.items.length === 0) missing.push('Items');
+        if (!data.parsedData.customerPhone) missing.push('Phone Number');
+        if (!data.parsedData.deliveryAddress || data.parsedData.deliveryAddress === 'N/A') missing.push('Delivery Address');
+        
+        if (missing.length > 0) {
+          toast({ 
+            title: 'Partial Data', 
+            description: `We're missing: ${missing.join(', ')}. Please edit them below.`,
+            variant: 'warning'
+          });
+        }
       }
     } catch (error) {
       toast({ title: 'Parsing Failed', description: error.response?.data?.message || 'Check format: Item(Qty)\nPhone\nAddress', variant: 'destructive' });
@@ -271,17 +285,26 @@ const DirectOrders = () => {
     }
   };
 
-  const handleRefreshMatches = async () => {
-    if (!parsedData?.itemName) return;
+  const handleRefreshMatches = async (idx) => {
+    const item = parsedData.items[idx];
+    if (!item?.name) return;
     setLoading(true);
     try {
-      const { data } = await orderApi.parseDirect({ textBlock: parsedData.itemName, type });
+      const { data } = await orderApi.parseDirect({ textBlock: item.name, type });
       if (data.success) {
-        setMatches(data.matches);
-        setSelectedItemId(data.matches.length === 1 ? data.matches[0].id : null);
-        toast({ title: 'Matches Updated', description: `Found ${data.matches.length} items for "${parsedData.itemName}"` });
+        const newItems = [...parsedData.items];
+        const refreshedMatches = data.matches || data.parsedData?.items?.[0]?.matches || [];
+        const refreshedType = data.parsedData?.items?.[0]?.type || type;
+        newItems[idx].matches = refreshedMatches;
+        if (refreshedMatches.length === 1) {
+          newItems[idx].selectedId = refreshedMatches[0].id;
+          newItems[idx].type = refreshedMatches[0].type || refreshedType;
+        }
+        setParsedData({ ...parsedData, items: newItems });
+        toast({ title: 'Matches Updated', description: `Found ${refreshedMatches.length} items for "${item.name}"` });
       }
     } catch (error) {
+      console.error('[DirectOrder] refresh matches error:', error?.response?.status, error?.response?.data, error?.message);
       toast({ title: 'Search Failed', description: 'Could not refresh item matches.', variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -289,41 +312,66 @@ const DirectOrders = () => {
   };
 
   const handlePlaceOrder = async () => {
-    if (!selectedItemId) {
-      toast({ title: 'Selection Required', description: 'Please select the correct item from the matches.', variant: 'destructive' });
+    console.log('[DirectOrder] Finalizing Order. Items:', parsedData.items);
+    
+    const unselectedIdx = parsedData.items.findIndex(i => !i.selectedId);
+    if (unselectedIdx !== -1) {
+      console.warn('[DirectOrder] Blocked: Item at index', unselectedIdx, 'has no selectedId');
+      toast({ 
+        title: 'Item Selection Missing', 
+        description: `Item #${unselectedIdx + 1} (${parsedData.items[unselectedIdx].name}) has no match selected.`, 
+        variant: 'destructive' 
+      });
       return;
     }
-    if (!parsedData.customerPhone || parsedData.customerPhone.length < 5) {
-      toast({ title: 'Phone Required', description: 'A valid customer phone number is required.', variant: 'destructive' });
+
+    const normPhone = normalizeKenyanPhone(parsedData?.customerPhone) || (parsedData?.customerPhone || '').replace(/\D/g, '');
+    const normConfirm = normalizeKenyanPhone(confirmPhone || parsedData?.customerPhone) || (confirmPhone || parsedData?.customerPhone || '').replace(/\D/g, '');
+
+    console.log('[DirectOrder] Phone Comparison:', { original: parsedData.customerPhone, confirm: confirmPhone, normPhone, normConfirm });
+
+    if (!normPhone || normPhone.length < 9) {
+      toast({ title: 'Phone Number Missing', description: 'The phone number was not detected or is too short.', variant: 'destructive' });
       return;
     }
-    if (parsedData.customerPhone !== confirmPhone) {
-      toast({ title: 'Phone Mismatch', description: 'Phone number and confirmation do not match.', variant: 'destructive' });
+    if (confirmPhone && normPhone !== normConfirm) {
+      toast({ title: 'Phone Mismatch', description: 'The phone number and its confirmation do not match.', variant: 'destructive' });
       return;
     }
-    if (!parsedData.deliveryAddress || parsedData.deliveryAddress === 'N/A' || parsedData.deliveryAddress.trim().length < 3) {
-      toast({ title: 'Address Required', description: 'A valid delivery address is required.', variant: 'destructive' });
+    if (!parsedData?.deliveryAddress || parsedData?.deliveryAddress === 'N/A' || parsedData?.deliveryAddress.trim().length < 3) {
+      toast({ title: 'Delivery Address Missing', description: 'Please provide a valid delivery address.', variant: 'destructive' });
       return;
     }
+
     setLoading(true);
     try {
-      const { data } = await orderApi.confirmDirect({
-        itemId: selectedItemId,
-        type,
-        quantity: parsedData.quantity,
+      const payload = {
+        items: parsedData.items.map(i => ({
+          itemId: i.selectedId,
+          quantity: i.quantity,
+          type: i.type || type // Use item type or fallback to global type
+        })),
+        type, // Global fallback
         customerPhone: parsedData.customerPhone,
         deliveryAddress: parsedData.deliveryAddress,
         pickupStationId: selectedPickupStationId,
         customerName: parsedData.customerName,
         customerEmail: parsedData.customerEmail,
         originalTextBlock: textBlock
-      });
+      };
+
+      console.log('[DirectOrder] Sending confirm payload:', payload);
+      const { data } = await orderApi.confirmDirect(payload);
+      
       if (data.success) {
         setOrderResult(data);
         setStep('success');
         toast({ title: 'Success', description: 'Order placed successfully!' });
+      } else {
+        toast({ title: 'Order Failed', description: data.message || 'Server rejected the order.', variant: 'destructive' });
       }
     } catch (error) {
+      console.error('[DirectOrder] confirm error:', error?.response?.status, error?.response?.data, error?.message);
       toast({ title: 'Order Failed', description: error.response?.data?.message || 'Could not place order.', variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -333,9 +381,7 @@ const DirectOrders = () => {
   const reset = () => {
     setStep('input');
     setTextBlock('');
-    setParsedData(null);
-    setMatches([]);
-    setSelectedItemId(null);
+    setParsedData({ items: [] });
     setIsPhoneVerified(true);
     setConfirmPhone('');
     setOrderResult(null);
@@ -434,188 +480,243 @@ const DirectOrders = () => {
           )}
 
           {step === 'review' && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer & Address</h3>
-                    <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold uppercase">Editable</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                        <User className="w-3 h-3" />
-                      </div>
-                      <input
-                        type="text"
-                        value={parsedData.customerName || ''}
-                        onChange={(e) => setParsedData({ ...parsedData, customerName: e.target.value })}
-                        placeholder="Customer Name (Optional)"
-                        className="flex-1 text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                        <Phone className="w-3 h-3" />
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <input
-                          type="text"
-                          value={parsedData.customerPhone || ''}
-                          onChange={(e) => setParsedData({ ...parsedData, customerPhone: e.target.value })}
-                          placeholder="Phone Number"
-                          className={`w-full text-sm font-bold bg-gray-50 border ${parsedData.customerPhone === confirmPhone ? 'border-gray-200' : 'border-amber-300'} rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all`}
-                        />
-                        <input
-                          type="text"
-                          value={confirmPhone}
-                          onChange={(e) => setConfirmPhone(e.target.value)}
-                          placeholder="Confirm Phone Number"
-                          className={`w-full text-sm font-bold bg-gray-50 border ${parsedData.customerPhone === confirmPhone ? 'border-gray-200' : 'border-red-300'} rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all`}
-                        />
-                        {parsedData.customerPhone !== confirmPhone && confirmPhone.length > 0 && (
-                          <p className="text-[9px] text-red-500 font-bold uppercase tracking-tighter">Numbers do not match</p>
-                        )}
-                        {userExists && <span className="text-[9px] text-green-600 font-bold block shrink-0">Existing Customer Found</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2 pt-1">
-                      <div className="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
-                        <MapPin className="w-3 h-3" />
-                      </div>
-                      <div className="flex-1">
-                        <textarea
-                          value={parsedData.deliveryAddress || ''}
-                          onChange={(e) => setParsedData({ ...parsedData, deliveryAddress: e.target.value })}
-                          placeholder="Delivery Address"
-                          rows={2}
-                          className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none"
-                        />
-                        <div className="mt-2 space-y-1">
-                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Select Pickup Point</label>
-                          <select
-                            value={selectedPickupStationId || ''}
-                            onChange={(e) => setSelectedPickupStationId(e.target.value || null)}
-                            className="w-full text-[10px] font-bold bg-blue-50/50 border border-blue-100 rounded-lg px-2 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                          >
-                            <option value="">No Pickup Point (Standard Delivery)</option>
-                            {pickupStations.map(station => (
-                              <option key={station.id} value={station.id}>
-                                {station.name} (KES {station.price || 0})
-                              </option>
-                            ))}
-                          </select>
-                          {suggestedPickupStation && !selectedPickupStationId && (
-                            <p className="text-[10px] text-green-600 font-bold">
-                              → Auto-detected: {suggestedPickupStation.name} (Click to select)
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              {/* Header with Back Button */}
+              <div className="flex items-center justify-between">
+                <button 
+                  onClick={() => setStep('input')}
+                  className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center gap-2"
+                >
+                  ← Go Back & Edit Original Block
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Step 2: Review & Match Items</span>
                 </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Order Details</h3>
-                    <span className="text-[9px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full font-bold uppercase">Editable</span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
-                        <ShoppingCart className="w-3 h-3" />
-                      </div>
-                      <div className="flex-1 flex gap-2">
-                        <input
-                          type="text"
-                          value={parsedData.itemName || ''}
-                          onChange={(e) => setParsedData({ ...parsedData, itemName: e.target.value })}
-                          placeholder="Item Name"
-                          className="flex-1 text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all"
-                        />
-                        <button 
-                          onClick={handleRefreshMatches}
-                          disabled={loading}
-                          className="p-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shrink-0"
-                          title="Refresh Matches"
-                        >
-                          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                        <ListOrdered className="w-3 h-3" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 font-bold uppercase">Qty:</span>
-                        <input
-                          type="number"
-                          value={parsedData.quantity || 1}
-                          onChange={(e) => setParsedData({ ...parsedData, quantity: parseInt(e.target.value, 10) || 1 })}
-                          className="w-16 text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                        />
-                      </div>
-                      <span className="text-[10px] font-black text-blue-600 uppercase ml-auto">Cash on Delivery</span>
-                    </div>
-                  </div>
-                </div>
-
               </div>
 
-              {/* Phone Verification Bypassed for Direct Orders */}
-
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                    Item Matches {matches.length > 0 && <span className="bg-gray-100 text-gray-600 px-2 rounded-full text-[10px]">{matches.length}</span>}
-                  </h2>
+              {/* Secondary: Customer & Delivery */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Details</h3>
+                    <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold uppercase">Contact</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={parsedData?.customerName || ''}
+                      onChange={(e) => setParsedData({ ...parsedData, customerName: e.target.value })}
+                      placeholder="Customer Name"
+                      className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={parsedData?.customerPhone || ''}
+                      onChange={(e) => {
+                        const phoneValue = e.target.value;
+                        setParsedData({ ...parsedData, customerPhone: phoneValue });
+                        if (!confirmPhone || confirmPhone === parsedData.customerPhone) {
+                          setConfirmPhone(phoneValue);
+                        }
+                      }}
+                      placeholder="Phone"
+                      className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={confirmPhone}
+                      onChange={(e) => setConfirmPhone(e.target.value)}
+                      placeholder="Confirm Phone"
+                      className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white outline-none"
+                    />
+                    <input
+                      type="email"
+                      value={parsedData?.customerEmail || ''}
+                      onChange={(e) => setParsedData({ ...parsedData, customerEmail: e.target.value })}
+                      placeholder="Email (Optional)"
+                      className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 focus:bg-white outline-none"
+                    />
+                  </div>
+                  {(userExists || userConflict) && (
+                    <div className="pt-1">
+                      {userExists && !userConflict && (
+                        <div className="flex items-center gap-1.5 text-green-600">
+                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                          <span className="text-[9px] font-bold uppercase">Account Linked</span>
+                        </div>
+                      )}
+                      {userConflict && (
+                        <div className="flex items-center gap-1.5 text-red-600">
+                          <AlertCircle className="w-3 h-3" />
+                          <span className="text-[9px] font-black uppercase">Identity Conflict Detected</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {matches.length === 0 ? (
-                  <div className="py-10 text-center space-y-2">
-                    <div className="w-14 h-14 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto"><AlertCircle className="w-7 h-7" /></div>
-                    <p className="font-bold text-gray-800">No matching items found</p>
-                    <p className="text-xs text-gray-500">Ensure the item name matches exactly or try a different keyword.</p>
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Logistics</h3>
+                    <span className="text-[9px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full font-bold uppercase">Delivery</span>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {matches.map((item, index) => (
-                      <button
-                        key={item.id}
-                        onClick={() => setSelectedItemId(item.id)}
-                        className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all text-left ${selectedItemId === item.id ? 'border-blue-600 bg-blue-50 shadow-sm' : 'border-gray-100 hover:border-gray-200 bg-gray-50/50'}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-7 h-7 rounded-full bg-white border flex items-center justify-center font-black text-xs text-gray-400">{index + 1}</div>
-                          <div>
-                            <p className="font-bold text-sm text-gray-900">{item.name}</p>
-                            <p className="text-xs text-blue-600 font-black">KES {item.price}</p>
-                          </div>
-                        </div>
-                        {selectedItemId === item.id && <CheckCircle2 className="w-5 h-5 text-blue-600" />}
-                      </button>
-                    ))}
+                  <textarea
+                    value={parsedData?.deliveryAddress || ''}
+                    onChange={(e) => setParsedData({ ...parsedData, deliveryAddress: e.target.value })}
+                    className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] resize-none outline-none focus:bg-white transition-all"
+                    placeholder="Delivery Address"
+                  />
+                </div>
+              </div>
+
+              {/* Primary: Items List */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Order Items</h3>
+                  <button 
+                    onClick={() => {
+                      setParsedData({ ...parsedData, items: [...(parsedData?.items || []), { name: '', quantity: 1, matches: [], selectedId: null }] });
+                    }}
+                    className="flex items-center gap-1.5 text-[10px] font-black text-blue-600 uppercase hover:bg-blue-50 px-3 py-1.5 rounded-full transition-all"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" /> Add Item Manually
+                  </button>
+                </div>
+
+                {(!parsedData?.items || parsedData.items.length === 0) && (
+                  <div className="bg-white p-8 rounded-3xl border border-dashed border-gray-200 text-center space-y-3">
+                    <Package className="w-10 h-10 text-gray-300 mx-auto" />
+                    <p className="text-sm font-bold text-gray-500">No items were detected in your text block.</p>
+                    <p className="text-xs text-gray-400">You can try editing the block or add an item manually using the button above.</p>
                   </div>
                 )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {(parsedData?.items || []).map((item, idx) => (
+                    <div key={idx} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm space-y-4 relative group transition-all hover:shadow-md">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-widest">
+                          Item #{idx + 1}
+                        </span>
+                        <button 
+                          onClick={() => {
+                            const newItems = parsedData.items.filter((_, i) => i !== idx);
+                            setParsedData({ ...parsedData, items: newItems });
+                          }}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Search / Item Name</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => {
+                              const newItems = [...parsedData.items];
+                              newItems[idx].name = e.target.value;
+                              setParsedData({ ...parsedData, items: newItems });
+                            }}
+                            className="flex-1 text-sm font-bold bg-gray-50 border border-gray-100 rounded-2xl px-4 py-3 focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all outline-none"
+                            placeholder="e.g. Bhajia"
+                          />
+                          <button 
+                            onClick={() => handleRefreshMatches(idx)}
+                            className="p-3 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all"
+                            title="Search for matches"
+                          >
+                            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between px-1">
+                          <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            {item.matches.length > 0 ? 'Select Variant / Combo' : 'No matches found'}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">Qty:</span>
+                            <input 
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={(e) => {
+                                const newItems = [...parsedData.items];
+                                newItems[idx].quantity = parseInt(e.target.value) || 1;
+                                setParsedData({ ...parsedData, items: newItems });
+                              }}
+                              className="w-12 text-center text-sm font-black bg-gray-100 rounded-lg py-1 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                          {item.matches.map(match => (
+                            <button
+                              key={match.id}
+                              onClick={() => {
+                                const newItems = [...parsedData.items];
+                                newItems[idx].selectedId = match.id;
+                                newItems[idx].type = match.type || type;
+                                setParsedData({ ...parsedData, items: newItems });
+                              }}
+                              className={`p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group ${item.selectedId === match.id ? 'border-blue-600 bg-blue-50 shadow-md ring-4 ring-blue-500/5' : 'border-gray-100 bg-white hover:border-blue-200'}`}
+                            >
+                              {item.selectedId === match.id && (
+                                <div className="absolute top-0 right-0 p-1.5 bg-blue-600 text-white rounded-bl-xl shadow-lg">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                </div>
+                              )}
+                              <p className={`text-sm font-black uppercase tracking-tight leading-tight ${item.selectedId === match.id ? 'text-blue-700' : 'text-gray-900'}`}>{match.name}</p>
+                              <p className="text-xs font-bold text-gray-500 mt-1.5 flex items-center gap-1">
+                                <span className="text-[10px] text-gray-300">PRICE:</span> 
+                                KES {match.price?.toLocaleString()}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                        {!item.selectedId && item.matches.length > 0 && (
+                          <div className="flex items-center gap-2 px-2 py-2 bg-amber-50 rounded-xl">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                            <p className="text-[10px] text-amber-600 font-black uppercase animate-pulse">Please select a match above</p>
+                          </div>
+                        )}
+                        {item.matches.length === 0 && (
+                          <div className="flex items-center gap-2 px-2 py-2 bg-red-50 rounded-xl">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                            <p className="text-[10px] text-red-500 font-black uppercase">Search returned no results</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex flex-col md:flex-row gap-3 pt-2">
-                <button 
-                  onClick={handlePlaceOrder} 
-                  disabled={loading || !selectedItemId} 
-                  className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-bold hover:shadow-lg hover:shadow-green-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 order-2"
-                >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-                  Finalize Order
-                </button>
-                <button 
-                  onClick={() => setStep('input')} 
-                  className="px-8 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all text-sm order-1"
-                >
-                  ← Edit Block
-                </button>
+              {/* Summary Footer */}
+              <div className="bg-gray-900 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl relative overflow-hidden mt-2">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full -translate-y-32 translate-x-32 blur-3xl pointer-events-none" />
+                <div className="space-y-1 relative z-10 text-center md:text-left">
+                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Checkout Summary</h3>
+                  <p className="text-3xl font-black tracking-tight">{(parsedData?.items || []).length} Items Selected</p>
+                  <p className="text-sm text-gray-400 font-medium">Customer: <span className="text-white font-bold">{parsedData?.customerName || parsedData?.customerPhone || '—'}</span></p>
+                </div>
+                
+                <div className="flex items-center gap-4 relative z-10 w-full md:w-auto">
+                  <button onClick={reset} className="flex-1 md:flex-none px-8 py-4 text-sm font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest">Cancel</button>
+                  <button
+                    onClick={handlePlaceOrder}
+                    disabled={loading || (parsedData?.items || []).length === 0 || (parsedData?.items || []).some(i => !i.selectedId) || userConflict}
+                    className="flex-1 md:flex-none px-10 py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/30 disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                    Finalize Order
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -636,7 +737,7 @@ const DirectOrders = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Customer:</span>
-                  <span className="font-bold text-gray-900">{parsedData.customerName || parsedData.customerPhone}</span>
+                  <span className="font-bold text-gray-900">{parsedData?.customerName || parsedData?.customerPhone || '—'}</span>
                 </div>
               </div>
               <div className="flex flex-col gap-3">

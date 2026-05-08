@@ -2380,10 +2380,29 @@ const unassignDeliveryAgent = async (req, res) => {
 const publicTrackOrder = async (req, res) => {
   try {
     const { trackingNumber } = req.params;
-    if (!trackingNumber) return res.status(400).json({ error: 'Tracking / order number is required' });
+    if (!trackingNumber) return res.status(400).json({ error: 'Tracking number, order number, or phone is required' });
 
     const { Op } = require('sequelize');
+    
+    // Support phone number search
+    const cleanQuery = trackingNumber.trim().replace(/[\s\-\(\)]/g, '');
+    let phoneVariations = [cleanQuery];
+    
+    // If it looks like a Kenyan phone number, add variations
+    if (/^(\+?254|0)?[17]\d{8}$/.test(cleanQuery)) {
+        let base = cleanQuery;
+        if (base.startsWith('+254')) base = base.slice(4);
+        else if (base.startsWith('254')) base = base.slice(3);
+        else if (base.startsWith('0')) base = base.slice(1);
+        
+        phoneVariations.push(base); // 712...
+        phoneVariations.push('0' + base); // 0712...
+        phoneVariations.push('254' + base); // 254712...
+        phoneVariations.push('+254' + base); // +254712...
+    }
+
     const include = [
+      { model: User, as: 'user', attributes: ['id', 'name', 'phone'] },
       { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone'] },
       { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
       { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] },
@@ -2393,13 +2412,33 @@ const publicTrackOrder = async (req, res) => {
     const order = await Order.findOne({
       where: {
         [Op.or]: [
-          { trackingNumber },
+          { trackingNumber: trackingNumber },
           { orderNumber: trackingNumber },
-          { checkoutOrderNumber: trackingNumber }
+          { checkoutOrderNumber: trackingNumber },
+          { customerPhone: { [Op.in]: phoneVariations } }
         ]
       },
-      include
+      include,
+      order: [['createdAt', 'DESC']]
     });
+
+    // Fallback: If not found by phone/number, try searching by user phone ONLY if we have an associated user
+    // (This prevents Sequelize from failing on joined where clauses for orders without users)
+    if (!order) {
+       const userOrder = await Order.findOne({
+         include: [
+           ...include,
+           { 
+             model: User, 
+             as: 'user', 
+             where: { phone: { [Op.in]: phoneVariations } },
+             required: true 
+           }
+         ],
+         order: [['createdAt', 'DESC']]
+       });
+       if (userOrder) order = userOrder;
+    }
 
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -2409,10 +2448,47 @@ const publicTrackOrder = async (req, res) => {
 
     const agentPhone = order.deliveryAgent?.phone || order.deliveryAgent?.businessPhone || null;
 
+    const { getDistance } = require('../utils/geoUtils');
+    const { getPlaceAtLocation } = require('../services/locationLearningService');
+    const { DeliveryAgentProfile } = require('../models');
+
+    // Fetch agent profile for current location if assigned
+    let liveTracking = null;
+    if (order.deliveryAgentId) {
+      try {
+        const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: order.deliveryAgentId } });
+        if (agentProfile && agentProfile.currentLocation) {
+          const loc = typeof agentProfile.currentLocation === 'string' ? JSON.parse(agentProfile.currentLocation) : agentProfile.currentLocation;
+          if (loc && loc.lat && loc.lng) {
+            let distance = null;
+            try {
+              distance = getDistance(loc.lat, loc.lng, order.deliveryLat, order.deliveryLng);
+            } catch (e) { console.error('Distance calc error:', e); }
+
+            let currentPlace = null;
+            try {
+              currentPlace = await getPlaceAtLocation(loc.lat, loc.lng);
+            } catch (e) { console.error('Place lookup error:', e); }
+
+            liveTracking = {
+              lat: loc.lat,
+              lng: loc.lng,
+              distance: distance ? distance.toFixed(1) : null,
+              currentPlace: currentPlace,
+              timestamp: loc.timestamp
+            };
+          }
+        }
+      } catch (e) {
+        console.error('Live tracking data fetch error:', e);
+      }
+    }
+
     const payload = {
       orderNumber: order.orderNumber || order.checkoutOrderNumber,
       trackingNumber: order.trackingNumber,
       status: order.status,
+      liveTracking,
       // Metadata for friendly status / progress bar
       order: {
         adminRoutingStrategy: order.adminRoutingStrategy,

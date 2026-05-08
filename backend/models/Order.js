@@ -162,6 +162,10 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Order.afterSave(async (order) => {
+    // Background location learning
+    const { processOrderLocation } = require('../services/locationLearningService');
+    processOrderLocation(order).catch(err => console.error('Location learning failed:', err));
+
     emitRealtimeUpdate('orders', { 
       id: order.id, 
       userId: order.userId, 

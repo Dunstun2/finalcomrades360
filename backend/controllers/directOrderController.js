@@ -3,6 +3,33 @@ const { Op } = require('sequelize');
 const { calculateItemCommission } = require('../utils/commissionUtils');
 const { notifyCustomerOrderPlaced, notifyMarketerOrderPlaced, notifySellerOrderPlaced } = require('../utils/notificationHelpers');
 const { sequelize } = require('../database/database');
+const { normalizeKenyanPhone } = require('../middleware/validators');
+
+/**
+ * Determines if a string is likely an address based on patterns
+ */
+function isLikelyAddress(str) {
+  const trimmed = str.toLowerCase().trim();
+  if (trimmed.length < 2 || trimmed.length > 20) return false;
+  
+  // Pure numbers (like house numbers)
+  if (/^\d+$/.test(trimmed)) return true;
+  
+  // Letter + number like K8, A1, etc.
+  if (/^[a-z]\d+$/.test(trimmed)) return true;
+  
+  // Number + letter
+  if (/^\d+[a-z]+$/.test(trimmed)) return true;
+  
+  // Mixed alphanumeric (contains both letters and numbers)
+  if (/^[a-z\d]+$/.test(trimmed) && /[a-z]/.test(trimmed) && /\d/.test(trimmed)) return true;
+  
+  // Address keywords
+  const keywords = ['nyayo', 'nyao', 'km', 'hostel', 'room', 'house', 'apt', 'unit', 'block', 'estate', 'gate', 'stage', 'shop', 'market', 'plaza', 'building', 'floor', 'hall', 'kili', 'junction', 'road', 'rd', 'street', 'st', 'ave', 'avenue', 'lane', 'ln'];
+  if (keywords.some(k => trimmed.includes(k))) return true;
+  
+  return false;
+}
 
 /**
  * List all direct orders (orderNumber starts with 'DIR-')
@@ -122,10 +149,11 @@ const parseTextBlock = (text) => {
     if (customerPhone.startsWith('0')) customerPhone = '254' + customerPhone.slice(1);
     if (customerPhone.startsWith('7') || customerPhone.startsWith('1')) customerPhone = '254' + customerPhone;
     if (customerPhone.startsWith('+')) customerPhone = customerPhone.slice(1);
+    const normalizedPhone = normalizeKenyanPhone(customerPhone) || normalizeKenyanPhone('+' + customerPhone) || customerPhone;
 
     return {
         candidates,
-        customerPhone,
+        customerPhone: normalizedPhone,
         customerEmail,
         pickupPoint,
         allLines: lines
@@ -135,6 +163,7 @@ const parseTextBlock = (text) => {
 exports.parseDirectOrder = async (req, res) => {
     try {
         const { textBlock, type } = req.body; // type: 'product' or 'fastfood'
+        console.log('[DirectOrder] Received Text Block:', textBlock);
         
         if (!textBlock) {
             return res.status(400).json({ success: false, message: 'Text block is required' });
@@ -148,154 +177,154 @@ exports.parseDirectOrder = async (req, res) => {
             });
         }
 
-        // 1. Find the Item and populate matches
-        let resultMatches = [];
-        let detectedItem = null;
+        // 1. Process all candidates to find matches for each
+        const filteredCandidates = parsed.candidates.filter(c => !isLikelyAddress(c.name));
 
-        for (const candidate of parsed.candidates) {
-            let matches = [];
+        console.log(`[DirectOrder] Filtered ${parsed.candidates.length} candidates to ${filteredCandidates.length} after address filtering`);
+
+        const detectedItems = [];
+
+        for (const candidate of filteredCandidates) {
+            // Search only the selected type table for better accuracy
+            let searchPromises = [];
             if (type === 'fastfood') {
-                matches = await FastFood.findAll({
-                    where: {
-                        [Op.or]: [
-                            { name: { [Op.like]: `%${candidate.name}%` } },
-                            { sizeVariants: { [Op.like]: `%${candidate.name}%` } },
-                            { comboOptions: { [Op.like]: `%${candidate.name}%` } }
-                        ],
-                        reviewStatus: 'approved',
-                        isActive: true
-                    },
-                    limit: 5
-                });
+                searchPromises = [
+                    FastFood.findAll({
+                        where: {
+                            [Op.or]: [
+                                { name: { [Op.like]: `%${candidate.name}%` } },
+                                { sizeVariants: { [Op.like]: `%${candidate.name}%` } }
+                            ],
+                            reviewStatus: 'approved',
+                            isActive: true
+                        },
+                        limit: 10
+                    }),
+                    Promise.resolve([])
+                ];
             } else {
-                matches = await Product.findAll({
-                    where: {
-                        name: { [Op.like]: `%${candidate.name}%` },
-                        reviewStatus: 'approved',
-                        status: 'active'
-                    },
-                    limit: 5
-                });
+                searchPromises = [
+                    Promise.resolve([]),
+                    Product.findAll({
+                        where: {
+                            name: { [Op.like]: `%${candidate.name}%` },
+                            reviewStatus: 'approved',
+                            status: 'active'
+                        },
+                        limit: 10
+                    })
+                ];
             }
 
-            if (matches.length > 0) {
-                detectedItem = candidate;
-                // Process matches into resultMatches
-                if (type === 'fastfood') {
-                    const searchLower = candidate.name.toLowerCase();
-                    for (const m of matches) {
-                        let matchedSomething = false;
-                        if (m.name.toLowerCase().includes(searchLower)) {
-                            resultMatches.push({ id: m.id.toString(), name: m.name, price: m.displayPrice || m.basePrice, sellerId: m.sellerId });
-                            matchedSomething = true;
-                        }
-                        // Variants
+            const [ffMatches, prodMatches] = await Promise.all(searchPromises);
+            const rawMatches = [...ffMatches, ...prodMatches].filter(m => m);
+
+            let itemMatches = [];
+
+            if (rawMatches.length > 0) {
+                const searchLower = candidate.name.toLowerCase();
+                console.log(`[DirectOrder] Candidate "${candidate.name}" found ${rawMatches.length} raw DB results`);
+                
+                for (const m of rawMatches) {
+                    const isFF = !!m.vendor;
+                    const mNameLower = m.name.toLowerCase();
+                    
+                    // Stricter matching: item name must contain the full candidate name (case-insensitive)
+                    // Only match if candidate is at least 2 characters to avoid single letter matches
+                    if (searchLower.length >= 2 && mNameLower.includes(searchLower)) {
+                        itemMatches.push({ 
+                            id: m.id.toString(), 
+                            name: m.name, 
+                            price: m.displayPrice || m.basePrice, 
+                            sellerId: isFF ? m.vendor : m.sellerId,
+                            type: isFF ? 'fastfood' : 'product'
+                        });
+                    }
+
+                    // Variants (FF only) - also require full candidate match
+                    if (isFF && searchLower.length >= 2) {
                         let variants = [];
                         try { variants = typeof m.sizeVariants === 'string' ? JSON.parse(m.sizeVariants) : (m.sizeVariants || []); } catch(e){}
                         for (const v of variants) {
                             const vName = v.name || v.size || '';
-                            if (vName.toLowerCase().includes(searchLower) || `${m.name} ${vName}`.toLowerCase().includes(searchLower)) {
-                                resultMatches.push({ id: `${m.id}_variant_${v.id || vName}`, name: `${m.name} (${vName})`, price: v.discountPrice || v.displayPrice || m.displayPrice, sellerId: m.sellerId });
-                                matchedSomething = true;
+                            if (vName.toLowerCase().includes(searchLower)) {
+                                itemMatches.push({ id: `${m.id}_variant_${v.id || vName}`, name: `${m.name} (${vName})`, price: v.discountPrice || v.displayPrice || m.displayPrice, sellerId: m.vendor, type: 'fastfood' });
                             }
                         }
-                        // Combos
+                        
                         let combos = [];
                         try { combos = typeof m.comboOptions === 'string' ? JSON.parse(m.comboOptions) : (m.comboOptions || []); } catch(e){}
                         for (const c of combos) {
                             const cName = c.name || c.title || '';
-                            if (cName.toLowerCase().includes(searchLower) || `${m.name} ${cName}`.toLowerCase().includes(searchLower)) {
-                                resultMatches.push({ id: `${m.id}_combo_${c.id || cName}`, name: `${m.name} (${cName})`, price: c.discountPrice || c.displayPrice || m.displayPrice, sellerId: m.sellerId });
-                                matchedSomething = true;
+                            if (cName.toLowerCase().includes(searchLower)) {
+                                itemMatches.push({ id: `${m.id}_combo_${c.id || cName}`, name: `${m.name} (${cName})`, price: c.discountPrice || c.displayPrice || m.displayPrice, sellerId: m.vendor, type: 'fastfood' });
                             }
                         }
-                        if (!matchedSomething) resultMatches.push({ id: m.id.toString(), name: m.name, price: m.displayPrice || m.basePrice, sellerId: m.sellerId });
                     }
-                } else {
-                    resultMatches = matches.map(m => ({ id: m.id.toString(), name: m.name, price: m.displayPrice || m.basePrice, sellerId: m.sellerId }));
                 }
-                break; // Found the item, stop searching other candidates
+            }
+
+            // Logic:
+            // 1. If we found system matches, it's definitely an item.
+            // 2. If it has explicit quantity like (2), it's definitely an item.
+            // Since candidates are already filtered to exclude likely addresses, 
+            // we can be more confident in including them if they have matches or explicit qty.
+            if (itemMatches.length > 0 || candidate.original.includes('(') || candidate.original.includes(')')) {
+                detectedItems.push({
+                    name: candidate.name,
+                    quantity: candidate.quantity,
+                    original: candidate.original,
+                    matches: itemMatches,
+                    selectedId: itemMatches.length > 0 ? itemMatches[0].id : null,
+                    type: itemMatches.length > 0 ? itemMatches[0].type : type
+                });
             }
         }
 
-        // 2. Fallback if no matches found
-        if (!detectedItem) {
-            detectedItem = parsed.candidates[0]; // Fallback to first line
-        }
+        console.log(`[DirectOrder] Final detected items: ${detectedItems.length} from ${parsed.candidates.length} candidates`);
 
-        // 3. Smart Heuristic for Customer Name and Address
-        const remaining = parsed.candidates.filter(c => c.original !== detectedItem.original).map(c => c.original);
+        // 3. Smart Heuristic for Customer Name and Address (using remaining lines)
+        const usedLines = new Set(detectedItems.map(di => di.original));
+        const remaining = parsed.candidates.filter(c => !usedLines.has(c.original)).map(c => c.original);
         let customerName = '';
         let addressLines = [];
 
         if (remaining.length > 0) {
-            const ADDRESS_KEYWORDS = ['nyayo', 'km', 'hostel', 'room', 'house', 'apt', 'unit', 'block', 'estate', 'gate', 'stage', 'shop', 'market', 'plaza', 'building', 'floor', 'hall'];
-            
-            // Separate into likely addresses and likely names
-            const likelyAddresses = [];
-            const likelyNames = [];
-
-            remaining.forEach(line => {
-                const lower = line.toLowerCase();
-                // If it contains an address keyword or has a digit (e.g., "Nyayo 4"), it's likely an address
-                if (ADDRESS_KEYWORDS.some(k => lower.includes(k)) || /\d/.test(line)) {
-                    likelyAddresses.push(line);
-                } else {
-                    likelyNames.push(line);
-                }
-            });
-
-            if (likelyNames.length > 0) {
-                // If we have names, the shortest non-numeric line is usually the name
-                likelyNames.sort((a, b) => a.length - b.length);
-                customerName = likelyNames[0];
-                // Rest of names go back to address if not used
-                addressLines = [...likelyAddresses, ...likelyNames.slice(1)];
-            } else if (likelyAddresses.length > 0) {
-                // If we only have addresses, take the first as name (last resort) or leave name empty
-                // In "Bhajia \n Nyayo4", "Nyayo4" is address, Name is empty
-                addressLines = likelyAddresses;
-                customerName = ''; // Better to leave empty than use address as name
-            }
+            // Since customer name is often missing from direct order blocks,
+            // treat all remaining lines as parts of the delivery address
+            addressLines = remaining;
         }
 
         const finalParsed = {
-            itemName: detectedItem.name,
-            quantity: Number(detectedItem.quantity || 1),
+            items: detectedItems,
             customerPhone: parsed.customerPhone,
             customerName: customerName,
             customerEmail: parsed.customerEmail,
             deliveryAddress: addressLines.join(', ') || 'N/A'
         };
 
-        // Check if user exists
-        const user = await User.findOne({ where: { phone: finalParsed.customerPhone } });
+        // Check for conflicts
+        let userByPhone = await User.findOne({ where: { phone: finalParsed.customerPhone } });
+        let userByEmail = null;
+        if (finalParsed.customerEmail) {
+            userByEmail = await User.findOne({ where: { email: finalParsed.customerEmail } });
+        }
 
-        // 271: Try to find a delivery fee match
+        let user = userByPhone || userByEmail;
+        let conflict = (userByPhone && userByEmail && userByPhone.id !== userByEmail.id);
+
+        // Simple Pickup Station Match (only if explicitly prefixed or matches exactly)
         let pickupStation = null;
         if (parsed.pickupPoint) {
-            pickupStation = await PickupStation.findOne({
-                where: {
-                    name: { [Op.like]: `%${parsed.pickupPoint}%` }
-                }
-            });
-        }
-        
-        // Fallback to searching based on delivery address if no specific point matched
-        if (!pickupStation) {
-            pickupStation = await PickupStation.findOne({
-                where: {
-                    name: { [Op.like]: `%${finalParsed.deliveryAddress}%` }
-                }
-            });
+            pickupStation = await PickupStation.findOne({ where: { name: { [Op.like]: `%${parsed.pickupPoint}%` }, isActive: true } });
         }
 
         res.json({
             success: true,
             parsedData: finalParsed,
-            matches: resultMatches,
             userExists: !!user,
-            suggestedPickupStation: pickupStation ? { id: pickupStation.id, name: pickupStation.name } : null
+            userConflict: conflict,
+            suggestedPickupStation: pickupStation ? { id: pickupStation.id, name: pickupStation.name, price: pickupStation.price } : null
         });
 
     } catch (error) {
@@ -305,12 +334,11 @@ exports.parseDirectOrder = async (req, res) => {
 };
 
 exports.placeDirectOrder = async (req, res) => {
+    console.log('[DirectOrder] Place Order Request Received:', req.body);
     const t = await sequelize.transaction();
     try {
         const { 
-            itemId, 
-            type, 
-            quantity, 
+            items, // Array of { itemId, quantity, type }
             customerPhone,
             deliveryAddress,
             pickupStationId,
@@ -319,7 +347,29 @@ exports.placeDirectOrder = async (req, res) => {
             originalTextBlock
         } = req.body;
 
-        if (!customerPhone || customerPhone.length < 5) {
+        const normalizedCustomerPhone = normalizeKenyanPhone(customerPhone) || (customerPhone || '').replace(/\D/g, '');
+        const effectiveCustomerPhone = normalizedCustomerPhone || customerPhone;
+
+        // Group items and ensure they have a type (use global fallback if missing)
+        const globalType = req.body.type || 'fastfood';
+        const finalItems = (Array.isArray(items) ? items : [{ 
+            itemId: req.body.itemId, 
+            type: req.body.type, 
+            quantity: req.body.quantity 
+        }]).map(item => ({
+            ...item,
+            type: item.type || globalType
+        }));
+
+        console.log('[DirectOrder] Final Items to process:', finalItems);
+        console.log('[DirectOrder] Effective customer phone:', effectiveCustomerPhone);
+
+        if (finalItems.length === 0 || !finalItems[0].itemId) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'At least one item is required.' });
+        }
+
+        if (!effectiveCustomerPhone || effectiveCustomerPhone.length < 5) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Valid customer phone number is required.' });
         }
@@ -334,115 +384,141 @@ exports.placeDirectOrder = async (req, res) => {
         const isAdmin = role === 'admin' || role === 'superadmin' || role === 'super_admin' || roles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
         const isMarketer = role === 'marketer' || roles.includes('marketer');
 
-        let actualItemId = itemId;
-        let variantId = null;
-        let comboId = null;
-        
-        if (typeof itemId === 'string') {
-            if (itemId.includes('_variant_')) {
-                [actualItemId, variantId] = itemId.split('_variant_');
-            } else if (itemId.includes('_combo_')) {
-                [actualItemId, comboId] = itemId.split('_combo_');
+        // 2. Validate Items & Calculate Pricing
+        let totalSubtotal = 0;
+        let processedItems = [];
+        let firstSellerId = null;
+        let isFastFoodOrder = false;
+
+        for (const itemRequest of finalItems) {
+            let actualItemId = itemRequest.itemId;
+            let variantId = null;
+            let comboId = null;
+            
+            if (typeof itemRequest.itemId === 'string') {
+                if (itemRequest.itemId.includes('_variant_')) {
+                    [actualItemId, variantId] = itemRequest.itemId.split('_variant_');
+                } else if (itemRequest.itemId.includes('_combo_')) {
+                    [actualItemId, comboId] = itemRequest.itemId.split('_combo_');
+                }
             }
+
+            if (itemRequest.type === 'fastfood') isFastFoodOrder = true;
+            const model = itemRequest.type === 'fastfood' ? FastFood : Product;
+            const dbItem = await model.findByPk(actualItemId);
+
+            if (!dbItem) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: `Item not found: ${actualItemId}` });
+            }
+
+            // Shop Status & Availability Validation
+            if (!dbItem.approved || dbItem.isActive === false) {
+                await t.rollback();
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Item "${dbItem.name}" is currently not available.` 
+                });
+            }
+
+            if (itemRequest.type === 'fastfood') {
+                const { isFastFoodOpen } = require('../utils/fastFoodUtils');
+                if (!isFastFoodOpen(dbItem)) {
+                    await t.rollback();
+                    return res.status(400).json({ success: false, message: `Kitchen for "${dbItem.name}" is CLOSED.` });
+                }
+            }
+
+            let unitPrice = parseFloat(dbItem.discountPrice || dbItem.displayPrice || dbItem.basePrice || 0);
+            let itemName = dbItem.name;
+
+            if (variantId) {
+                let sizeVariants = [];
+                try { sizeVariants = typeof dbItem.sizeVariants === 'string' ? JSON.parse(dbItem.sizeVariants) : (dbItem.sizeVariants || []); } catch(e){}
+                const v = sizeVariants.find(v => (v.id || v.name || v.size || '') == variantId);
+                if (v) {
+                    unitPrice = parseFloat(v.discountPrice || v.displayPrice || v.basePrice || unitPrice);
+                    const vName = v.name || v.size || variantId;
+                    itemName = (vName.length > 5 || vName.toLowerCase().includes(dbItem.name.toLowerCase())) ? vName : `${dbItem.name} (${vName})`;
+                }
+            } else if (comboId && itemRequest.type === 'fastfood') {
+                let comboOptions = [];
+                try { comboOptions = typeof dbItem.comboOptions === 'string' ? JSON.parse(dbItem.comboOptions) : (dbItem.comboOptions || []); } catch(e){}
+                const c = comboOptions.find(c => (c.id || c.name || c.title || '') == comboId);
+                if (c) {
+                    unitPrice = parseFloat(c.discountPrice || c.displayPrice || c.basePrice || unitPrice);
+                    const cName = c.name || c.title || comboId;
+                    itemName = (cName.length > 5 || cName.toLowerCase().includes(dbItem.name.toLowerCase())) ? cName : `${dbItem.name} (${cName})`;
+                }
+            }
+
+            const subtotal = unitPrice * itemRequest.quantity;
+            totalSubtotal += subtotal;
+            const sellerId = itemRequest.type === 'fastfood' ? dbItem.vendor : dbItem.sellerId;
+            if (!firstSellerId) firstSellerId = sellerId;
+
+            const commissionAmount = calculateItemCommission(dbItem, unitPrice, itemRequest.quantity);
+
+            processedItems.push({
+                dbItem,
+                itemId: actualItemId,
+                type: itemRequest.type,
+                variantId,
+                comboId,
+                name: itemName,
+                quantity: itemRequest.quantity,
+                unitPrice,
+                subtotal,
+                commissionAmount,
+                sellerId
+            });
         }
 
-        const model = type === 'fastfood' ? FastFood : Product;
-        const item = await model.findByPk(actualItemId);
+        const sellerId = firstSellerId;
+        const orderStatus = isFastFoodOrder ? 'super_admin_confirmed' : 'order_placed';
+        const now = new Date();
 
-        if (!item) {
-            await t.rollback();
-            return res.status(404).json({ success: false, message: 'Item not found' });
+        // 1. Resolve User & Check for Identity Conflicts
+        const userByPhone = await User.findOne({ where: { phone: effectiveCustomerPhone } });
+        let userByEmail = null;
+        if (customerEmail) {
+            userByEmail = await User.findOne({ where: { email: customerEmail } });
         }
 
-        // --- Shop Status & Availability Validation ---
-        
-        // 1. Check Approval & Active Status
-        if (!item.approved || item.isActive === false) {
+        if (userByPhone && userByEmail && userByPhone.id !== userByEmail.id) {
             await t.rollback();
             return res.status(400).json({ 
                 success: false, 
-                message: `This ${type === 'fastfood' ? 'meal' : 'product'} is currently not available for orders (Inactive or Pending Approval).` 
+                message: `Identity Conflict: Phone (${effectiveCustomerPhone}) belongs to ${userByPhone.name}, but Email (${customerEmail}) belongs to ${userByEmail.name}.` 
             });
         }
 
-        // 2. Check Operating Hours for Fast Food
-        if (type === 'fastfood') {
-            const { isFastFoodOpen } = require('../utils/fastFoodUtils');
-            if (!isFastFoodOpen(item)) {
-                await t.rollback();
-                const from = item.availableFrom || '08:00';
-                const to = item.availableTo || '22:00';
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `Cannot place order. This kitchen is currently CLOSED. Regular hours: ${from} to ${to}.` 
-                });
-            }
-        }
-
-        // 1. Resolve User
-        let user = await User.findOne({ where: { phone: customerPhone } });
+        const user = userByPhone || userByEmail;
 
         // For Direct Orders placed by Admins or Marketers, we bypass the OTP verification
         // as they are using the "Confirm Phone Number" field to ensure accuracy.
-        if (!isAdmin && !isMarketer) {
+        const isSeller = role === 'seller' || roles.includes('seller');
+
+        if (!isAdmin && !isMarketer && !isSeller) {
             await t.rollback();
             return res.status(403).json({ 
                 success: false, 
-                message: 'Unauthorized. Only Admins and Marketers can place direct orders.' 
+                message: 'Unauthorized. Only Admins, Marketers, and Sellers can place direct orders.' 
             });
         }
         
-        // 2. Calculate Pricing
-        let unitPrice = parseFloat(item.discountPrice || item.displayPrice || item.basePrice || 0);
-        let itemName = item.name;
-
-        if (variantId) {
-            let sizeVariants = [];
-            try { sizeVariants = typeof item.sizeVariants === 'string' ? JSON.parse(item.sizeVariants) : (item.sizeVariants || []); } catch(e){}
-            const v = sizeVariants.find(v => (v.id || v.name || v.size || '') == variantId);
-            if (v) {
-                unitPrice = parseFloat(v.discountPrice || v.displayPrice || v.basePrice || unitPrice);
-                const vName = v.name || v.size || variantId;
-                // Use just the variant name if it's descriptive, otherwise combine
-                itemName = (vName.length > 5 || vName.toLowerCase().includes(item.name.toLowerCase())) ? vName : `${item.name} (${vName})`;
-            }
-        } else if (comboId && type === 'fastfood') {
-            let comboOptions = [];
-            try { comboOptions = typeof item.comboOptions === 'string' ? JSON.parse(item.comboOptions) : (item.comboOptions || []); } catch(e){}
-            const c = comboOptions.find(c => (c.id || c.name || c.title || '') == comboId);
-            if (c) {
-                unitPrice = parseFloat(c.discountPrice || c.displayPrice || c.basePrice || unitPrice);
-                const cName = c.name || c.title || comboId;
-                // Use just the combo name if it's descriptive
-                itemName = (cName.length > 5 || cName.toLowerCase().includes(item.name.toLowerCase())) ? cName : `${item.name} (${cName})`;
-            }
-        }
-
-        const subtotal = unitPrice * quantity;
-        const sellerId = type === 'fastfood' ? item.vendor : item.sellerId;
-        
-        // Delivery fee resolution priority:
-        // 1. If a pickup station was matched → use station.price (PickupStation field is 'price' not 'deliveryFee')
-        // 2. Otherwise → use the item's own deliveryFee (set by superadmin during listing)
-        // 3. Fallback → platform config 'default_delivery_fee'
-        // 4. Last resort → 0 (never 100 hardcoded)
+        // 2. Resolve Delivery Fee
         let deliveryFee = 0;
         if (pickupStationId) {
             const station = await PickupStation.findByPk(pickupStationId);
             deliveryFee = station ? parseFloat(station.price || 0) : 0;
         } else {
-            // Use the item's own delivery fee if set by superadmin
-            const itemDeliveryFee = parseFloat(item.deliveryFee);
-            if (!isNaN(itemDeliveryFee) && itemDeliveryFee >= 0) {
-                deliveryFee = itemDeliveryFee;
-            } else {
-                // Fallback to platform default delivery fee
-                const config = await PlatformConfig.findOne({ where: { key: 'default_delivery_fee' } });
-                deliveryFee = config ? parseFloat(config.value) : 0;
-            }
+            // Fallback to platform default delivery fee
+            const config = await PlatformConfig.findOne({ where: { key: 'default_delivery_fee' } });
+            deliveryFee = config ? parseFloat(config.value) : 0;
         }
 
-        const total = subtotal + deliveryFee;
+        const total = totalSubtotal + deliveryFee;
 
         // 3. Create Order
         const orderNumber = `DIR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -451,14 +527,10 @@ exports.placeDirectOrder = async (req, res) => {
         // the super-admin confirmation step — the seller still confirms manually.
         // Status: super_admin_confirmed → seller clicks confirm → awaiting_delivery_assignment.
         // For product direct orders the standard flow applies (order_placed → admin routes → seller confirms).
-        const isFastFoodOrder = type === 'fastfood';
-        const orderStatus = isFastFoodOrder ? 'super_admin_confirmed' : 'order_placed';
-        const now = new Date();
-
         const order = await Order.create({
             userId: user ? user.id : null,
-            customerName: customerName || (user ? user.name : customerPhone),
-            customerPhone: customerPhone,
+            customerName: customerName || (user ? user.name : effectiveCustomerPhone),
+            customerPhone: effectiveCustomerPhone,
             customerEmail: customerEmail || (user ? user.email : null),
             orderNumber: orderNumber,
             total: total,
@@ -467,91 +539,93 @@ exports.placeDirectOrder = async (req, res) => {
             paymentMethod: 'Cash on Delivery',
             paymentType: 'cash_on_delivery',
             status: orderStatus,
-            // Auto super-admin confirmation for FastFood (admin placed it, no manual review needed).
-            // Seller still needs to manually confirm the order.
             superAdminConfirmed: isFastFoodOrder ? true : false,
             superAdminConfirmedAt: isFastFoodOrder ? now : null,
             superAdminConfirmedBy: isFastFoodOrder ? req.user.id : null,
-            // Pre-set FastFood routing strategy so seller confirmation can proceed immediately.
             adminRoutingStrategy: isFastFoodOrder ? 'direct_delivery' : null,
             deliveryType: isFastFoodOrder ? 'seller_to_customer' : null,
-            sellerId: sellerId,
-            marketerId: req.user.id, // Set for both Admin and Marketer for referral tracking
-            isMarketingOrder: !isAdmin && isMarketer, // Only true for marketers for payout purposes
+            sellerId: firstSellerId,
+            marketerId: req.user.id,
+            isMarketingOrder: !isAdmin && isMarketer,
             pickupStationId: pickupStationId || null,
             originalTextBlock: originalTextBlock || null,
-            items: 1
+            items: processedItems.length
         }, { transaction: t });
 
-        // 4. Handle Commission Calculation
-        const commissionAmount = calculateItemCommission(item, unitPrice, quantity);
-
-        // 5. Create OrderItem
-        await OrderItem.create({
-            orderId: order.id,
-            productId: type === 'product' ? item.id : null,
-            fastFoodId: type === 'fastfood' ? actualItemId : null,
-            variantId: variantId,
-            comboId: comboId,
-            name: itemName,
-            quantity: quantity,
-            price: unitPrice,
-            total: subtotal,
-            commissionAmount: commissionAmount, // Essential for dashboard display
-            sellerId: sellerId
-        }, { transaction: t });
-
-        // 6. Record Commission in Ledger if Marketer
-        if (isMarketer && commissionAmount > 0) {
-            await Commission.create({
-                marketerId: req.user.id,
+        // 4. Create OrderItems & Handle Commissions
+        let totalCommission = 0;
+        for (const pi of processedItems) {
+            console.log(`[DirectOrder] Creating OrderItem for ${pi.name} (Seller: ${pi.sellerId})`);
+            await OrderItem.create({
                 orderId: order.id,
-                productId: type === 'product' ? item.id : null,
-                fastFoodId: type === 'fastfood' ? actualItemId : null,
-                saleAmount: subtotal,
-                commissionRate: parseFloat(item.marketingCommission || 0),
-                commissionAmount: commissionAmount,
-                status: 'pending',
-                referralCode: req.user.referralCode || 'DIRECT',
-                commissionType: 'full_100'
+                productId: pi.type === 'product' ? pi.itemId : null,
+                fastFoodId: pi.type === 'fastfood' ? pi.itemId : null,
+                variantId: pi.variantId,
+                comboId: pi.comboId,
+                name: pi.name,
+                quantity: pi.quantity,
+                price: pi.unitPrice,
+                total: pi.subtotal,
+                commissionAmount: pi.commissionAmount,
+                sellerId: pi.sellerId
             }, { transaction: t });
-            
-            await order.update({ totalCommission: commissionAmount }, { transaction: t });
+
+            totalCommission += pi.commissionAmount;
+
+            if (isMarketer && pi.commissionAmount > 0) {
+                await Commission.create({
+                    marketerId: req.user.id,
+                    orderId: order.id,
+                    productId: pi.type === 'product' ? pi.itemId : null,
+                    fastFoodId: pi.type === 'fastfood' ? pi.itemId : null,
+                    saleAmount: pi.subtotal,
+                    commissionRate: parseFloat(pi.dbItem.marketingCommission || 0),
+                    commissionAmount: pi.commissionAmount,
+                    status: 'pending',
+                    referralCode: req.user.referralCode || 'DIRECT',
+                    sellerId: pi.sellerId
+                }, { transaction: t });
+            }
         }
 
+        // Update order with final commission
+        order.totalCommission = totalCommission;
+        await order.save({ transaction: t });
+
         await t.commit();
+        console.log(`[DirectOrder] Order ${orderNumber} placed successfully with ${processedItems.length} items.`);
 
-        // Optional: Notify customer, seller, and marketer
+        // 5. Send Notifications (Async)
         try {
-            const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : null;
-            const itemsList = `• ${itemName} x${quantity}`;
-            const refCode = req.user.referralCode || 'PROMO';
-
+            const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : { phone: customerPhone, name: customerName };
+            const fullItemsList = processedItems.map(pi => `• ${pi.name} x${pi.quantity}`).join('\n');
+            
             console.log(`[DirectOrder] Notifying customer for ${order.orderNumber}`);
-            // 1. Notify Customer
-            await notifyCustomerOrderPlaced(order, customerObj, 1, itemsList, refCode);
+            await notifyCustomerOrderPlaced(order, customerObj, processedItems.length, fullItemsList, req.user.referralCode || null);
 
-            console.log(`[DirectOrder] Checking seller notification for ${order.orderNumber}. sellerId: ${sellerId}`);
-            // 2. Notify Seller
-            if (sellerId) {
+            // Group items by seller for individual seller notifications
+            const itemsBySeller = processedItems.reduce((acc, item) => {
+                if (!acc[item.sellerId]) acc[item.sellerId] = { items: [], total: 0 };
+                acc[item.sellerId].items.push(`• ${item.name} x${item.quantity}`);
+                acc[item.sellerId].total += item.subtotal;
+                return acc;
+            }, {});
+
+            for (const [sellerId, data] of Object.entries(itemsBySeller)) {
                 const seller = await User.findByPk(sellerId);
                 if (seller) {
-                    console.log(`[DirectOrder] Notifying seller ${seller.id} for ${order.orderNumber}`);
-                    await notifySellerOrderPlaced(order, seller, subtotal.toLocaleString(), itemsList);
-                } else {
-                    console.log(`[DirectOrder] Seller with ID ${sellerId} not found`);
+                    console.log(`[DirectOrder] Notifying seller ${sellerId} for ${order.orderNumber}`);
+                    const sellerItemsList = data.items.join('\n');
+                    await notifySellerOrderPlaced(order, seller, data.total.toLocaleString(), sellerItemsList);
                 }
             }
 
-            console.log(`[DirectOrder] Checking marketer notification for ${order.orderNumber}. isMarketer: ${isMarketer}, isAdmin: ${isAdmin}`);
-            // 3. Notify Marketer (only if they placed it, not admin)
             if (isMarketer && !isAdmin) {
                 console.log(`[DirectOrder] Notifying marketer ${req.user.id} for ${order.orderNumber}`);
-                await notifyMarketerOrderPlaced(order, req.user, customerName, order.totalCommission);
+                await notifyMarketerOrderPlaced(order, req.user, customerName, totalCommission);
             }
         } catch (err) {
-            console.warn('[directOrderController] Notification failed:', err.message);
-            console.error(err);
+            console.warn('[DirectOrder] Notification dispatch failed:', err.message);
         }
 
         res.json({

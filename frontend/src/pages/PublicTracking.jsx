@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import DeliveryTrackingMap from '../components/DeliveryTrackingMap';
 import { getProductMainImage, resolveImageUrl, FALLBACK_IMAGE } from '../utils/imageUtils';
-import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft, FaRoute, FaUser, FaBox } from 'react-icons/fa';
+import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft, FaRoute, FaUser, FaBox, FaPhone, FaWhatsapp } from 'react-icons/fa';
 
 const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   if (!rawStatus) return 'Processing';
@@ -10,6 +11,8 @@ const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   
   // Use the order metadata if available (now provided by backend)
   const orderObj = trackingObj?.order;
+  const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+  const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
   const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || 
                      orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || 
                      orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
@@ -17,29 +20,12 @@ const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   if (['delivered', 'completed'].includes(s)) return 'Delivered';
   if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
 
-  if (isFastFood) {
-    if (s === 'super_admin_confirmed') return 'Preparing';
-    if (['in_transit', 'shipped', 'out_for_delivery'].includes(s)) return 'Out for Delivery';
-  }
-
-  // Determine if this is the final transit leg
-  let isTerminalLeg = false;
-  if (orderObj) {
-    const tasks = Array.isArray(orderObj.deliveryTasks) ? orderObj.deliveryTasks : [];
-    isTerminalLeg = tasks.some(task => {
-        const isToCustomer = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer'].includes(task.deliveryType);
-        const isToStation = orderObj.deliveryMethod === 'pick_station' && ['seller_to_pickup_station', 'warehouse_to_pickup_station'].includes(task.deliveryType);
-        return (isToCustomer || isToStation) && task.status === 'in_progress';
-    });
-  }
-  
-  if (isTerminalLeg || s === 'in_transit' || (['in_transit', 'shipped', 'out_for_delivery'].includes(s) && isTerminalLeg)) {
-      return 'In Transit';
-  }
+  if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
+  if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
 
   if (s === 'order_placed') return 'Order Placed';
   if (s === 'ready_for_pickup') return 'Ready for Pickup';
-  if (['at_warehouse', 'en_route_to_warehouse', 'shipped', 'in_transit'].includes(s)) return 'Shipped';
+  if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
   
   return 'Processing';
 };
@@ -74,21 +60,38 @@ export default function PublicTracking() {
     }
   }, [urlParam]);
 
+  // Auto-refresh tracking for active orders (every 20s)
+  useEffect(() => {
+    let interval = null;
+    const activeStatuses = ['order_placed', 'seller_confirmed', 'super_admin_confirmed', 'processing', 'shipped', 'in_transit', 'out_for_delivery', 'ready_for_pickup'];
+    
+    if (tracking && activeStatuses.includes(tracking.status?.toLowerCase().replace(/ /g, '_'))) {
+      interval = setInterval(() => {
+        doSearch(urlParam || query);
+      }, 20000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [tracking?.status, urlParam, query]);
+
   const doSearch = async (q) => {
     const term = (q || query).trim();
     if (!term) return;
-    setLoading(true);
+    // Only show full-page loading on first search
+    if (!tracking) setLoading(true);
     setError(null);
-    setTracking(null);
     try {
       const res = await api.get(`/orders/public-track/${encodeURIComponent(term)}`);
       setTracking(res.data);
     } catch (err) {
       if (err.response?.status === 404) {
-        setError('No order found with that tracking number or order number. Please double-check and try again.');
+        setError('No order found with that tracking number, order number, or phone number. Please double-check and try again.');
       } else {
         setError('Something went wrong. Please try again in a moment.');
       }
+      setTracking(null);
     } finally {
       setLoading(false);
     }
@@ -120,14 +123,14 @@ export default function PublicTracking() {
         {/* Search Box */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
           <p className="text-gray-500 text-sm mb-5 text-center">
-            Enter your <strong>tracking number</strong> (e.g. <code className="bg-gray-100 px-1 rounded">TRK-…</code>) or your <strong>order number</strong>.
+            Enter your <strong>tracking number</strong>, <strong>order number</strong>, or the <strong>phone number</strong> used when ordering.
           </p>
           <form onSubmit={handleSubmit} className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="TRK-1774040712186-686 or ORD-..."
+              placeholder="e.g. TRK-..., ORD-..., or 0712..."
               className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none transition"
             />
             <button
@@ -149,6 +152,22 @@ export default function PublicTracking() {
         {/* Results */}
         {tracking && (
           <div className="space-y-5 animate-fadeIn">
+            {/* Live Map */}
+            {/* Live Map - Visible for all statuses except cancelled/failed */}
+            {!['cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (
+              <div className="rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+                 <DeliveryTrackingMap
+                    status={tracking.status}
+                    pickupLocation={tracking.pickup}
+                    dropoffLocation={tracking.destination}
+                    agentLocation={tracking.liveTracking}
+                    pois={{ 
+                      warehouse: tracking.pickup?.lat ? tracking.pickup : null, 
+                      pickupStation: tracking.destination?.lat ? tracking.destination : null 
+                    }}
+                  />
+              </div>
+            )}
             {/* Status Card */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -168,13 +187,7 @@ export default function PublicTracking() {
               {/* Timeline progress bar */}
               {(() => {
                 const orderObj = tracking.order;
-                const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || 
-                                   orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || 
-                                   orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
-                
-                const steps = isFastFood
-                  ? ['Order Placed', 'Preparing', 'Out for Delivery', 'Delivered']
-                  : ['Order Placed', 'Processing', 'Shipped', 'In Transit', 'Delivered'];
+                const steps = ['Order Placed', 'Preparing', 'In Transit', 'Delivered'];
                 const idx = steps.indexOf(displayStatus);
                 return (
                   <div className="mt-4">
@@ -213,17 +226,91 @@ export default function PublicTracking() {
             {/* Delivery Agent */}
             {tracking.deliveryAgent && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                  <FaUser className="text-blue-500" /> Delivery Agent
-                </h3>
-                <div className="space-y-1 text-sm text-gray-700">
-                  <p><strong>Name:</strong> {tracking.deliveryAgent.name}</p>
-                  {tracking.deliveryAgent.phone && (
-                    <p><strong>Phone:</strong>{' '}
-                      <a href={`tel:${tracking.deliveryAgent.phone}`} className="text-blue-600 hover:underline">
-                        {tracking.deliveryAgent.phone}
-                      </a>
-                    </p>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <FaUser className="text-blue-500" /> Delivery Agent
+                  </h3>
+                  <div className="flex gap-2">
+                    {tracking.deliveryAgent.phone && (
+                      <>
+                        <a 
+                          href={`tel:${tracking.deliveryAgent.phone}`}
+                          className="p-2 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors shadow-sm border border-green-200"
+                          title="Call Agent"
+                        >
+                          <FaPhone className="w-4 h-4" />
+                        </a>
+                        <a 
+                          href={`https://wa.me/${tracking.deliveryAgent.phone.replace('+', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors shadow-sm border border-emerald-200"
+                          title="WhatsApp Agent"
+                        >
+                          <FaWhatsapp className="w-4 h-4" />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
+                      <FaUser className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-bold text-gray-900">{tracking.deliveryAgent.name}</p>
+                      <p className="text-xs text-gray-500 font-medium">{tracking.deliveryAgent.phone}</p>
+                    </div>
+                  </div>
+
+                  {tracking.deliveryAgent ? (
+                    tracking.liveTracking ? (
+                      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase tracking-wider text-blue-400 font-bold">Live Status</span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                            <span className="text-[10px] font-bold text-blue-600">LIVE</span>
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                            <FaTruck className="text-blue-500 w-5 h-5" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-gray-900 leading-tight">
+                              {tracking.liveTracking.currentPlace ? (
+                                <>Agent currently at <span className="text-blue-600">{tracking.liveTracking.currentPlace}</span></>
+                              ) : (
+                                <>Agent is on the move</>
+                              )}
+                            </p>
+                            {tracking.liveTracking.distance && (
+                              <p className="text-[11px] text-gray-500 font-medium">
+                                {tracking.liveTracking.distance} km away from your location
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center gap-3">
+                        <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                          <FaClock className="text-gray-400 w-4 h-4 animate-pulse" />
+                        </div>
+                        <p className="text-[11px] font-medium text-gray-500">Agent assigned. Waiting for them to start the journey.</p>
+                      </div>
+                    )
+                  ) : (
+                    <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 flex items-center gap-3">
+                      <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                        <FaUser className="text-orange-400 w-4 h-4 animate-pulse" />
+                      </div>
+                      <p className="text-[11px] font-medium text-orange-600">Finding the best delivery agent for your order...</p>
+                    </div>
                   )}
                 </div>
               </div>

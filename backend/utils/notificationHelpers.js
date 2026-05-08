@@ -282,7 +282,19 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
     const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
     const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
 
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
+    // For guest customers (no account) on direct/marketing orders, include a signup link
+    // pre-filled with the marketer's referral code so they can register and claim this order.
+    const isGuestCustomer = !order.userId && !customer?.id;
+    const marketerRefCode = referralCode || order.marketerReferralCode;
+    const signupUrl = isGuestCustomer && marketerRefCode
+        ? `${siteUrl}/register?ref=${marketerRefCode}`
+        : isGuestCustomer
+        ? `${siteUrl}/register`
+        : null;
+
+    const defaultTemplate = signupUrl
+        ? `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\n🔍 Track your order: {trackUrl}\n\n👤 Don't have an account yet? Create one to manage all your orders:\n{signupUrl}`
+        : `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
 
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
@@ -296,6 +308,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         deliveryMethod,
         deliveryLocation,
         trackUrl,
+        signupUrl,
         phone: phone,
         email: customer?.email || order.customerEmail,
         title: 'Order Placed 🛍️',

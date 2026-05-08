@@ -65,6 +65,7 @@ const SiteVisit = require('./SiteVisit')(sequelize, Sequelize.DataTypes);
 const AdminAuditLog = require('./AdminAuditLog')(sequelize, Sequelize.DataTypes);
 const BlockedIP = require('./BlockedIP')(sequelize, Sequelize.DataTypes);
 const VerifiedContact = require('./VerifiedContact')(sequelize, Sequelize.DataTypes);
+const KnownLocation = require('./KnownLocation')(sequelize, Sequelize.DataTypes);
 
 
 const models = {
@@ -131,7 +132,8 @@ const models = {
   SupportMessage,
   SiteVisit,
   BlockedIP,
-  VerifiedContact
+  VerifiedContact,
+  KnownLocation
 };
 
 // Set up associations
