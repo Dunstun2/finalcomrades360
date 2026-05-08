@@ -124,28 +124,25 @@ class FastFoodService {
     try {
       if (!fastFood) return { isAvailable: false, state: 'ERROR', reason: 'No data' };
 
-      // 1. Platform & Manual Override      // Check if item is suspended (using isActive instead of status)
-      if (!fastFood.isActive) {
-        return { isAvailable: false, reason: 'This item has been suspended' };
-      }
-
+      // 1. Suspended check — only block when explicitly false, NOT when undefined/null
       if (fastFood.isActive === false) {
-        return { isAvailable: false, state: 'HIDDEN', reason: 'Hidden from menu' };
+        return { isAvailable: false, state: 'HIDDEN', reason: 'This item has been suspended' };
       }
 
-      // 2. Main opening logic via utility
-      const isOpen = isFastFoodOpen(fastFood);
+      // 2. Manual override — checked BEFORE time-schedule so force-OPEN/CLOSED always wins
       const mode = fastFood.availabilityMode || 'AUTO';
-
-      if (mode === 'CLOSED') {
-        return { isAvailable: false, state: 'CLOSED', reason: 'CLOSED' };
-      }
 
       if (mode === 'OPEN') {
         return { isAvailable: true, state: 'OPEN', reason: 'Manually opened by seller' };
       }
 
-      // 3. AUTO Mode results
+      if (mode === 'CLOSED') {
+        return { isAvailable: false, state: 'CLOSED', reason: 'CLOSED' };
+      }
+
+      // 3. AUTO Mode: check schedule
+      const isOpen = isFastFoodOpen(fastFood);
+
       if (isOpen) {
         // Additional check: daily limit
         if (fastFood.dailyLimit > 0 && fastFood.todayOrderCount >= fastFood.dailyLimit) {
