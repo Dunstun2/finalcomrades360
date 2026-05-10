@@ -62,7 +62,8 @@ const {
   verifyAdminPassword,
   getPlatformWalletDetails,
   withdrawPlatformFunds,
-  getAdminCreatedItems
+  getAdminCreatedItems,
+  getItemPerformanceAnalytics
 } = require('../controllers/adminController');
 
 const { auth, adminOnly, adminOrLogistics, adminOrLogisticsOrSeller, adminOrFinance } = require('../middleware/auth');
@@ -170,6 +171,7 @@ router.post('/inventory/bulk-update-stock', adminOrLogistics, bulkUpdateStock);
 // Product analytics
 router.get('/analytics/products', adminOnly, getProductAnalytics);
 router.get('/analytics/top-products', adminOnly, getTopPerformingProducts);
+router.get('/analytics/item-performance', adminOnly, getItemPerformanceAnalytics);
 router.get('/orders/analytics', adminOnly, getOrderAnalytics);
 router.get('/products/:productId/performance', adminOnly, getProductPerformanceMetrics);
 

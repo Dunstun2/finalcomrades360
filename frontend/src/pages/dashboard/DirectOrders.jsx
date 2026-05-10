@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import api, { orderApi } from '../../utils/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import api, { orderApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { normalizeKenyanPhone } from '../../utils/validation';
 import { 
@@ -90,6 +90,27 @@ const OrderRow = ({ order, showMarketer = false }) => {
             <div>
               <p className="text-gray-400 font-bold uppercase tracking-wider text-[9px] mb-0.5">Delivery Address</p>
               <p className="font-semibold text-gray-800">{order.deliveryAddress || '—'}</p>
+            </div>
+            <div>
+              <p className="text-gray-400 font-bold uppercase tracking-wider text-[9px] mb-0.5">Logistics & Agent</p>
+              {order.deliveryTasks && order.deliveryTasks.length > 0 ? (
+                <div className="space-y-1">
+                  {order.deliveryTasks.map((t, idx) => (
+                    <div key={idx} className="flex flex-col">
+                      <span className="font-semibold text-blue-600 uppercase text-[10px]">
+                        {t.status} · {t.deliveryType}
+                      </span>
+                      {t.deliveryAgent ? (
+                        <span className="text-gray-700 font-bold">{t.deliveryAgent.name}</span>
+                      ) : (
+                        <span className="text-gray-400 italic">Unassigned</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 italic">No task created</p>
+              )}
             </div>
             <div>
               <p className="text-gray-400 font-bold uppercase tracking-wider text-[9px] mb-0.5">
@@ -211,6 +232,8 @@ const DirectOrders = () => {
   const [selectedPickupStationId, setSelectedPickupStationId] = useState(null);
   const [pickupStations, setPickupStations] = useState([]);
   const [orderResult, setOrderResult] = useState(null);
+  const [addressError, setAddressError] = useState(false);
+  const submittingRef = useRef(false);
 
   // --- Manage Orders State ---
   const [orders, setOrders] = useState([]);
@@ -246,14 +269,16 @@ const DirectOrders = () => {
   }, [canPlace]);
 
   const handleParse = async () => {
+    console.log('[DirectOrder] handleParse triggered. TextBlock length:', textBlock?.length);
     if (!textBlock.trim()) {
       toast({ title: 'Error', description: 'Please paste the order text block.', variant: 'destructive' });
       return;
     }
     setLoading(true);
     try {
+      console.log('[DirectOrder] Sending parse request to backend...');
       const { data } = await orderApi.parseDirect({ textBlock, type });
-      console.log('[DirectOrder] Backend Response:', data);
+      console.log('[DirectOrder] Backend Response received:', data);
       
       if (data.success) {
         setParsedData(data.parsedData);
@@ -277,9 +302,14 @@ const DirectOrders = () => {
             variant: 'warning'
           });
         }
+      } else {
+        console.warn('[DirectOrder] Parse failed but returned 200:', data);
+        toast({ title: 'Parsing Failed', description: data.message || 'Server returned an unsuccessful status.', variant: 'destructive' });
       }
     } catch (error) {
-      toast({ title: 'Parsing Failed', description: error.response?.data?.message || 'Check format: Item(Qty)\nPhone\nAddress', variant: 'destructive' });
+      console.error('[DirectOrder] Parsing error caught:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Check format: Item(Qty)\nPhone\nAddress';
+      toast({ title: 'Parsing Failed', description: errorMsg, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -312,6 +342,10 @@ const DirectOrders = () => {
   };
 
   const handlePlaceOrder = async () => {
+    // Prevent double-invocation (double-click before loading state propagates)
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     console.log('[DirectOrder] Finalizing Order. Items:', parsedData.items);
     
     const unselectedIdx = parsedData.items.findIndex(i => !i.selectedId);
@@ -322,6 +356,7 @@ const DirectOrders = () => {
         description: `Item #${unselectedIdx + 1} (${parsedData.items[unselectedIdx].name}) has no match selected.`, 
         variant: 'destructive' 
       });
+      submittingRef.current = false;
       return;
     }
 
@@ -332,17 +367,23 @@ const DirectOrders = () => {
 
     if (!normPhone || normPhone.length < 9) {
       toast({ title: 'Phone Number Missing', description: 'The phone number was not detected or is too short.', variant: 'destructive' });
+      submittingRef.current = false;
       return;
     }
     if (confirmPhone && normPhone !== normConfirm) {
       toast({ title: 'Phone Mismatch', description: 'The phone number and its confirmation do not match.', variant: 'destructive' });
+      submittingRef.current = false;
       return;
     }
-    if (!parsedData?.deliveryAddress || parsedData?.deliveryAddress === 'N/A' || parsedData?.deliveryAddress.trim().length < 3) {
-      toast({ title: 'Delivery Address Missing', description: 'Please provide a valid delivery address.', variant: 'destructive' });
+    const addressMissing = !parsedData?.deliveryAddress || parsedData?.deliveryAddress === 'N/A' || parsedData?.deliveryAddress.trim().length < 3;
+    if (addressMissing) {
+      setAddressError(true);
+      toast({ title: 'Delivery Address Missing', description: 'Please type the delivery address in the field highlighted below.', variant: 'destructive' });
+      submittingRef.current = false;
       return;
     }
 
+    setAddressError(false);
     setLoading(true);
     try {
       const payload = {
@@ -375,6 +416,7 @@ const DirectOrders = () => {
       toast({ title: 'Order Failed', description: error.response?.data?.message || 'Could not place order.', variant: 'destructive' });
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   };
 
@@ -385,6 +427,8 @@ const DirectOrders = () => {
     setIsPhoneVerified(true);
     setConfirmPhone('');
     setOrderResult(null);
+    setAddressError(false);
+    submittingRef.current = false;
   };
 
   const allFilteredOrders = orders.filter(o =>
@@ -561,11 +605,21 @@ const DirectOrders = () => {
                     <span className="text-[9px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full font-bold uppercase">Delivery</span>
                   </div>
                   <textarea
-                    value={parsedData?.deliveryAddress || ''}
-                    onChange={(e) => setParsedData({ ...parsedData, deliveryAddress: e.target.value })}
-                    className="w-full text-sm font-bold bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 h-[42px] resize-none outline-none focus:bg-white transition-all"
-                    placeholder="Delivery Address"
+                    value={parsedData?.deliveryAddress === 'N/A' ? '' : (parsedData?.deliveryAddress || '')}
+                    onChange={(e) => {
+                      setAddressError(false);
+                      setParsedData({ ...parsedData, deliveryAddress: e.target.value });
+                    }}
+                    className={`w-full text-sm font-bold bg-gray-50 border rounded-lg px-3 py-2 h-[42px] resize-none outline-none focus:bg-white transition-all ${
+                      addressError ? 'border-red-400 ring-2 ring-red-400/20 bg-red-50' : 'border-gray-200'
+                    }`}
+                    placeholder="Type delivery address here (required)"
                   />
+                  {addressError && (
+                    <p className="text-[10px] font-black text-red-500 uppercase tracking-wide flex items-center gap-1 mt-0.5">
+                      <AlertCircle className="w-3 h-3" /> Delivery address is required
+                    </p>
+                  )}
                 </div>
               </div>
 

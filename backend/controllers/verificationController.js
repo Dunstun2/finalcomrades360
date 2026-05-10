@@ -145,10 +145,11 @@ const requestPhoneVerificationOtp = async (req, res, next) => {
 
         // Send OTP via SMS
         console.log(`[Verification] 🚀 Sending OTP ${otp} to ${normalizedPhone}`);
+        const cleanOtp = String(otp).trim();
         const message = await getDynamicMessage(
             'phoneVerification',
-            `Your Comrades360 verification code is: ${otp}. Valid for 10 minutes.\n\n@comrades360.shop #${otp}`,
-            { otp }
+            `Your Comrades360 verification code is: ${cleanOtp}. Valid for 10 minutes.\n\n@comrades360.shop #${cleanOtp}`,
+            { otp: cleanOtp }
         );
         await sendMessage(
             normalizedPhone,
@@ -244,10 +245,11 @@ const requestGuestPhoneOtp = async (req, res, next) => {
 
         // Send OTP via chosen method
         console.log(`[GuestVerification] 🚀 Sending OTP ${otp} to ${normalizedPhone} via ${method}`);
+        const cleanOtp = String(otp).trim();
         const message = await getDynamicMessage(
             'guestCheckoutOtp',
-            `Your Comrades360 guest checkout code is: ${otp}. Valid for 10 minutes.\n\n@comrades360.shop #${otp}`,
-            { otp }
+            `Your Comrades360 guest checkout code is: ${cleanOtp}. Valid for 10 minutes.\n\n@comrades360.shop #${cleanOtp}`,
+            { otp: cleanOtp }
         );
         await sendMessage(
             normalizedPhone,

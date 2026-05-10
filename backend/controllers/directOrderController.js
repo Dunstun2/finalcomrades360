@@ -1,4 +1,7 @@
-const { Product, FastFood, User, Order, OrderItem, Commission, PickupStation, DeliveryCharge, PlatformConfig } = require('../models');
+const { Product, FastFood, User, Order, OrderItem, Commission, PickupStation, DeliveryCharge, PlatformConfig, DeliveryTask, Wallet } = require('../models');
+const { autoCreateDeliveryTask } = require('./orderTransitionController');
+const { calculateCommission } = require('./commissionController');
+const { creditPending } = require('../utils/walletHelpers');
 const { Op } = require('sequelize');
 const { calculateItemCommission } = require('../utils/commissionUtils');
 const { notifyCustomerOrderPlaced, notifyMarketerOrderPlaced, notifySellerOrderPlaced } = require('../utils/notificationHelpers');
@@ -10,24 +13,30 @@ const { normalizeKenyanPhone } = require('../middleware/validators');
  */
 function isLikelyAddress(str) {
   const trimmed = str.toLowerCase().trim();
-  if (trimmed.length < 2 || trimmed.length > 20) return false;
-  
-  // Pure numbers (like house numbers)
+  if (trimmed.length < 2) return false;
+
+  // Pure numbers (like house numbers) - any length
   if (/^\d+$/.test(trimmed)) return true;
-  
-  // Letter + number like K8, A1, etc.
-  if (/^[a-z]\d+$/.test(trimmed)) return true;
-  
-  // Number + letter
-  if (/^\d+[a-z]+$/.test(trimmed)) return true;
-  
+
+  // Letter + number like K8, A1, etc. - any length
+  if (/^[a-z]\d+/.test(trimmed)) return true;
+
+  // Number + letter - any length
+  if (/^\d+[a-z]+/.test(trimmed)) return true;
+
   // Mixed alphanumeric (contains both letters and numbers)
-  if (/^[a-z\d]+$/.test(trimmed) && /[a-z]/.test(trimmed) && /\d/.test(trimmed)) return true;
-  
-  // Address keywords
-  const keywords = ['nyayo', 'nyao', 'km', 'hostel', 'room', 'house', 'apt', 'unit', 'block', 'estate', 'gate', 'stage', 'shop', 'market', 'plaza', 'building', 'floor', 'hall', 'kili', 'junction', 'road', 'rd', 'street', 'st', 'ave', 'avenue', 'lane', 'ln'];
+  if (/^[a-z\d\s\-\,\.\/]+$/i.test(trimmed) && /[a-z]/.test(trimmed) && /\d/.test(trimmed)) return true;
+
+  // Address keywords - expanded list
+  const keywords = ['nyayo', 'nyao', 'km', 'hostel', 'room', 'house', 'apt', 'unit', 'block', 'estate', 'gate', 'stage', 'shop', 'market', 'plaza', 'building', 'floor', 'hall', 'kili', 'junction', 'road', 'rd', 'street', 'st', 'ave', 'avenue', 'lane', 'ln', 'drive', 'dr', 'close', 'court', 'place', 'plaza', 'centre', 'center', 'mall', 'market', 'building', 'floor', 'hall', 'phase', 'section', 'zone', 'area', 'village', 'town', 'city', 'cbd', 'westlands', 'kilimani', 'koinange', 'luthuli', 'tom mboya', 'river road', 'koinange street', ' Moi avenue', 'haile selassie', 'standard street', 'agakhan walk', 'parklands', 'chiromo', 'hurligham', 'kilimani', 'kileleshwa', 'langata', ' Karen', 'madaraka', 'mombasa road', 'ngong road', 'outering road', 'waiyaki way', 'limuru road', 'kiambu road', 'thika road', 'jogoo road', 'luthuli avenue', 'university way', 'koinange street', 'tom mboya street', 'government road', 'station road'];
   if (keywords.some(k => trimmed.includes(k))) return true;
-  
+
+  // Contains commas, slashes, or multiple spaces (likely address format)
+  if (trimmed.includes(',') || trimmed.includes('/') || trimmed.split(' ').length > 3) return true;
+
+  // If it contains location indicators
+  if (trimmed.includes('nairobi') || trimmed.includes('mombasa') || trimmed.includes('kisumu') || trimmed.includes('nakuru') || trimmed.includes('eldoret')) return true;
+
   return false;
 }
 
@@ -91,6 +100,12 @@ exports.listDirectOrders = async (req, res) => {
                     as: 'marketer',
                     attributes: ['id', 'name', 'phone', 'role'],
                     required: false
+                },
+                {
+                    model: DeliveryTask,
+                    as: 'deliveryTasks',
+                    include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }],
+                    required: false
                 }
             ],
             order: [['createdAt', 'DESC']],
@@ -112,12 +127,12 @@ exports.listDirectOrders = async (req, res) => {
  * Phone Number
  * Address
  */
+const phoneRegex = /(\+?254|0)?(7|1)\d{8}/;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const parseTextBlock = (text) => {
     const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length < 1) return null;
-
-    const phoneRegex = /(\+?254|0)?(7|1)\d{8}/;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     let customerPhone = '';
     let customerEmail = '';
@@ -285,14 +300,42 @@ exports.parseDirectOrder = async (req, res) => {
 
         // 3. Smart Heuristic for Customer Name and Address (using remaining lines)
         const usedLines = new Set(detectedItems.map(di => di.original));
-        const remaining = parsed.candidates.filter(c => !usedLines.has(c.original)).map(c => c.original);
+        const remaining = parsed.allLines.filter(line => !usedLines.has(line));
         let customerName = '';
         let addressLines = [];
 
+        console.log('[DirectOrder] Remaining lines for address:', remaining);
+
         if (remaining.length > 0) {
-            // Since customer name is often missing from direct order blocks,
-            // treat all remaining lines as parts of the delivery address
-            addressLines = remaining;
+            // Separate phone/email lines from address lines
+            const phoneLines = [];
+            const emailLines = [];
+            const potentialAddressLines = [];
+
+            for (const line of remaining) {
+                const trimmed = line.trim();
+                if (phoneRegex.test(trimmed.replace(/\s+/g, ''))) {
+                    phoneLines.push(trimmed);
+                } else if (emailRegex.test(trimmed)) {
+                    emailLines.push(trimmed);
+                } else {
+                    potentialAddressLines.push(trimmed);
+                }
+            }
+
+            // Use potential address lines, but if none found, use all remaining lines
+            addressLines = potentialAddressLines.length > 0 ? potentialAddressLines : remaining;
+
+            console.log('[DirectOrder] Identified address lines:', addressLines);
+        }
+
+        // If still no address, try to find address-like lines from all original lines
+        if (addressLines.length === 0) {
+            const allAddressLike = parsed.allLines.filter(line => isLikelyAddress(line));
+            if (allAddressLike.length > 0) {
+                addressLines = allAddressLike;
+                console.log('[DirectOrder] Fallback: found address-like lines:', addressLines);
+            }
         }
 
         const finalParsed = {
@@ -300,8 +343,15 @@ exports.parseDirectOrder = async (req, res) => {
             customerPhone: parsed.customerPhone,
             customerName: customerName,
             customerEmail: parsed.customerEmail,
-            deliveryAddress: addressLines.join(', ') || 'N/A'
+            deliveryAddress: addressLines.join(', ').trim() || 'N/A'
         };
+
+        console.log('[DirectOrder] Final parsed data:', {
+            itemsCount: detectedItems.length,
+            phone: finalParsed.customerPhone,
+            address: finalParsed.deliveryAddress,
+            addressLines: addressLines
+        });
 
         // Check for conflicts
         let userByPhone = await User.findOne({ where: { phone: finalParsed.customerPhone } });
@@ -389,6 +439,7 @@ exports.placeDirectOrder = async (req, res) => {
         let processedItems = [];
         let firstSellerId = null;
         let isFastFoodOrder = false;
+        let sellerEarningsMap = {}; // sellerId -> amount
 
         for (const itemRequest of finalItems) {
             let actualItemId = itemRequest.itemId;
@@ -459,6 +510,20 @@ exports.placeDirectOrder = async (req, res) => {
 
             const commissionAmount = calculateItemCommission(dbItem, unitPrice, itemRequest.quantity);
 
+            // Resolve Seller Base Price (The price set by the seller before markups)
+            let sellerBasePrice = parseFloat(dbItem.basePrice || 0);
+            if (variantId) {
+                let sizeVariants = [];
+                try { sizeVariants = typeof dbItem.sizeVariants === 'string' ? JSON.parse(dbItem.sizeVariants) : (dbItem.sizeVariants || []); } catch(e){}
+                const v = sizeVariants.find(v => (v.id || v.name || v.size || '') == variantId);
+                if (v) sellerBasePrice = parseFloat(v.basePrice || sellerBasePrice);
+            } else if (comboId && itemRequest.type === 'fastfood') {
+                let comboOptions = [];
+                try { comboOptions = typeof dbItem.comboOptions === 'string' ? JSON.parse(dbItem.comboOptions) : (dbItem.comboOptions || []); } catch(e){}
+                const c = comboOptions.find(c => (c.id || c.name || c.title || '') == comboId);
+                if (c) sellerBasePrice = parseFloat(c.basePrice || sellerBasePrice);
+            }
+
             processedItems.push({
                 dbItem,
                 itemId: actualItemId,
@@ -469,13 +534,26 @@ exports.placeDirectOrder = async (req, res) => {
                 quantity: itemRequest.quantity,
                 unitPrice,
                 subtotal,
+                sellerBasePrice: sellerBasePrice * itemRequest.quantity,
                 commissionAmount,
                 sellerId
             });
+
+            // Track seller earnings (merchandise payout)
+            sellerEarningsMap[sellerId] = (sellerEarningsMap[sellerId] || 0) + (sellerBasePrice * itemRequest.quantity);
+
+            // Deduct inventory and update sold counts for products
+            if (itemRequest.type === 'product' && dbItem.stock !== undefined) {
+                await dbItem.decrement('stock', { by: itemRequest.quantity, transaction: t });
+                await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+            } else if (itemRequest.type === 'fastfood') {
+                await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+            }
         }
 
         const sellerId = firstSellerId;
-        const orderStatus = isFastFoodOrder ? 'super_admin_confirmed' : 'order_placed';
+        // Status: ALL direct orders start at super_admin_confirmed to trigger immediate logistics.
+        const orderStatus = 'super_admin_confirmed';
         const now = new Date();
 
         // 1. Resolve User & Check for Identity Conflicts
@@ -539,20 +617,22 @@ exports.placeDirectOrder = async (req, res) => {
             paymentMethod: 'Cash on Delivery',
             paymentType: 'cash_on_delivery',
             status: orderStatus,
-            superAdminConfirmed: isFastFoodOrder ? true : false,
-            superAdminConfirmedAt: isFastFoodOrder ? now : null,
-            superAdminConfirmedBy: isFastFoodOrder ? req.user.id : null,
-            adminRoutingStrategy: isFastFoodOrder ? 'direct_delivery' : null,
-            deliveryType: isFastFoodOrder ? 'seller_to_customer' : null,
+            superAdminConfirmed: true,
+            superAdminConfirmedAt: now,
+            superAdminConfirmedBy: req.user.id,
+            adminRoutingStrategy: 'direct_delivery',
+            deliveryType: 'seller_to_customer',
             sellerId: firstSellerId,
             marketerId: req.user.id,
             isMarketingOrder: !isAdmin && isMarketer,
+            primaryReferralCode: (!isAdmin && isMarketer) ? req.user.referralCode : null,
+            secondaryReferralCode: user?.referredByReferralCode || null,
             pickupStationId: pickupStationId || null,
             originalTextBlock: originalTextBlock || null,
             items: processedItems.length
         }, { transaction: t });
 
-        // 4. Create OrderItems & Handle Commissions
+        // 4. Create OrderItems
         let totalCommission = 0;
         for (const pi of processedItems) {
             console.log(`[DirectOrder] Creating OrderItem for ${pi.name} (Seller: ${pi.sellerId})`);
@@ -571,21 +651,27 @@ exports.placeDirectOrder = async (req, res) => {
             }, { transaction: t });
 
             totalCommission += pi.commissionAmount;
+        }
 
-            if (isMarketer && pi.commissionAmount > 0) {
-                await Commission.create({
-                    marketerId: req.user.id,
-                    orderId: order.id,
-                    productId: pi.type === 'product' ? pi.itemId : null,
-                    fastFoodId: pi.type === 'fastfood' ? pi.itemId : null,
-                    saleAmount: pi.subtotal,
-                    commissionRate: parseFloat(pi.dbItem.marketingCommission || 0),
-                    commissionAmount: pi.commissionAmount,
-                    status: 'pending',
-                    referralCode: req.user.referralCode || 'DIRECT',
-                    sellerId: pi.sellerId
-                }, { transaction: t });
+        // 5. Credit Seller Pending Wallets (Merchandise Payout)
+        for (const [sId, earnings] of Object.entries(sellerEarningsMap)) {
+            if (earnings > 0) {
+                await creditPending(
+                    sId,
+                    earnings,
+                    `Direct Sale Earning for Order #${order.orderNumber} (Pending)`,
+                    order.id,
+                    t,
+                    'seller'
+                );
             }
+        }
+
+        // 6. Standard Commission Logic (Marketer Credits)
+        try {
+            await calculateCommission(order.id, order.primaryReferralCode, order.secondaryReferralCode, { transaction: t });
+        } catch (commErr) {
+            console.warn(`[DirectOrder] Failed to calculate commission for order ${order.id}:`, commErr);
         }
 
         // Update order with final commission
@@ -593,46 +679,59 @@ exports.placeDirectOrder = async (req, res) => {
         await order.save({ transaction: t });
 
         await t.commit();
+
+        // Trigger Auto-Task Creation immediately for the confirmed status
+        try {
+            await autoCreateDeliveryTask(order, null, 'super_admin_confirmed');
+            console.log(`[placeDirectOrder] Auto-created delivery task for direct order ${order.orderNumber}`);
+        } catch (taskErr) {
+            console.error(`[placeDirectOrder] Failed to auto-create delivery task for order ${order.orderNumber}:`, taskErr);
+        }
         console.log(`[DirectOrder] Order ${orderNumber} placed successfully with ${processedItems.length} items.`);
 
-        // 5. Send Notifications (Async)
-        try {
-            const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : { phone: customerPhone, name: customerName };
-            const fullItemsList = processedItems.map(pi => `• ${pi.name} x${pi.quantity}`).join('\n');
-            
-            console.log(`[DirectOrder] Notifying customer for ${order.orderNumber}`);
-            await notifyCustomerOrderPlaced(order, customerObj, processedItems.length, fullItemsList, req.user.referralCode || null);
-
-            // Group items by seller for individual seller notifications
-            const itemsBySeller = processedItems.reduce((acc, item) => {
-                if (!acc[item.sellerId]) acc[item.sellerId] = { items: [], total: 0 };
-                acc[item.sellerId].items.push(`• ${item.name} x${item.quantity}`);
-                acc[item.sellerId].total += item.subtotal;
-                return acc;
-            }, {});
-
-            for (const [sellerId, data] of Object.entries(itemsBySeller)) {
-                const seller = await User.findByPk(sellerId);
-                if (seller) {
-                    console.log(`[DirectOrder] Notifying seller ${sellerId} for ${order.orderNumber}`);
-                    const sellerItemsList = data.items.join('\n');
-                    await notifySellerOrderPlaced(order, seller, data.total.toLocaleString(), sellerItemsList);
-                }
-            }
-
-            if (isMarketer && !isAdmin) {
-                console.log(`[DirectOrder] Notifying marketer ${req.user.id} for ${order.orderNumber}`);
-                await notifyMarketerOrderPlaced(order, req.user, customerName, totalCommission);
-            }
-        } catch (err) {
-            console.warn('[DirectOrder] Notification dispatch failed:', err.message);
-        }
-
+        // Respond to user immediately to make it "instant"
         res.json({
             success: true,
             message: 'Order placed successfully',
             orderId: order.id,
             orderNumber: order.orderNumber
+        });
+
+        // 5. Send Notifications (In background)
+        setImmediate(async () => {
+            try {
+                const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : { phone: customerPhone, name: customerName };
+                const fullItemsList = processedItems.map(pi => `• ${pi.name} x${pi.quantity}`).join('\n');
+                
+                console.log(`[DirectOrder] Notifying customer for ${order.orderNumber}`);
+                await notifyCustomerOrderPlaced(order, customerObj, processedItems.length, fullItemsList, req.user.referralCode || null);
+
+                // Group items by seller for individual seller notifications
+                const itemsBySeller = processedItems.reduce((acc, item) => {
+                    if (!acc[item.sellerId]) acc[item.sellerId] = { items: [], total: 0, baseTotal: 0 };
+                    acc[item.sellerId].items.push(`• ${item.name} x${item.quantity}`);
+                    acc[item.sellerId].total += item.subtotal;
+                    acc[item.sellerId].baseTotal += item.sellerBasePrice; // Using base price for seller
+                    return acc;
+                }, {});
+
+                for (const [sellerId, data] of Object.entries(itemsBySeller)) {
+                    const seller = await User.findByPk(sellerId);
+                    if (seller) {
+                        console.log(`[DirectOrder] Notifying seller ${sellerId} for ${order.orderNumber} with base price ${data.baseTotal}`);
+                        const sellerItemsList = data.items.join('\n');
+                        // Passing baseTotal as requested: "should show base price"
+                        await notifySellerOrderPlaced(order, seller, data.baseTotal.toLocaleString(), sellerItemsList);
+                    }
+                }
+
+                if (isMarketer && !isAdmin) {
+                    console.log(`[DirectOrder] Notifying marketer ${req.user.id} for ${order.orderNumber}`);
+                    await notifyMarketerOrderPlaced(order, req.user, customerName, totalCommission);
+                }
+            } catch (err) {
+                console.warn('[DirectOrder] Background notification dispatch failed:', err.message);
+            }
         });
 
     } catch (error) {

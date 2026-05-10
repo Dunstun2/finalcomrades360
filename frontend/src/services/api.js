@@ -497,19 +497,19 @@ export const jobOpeningApi = {
 // Admin API functions
 export const adminApi = {
   // Role Applications
-  getPendingRoleApplications: () => api.get('/roles/pending'),
+  getPendingRoleApplications: () => adminClient.get('/roles/pending'),
 
   // Inventory management
-  getInventoryOverview: () => api.get('/inventory/overview'),
-  getInventoryItems: (params = {}) => api.get('/inventory/items', { params }),
-  getLowStockAlerts: () => api.get('/inventory/low-stock-alerts'),
+  getInventoryOverview: () => adminClient.get('/inventory/overview'),
+  getInventoryItems: (params = {}) => adminClient.get('/inventory/items', { params }),
+  getLowStockAlerts: () => adminClient.get('/inventory/low-stock-alerts'),
   updateStockLevels: (productId, payload) => api.patch(`/products/${productId}/stock`, payload),
   // Product analytics
-  getProductAnalytics: () => api.get('/analytics/products'),
-  getTopPerformingProducts: () => api.get('/analytics/top-products'),
-  getProductPerformanceMetrics: (productId) => api.get(`/products/${productId}/performance`),
+  getProductAnalytics: () => adminClient.get('/analytics/products'),
+  getTopPerformingProducts: () => adminClient.get('/analytics/top-products'),
+  getProductPerformanceMetrics: (productId) => adminClient.get(`/products/${productId}/performance`),
   // User management analytics
-  getUserAnalytics: () => api.get('/analytics/users'),
+  getUserAnalytics: () => adminClient.get('/analytics/users'),
   getAllUsers: (params = {}) => api.get('/admin/users', { params }),
   createUser: (userData) => api.post('/admin/users', userData),
   adminDirectCreateUser: (userData) => api.post('/users/admin/create', userData),
@@ -624,6 +624,12 @@ export const adminApi = {
   // Orders & Products
   getAllOrders: (params = {}) => api.get('/orders', { params }),
   getAllProducts: (params = {}) => api.get('/products/admin/all', { params })
+};
+
+export const orderApi = {
+  parseDirect: (data) => api.post('/orders/direct/parse', data),
+  confirmDirect: (data) => api.post('/orders/direct/confirm', data),
+  listDirect: () => api.get('/orders/direct/list'),
 };
 
 export default api;

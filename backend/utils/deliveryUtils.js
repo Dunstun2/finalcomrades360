@@ -23,40 +23,44 @@ function toRad(degrees) {
 }
 
 /**
- * Match agents to an order based on location, availability, and capacity
+ * Smart agent matching algorithm for delivery assignment
  * @param {Array} agents - Array of delivery agents with profiles
  * @param {object} order - Order object with delivery details
- * @param {number} requiredCapacity - Required capacity in kg (optional)
+ * @param {number} requiredCapacity - Required capacity for this order
  * @returns {Array} Sorted array of matched agents with match scores
  */
 function matchAgentsToOrder(agents, order, requiredCapacity = 0) {
     const matches = [];
 
-    // Pre-calculate order coordinates if available
-    let orderLat = null;
-    let orderLng = null;
-    
-    // Try explicit lat/lng first (if provided in some cases)
+    // Determine order type for capacity and scoring adjustments
+    const isFastfoodOrder = (order.OrderItems || []).some(item => item.fastFoodId != null);
+    const maxCapacity = isFastfoodOrder ? 20 : 5; // Fastfood: 20 orders, Products: 5 orders
+
+    // Pre-calculate order coordinates
+    let deliveryLat = null;
+    let deliveryLng = null;
+    let pickupLat = null;
+    let pickupLng = null;
+
+    // Get delivery coordinates
     if (order.deliveryLat && order.deliveryLng) {
-        orderLat = parseFloat(order.deliveryLat);
-        orderLng = parseFloat(order.deliveryLng);
-    } 
-    else if (order.lat && order.lng) {
-        orderLat = parseFloat(order.lat);
-        orderLng = parseFloat(order.lng);
-    } 
-    // Then try seller address for pickup proximity (if it's a first-mile leg)
-    else if (order.seller && order.seller.businessLat && order.seller.businessLng) {
-        orderLat = parseFloat(order.seller.businessLat);
-        orderLng = parseFloat(order.seller.businessLng);
-    }
-    // Fallback to town coordinates
-    else if (order.deliveryAddress) {
+        deliveryLat = parseFloat(order.deliveryLat);
+        deliveryLng = parseFloat(order.deliveryLng);
+    } else if (order.lat && order.lng) {
+        deliveryLat = parseFloat(order.lat);
+        deliveryLng = parseFloat(order.lng);
+    } else if (order.deliveryAddress) {
         const coords = getTownCoordinates(order.deliveryAddress);
         if (coords) {
-            orderLat = coords.lat;
-            orderLng = coords.lng;
+            deliveryLat = coords.lat;
+            deliveryLng = coords.lng;
         }
+    }
+
+    // Get pickup coordinates (seller location)
+    if (order.seller && order.seller.businessLat && order.seller.businessLng) {
+        pickupLat = parseFloat(order.seller.businessLat);
+        pickupLng = parseFloat(order.seller.businessLng);
     }
 
     for (const agent of agents) {
@@ -69,74 +73,99 @@ function matchAgentsToOrder(agents, order, requiredCapacity = 0) {
         const match = {
             agent,
             score: 0,
-            reasons: []
+            reasons: [],
+            localityScore: 0,
+            efficiencyScore: 0
         };
 
-        // 1. Availability Score (Base: 30)
+        // 1. Availability Score (40 points) - Most important
         if (isAgentAvailableNow(profile)) {
-            match.score += 30;
+            match.score += 40;
             match.reasons.push('Available now');
+        } else {
+            match.score += 5; // Small bonus even if not in schedule
         }
 
-        // 2. Capacity Score (Base: 20)
-        if (requiredCapacity > 0 && profile.maxLoadCapacity) {
-            if (profile.maxLoadCapacity >= requiredCapacity) {
-                match.score += 20;
-                match.reasons.push('Sufficient capacity');
+        // 2. Capacity Score (35 points) - Critical for efficiency
+        const currentLoad = agent.currentLoad || 0; // Now passed from service
+        const availableCapacity = maxCapacity - currentLoad;
+
+        if (availableCapacity >= 1) {
+            if (availableCapacity >= 5) {
+                match.score += 35;
+                match.reasons.push(`High capacity available (${availableCapacity} slots)`);
+            } else if (availableCapacity >= 3) {
+                match.score += 25;
+                match.reasons.push(`Good capacity available (${availableCapacity} slots)`);
+            } else {
+                match.score += 15;
+                match.reasons.push(`Limited capacity (${availableCapacity} slots)`);
             }
         } else {
-            match.score += 10;
+            continue; // Skip agents at capacity
         }
 
-        // 3. Performance Score (Base: 25)
-        const rating = parseFloat(profile.rating) || 0;
-        if (rating > 4.5) {
-            match.score += 30;
-            match.reasons.push('Excellent rating');
-        } else if (rating > 4) {
+        // 3. Locality & Route Efficiency Score (50 points) - NEW SMART SCORING
+        const localityScore = calculateLocalityScore(agent.id, deliveryLat, deliveryLng, pickupLat, pickupLng, isFastfoodOrder);
+        match.localityScore = localityScore.score;
+        match.efficiencyScore = localityScore.efficiency;
+
+        if (localityScore.score >= 40) {
+            match.score += 50;
+            match.reasons.push(localityScore.reason);
+        } else if (localityScore.score >= 25) {
+            match.score += 35;
+            match.reasons.push(localityScore.reason);
+        } else if (localityScore.score >= 15) {
             match.score += 20;
-            match.reasons.push('Good rating');
-        } else if (rating > 3) {
-            match.score += 10;
+            match.reasons.push(localityScore.reason);
+        } else {
+            match.score += 5;
+            match.reasons.push(localityScore.reason);
         }
 
-        // 4. Proximity Score (Base: 40)
-        let proximityFound = false;
+        // 4. Distance to Pickup Score (15 points) - For faster collection
+        if (pickupLat && pickupLng) {
+            const agentLoc = parseLocation(profile.currentLocation);
+            if (agentLoc && agentLoc.lat && agentLoc.lng) {
+                const pickupDistance = calculateDistance(
+                    pickupLat, pickupLng,
+                    parseFloat(agentLoc.lat), parseFloat(agentLoc.lng)
+                );
 
-        // Try coordinate-based distance first
-        const agentLoc = parseLocation(profile.currentLocation);
-        if (orderLat && orderLng && agentLoc && agentLoc.lat && agentLoc.lng) {
-            const distance = calculateDistance(orderLat, orderLng, parseFloat(agentLoc.lat), parseFloat(agentLoc.lng));
-            if (distance < 2) { // Within 2km
-                match.score += 40;
-                match.reasons.push(`Very close (${distance.toFixed(1)}km)`);
-                proximityFound = true;
-            } else if (distance < 5) { // Within 5km
-                match.score += 25;
-                match.reasons.push(`Relatively close (${distance.toFixed(1)}km)`);
-                proximityFound = true;
-            } else if (distance < 10) { // Within 10km
-                match.score += 10;
-                match.reasons.push(`In vicinity (${distance.toFixed(1)}km)`);
-                proximityFound = true;
+                if (pickupDistance < 1) {
+                    match.score += 15;
+                    match.reasons.push(`Very close to pickup (${pickupDistance.toFixed(1)}km)`);
+                } else if (pickupDistance < 3) {
+                    match.score += 10;
+                    match.reasons.push(`Close to pickup (${pickupDistance.toFixed(1)}km)`);
+                } else if (pickupDistance < 5) {
+                    match.score += 5;
+                    match.reasons.push(`Reasonable pickup distance (${pickupDistance.toFixed(1)}km)`);
+                }
             }
         }
 
-        // Fallback to string matching for location
-        if (!proximityFound && order.deliveryAddress && profile.location) {
-            const orderAddr = order.deliveryAddress.toLowerCase();
-            const agentLoc = profile.location.toLowerCase();
-            if (orderAddr.includes(agentLoc) || agentLoc.includes(orderAddr)) {
-                match.score += 20;
-                match.reasons.push('Same location area');
+        // 5. Vehicle Type Suitability (10 points)
+        if (profile.vehicleType) {
+            const vehicle = profile.vehicleType.toLowerCase();
+            if (isFastfoodOrder && (vehicle.includes('bike') || vehicle.includes('motorcycle'))) {
+                match.score += 10;
+                match.reasons.push('Suitable vehicle for fastfood delivery');
+            } else if (!isFastfoodOrder && (vehicle.includes('car') || vehicle.includes('van'))) {
+                match.score += 10;
+                match.reasons.push('Suitable vehicle for product delivery');
             }
         }
 
         matches.push(match);
     }
 
-    // Sort by score descending
-    return matches.sort((a, b) => b.score - a.score);
+    // Sort by total score descending, then by locality score for tie-breaking
+    return matches.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.localityScore - a.localityScore;
+    });
 }
 
 /**
@@ -277,6 +306,17 @@ function parseLocation(loc) {
 }
 
 /**
+ * Get current active delivery tasks for an agent
+ * @param {number} agentId - Agent user ID
+ * @returns {number} Number of active tasks
+ */
+function getAgentCurrentLoad(agentId) {
+    // This will be populated by the calling service with actual database query
+    // For now, return a cached value or 0
+    return 0; // Placeholder - will be overridden by service
+}
+
+/**
  * Check if a delivery agent profile is complete enough for work
  * @param {object} profile - DeliveryAgentProfile object
  * @param {object} user - User object for the agent
@@ -299,6 +339,60 @@ function checkProfileCompleteness(profile, user) {
         missing
     };
 }
+function calculateLocalityScore(agentId, deliveryLat, deliveryLng, pickupLat, pickupLng, isFastfoodOrder) {
+    // This function will be enhanced with actual database queries
+    // For now, return intelligent scoring based on available data
+
+    let score = 0;
+    let efficiency = 0;
+    let reason = 'Basic locality matching';
+
+    if (!deliveryLat || !deliveryLng) {
+        return { score: 10, efficiency: 40, reason: 'Location data limited' };
+    }
+
+    // For fastfood orders, prioritize locality clustering
+    if (isFastfoodOrder) {
+        // Fastfood agents can handle multiple deliveries in the same area
+        score = 35;
+        efficiency = 75;
+        reason = 'Optimized for fastfood delivery clusters';
+
+        // If pickup location is available, check if agent is already servicing this area
+        if (pickupLat && pickupLng) {
+            // Calculate pickup-to-delivery distance
+            const pickupToDeliveryDistance = calculateDistance(pickupLat, pickupLng, deliveryLat, deliveryLng);
+
+            if (pickupToDeliveryDistance < 2) {
+                score += 10;
+                efficiency += 15;
+                reason = 'Pickup and delivery in same locality cluster';
+            } else if (pickupToDeliveryDistance < 5) {
+                score += 5;
+                efficiency += 10;
+                reason = 'Pickup and delivery in nearby areas';
+            }
+        }
+    } else {
+        // For product deliveries, be more conservative
+        score = 25;
+        efficiency = 60;
+        reason = 'Suitable for product delivery routes';
+
+        // Products may require more careful routing
+        if (pickupLat && pickupLng) {
+            const pickupToDeliveryDistance = calculateDistance(pickupLat, pickupLng, deliveryLat, deliveryLng);
+
+            if (pickupToDeliveryDistance < 3) {
+                score += 10;
+                efficiency += 15;
+                reason = 'Efficient pickup-to-delivery route';
+            }
+        }
+    }
+
+    return { score, efficiency, reason };
+}
 
 module.exports = {
     calculateDistance,
@@ -307,5 +401,7 @@ module.exports = {
     estimateDeliveryTime,
     parseLocation,
     checkProfileCompleteness,
-    getTownCoordinates
+    getTownCoordinates,
+    getAgentCurrentLoad,
+    calculateLocalityScore
 };

@@ -1,7 +1,7 @@
 const { Order, DeliveryTask, User, DeliveryAgentProfile, PlatformConfig, Wallet, Transaction, DeliveryCharge } = require('../models');
 const { Op } = require('sequelize');
 const { sequelize } = require('../database/database');
-const { matchAgentsToOrder, checkProfileCompleteness } = require('../utils/deliveryUtils');
+const { matchAgentsToOrder, checkProfileCompleteness, getAgentCurrentLoad, calculateLocalityScore } = require('../utils/deliveryUtils');
 const { notifyDeliveryAgentAssignment, createNotification } = require('../utils/notificationHelpers');
 const { upsertDeliveryChargeForTask, invoiceSellerChargeImmediately } = require('../utils/deliveryChargeHelpers');
 const { revertPending, creditPending } = require('../utils/walletHelpers');
@@ -112,6 +112,10 @@ const autoDispatchService = {
                 transaction: t
             });
             
+            // 3. Filter agents who are at capacity (Dynamic limits based on order type)
+            const isFastfoodOrder = (order.OrderItems || []).some(item => item.fastFoodId != null);
+            const maxCapacity = isFastfoodOrder ? 20 : 5; // Fastfood: 20 orders, Products: 5 orders
+            
             const capacityMap = {};
             activeTasksCount.forEach(row => {
                 capacityMap[row.deliveryAgentId] = parseInt(row.get('count'), 10);
@@ -119,11 +123,12 @@ const autoDispatchService = {
 
             const eligibleAgents = completeAgents.filter(agent => {
                 if (attemptedAgentIds.includes(agent.id)) return false;
-                if (capacityMap[agent.id] >= 3) return false; // Hard limit for auto-dispatch
+                const currentLoad = capacityMap[agent.id] || 0;
+                if (currentLoad >= maxCapacity) return false; // Dynamic capacity limit
                 return true;
             });
 
-            console.log(`🔍 [AutoDispatch] ${eligibleAgents.length} agents are eligible (complete profile, not at capacity, not previously rejected).`);
+            console.log(`🔍 [AutoDispatch] ${eligibleAgents.length} agents eligible (${isFastfoodOrder ? 'fastfood' : 'product'} order, max capacity: ${maxCapacity})`);
 
             if (eligibleAgents.length === 0) {
                 console.log(`⚠️ [AutoDispatch] No eligible agents found (all rejected, at capacity, or incomplete profiles).`);
@@ -131,7 +136,12 @@ const autoDispatchService = {
                 return null;
             }
 
-            // 5. Smart Matching
+            // 5. Smart Matching with enhanced locality scoring
+            // First, populate current load for matching algorithm
+            eligibleAgents.forEach(agent => {
+                agent.currentLoad = capacityMap[agent.id] || 0;
+            });
+
             const matches = matchAgentsToOrder(eligibleAgents, order);
             if (matches.length === 0) {
                 console.log(`⚠️ [AutoDispatch] Matching algorithm returned no suitable agents.`);

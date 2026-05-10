@@ -256,7 +256,7 @@ const autoCreateDeliveryTask = async (order, fromStatus, toStatus) => {
       taskDeliveryFee = parseFloat(routeFees[dType].fee);
     } else {
       // 2. Fallback to terminal customer-facing fees if it's a terminal leg
-      const terminalRoutes = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point'];
+      const terminalRoutes = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point', 'last_mile'];
       if (terminalRoutes.includes(dType)) {
         taskDeliveryFee = parseFloat(order.deliveryFee) || 0;
       }

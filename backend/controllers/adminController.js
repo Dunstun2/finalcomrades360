@@ -16,6 +16,7 @@ const {
   DeletedProduct,
   ReturnRequest,
   ProductView,
+  MarketingAnalytics,
   Wallet,
   Transaction: WalletTransaction,
   ReferralTracking,
@@ -510,6 +511,178 @@ const getProductPerformanceMetrics = async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ message: 'Error getting product performance metrics', error: e.message });
+  }
+};
+
+// Get product and fastfood item performance backed by product views, marketer activity, and orders
+const getItemPerformanceAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 100 } = req.query;
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const dateFilter = { createdAt: { [Op.between]: [start, end] } };
+
+    const [viewStats, marketingStats, orderStats] = await Promise.all([
+      ProductView.findAll({
+        attributes: [
+          'productId',
+          [fn('COUNT', col('id')), 'views'],
+          [fn('SUM', literal("CASE WHEN marketerId IS NOT NULL THEN 1 ELSE 0 END")), 'marketerViews']
+        ],
+        where: dateFilter,
+        group: ['productId'],
+        raw: true
+      }),
+      MarketingAnalytics.findAll({
+        attributes: [
+          'productId',
+          'actionType',
+          [fn('COUNT', col('id')), 'count'],
+          [fn('SUM', col('commissionEarned')), 'commissionEarned']
+        ],
+        where: dateFilter,
+        group: ['productId', 'actionType'],
+        raw: true
+      }),
+      OrderItem.findAll({
+        attributes: [
+          'productId',
+          'fastFoodId',
+          [fn('COUNT', col('id')), 'itemCount'],
+          [fn('SUM', col('quantity')), 'quantitySold'],
+          [fn('SUM', col('total')), 'revenue'],
+          [fn('SUM', col('commissionAmount')), 'commissionEarned'],
+          [fn('COUNT', literal('DISTINCT `orderId`')), 'orderCount']
+        ],
+        where: {
+          createdAt: { [Op.between]: [start, end] },
+          [Op.or]: [
+            { productId: { [Op.ne]: null } },
+            { fastFoodId: { [Op.ne]: null } }
+          ]
+        },
+        group: ['productId', 'fastFoodId'],
+        raw: true
+      })
+    ]);
+
+    const itemsMap = new Map();
+
+    const ensureItemEntry = ({ itemType, itemId }) => {
+      const key = `${itemType}:${itemId}`;
+      if (!itemsMap.has(key)) {
+        itemsMap.set(key, {
+          itemType,
+          itemId,
+          name: null,
+          visits: 0,
+          siteViews: 0,
+          marketerViews: 0,
+          clicks: 0,
+          shares: 0,
+          conversions: 0,
+          revenue: 0,
+          quantitySold: 0,
+          orderCount: 0,
+          commissionEarned: 0,
+          marketerCommissionEarned: 0
+        });
+      }
+      return itemsMap.get(key);
+    };
+
+    viewStats.forEach((row) => {
+      if (!row.productId) return;
+      const entry = ensureItemEntry({ itemType: 'product', itemId: row.productId });
+      entry.siteViews += Number(row.views || 0);
+      entry.marketerViews += Number(row.marketerViews || 0);
+      entry.visits += Number(row.views || 0) + Number(row.marketerViews || 0);
+    });
+
+    marketingStats.forEach((row) => {
+      if (!row.productId) return;
+      const entry = ensureItemEntry({ itemType: 'product', itemId: row.productId });
+      const count = Number(row.count || 0);
+      const commissionEarned = Number(row.commissionEarned || 0);
+
+      if (row.actionType === 'view') {
+        entry.marketerViews += count;
+        entry.visits += count;
+      }
+      if (row.actionType === 'click') {
+        entry.clicks += count;
+      }
+      if (row.actionType === 'share') {
+        entry.shares += count;
+      }
+      if (row.actionType === 'conversion') {
+        entry.conversions += count;
+        entry.marketerCommissionEarned += commissionEarned;
+      }
+    });
+
+    orderStats.forEach((row) => {
+      const itemType = row.productId ? 'product' : 'fastfood';
+      const itemId = row.productId || row.fastFoodId;
+      if (!itemId) return;
+      const entry = ensureItemEntry({ itemType, itemId });
+      entry.revenue += Number(row.revenue || 0);
+      entry.quantitySold += Number(row.quantitySold || 0);
+      entry.orderCount += Number(row.orderCount || 0);
+      entry.commissionEarned += Number(row.commissionEarned || 0);
+    });
+
+    const productIds = [];
+    const fastFoodIds = [];
+    itemsMap.forEach((entry) => {
+      if (entry.itemType === 'product') productIds.push(entry.itemId);
+      if (entry.itemType === 'fastfood') fastFoodIds.push(entry.itemId);
+    });
+
+    const [productRecords, fastFoodRecords] = await Promise.all([
+      productIds.length > 0 ? Product.findAll({ where: { id: { [Op.in]: productIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : [],
+      fastFoodIds.length > 0 ? FastFood.findAll({ where: { id: { [Op.in]: fastFoodIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : []
+    ]);
+
+    const productById = new Map(productRecords.map((p) => [p.id, p]));
+    const fastFoodById = new Map(fastFoodRecords.map((f) => [f.id, f]));
+
+    const items = Array.from(itemsMap.values()).map((entry) => {
+      const itemName = entry.itemType === 'product'
+        ? productById.get(entry.itemId)?.name || `Product #${entry.itemId}`
+        : fastFoodById.get(entry.itemId)?.name || `FastFood #${entry.itemId}`;
+
+      const totalVisits = entry.siteViews + entry.marketerViews;
+      const conversionRate = totalVisits ? (entry.conversions / totalVisits) * 100 : 0;
+      const marketerConversionRate = entry.clicks ? (entry.conversions / entry.clicks) * 100 : 0;
+
+      return {
+        ...entry,
+        name: itemName,
+        visits: totalVisits,
+        conversionRate: Number(conversionRate.toFixed(2)),
+        marketerConversionRate: Number(marketerConversionRate.toFixed(2)),
+        revenue: Number(entry.revenue.toFixed(2)),
+        commissionEarned: Number(entry.commissionEarned.toFixed(2)),
+        marketerCommissionEarned: Number(entry.marketerCommissionEarned.toFixed(2))
+      };
+    });
+
+    const sortedItems = items.sort((a, b) => b.revenue - a.revenue).slice(0, Number(limit));
+    const totals = sortedItems.reduce((acc, item) => {
+      acc.totalItems += 1;
+      acc.totalVisits += item.visits;
+      acc.totalClicks += item.clicks;
+      acc.totalConversions += item.conversions;
+      acc.totalRevenue += item.revenue;
+      return acc;
+    }, { totalItems: 0, totalVisits: 0, totalClicks: 0, totalConversions: 0, totalRevenue: 0 });
+
+    res.json({ success: true, items: sortedItems, totals, dateRange: { start, end } });
+  } catch (e) {
+    console.error('Error getting item performance analytics:', e);
+    res.status(500).json({ message: 'Error getting item performance analytics', error: e.message });
   }
 };
 
@@ -2595,6 +2768,7 @@ module.exports = {
   // Product analytics
   getProductAnalytics,
   getTopPerformingProducts,
+  getItemPerformanceAnalytics,
   getProductPerformanceMetrics,
   getOrderAnalytics,
   // Bulk operations

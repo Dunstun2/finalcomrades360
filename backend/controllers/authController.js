@@ -663,7 +663,13 @@ const sendRegistrationOtp = async (req, res, next) => {
     await Otp.create({ email: email || null, phone: normalizedPhone || null, otp, expiresAt });
 
     const minutes = process.env.OTP_EXPIRY_MINUTES || 10;
-    const message = await getDynamicMessage('registrationOtp', `Your Comrades360 registration code is: ${otp}. Expires in ${minutes} mins.\n\n@comrades360.shop #${otp}`, { otp, minutes });
+    const cleanOtp = String(otp).trim();
+    // WebOTP format: The last line must be @domain #otp
+    const message = await getDynamicMessage(
+        'registrationOtp', 
+        `Your Comrades360 registration code is: ${cleanOtp}. Expires in ${minutes} mins.\n\n@comrades360.shop #${cleanOtp}`, 
+        { otp: cleanOtp, minutes }
+    );
 
     const channels = await getEnabledChannels('registrationOtp');
 

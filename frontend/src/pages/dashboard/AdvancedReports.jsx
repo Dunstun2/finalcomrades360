@@ -32,6 +32,8 @@ ChartJS.register(
 
 export default function AdvancedReports() {
   const [reports, setReports] = useState({});
+  const [itemPerformance, setItemPerformance] = useState({ items: [], totals: {} });
+  const [itemPerformanceLoading, setItemPerformanceLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -105,7 +107,25 @@ export default function AdvancedReports() {
     if (activeTab === 'sales') {
       loadTopProducts();
     }
+    if (activeTab === 'items') {
+      loadItemPerformance();
+    }
   }, [activeTab, dateRange]);
+
+  const loadItemPerformance = async () => {
+    setItemPerformanceLoading(true);
+    try {
+      const res = await api.get('/admin/analytics/item-performance', {
+        params: { startDate: dateRange.start, endDate: dateRange.end, limit: 150 }
+      });
+      setItemPerformance(res.data || { items: [], totals: {} });
+    } catch (err) {
+      console.warn('Failed to load item performance analytics:', err);
+      setItemPerformance({ items: [], totals: {} });
+    } finally {
+      setItemPerformanceLoading(false);
+    }
+  };
 
   const loadTrafficStats = async () => {
     try {
@@ -184,10 +204,14 @@ export default function AdvancedReports() {
     { id: 'overview', name: 'Overview', icon: '📊' },
     { id: 'traffic', name: 'Traffic & Performance', icon: '🌐' },
     { id: 'sales', name: 'Sales', icon: '💰' },
+    { id: 'items', name: 'Item Performance', icon: '🧾' },
     { id: 'users', name: 'Users', icon: '👥' },
     { id: 'growth', name: 'Growth Poster', icon: '🎨' },
     { id: 'custom', name: 'Custom Reports', icon: '🔧' }
   ];
+
+  const productItems = itemPerformance.items?.filter(item => item.itemType === 'product') || [];
+  const fastfoodItems = itemPerformance.items?.filter(item => item.itemType === 'fastfood' || item.itemType === 'fastFood' || item.itemType === 'fast_food') || [];
 
   return (
     <div className="space-y-6">
@@ -556,6 +580,141 @@ export default function AdvancedReports() {
                         No orders in this date range
                       </div>
                     )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Item Performance Tab */}
+          {activeTab === 'items' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">Item Performance</h3>
+                <button className="btn-outline btn-sm" onClick={() => loadItemPerformance()} disabled={itemPerformanceLoading}>
+                  {itemPerformanceLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-600">{itemPerformance.totals?.totalItems || 0}</div>
+                  <div className="text-gray-600">Active Items</div>
+                </div>
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-indigo-600">{itemPerformance.totals?.totalVisits || 0}</div>
+                  <div className="text-gray-600">Total Visits</div>
+                </div>
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-green-600">{itemPerformance.totals?.totalClicks || 0}</div>
+                  <div className="text-gray-600">Total Clicks</div>
+                </div>
+                <div className="card p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-600">{itemPerformance.totals?.totalConversions || 0}</div>
+                  <div className="text-gray-600">Total Conversions</div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold">Products</h4>
+                      <p className="text-sm text-gray-500">Performance metrics for product catalog items.</p>
+                    </div>
+                    <div className="text-sm text-gray-600">{productItems.length} products</div>
+                  </div>
+
+                  <div className="card p-4 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="p-3">Item</th>
+                          <th className="p-3">Visits</th>
+                          <th className="p-3">Clicks</th>
+                          <th className="p-3">Conversions</th>
+                          <th className="p-3">Orders</th>
+                          <th className="p-3">Revenue</th>
+                          <th className="p-3">Conv. Rate</th>
+                          <th className="p-3">Mktr Conv. Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemPerformanceLoading ? (
+                          <tr>
+                            <td colSpan="8" className="p-6 text-center text-gray-500">Loading product performance data...</td>
+                          </tr>
+                        ) : productItems.length > 0 ? (
+                          productItems.map((item) => (
+                            <tr key={`product-${item.itemId}`} className="border-b hover:bg-gray-50">
+                              <td className="p-3"><div className="font-medium">{item.name}</div></td>
+                              <td className="p-3">{item.visits}</td>
+                              <td className="p-3">{item.clicks}</td>
+                              <td className="p-3">{item.conversions}</td>
+                              <td className="p-3">{item.orderCount}</td>
+                              <td className="p-3">KES {item.revenue.toLocaleString()}</td>
+                              <td className="p-3">{item.conversionRate?.toFixed(2) ?? 0}%</td>
+                              <td className="p-3">{item.marketerConversionRate?.toFixed(2) ?? 0}%</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="8" className="p-6 text-center text-gray-500">No product performance data available for this period.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold">Fast Food</h4>
+                      <p className="text-sm text-gray-500">Performance metrics for fast food items and quick-serve listings.</p>
+                    </div>
+                    <div className="text-sm text-gray-600">{fastfoodItems.length} fast food items</div>
+                  </div>
+
+                  <div className="card p-4 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="p-3">Item</th>
+                          <th className="p-3">Visits</th>
+                          <th className="p-3">Clicks</th>
+                          <th className="p-3">Conversions</th>
+                          <th className="p-3">Orders</th>
+                          <th className="p-3">Revenue</th>
+                          <th className="p-3">Conv. Rate</th>
+                          <th className="p-3">Mktr Conv. Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemPerformanceLoading ? (
+                          <tr>
+                            <td colSpan="8" className="p-6 text-center text-gray-500">Loading fast food performance data...</td>
+                          </tr>
+                        ) : fastfoodItems.length > 0 ? (
+                          fastfoodItems.map((item) => (
+                            <tr key={`fastfood-${item.itemId}`} className="border-b hover:bg-gray-50">
+                              <td className="p-3"><div className="font-medium">{item.name}</div></td>
+                              <td className="p-3">{item.visits}</td>
+                              <td className="p-3">{item.clicks}</td>
+                              <td className="p-3">{item.conversions}</td>
+                              <td className="p-3">{item.orderCount}</td>
+                              <td className="p-3">KES {item.revenue.toLocaleString()}</td>
+                              <td className="p-3">{item.conversionRate?.toFixed(2) ?? 0}%</td>
+                              <td className="p-3">{item.marketerConversionRate?.toFixed(2) ?? 0}%</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="8" className="p-6 text-center text-gray-500">No fast food performance data available for this period.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

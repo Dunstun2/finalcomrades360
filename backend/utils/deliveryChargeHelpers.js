@@ -13,7 +13,8 @@ const CUSTOMER_PAID_ROUTE_TYPES = new Set([
   'warehouse_to_pickup_station',
   'customer_to_pickup_station',
   'customer_to_warehouse',
-  'fastfood_pickup_point'
+  'fastfood_pickup_point',
+  'last_mile'
 ]);
 
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));

@@ -224,11 +224,28 @@ export default function RegisterForm({ onSuccess, initialReferralCode, isModal =
 
     // ── OTP input handlers ────────────────────────────────────────────────────
     const handleOtpChange = (index, value) => {
-        if (!/^\d*$/.test(value)) return
+        const cleanValue = value.replace(/\D/g, '')
+        if (!cleanValue) {
+            const newOtp = [...otp]
+            newOtp[index] = ''
+            setOtp(newOtp)
+            return
+        }
+
+        // Handle auto-fill or pasting 6 digits into any box
+        if (cleanValue.length >= 6) {
+            const digits = cleanValue.slice(0, 6).split('')
+            setOtp(digits)
+            // Blur the last input or trigger a focus update to help mobile browsers realize it's done
+            otpRefs.current[5]?.focus()
+            // Optionally we could trigger verification here if it feels right
+            return
+        }
+
         const newOtp = [...otp]
-        newOtp[index] = value.slice(-1)
+        newOtp[index] = cleanValue.slice(-1)
         setOtp(newOtp)
-        if (value && index < 5) otpRefs.current[index + 1]?.focus()
+        if (index < 5) otpRefs.current[index + 1]?.focus()
     }
 
     const handleOtpKeyDown = (index, e) => {

@@ -2,7 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   FaArrowRight, FaClock, FaPercent, FaMapMarkerAlt, FaHistory,
-  FaChevronRight
+  FaChevronRight, FaDownload, FaMoneyBillWave, FaShoppingCart, FaChartLine,
+  FaUsers, FaBox, FaTruck
 } from 'react-icons/fa';
 import { FiTrendingUp, FiTrendingDown } from 'react-icons/fi';
 import { 
