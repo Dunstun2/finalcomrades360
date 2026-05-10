@@ -13,7 +13,7 @@ deployment:
     - /usr/bin/rsync -avz --exclude 'node_modules' --exclude 'uploads' --exclude 'error.log' backend/ /home/vdranjxy/comrades-master/
     
     # 3. Install backend dependencies (which now includes PM2)
-    - export PATH=/opt/cpanel/ea-nodejs20/bin:/opt/cpanel/ea-nodejs18/bin:$PATH && cd /home/vdranjxy/comrades-master && npm install
+    - /bin/sh -c 'cd /home/vdranjxy/comrades-master && /opt/cpanel/ea-nodejs20/bin/npm install'
     
-    # 3. Restart the backend using PM2
-    - export PATH=/opt/cpanel/ea-nodejs20/bin:/opt/cpanel/ea-nodejs18/bin:$PATH && cd /home/vdranjxy/comrades-master && ./node_modules/.bin/pm2 restart comrades360
+    # 4. Restart the backend using PM2
+    - /bin/sh -c 'cd /home/vdranjxy/comrades-master && /opt/cpanel/ea-nodejs20/bin/npx pm2 restart comrades360'
