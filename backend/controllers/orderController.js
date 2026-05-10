@@ -611,8 +611,15 @@ const createOrderFromCart = async (req, res) => {
     const sellerSet = new Set();
     for (const cartItem of cartItems) {
       const product = cartItem.product;
-      const sellerId = product.sellerId || product.vendor || product.userId;
-      if (sellerId) sellerSet.add(sellerId);
+      const rawSellerId = product.sellerId || product.vendor || product.userId;
+      if (rawSellerId) {
+        const sellerExists = await User.findByPk(rawSellerId, { transaction: t });
+        if (sellerExists) {
+          sellerSet.add(rawSellerId);
+        } else {
+          console.warn(`⚠️  Seller ID ${rawSellerId} for item ${product.name} does not exist in Users table.`);
+        }
+      }
     }
     const uniqueSellers = Array.from(sellerSet);
     // Robust detection for Fast Food Only orders
@@ -787,7 +794,16 @@ const createOrderFromCart = async (req, res) => {
 
     for (const cartItem of cartItems) {
       const product = cartItem.product;
-      const sellerId = product.sellerId || product.vendor || product.userId;
+      const rawSellerId = product.sellerId || product.vendor || product.userId;
+      let sellerId = null;
+      if (rawSellerId) {
+        const sellerExists = await User.findByPk(rawSellerId, { transaction: t });
+        if (sellerExists) {
+          sellerId = rawSellerId;
+        } else {
+          console.warn(`⚠️  Seller ID ${rawSellerId} not found for item ${product.name}. Setting sellerId to NULL.`);
+        }
+      }
       const { variantName, comboName, variantPrice, variantBasePrice } = resolveVariantDetails(product, cartItem.type || 'product', cartItem.variantId, cartItem.comboId);
       
       const productFallbackPrice = Number(product.discountPrice || product.displayPrice || product.basePrice || 0);
