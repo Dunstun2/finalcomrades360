@@ -1214,8 +1214,12 @@ const createOrderFromCart = async (req, res) => {
     
     let fkViolations = [];
     try {
-      const [violations] = await sequelize.query('PRAGMA foreign_key_check;');
-      fkViolations = violations;
+      if (sequelize.getDialect() === 'sqlite') {
+        const [violations] = await sequelize.query('PRAGMA foreign_key_check;');
+        fkViolations = violations;
+      } else {
+        fkViolations = ['FK checks unsupported in catch block for ' + sequelize.getDialect()];
+      }
     } catch (fkErr) {
       console.error('Failed to run FK check:', fkErr);
     }

@@ -9,13 +9,20 @@ const isFastFoodOpen = (fastFood) => {
     if (fastFood.availabilityMode === 'CLOSED') return false;
 
     // 2. If mode is AUTO, check schedule
-    // Get current date and time (matching Kenya time if possible, or server time)
+    // Get current date and time matching Kenya time (EAT)
     const now = new Date();
-    // For local dev, we use the local time. In production, we should handle timezones properly.
-    // The system metadata says: 2026-01-03T19:38:01+03:00 (Saturday)
 
-    const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' });
-    const currentTimeStr = now.toTimeString().substring(0, 5); // "HH:MM"
+    const currentDay = new Intl.DateTimeFormat('en-US', { 
+        timeZone: 'Africa/Nairobi', 
+        weekday: 'long' 
+    }).format(now);
+    
+    const currentTimeStr = new Intl.DateTimeFormat('en-US', { 
+        timeZone: 'Africa/Nairobi', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        hourCycle: 'h23' 
+    }).format(now);
 
     // Check if availabilityDays is an array
     let schedule = fastFood.availabilityDays;

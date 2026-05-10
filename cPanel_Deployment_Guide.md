@@ -30,7 +30,9 @@ You now have a true "VPS-style" production setup running inside a shared cPanel 
 
 Because we bypassed the cPanel App Manager, **you no longer need to click the "Restart" button in the cPanel interface.**
 
-Whenever you push new code to GitHub and deploy it to the server, simply follow these steps to restart the application:
+Furthermore, we have updated your `.cpanel.yml` file so that **whenever you push new code to GitHub and deploy it to the server, cPanel will automatically restart PM2 for you!** 
+
+You shouldn't need to manually restart it anymore. However, if you ever need to manually restart the application:
 
 1. Open the **cPanel Terminal**.
 2. Run the following commands:

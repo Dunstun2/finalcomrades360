@@ -12,6 +12,8 @@ deployment:
     # We copy the CONTENTS of the backend folder into comrades-master
     - /usr/bin/rsync -avz --exclude 'node_modules' --exclude 'uploads' --exclude 'error.log' backend/ /home/vdranjxy/comrades-master/
     
-    # 3. Touch restart file for Phusion Passenger
-    - /bin/mkdir -p /home/vdranjxy/comrades-master/tmp
-    - /bin/touch /home/vdranjxy/comrades-master/tmp/restart.txt
+    # 3. Install backend dependencies (which now includes PM2)
+    - export PATH=/opt/cpanel/ea-nodejs20/bin:/opt/cpanel/ea-nodejs18/bin:$PATH && cd /home/vdranjxy/comrades-master && npm install
+    
+    # 3. Restart the backend using PM2
+    - export PATH=/opt/cpanel/ea-nodejs20/bin:/opt/cpanel/ea-nodejs18/bin:$PATH && cd /home/vdranjxy/comrades-master && ./node_modules/.bin/pm2 restart comrades360
