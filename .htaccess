@@ -1,8 +1,8 @@
-# Keep Passenger directives as fallback
-PassengerAppRoot "/home/vdranjxy/comrades-master"
-PassengerBaseURI "/"
-PassengerAppType node
-PassengerStartupFile server.js
+# Keep Passenger directives disabled because we are using PM2
+# PassengerAppRoot "/home/vdranjxy/comrades-master"
+# PassengerBaseURI "/"
+# PassengerAppType node
+# PassengerStartupFile server.js
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
