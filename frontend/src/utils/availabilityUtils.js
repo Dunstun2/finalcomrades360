@@ -3,7 +3,7 @@
  * @param {Object} fastFood - The fast food item object.
  * @returns {boolean} - Returns true if the item is currently open.
  */
-export const isFastFoodOpen = (fastFood) => {
+export const isFastFoodOpen = (fastFood, referenceDate = null) => {
     if (!fastFood) return false;
 
     // 1. Manual override checks
@@ -11,7 +11,7 @@ export const isFastFoodOpen = (fastFood) => {
     if (fastFood.availabilityMode === 'CLOSED') return false;
 
     // 2. If mode is AUTO, check schedule
-    const now = new Date();
+    const now = referenceDate || new Date();
     const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' });
     const currentTimeStr = now.getHours().toString().padStart(2, '0') + ':' +
         now.getMinutes().toString().padStart(2, '0');

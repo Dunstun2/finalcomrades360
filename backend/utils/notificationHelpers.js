@@ -30,7 +30,11 @@ async function sendCustomerNotificationAcrossChannels(templateKey, data, custome
     logNotify(`START: Event=${templateKey} | Order=${orderNumber}`);
 
     try {
-        const channels = await getEnabledChannels(templateKey);
+        const [channels, messageRaw] = await Promise.all([
+            getEnabledChannels(templateKey),
+            getDynamicMessage(templateKey, data.defaultTemplate || '', data)
+        ]);
+
         const logChannels = Object.entries(channels).filter(([_, v]) => v !== false).map(([k]) => k).join(', ');
         logNotify(`CONFIG: Enabled=${logChannels || 'NONE'}`);
 
@@ -51,7 +55,7 @@ async function sendCustomerNotificationAcrossChannels(templateKey, data, custome
             }
         }
 
-        let message = await getDynamicMessage(templateKey, data.defaultTemplate || '', data);
+        let message = messageRaw;
 
         // --- Tracking Link Guarantee ---
         // If a trackUrl was provided but the DB template didn't include {trackUrl},

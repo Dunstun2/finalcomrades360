@@ -399,7 +399,8 @@ const createOrderFromCart = async (req, res) => {
     primaryReferralCode, // Fallback for frontend naming
     deliveryInstructions,
     paymentProofUrl,
-    paymentId // New field to link pre-initiated payment
+    paymentId, // New field to link pre-initiated payment
+    deliveryTimePreference // New optional field
   } = req.body;
   
   // Safely extract userId - will be null for guest checkouts
@@ -779,6 +780,7 @@ const createOrderFromCart = async (req, res) => {
       marketingDeliveryAddress: req.body.marketingDeliveryAddress || null,
       deliveryAddress: req.body.deliveryAddress || null,
       deliveryInstructions: deliveryInstructions || req.body.specialInstructions || null,
+      deliveryTimePreference: deliveryTimePreference || req.body.deliveryTimePreference || null,
       batchId: sharedBatchId ? Number(sharedBatchId) : null,
       paymentProofUrl: paymentProofUrl || null
     }, { transaction: t });
@@ -1100,19 +1102,20 @@ const createOrderFromCart = async (req, res) => {
     await t.commit();
     console.log('✅ Backend: Order creation completed successfully');
     
-    // Step 11.5: Invalidate product and homepage caches so out-of-stock items disappear immediately
-    try {
-      await cacheService.delPattern('products:*');
-      await cacheService.delPattern('homepage:*');
-      console.log('✅ Backend: Caches invalidated after checkout');
-    } catch (cacheErr) {
-      console.error('⚠️ Failed to invalidate cache after checkout:', cacheErr.message);
-    }
-
-    // Step 12: Background Notifications (Real-time and External)
-    // We send the response to the user immediately and process notifications in the background
+    // Step 12: Background Notifications (Real-time and External) & Cache Invalidation
+    // We send the response to the user immediately and process heavy work in the background
     setImmediate(async () => {
       logNotify(`\n🧵 [Background Task] Starting notifications for order ${order.orderNumber}...`);
+      
+      // Background cache invalidation
+      try {
+        await cacheService.delPattern('products:*');
+        await cacheService.delPattern('homepage:*');
+        console.log('✅ [Background] Caches invalidated after checkout');
+      } catch (cacheErr) {
+        console.error('⚠️ [Background] Failed to invalidate cache:', cacheErr.message);
+      }
+
       try {
         const { getIO } = require('../realtime/socket');
         const io = getIO();
@@ -1429,28 +1432,56 @@ const myOrders = async (req, res) => {
 const getSuperAdminProductOrders = async (req, res) => {
   try {
     const superAdminId = req.user.id;
+    const { status, page: pageStr = '1', pageSize: pageSizeStr = '50' } = req.query;
+    const page = Math.max(1, parseInt(pageStr, 10));
+    const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeStr, 10)));
+    const offset = (page - 1) * pageSize;
 
-    // Find all products and fast foods added by this super admin
+    // Find all products and fast foods added by this super admin or where they are the seller
     const [products, fastFoods] = await Promise.all([
-      Product.findAll({ where: { addedBy: superAdminId }, attributes: ['id'] }),
-      FastFood.findAll({ where: { addedBy: superAdminId }, attributes: ['id'] })
+      Product.findAll({ 
+        where: { 
+          [Op.or]: [
+            { addedBy: superAdminId },
+            { sellerId: superAdminId }
+          ]
+        }, 
+        attributes: ['id'] 
+      }),
+      FastFood.findAll({ 
+        where: { 
+          [Op.or]: [
+            { addedBy: superAdminId },
+            { vendor: superAdminId }
+          ]
+        }, 
+        attributes: ['id'] 
+      })
     ]);
 
     const productIds = products.map(p => p.id);
     const fastFoodIds = fastFoods.map(f => f.id);
 
-    if (productIds.length === 0 && fastFoodIds.length === 0) {
-      return res.json([]);
+
+    const where = {};
+    if (status) {
+      if (status.includes(',')) {
+        where.status = { [Op.in]: status.split(',') };
+      } else {
+        where.status = status;
+      }
     }
 
     // Find orders that contain these products or fast foods
-    const orders = await Order.findAll({
+    const { count, rows: orders } = await Order.findAndCountAll({
+      where,
       include: [
         {
           model: OrderItem,
           as: 'OrderItems',
           where: {
             [Op.or]: [
+              { sellerId: superAdminId },
               { productId: { [Op.in]: productIds.length > 0 ? productIds : [-1] } },
               { fastFoodId: { [Op.in]: fastFoodIds.length > 0 ? fastFoodIds : [-1] } }
             ]
@@ -1467,17 +1498,33 @@ const getSuperAdminProductOrders = async (req, res) => {
         { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
         { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'businessName'] }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      limit: pageSize,
+      offset,
+      distinct: true
     });
 
     // Map to include sellerTotal (sum of filtered items)
     const processedOrders = orders.map(order => {
       const plainOrder = order.get({ plain: true });
-      const sellerTotal = (plainOrder.OrderItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
-      return { ...plainOrder, sellerTotal };
+      const myItems = (plainOrder.OrderItems || []).filter(item => {
+        const isMyByItemSeller = String(item.sellerId || '') === String(superAdminId);
+        const isMyProduct = item.Product && String(item.Product.addedBy || item.Product.sellerId) === String(superAdminId);
+        const isMyMeal = item.FastFood && String(item.FastFood.addedBy || item.FastFood.vendor) === String(superAdminId);
+        return isMyByItemSeller || isMyProduct || isMyMeal;
+      });
+      const sellerTotal = myItems.reduce((sum, item) => sum + (item.total || 0), 0);
+      return { ...plainOrder, OrderItems: myItems, sellerTotal };
     });
 
-    res.json(processedOrders);
+    res.json({
+      data: processedOrders,
+      meta: {
+        total: count,
+        page,
+        totalPages: Math.ceil(count / pageSize)
+      }
+    });
   } catch (error) {
     console.error('Error fetching super admin product orders:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });

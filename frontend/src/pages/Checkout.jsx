@@ -164,7 +164,8 @@ function Checkout() {
     customerEmail: '',
     customerAddress: '',
     specialInstructions: '',
-    paymentProofUrl: ''
+    paymentProofUrl: '',
+    deliveryTimePreference: ''
   });
   const [isSavingAddress, setIsSavingAddress] = useState(false);
   const [batchSystemEnabled, setBatchSystemEnabled] = useState(false);
@@ -759,6 +760,7 @@ function Checkout() {
           paymentSubType: formData.paymentSubMethod, // specific payment method
           paymentId: paymentId, // Attach payment ID for prepay
           primaryReferralCode: formData.referralCode.trim() || null, // Include referral code if provided (order-specific)
+          deliveryTimePreference: formData.deliveryTimePreference || null, // New field
           items: scopedItems.map((item, idx) => {
             // Determine item-level delivery fee
             let itemDeliveryFee = 0;
@@ -1037,10 +1039,118 @@ function Checkout() {
                           : (scopedSummary.subtotal || 0)
                     )}</span>
                   </div>
+                  </div>
                 </div>
+
+                {isFastFoodScope && batchSystemEnabled && (
+                  <div className="mt-6 pt-6 border-t border-gray-100 transition-all animate-in fade-in slide-in-from-top-2">
+                    <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-2">
+                      Select Order Batch *
+                    </h3>
+                    <p className="text-[10px] text-gray-500 mb-3">
+                      Choose one active batch for this fastfood order.
+                    </p>
+
+                    {loadingBatches ? (
+                      <div className="text-[10px] text-gray-500 italic">Loading active batches...</div>
+                    ) : activeBatches.length === 0 ? (
+                      <div className="text-[10px] text-red-600 bg-red-50 border border-red-100 rounded p-2 font-medium">
+                        No active batches are available right now.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {activeBatches.map((batch) => {
+                          const checked = String(selectedOrderBatchId) === String(batch.id);
+                          return (
+                            <label
+                              key={batch.id}
+                              className={`flex items-start gap-2 p-2.5 border rounded-md cursor-pointer transition-all select-none ${checked ? 'border-orange-400 bg-orange-50/50 shadow-sm' : 'border-gray-100 bg-white hover:border-gray-200'}`}
+                            >
+                              <input
+                                type="radio"
+                                name="orderBatch"
+                                checked={checked}
+                                onChange={() => {
+                                  setSelectedOrderBatchId(String(batch.id));
+                                  if (batch.expectedDelivery && /^([01]\d|2[0-3]):([0-5]\d)$/.test(batch.expectedDelivery)) {
+                                    setFormData(prev => ({ ...prev, deliveryTimePreference: batch.expectedDelivery }));
+                                  }
+                                }}
+                                className="mt-0.5 h-3.5 w-3.5 accent-orange-500"
+                              />
+                              <div className="flex-1">
+                                <div className="font-bold text-[11px] text-gray-900 leading-tight">{batch.name || `Batch #${batch.id}`}</div>
+                                <div className="flex flex-col gap-0 mt-0.5">
+                                  <div className="text-[9px] text-gray-500 font-medium">Within: {batch.startTime} - {batch.endTime}</div>
+                                  {batch.expectedDelivery && (
+                                    <div className="text-[9px] text-orange-600 font-bold uppercase tracking-tight">Delivery by {batch.expectedDelivery}</div>
+                                  )}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {selectedOrderBatch ? (
+                      <p className="mt-2 text-[10px] text-green-700 font-medium">
+                        Selected: <span className="font-bold">{selectedOrderBatch.name || `Batch #${selectedOrderBatch.id}`}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
+                {isFastFoodScope && (
+                  <div className="mt-6 pt-6 border-t border-gray-100 transition-all animate-in fade-in slide-in-from-top-2">
+                    <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-2">
+                      Preferred Delivery Time (Optional)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="time"
+                          name="deliveryTimePreference"
+                          value={formData.deliveryTimePreference}
+                          onChange={(e) => {
+                            const newTime = e.target.value;
+                            if (newTime) {
+                              const now = new Date();
+                              const [hours, minutes] = newTime.split(':').map(Number);
+                              const selectedDate = new Date();
+                              selectedDate.setHours(hours, minutes, 0, 0);
+
+                              if (selectedDate < now) {
+                                alert('⚠️ Invalid Time\n\nPlease select a future time for delivery.');
+                                return;
+                              }
+                            }
+                            handleInputChange(e);
+                          }}
+                          disabled={activeBatches.length > 0}
+                          className={`w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${activeBatches.length > 0 ? 'bg-gray-100 cursor-not-allowed opacity-75' : 'bg-white'}`}
+                        />
+                      </div>
+                      {activeBatches.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, deliveryTimePreference: '' }))}
+                          className="text-[10px] text-gray-400 hover:text-red-500 font-bold uppercase transition-colors px-2"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-gray-500 mt-2 italic leading-tight">
+                      {activeBatches.length > 0 
+                        ? `* This time is automatically set by your selected batch (${selectedOrderBatch?.expectedDelivery || 'the specified time'}) and cannot be changed.`
+                        : `* We'll do our best to deliver around this time. Please choose a future time.`
+                      }
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
 
           {/* Column 2: Delivery Information */}
           <div className="space-y-6 order-2 lg:order-2">
@@ -1138,59 +1248,7 @@ function Checkout() {
                   </div>
                 )}
 
-                {isFastFoodScope && batchSystemEnabled && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Order Batch *
-                    </label>
-                    <p className="text-xs text-gray-500 mb-3">
-                      Choose one active batch for the entire fastfood order.
-                    </p>
 
-                    {loadingBatches ? (
-                      <div className="text-sm text-gray-500">Loading active batches...</div>
-                    ) : activeBatches.length === 0 ? (
-                      <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded p-2">
-                        No active batches are available right now.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {activeBatches.map((batch) => {
-                          const checked = String(selectedOrderBatchId) === String(batch.id);
-                          return (
-                            <label
-                              key={batch.id}
-                              className={`flex items-start gap-3 p-3 border-2 rounded-md cursor-pointer transition-colors select-none ${checked ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-white hover:bg-gray-50'}`}
-                            >
-                              <input
-                                type="radio"
-                                name="orderBatch"
-                                checked={checked}
-                                onChange={() => setSelectedOrderBatchId(String(batch.id))}
-                                className="mt-1 h-4 w-4"
-                              />
-                              <div className="flex-1">
-                                <div className="font-semibold text-sm text-gray-900">{batch.name || `Batch #${batch.id}`}</div>
-                                <div className="flex flex-col gap-0.5 mt-1">
-                                  <div className="text-[11px] text-gray-500 font-medium">Orders within: {batch.startTime} - {batch.endTime}</div>
-                                  {batch.expectedDelivery && (
-                                    <div className="text-[11px] text-orange-600 font-bold uppercase tracking-tight">Delivery by {batch.expectedDelivery}</div>
-                                  )}
-                                </div>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {selectedOrderBatch ? (
-                      <p className="mt-2 text-xs text-green-700">
-                        Selected batch: <span className="font-semibold">{selectedOrderBatch.name || `Batch #${selectedOrderBatch.id}`}</span>
-                      </p>
-                    ) : null}
-                  </div>
-                )}
 
                 {/* Home Delivery Address */}
                 {formData.deliveryMethod === 'home_delivery' && (
@@ -1702,6 +1760,8 @@ function Checkout() {
                       <p className="text-[10px] text-gray-500">Visible to both the seller and delivery agent.</p>
                       <p className="text-[10px] text-gray-400">{formData.specialInstructions?.length || 0}/280</p>
                     </div>
+
+
                   </div>
                 )}
 

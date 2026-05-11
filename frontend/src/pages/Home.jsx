@@ -39,6 +39,22 @@ function Home({ isMarketingMode: propMarketingMode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiStatus, setApiStatus] = useState('checking'); // checking, connected, failed
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const sortedFastFoodData = useMemo(() => {
+    return [...fastFoodData].sort((a, b) => {
+      const aOpen = isFastFoodOpen(a, currentTime);
+      const bOpen = isFastFoodOpen(b, currentTime);
+      if (aOpen && !bOpen) return -1;
+      if (!aOpen && bOpen) return 1;
+      return 0;
+    });
+  }, [fastFoodData, currentTime]);
 
   // Helper function to filter items for marketing mode
   const filterMarketingItems = useCallback((items, type) => {
@@ -618,8 +634,18 @@ function Home({ isMarketingMode: propMarketingMode }) {
 
     // 3. Set Fast Food (with marketing filter if needed) - Limit to 2 rows initially to ensure Load More button shows
     const filteredFastFood = filterMarketingItems(fastFood || [], 'fastfood');
-    const fastFoodLimit = Math.min(filteredFastFood.length, itemsPerRow * 2);
-    const initialFastFood = filteredFastFood.slice(0, Math.max(fastFoodLimit, 12));
+    
+    // Sort by availability: Open first, then closed
+    const sortedFastFood = [...filteredFastFood].sort((a, b) => {
+      const aOpen = isFastFoodOpen(a);
+      const bOpen = isFastFoodOpen(b);
+      if (aOpen && !bOpen) return -1;
+      if (!aOpen && bOpen) return 1;
+      return 0;
+    });
+
+    const fastFoodLimit = Math.min(sortedFastFood.length, itemsPerRow * 2);
+    const initialFastFood = sortedFastFood.slice(0, Math.max(fastFoodLimit, 12));
     setFastFoodData(initialFastFood);
 
     // 4. Set Hero Promotions — allow those with marketing-eligible products OR those with a custom banner image
@@ -1204,7 +1230,7 @@ function Home({ isMarketingMode: propMarketingMode }) {
       {/* Fast Food Section */}
       {isSectionVisible('fastfood') && (
         <FastFoodSection 
-          initialData={fastFoodData} 
+          initialData={sortedFastFoodData} 
           initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
         />
       )}
@@ -1302,7 +1328,7 @@ const MemoizedProductList = React.memo(({ products, onProductClick, onAddToCart,
           onView={onProductClick}
           onAddToCart={onAddToCart}
           onWishlistToggle={onWishlistToggle}
-          isInCart={isInCart(product.id)}
+          isInCart={isInCart(product.id, product.itemType || (product.fastFoodId ? 'fastfood' : (product.serviceId ? 'service' : 'product')))}
           isInWishlist={isInWishlist(product.id)}
           user={user}
           navigate={navigate}

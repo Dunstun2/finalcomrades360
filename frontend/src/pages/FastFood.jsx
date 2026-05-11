@@ -13,6 +13,7 @@ import { useCategories } from '../contexts/CategoriesContext';
 import { useAuth } from '../contexts/AuthContext';
 import MaintenanceOverlay from '../components/MaintenanceOverlay';
 import PageLayout from '../components/layout/PageLayout';
+import { isFastFoodOpen } from '../utils/availabilityUtils';
 
 export default function FastFood() {
     const [items, setItems] = useState([]);
@@ -28,6 +29,22 @@ export default function FastFood() {
     const [campaignItems, setCampaignItems] = useState({});
     const [currentCampaignIndex, setCurrentCampaignIndex] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const sortedItems = React.useMemo(() => {
+        return [...items].sort((a, b) => {
+            const aOpen = isFastFoodOpen(a, currentTime);
+            const bOpen = isFastFoodOpen(b, currentTime);
+            if (aOpen && !bOpen) return -1;
+            if (!aOpen && bOpen) return 1;
+            return 0;
+        });
+    }, [items, currentTime]);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -168,8 +185,12 @@ export default function FastFood() {
             const response = await api.get(`/fastfood?${params.toString()}`);
             if (response.data.success) {
                 let fetchedItems = response.data.data;
-                if (reset) setItems(fetchedItems);
-                else setItems(prev => [...prev, ...fetchedItems]);
+                
+                if (reset) {
+                    setItems(fetchedItems);
+                } else {
+                    setItems(prev => [...prev, ...fetchedItems]);
+                }
                 setHasMore(fetchedItems.length === parseInt(limit));
                 setPage(pageNum);
             }
@@ -273,7 +294,7 @@ export default function FastFood() {
                                     {[...Array(12)].map((_, i) => <div key={i} className="bg-gray-200 rounded-xl h-64"></div>)}
                                 </div>
                             ) : activeTab === 'live' ? (
-                                <LiveMenuGrid items={items} searchTerm={searchTerm} navigate={navigate} />
+                                <LiveMenuGrid items={sortedItems} searchTerm={searchTerm} navigate={navigate} />
                             ) : (
                                 <div className={`transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
                                     {/* Category Filter */}
@@ -299,10 +320,10 @@ export default function FastFood() {
                                     </div>
 
                                     {/* Items Display */}
-                                    {items.length > 0 ? (
+                                    {sortedItems.length > 0 ? (
                                         <div className="bg-white md:rounded-3xl border border-gray-100 p-0 md:p-4">
                                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-                                                {items.map((item) => <FastFoodCard key={item.id} item={item} navigate={navigate} />)}
+                                                {sortedItems.map((item) => <FastFoodCard key={item.id} item={item} navigate={navigate} />)}
                                             </div>
                                         </div>
                                     ) : (

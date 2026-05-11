@@ -404,9 +404,9 @@ export function CartProvider({ children }) {
         // If it exists, we increment the quantity
         const updatedItems = prevCart.items.map(item => {
           const sameTypeAndId =
-            (itemType === 'product' && Number(item.productId) === productIdNum) ||
-            (itemType === 'fastfood' && Number(item.fastFoodId) === productIdNum) ||
-            (itemType === 'service' && Number(item.serviceId) === productIdNum);
+            (itemType === 'product' && String(item.productId) === String(productIdNum)) ||
+            (itemType === 'fastfood' && String(item.fastFoodId) === String(productIdNum)) ||
+            (itemType === 'service' && String(item.serviceId) === String(productIdNum));
 
           if (!sameTypeAndId) return item;
 
@@ -743,9 +743,9 @@ export function CartProvider({ children }) {
     setCart(prevCart => {
       if (!prevCart) return prevCart;
       const updatedItems = prevCart.items.map(item => {
-        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
-          (type === 'service' && item.serviceId === parseInt(productId)) ||
-          (type === 'product' && item.productId === parseInt(productId) && (item.variantId || null) === (options.variantId || null));
+        const isMatch = (type === 'fastfood' && String(item.fastFoodId) === String(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
+          (type === 'service' && String(item.serviceId) === String(productId)) ||
+          (type === 'product' && String(item.productId) === String(productId) && (item.variantId || null) === (options.variantId || null));
         if (isMatch) {
           const unitPrice = Number(item.price || 0);
           const productData = item.fastFood || item.service || item.product || {};
@@ -779,9 +779,9 @@ export function CartProvider({ children }) {
     setCart(prevCart => {
       if (!prevCart) return prevCart;
       const updatedItems = prevCart.items.filter(item => {
-        const isMatch = (type === 'fastfood' && item.fastFoodId === parseInt(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
-          (type === 'service' && item.serviceId === parseInt(productId)) ||
-          (type === 'product' && item.productId === parseInt(productId) && (item.variantId || null) === (options.variantId || null));
+        const isMatch = (type === 'fastfood' && String(item.fastFoodId) === String(productId) && (item.variantId || null) === (options.variantId || null) && (item.comboId || null) === (options.comboId || null)) ||
+          (type === 'service' && String(item.serviceId) === String(productId)) ||
+          (type === 'product' && String(item.productId) === String(productId) && (item.variantId || null) === (options.variantId || null));
         return !isMatch;
       });
       const newCart = { ...prevCart, items: updatedItems, summary: calculateSummary(updatedItems) };

@@ -542,12 +542,22 @@ exports.placeDirectOrder = async (req, res) => {
             // Track seller earnings (merchandise payout)
             sellerEarningsMap[sellerId] = (sellerEarningsMap[sellerId] || 0) + (sellerBasePrice * itemRequest.quantity);
 
-            // Deduct inventory and update sold counts for products
-            if (itemRequest.type === 'product' && dbItem.stock !== undefined) {
-                await dbItem.decrement('stock', { by: itemRequest.quantity, transaction: t });
-                await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+            // Deduct inventory and update counts
+            if (itemRequest.type === 'product') {
+                if (dbItem.stock !== undefined) {
+                    await dbItem.decrement('stock', { by: itemRequest.quantity, transaction: t });
+                }
+                // Products use 'soldCount'
+                if (dbItem.constructor.rawAttributes.soldCount) {
+                    await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+                }
             } else if (itemRequest.type === 'fastfood') {
-                await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+                // FastFood uses 'orderCount'
+                if (dbItem.constructor.rawAttributes.orderCount) {
+                    await dbItem.increment('orderCount', { by: itemRequest.quantity, transaction: t });
+                } else if (dbItem.constructor.rawAttributes.soldCount) {
+                    await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
+                }
             }
         }
 

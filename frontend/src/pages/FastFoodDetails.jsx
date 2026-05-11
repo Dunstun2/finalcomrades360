@@ -933,22 +933,44 @@ const FastFoodDetails = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-orange-50 pt-4">
       <div className="w-full px-0 md:px-6 lg:px-12 py-2 lg:py-8">
-        <button
-          onClick={handleBack}
-          className="flex items-center text-gray-700 hover:text-orange-700 mb-2 md:mb-6 transition-colors ml-4 md:ml-0"
-        >
-          <ArrowLeft className="h-5 w-5 mr-2" />
-          {(() => {
-            const fromPath = location.state?.from;
-            const isMarketing = localStorage.getItem('marketing_mode') === 'true';
-            if (fromPath) {
-              const segments = fromPath.split('/').filter(Boolean);
-              if (segments.length > 1) return 'Back to Item';
-              if (segments.length === 0) return 'Back to Home';
-            }
-            return isMarketing ? 'Back to Marketing' : 'Back to Menu';
-          })()}
-        </button>
+        <div className="flex items-center justify-between mb-4 md:mb-6 px-4 md:px-0">
+          <button
+            onClick={handleBack}
+            className="flex items-center text-gray-700 hover:text-orange-700 transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5 mr-2" />
+            {(() => {
+              const fromPath = location.state?.from;
+              const isMarketing = localStorage.getItem('marketing_mode') === 'true';
+              if (fromPath) {
+                const segments = fromPath.split('/').filter(Boolean);
+                if (segments.length > 1) return 'Back to Item';
+                if (segments.length === 0) return 'Back to Home';
+              }
+              return isMarketing ? 'Back to Marketing' : 'Back to Menu';
+            })()}
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleWishlistToggle}
+              className={`inline-flex items-center justify-center h-9 w-9 rounded-xl border transition-colors shadow-sm ${isWishlisted ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-white text-gray-500 border-gray-200 hover:text-red-600 hover:border-red-200'}`}
+              title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+              aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+            >
+              <Heart className={`h-4 w-4 ${isWishlisted ? 'fill-current' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setInquiryModalOpen(true)}
+              className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-black uppercase tracking-tight shadow-sm border border-blue-100 transition-all"
+            >
+              <MessageCircle className="h-4 w-4" />
+              Contact Us
+            </button>
+          </div>
+        </div>
 
         <div className="bg-white md:rounded-3xl shadow-lg overflow-hidden border-0 md:border border-orange-100">
           {buyDebugEnabled && (
@@ -1046,7 +1068,7 @@ const FastFoodDetails = () => {
 
               {/* Simplified Price and Action Box - Now always in left column below gallery */}
               <div className="bg-orange-50 rounded-2xl p-3 border border-orange-100">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex flex-row items-center justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap shrink-0">
                       <span className="text-2xl sm:text-3xl font-black text-orange-700 leading-none">
                         {pricing.finalPrice > 0 ? `KES ${pricing.finalPrice.toLocaleString()}` : 'Contact for price'}
@@ -1059,7 +1081,7 @@ const FastFoodDetails = () => {
                       )}
                     </div>
 
-                    <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                    <div className="flex gap-2 shrink-0">
                       <button
                         onClick={() => isBaseItemInCart ? handleRemoveFromCart(null, null) : submitAddToCart(null, null, false, 'base-add-global')}
                         disabled={!isOpen || primaryButtonBusy}
@@ -1081,6 +1103,97 @@ const FastFoodDetails = () => {
               <p className="text-xs text-gray-500 mt-2">
                 Delivery in about {toNumber(item.deliveryTimeEstimateMinutes, 30)} mins from seller kitchen.
               </p>
+
+              {/* Variants and Combos Moved Independent Action Section */}
+              <div className="space-y-4 pt-2">
+                {variantOptions.length > 0 && (
+                  <div className="rounded-2xl border border-orange-100 overflow-hidden bg-white shadow-sm">
+                    <div className="px-4 py-3 bg-orange-50/50 border-b border-orange-100">
+                      <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tight text-gray-900">
+                        <List className="h-4 w-4 text-orange-600" /> Choose Size
+                      </h3>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {variantOptions.map((variant, index) => {
+                        const variantPrice = getOptionPrice(variant, pricing.finalPrice);
+                        const vId = getSizeVariantId(variant);
+                        const variantInCart = isFastFoodOptionInCart(vId, null, selectedBatchId);
+                        
+                        return (
+                          <div key={`${vId}-${index}`} className="p-4 flex items-center justify-between gap-3 hover:bg-orange-50/30 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black text-gray-900 text-sm truncate uppercase tracking-tighter">
+                                {variant.name || variant.size || `Size ${index + 1}`}
+                              </p>
+                              <p className="text-xs font-black text-orange-600">KES {variantPrice.toLocaleString()}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {variantInCart && (
+                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">In Cart</span>
+                              )}
+                              <button
+                                onClick={() => variantInCart ? handleRemoveFromCart(vId, null) : submitAddToCart(variant, null, false, 'variant-add')}
+                                disabled={!isOpen || primaryButtonBusy || variant.isAvailable === false}
+                                className={`h-9 px-4 rounded-xl border-2 text-[10px] font-black uppercase tracking-tight transition-all disabled:opacity-50 ${
+                                  variantInCart 
+                                    ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
+                                    : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
+                                }`}
+                              >
+                                {variantInCart ? 'Remove' : 'Add'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {comboOptions.length > 0 && (
+                  <div className="rounded-2xl border border-orange-100 overflow-hidden bg-white shadow-sm">
+                    <div className="px-4 py-3 bg-orange-50/50 border-b border-orange-100">
+                      <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tight text-gray-900">
+                        <Settings className="h-4 w-4 text-orange-600" /> Choose Combo
+                      </h3>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {comboOptions.map((combo, index) => {
+                        const comboPrice = getOptionPrice(combo, pricing.finalPrice);
+                        const cId = getComboOptionId(combo);
+                        const comboInCart = isFastFoodOptionInCart(null, cId, selectedBatchId);
+                        
+                        return (
+                          <div key={`${cId}-${index}`} className="p-4 space-y-2 hover:bg-orange-50/30 transition-colors">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-black text-gray-900 text-sm truncate uppercase tracking-tighter" title={combo.name || combo.label || `Combo ${index + 1}`}>
+                                  {combo.name || combo.label || `Combo ${index + 1}`}
+                                </p>
+                                <p className="text-xs font-black text-orange-600">KES {comboPrice.toLocaleString()}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => comboInCart ? handleRemoveFromCart(null, cId) : submitAddToCart(null, combo, false, 'combo-add')}
+                                  disabled={!isOpen || primaryButtonBusy || combo.isAvailable === false}
+                                  className={`flex-1 h-9 px-4 rounded-xl border-2 text-[10px] font-black uppercase tracking-tight transition-all disabled:opacity-50 ${
+                                    comboInCart 
+                                      ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
+                                      : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
+                                  }`}
+                                >
+                                  {comboInCart ? 'Remove' : 'Add'}
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-500 italic">Includes: {getComboItemsLabel(combo)}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="lg:col-span-7 space-y-6 px-0 md:px-0">
@@ -1096,24 +1209,8 @@ const FastFoodDetails = () => {
                   </h1>
                   {item.shortDescription && <p className="w-full text-orange-700 font-semibold mt-1">{item.shortDescription}</p>}
                 </div>
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={handleWishlistToggle}
-                    className={`inline-flex items-center justify-center h-9 w-9 rounded-lg border transition-colors ${isWishlisted ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-white text-gray-500 border-gray-200 hover:text-red-600 hover:border-red-200'}`}
-                    title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
-                    aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                  >
-                    <Heart className={`h-4 w-4 ${isWishlisted ? 'fill-current' : ''}`} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInquiryModalOpen(true)}
-                    className="inline-flex items-center justify-center gap-1 h-9 px-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold whitespace-nowrap"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    Contact Us
-                  </button>
+                <div className="hidden">
+                  {/* Buttons moved to top */}
                 </div>
               </div>
 
@@ -1202,194 +1299,78 @@ const FastFoodDetails = () => {
                 </div>
               )}
 
-              {/* Variants and Combos Moved Independent Action Section */}
-              <div className="space-y-4">
-                {variantOptions.length > 0 && (
-                  <div className="rounded-2xl border border-orange-100 overflow-hidden bg-white shadow-sm">
-                    <div className="px-4 py-3 bg-orange-50/50 border-b border-orange-100">
-                      <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tight text-gray-900">
-                        <List className="h-4 w-4 text-orange-600" /> Choose Size
-                      </h3>
+              {/* Technical Details Section moved from bottom */}
+              <div className="mt-8 pt-8 border-t border-orange-50 space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <section>
+                    <h3 className="text-sm font-black text-gray-900 mb-4 uppercase tracking-wider flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-orange-600" /> Order Limits
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-gray-100 p-4 bg-gray-50/50">
+                        <p className="text-[10px] uppercase font-black text-gray-500 tracking-wider mb-1">Min</p>
+                        <p className="font-black text-base text-gray-900">{Math.max(1, toNumber(item.minOrderQty, 1))}</p>
+                      </div>
+                      <div className="rounded-2xl border border-gray-100 p-4 bg-gray-50/50">
+                        <p className="text-[10px] uppercase font-black text-gray-500 tracking-wider mb-1">Max</p>
+                        <p className="font-black text-base text-gray-900">{toNumber(item.maxOrderQty, 0) > 0 ? item.maxOrderQty : '∞'}</p>
+                      </div>
                     </div>
-                    <div className="divide-y divide-gray-50">
-                      {variantOptions.map((variant, index) => {
-                        const variantPrice = getOptionPrice(variant, pricing.finalPrice);
-                        const vId = getSizeVariantId(variant);
-                        const variantInCart = isFastFoodOptionInCart(vId, null, selectedBatchId);
-                        
+                  </section>
+
+                  <section className="rounded-2xl border border-gray-100 p-4 bg-white shadow-sm">
+                    <h3 className="text-sm font-black text-gray-900 mb-4 flex items-center gap-2 uppercase tracking-wider"><Clock className="h-4 w-4 text-orange-600" /> Kitchen Hours</h3>
+                    <div className="space-y-2">
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
+                        const dayInfo = schedule.find((entry) => entry.day === day) || schedule.find((entry) => entry.day === 'All Days');
+                        const available = dayInfo ? dayInfo.available !== false : day !== 'Sunday';
+                        const from = dayInfo?.from || item.availableFrom || '08:00';
+                        const to = dayInfo?.to || item.availableTo || '21:00';
                         return (
-                          <div key={`${vId}-${index}`} className="p-4 flex items-center justify-between gap-3 hover:bg-orange-50/30 transition-colors">
-                            <div className="min-w-0 flex-1">
-                              <p className="font-black text-gray-900 text-sm truncate uppercase tracking-tighter">
-                                {variant.name || variant.size || `Size ${index + 1}`}
-                              </p>
-                              <p className="text-xs font-black text-orange-600">KES {variantPrice.toLocaleString()}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {variantInCart && (
-                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">In Cart</span>
-                              )}
-                              <button
-                                onClick={() => variantInCart ? handleRemoveFromCart(vId, null) : submitAddToCart(variant, null, false, 'variant-add')}
-                                disabled={!isOpen || primaryButtonBusy || variant.isAvailable === false}
-                                className={`h-9 px-4 rounded-xl border-2 text-[10px] font-black uppercase tracking-tight transition-all disabled:opacity-50 ${
-                                  variantInCart 
-                                    ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
-                                    : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
-                                }`}
-                              >
-                                {variantInCart ? 'Remove' : 'Add'}
-                              </button>
-                            </div>
+                          <div key={day} className="flex items-center justify-between text-[10px]">
+                            <span className={`font-bold ${available ? 'text-gray-900' : 'text-gray-400'}`}>{day}</span>
+                            <span className={`font-black ${available ? 'text-emerald-600' : 'text-red-400'}`}>
+                              {available ? `${from}-${to}` : 'Closed'}
+                            </span>
                           </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
+                  </section>
+                </div>
 
-                {comboOptions.length > 0 && (
-                  <div className="rounded-2xl border border-orange-100 overflow-hidden bg-white shadow-sm">
-                    <div className="px-4 py-3 bg-orange-50/50 border-b border-orange-100">
-                      <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-tight text-gray-900">
-                        <Settings className="h-4 w-4 text-orange-600" /> Choose Combo
-                      </h3>
-                    </div>
-                    <div className="divide-y divide-gray-50">
-                      {comboOptions.map((combo, index) => {
-                        const comboPrice = getOptionPrice(combo, pricing.finalPrice);
-                        const cId = getComboOptionId(combo);
-                        const comboInCart = isFastFoodOptionInCart(null, cId, selectedBatchId);
-                        
-                        return (
-                          <div key={`${cId}-${index}`} className="p-4 space-y-2 hover:bg-orange-50/30 transition-colors">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-black text-gray-900 text-sm truncate uppercase tracking-tighter" title={combo.name || combo.label || `Combo ${index + 1}`}>
-                                  {combo.name || combo.label || `Combo ${index + 1}`}
-                                </p>
-                                <p className="text-xs font-black text-orange-600">KES {comboPrice.toLocaleString()}</p>
-                              </div>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => comboInCart ? handleRemoveFromCart(null, cId) : submitAddToCart(null, combo, false, 'combo-add')}
-                                  disabled={!isOpen || primaryButtonBusy || combo.isAvailable === false}
-                                  className={`flex-1 h-9 px-4 rounded-xl border-2 text-[10px] font-black uppercase tracking-tight transition-all disabled:opacity-50 ${
-                                    comboInCart 
-                                      ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
-                                      : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
-                                  }`}
-                                >
-                                  {comboInCart ? 'Remove' : 'Add'}
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-[10px] font-bold text-gray-500 italic">Includes: {getComboItemsLabel(combo)}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-            </div>
-          </div>
-        </div>
-          <div className="px-0 py-6 md:px-4 lg:p-8 space-y-12 w-full">
-            {/* Structured details section */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Left detail column - order info and availability */}
-              <div className="lg:col-span-4 space-y-8">
-                <section>
-                  <h3 className="text-sm font-black text-gray-900 mb-4 uppercase tracking-wider flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-orange-600" /> Order Limits
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-gray-100 p-4 bg-gray-50/50">
-                      <p className="text-[10px] uppercase font-black text-gray-500 tracking-wider mb-1">Minimum</p>
-                      <p className="font-black text-base text-gray-900">{Math.max(1, toNumber(item.minOrderQty, 1))}</p>
-                    </div>
-                    <div className="rounded-2xl border border-gray-100 p-4 bg-gray-50/50">
-                      <p className="text-[10px] uppercase font-black text-gray-500 tracking-wider mb-1">Maximum</p>
-                      <p className="font-black text-base text-gray-900">{toNumber(item.maxOrderQty, 0) > 0 ? item.maxOrderQty : 'Unlimited'}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 rounded-2xl border border-gray-100 p-4 bg-emerald-50/30 flex items-center justify-between">
-                    <p className="text-[10px] uppercase font-black text-gray-500 tracking-wider">Pickup Support</p>
-                    <p className="font-black text-xs text-emerald-700">{item.pickupAvailable ? 'Available' : 'Not available'}</p>
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-gray-100 p-6 bg-white shadow-sm">
-                  <h3 className="text-sm font-black text-gray-900 mb-4 flex items-center gap-2 uppercase tracking-wider"><Clock className="h-4 w-4 text-orange-600" /> Kitchen Hours</h3>
-                  <div className="space-y-3">
-                    {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
-                      const dayInfo = schedule.find((entry) => entry.day === day) || schedule.find((entry) => entry.day === 'All Days');
-                      const available = dayInfo ? dayInfo.available !== false : day !== 'Sunday';
-                      const from = dayInfo?.from || item.availableFrom || '08:00';
-                      const to = dayInfo?.to || item.availableTo || '21:00';
-                      return (
-                        <div key={day} className="flex items-center justify-between text-xs">
-                          <span className={`font-bold ${available ? 'text-gray-900' : 'text-gray-400'}`}>{day}</span>
-                          <span className={`font-black ${available ? 'text-emerald-600' : 'text-red-400'}`}>
-                            {available ? `${from} - ${to}` : 'Closed'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              </div>
-
-              {/* Right detail column - ingredients and nutrition */}
-              <div className="lg:col-span-8 space-y-8">
-                <section className="rounded-3xl border border-orange-100 p-6 md:p-8 bg-white shadow-sm">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <section className="rounded-3xl border border-orange-100 p-6 bg-white shadow-sm">
+                  <div className="space-y-6">
                     <div>
-                      <h3 className="text-lg font-black text-gray-900 flex items-center gap-2 mb-4"><Utensils className="h-5 w-5 text-orange-600" /> Ingredients</h3>
+                      <h3 className="text-sm font-black text-gray-900 flex items-center gap-2 mb-4 uppercase tracking-wider"><Utensils className="h-4 w-4 text-orange-600" /> Ingredients</h3>
                       {ingredients.length > 0 ? (
-                        <div className="flex flex-wrap gap-x-6 gap-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
                           {ingredients.map((ingredient, index) => {
                             const name = typeof ingredient.name === 'object' ? (ingredient.name?.name || JSON.stringify(ingredient.name)) : String(ingredient.name || 'Unnamed Ingredient');
-                            const qty = typeof ingredient.quantity === 'object' ? (ingredient.quantity?.value || JSON.stringify(ingredient.quantity)) : String(ingredient.quantity || '');
-                            
                             return (
-                              <div key={`${name}-${index}`} className="flex items-center gap-2 text-sm text-gray-700">
-                                <div className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+                              <div key={`${name}-${index}`} className="flex items-center gap-2 text-xs text-gray-700">
+                                <div className="w-1 h-1 rounded-full bg-orange-400" />
                                 <span className="font-bold">{name}</span>
-                                {qty && <span className="text-gray-400 text-xs">({qty})</span>}
                               </div>
                             );
                           })}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500 italic">Ingredients not listed.</p>
-                      )}
-
-                      {dietaryTags.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-6">
-                          {dietaryTags.map((tag, idx) => {
-                            const tagLabel = typeof tag === 'object' ? (tag.name || tag.label || JSON.stringify(tag)) : String(tag);
-                            return (
-                              <span key={`${tagLabel}-${idx}`} className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                {tagLabel}
-                              </span>
-                            );
-                          })}
-                        </div>
+                        <p className="text-xs text-gray-500 italic">Not listed.</p>
                       )}
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {nutritionalInfo && Object.values(nutritionalInfo).some(v => v) && (
                         <div>
-                          <h3 className="text-sm font-black text-gray-900 flex items-center gap-2 mb-4 uppercase tracking-wider">
-                            <Activity className="h-4 w-4 text-orange-600" /> Nutritional Facts
+                          <h3 className="text-[10px] font-black text-gray-900 flex items-center gap-2 mb-3 uppercase tracking-wider">
+                            <Activity className="h-3.5 w-3.5 text-orange-600" /> Nutrition
                           </h3>
                           <div className="grid grid-cols-2 gap-2">
                             {['calories', 'protein', 'carbs', 'fat'].map(fact => nutritionalInfo[fact] && (
-                              <div key={fact} className="p-3 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-between">
-                                <span className="text-[10px] uppercase font-black text-gray-500 tracking-tight">{fact}</span>
-                                <span className="text-xs font-black text-gray-900">{nutritionalInfo[fact]}</span>
+                              <div key={fact} className="p-2 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-between">
+                                <span className="text-[8px] uppercase font-black text-gray-400">{fact}</span>
+                                <span className="text-[10px] font-black text-gray-900">{nutritionalInfo[fact]}</span>
                               </div>
                             ))}
                           </div>
@@ -1398,23 +1379,16 @@ const FastFoodDetails = () => {
 
                       {customizations && customizations.length > 0 && (
                         <div>
-                          <h3 className="text-sm font-black text-gray-900 flex items-center gap-2 mb-3 uppercase tracking-wider">
-                            <CheckCircle2 className="h-4 w-4 text-orange-600" /> Notes
+                          <h3 className="text-[10px] font-black text-gray-900 flex items-center gap-2 mb-3 uppercase tracking-wider">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-orange-600" /> Notes
                           </h3>
-                          <ul className="space-y-2">
-                            {customizations.map((note, idx) => {
-                              const noteText = typeof note === 'object' 
-                                ? (note.name || note.label || note.title || JSON.stringify(note)) 
-                                : String(note);
-                              const notePrice = (typeof note === 'object' && note.price) ? ` (KES ${note.price})` : '';
-                              
-                              return (
-                                <li key={idx} className="flex items-start gap-2 text-xs text-gray-600 italic">
-                                  <div className="mt-1.5 h-1 w-1 rounded-full bg-orange-400 shrink-0" />
-                                  {noteText}{notePrice}
-                                </li>
-                              );
-                            })}
+                          <ul className="space-y-1">
+                            {customizations.slice(0, 3).map((note, idx) => (
+                              <li key={idx} className="text-[10px] text-gray-600 italic flex items-start gap-1">
+                                <div className="mt-1 h-1 w-1 rounded-full bg-orange-300 shrink-0" />
+                                {typeof note === 'object' ? (note.name || note.label) : note}
+                              </li>
+                            ))}
                           </ul>
                         </div>
                       )}
@@ -1423,6 +1397,9 @@ const FastFoodDetails = () => {
                 </section>
               </div>
             </div>
+          </div>
+        </div>
+
 
             {/* Reviews section stays more centered and controlled */}
             <div className="max-w-6xl mx-auto w-full">
@@ -1462,7 +1439,6 @@ const FastFoodDetails = () => {
               </section>
             )}
           </div>
-        </div>
       </div>
 
         {/* More From This Seller Section (Outside main card for full width) */}
@@ -1571,7 +1547,7 @@ const FastFoodDetails = () => {
             </div>
           </div>
         )}
-      </div>
+
 
       <Footer />
 

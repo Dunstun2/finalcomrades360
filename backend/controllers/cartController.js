@@ -659,15 +659,37 @@ const addToCart = async (req, res) => {
     const existingCartItem = await Cart.findOne({ where: query });
 
     if (existingCartItem) {
-      // Item already in cart - don't increment quantity
-      // Quantity should only be changed via +/- buttons in cart page
-      console.log(`ℹ️ [CART DEBUG] Item already in cart (ID: ${existingCartItem.id}). Not incrementing quantity.`);
+      // FIX: Increment quantity instead of returning a no-op alreadyInCart response.
+      // This ensures that clicking "Add to Cart" multiple times actually adds more items.
+      const newQuantity = existingCartItem.quantity + parsedQuantity;
+      const unitPrice = Number(existingCartItem.price);
+      
+      // Recalculate totals and commissions
+      const newTotal = unitPrice * newQuantity;
+      const newItemCommission = calculateItemCommission(itemDetails, unitPrice, newQuantity);
+      
+      // Delivery fee logic alignment: Fastfood is once per seller, others are per-item
+      const unitDeliveryFee = Number(itemDetails.deliveryFee || 0);
+      const newDeliveryFee = isFastFood ? unitDeliveryFee : unitDeliveryFee * newQuantity;
+
+      console.log(`ℹ️ [CART DEBUG] Incrementing quantity for item ID ${existingCartItem.id} (Type: ${type}) to ${newQuantity}`);
+
+      await existingCartItem.update({
+        quantity: newQuantity,
+        total: newTotal,
+        deliveryFee: newDeliveryFee,
+        itemCommission: newItemCommission
+      });
+
+      const cartData = await getCartDataInternal(userId, cartType);
 
       return res.json({
         success: true,
-        message: 'Item already in cart',
+        message: 'Quantity updated in cart',
+        items: cartData.items,
+        summary: cartData.summary,
         item: existingCartItem,
-        alreadyInCart: true
+        alreadyInCart: true // Keep this flag for frontend awareness if needed
       });
     } else {
       const cartPayload = {

@@ -1280,7 +1280,7 @@ const Products = () => {
   ]);
 
   return (
-    <div className="h-full flex flex-col min-w-0">
+    <div className="w-full min-h-[1000px] flex flex-col min-w-0">
       {!hubVisible && (
         <div className="mb-4 md:mb-6 flex justify-end items-center gap-3">
           <button
@@ -1390,7 +1390,7 @@ const Products = () => {
         )}
 
         {/* Main content area */}
-        <div className="flex-1 overflow-y-auto w-full pb-10" style={{ maxHeight: 'calc(100vh - 80px)' }}>
+        <div className="flex-1 w-full pb-10" style={{ minHeight: '900px' }}>
           <Suspense
             fallback={(
               <div className="flex justify-center items-center h-64">

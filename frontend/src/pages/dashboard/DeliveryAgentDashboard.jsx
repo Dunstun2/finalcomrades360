@@ -107,12 +107,18 @@ const DeliveryAgentDashboard = () => {
 
       let watchId;
       const syncLocation = async (position) => {
+        if (!isOnline) return; // double check
         try {
           const { latitude: lat, longitude: lng } = position.coords;
           await api.patch('/delivery/profile/location', { lat, lng });
-          console.debug('[GPS] Location synced:', lat, lng);
+          // console.debug('[GPS] Location synced:', lat, lng);
         } catch (err) {
-          console.error('[GPS] Sync failed:', err);
+          // Silent failure for periodic GPS sync to avoid console spam
+          if (err.response?.status === 404) {
+            console.warn('[GPS] Sync failed: Profile record not yet created. Backend should auto-create on next attempt.');
+          } else {
+            console.warn('[GPS] Sync failed:', err.message);
+          }
         }
       };
 

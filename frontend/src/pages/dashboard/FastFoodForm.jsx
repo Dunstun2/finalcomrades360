@@ -128,7 +128,7 @@ const FastFoodForm = ({
       estimatedServings: '',
       dietaryTags: [],
       isFeatured: false,
-      minOrderQty: '',
+      minOrderQty: 1,
       maxOrderQty: '',
       galleryImages: [],
       newGalleryFiles: [],
@@ -233,7 +233,7 @@ const FastFoodForm = ({
     estimatedServings: '',
     dietaryTags: [],
     isFeatured: false,
-    minOrderQty: '',
+    minOrderQty: 1,
     maxOrderQty: '',
     allergens: [],
     nutritionalInfo: {
@@ -766,7 +766,7 @@ const FastFoodForm = ({
             estimatedServings: item.estimatedServings || '1 person',
             dietaryTags: Array.isArray(item.dietaryTags) ? item.dietaryTags : [],
             isFeatured: item.isFeatured || false,
-            minOrderQty: item.minOrderQty !== undefined && item.minOrderQty !== null ? item.minOrderQty : '',
+            minOrderQty: item.minOrderQty !== undefined && item.minOrderQty !== null ? item.minOrderQty : 1,
             maxOrderQty: item.maxOrderQty || '',
             allergens: ensureArray(item.allergens),
             // Delivery Configuration
@@ -846,6 +846,7 @@ const FastFoodForm = ({
         estimatedServings: '',
         availableFrom: '',
         availableTo: '',
+        minOrderQty: 1,
         // Pre-populate business name and location from user profile
         kitchenVendor: prev.kitchenVendor || currentUser?.businessName || '',
         vendorLocation: prev.vendorLocation || currentUser?.businessAddress || '',
@@ -2054,6 +2055,7 @@ const FastFoodForm = ({
                 min="1"
                 placeholder=""
                 disabled={isViewMode}
+                readOnly
               />
               <p className="text-xs text-gray-500 mt-1">
                 Minimum quantity per order

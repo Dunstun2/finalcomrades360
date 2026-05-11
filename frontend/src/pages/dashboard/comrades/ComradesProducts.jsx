@@ -646,7 +646,7 @@ const ComradesProducts = ({ status: initialStatus }) => {
       {/* Products Modal */}
       {showProducts && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-lg w-full max-w-6xl max-h-[95vh] flex flex-col">
             {/* Modal Header */}
             <div className="border-b p-4 flex justify-between items-center">
               <h2 className="text-xl font-semibold">Our Products</h2>

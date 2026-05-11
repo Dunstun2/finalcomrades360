@@ -2314,10 +2314,16 @@ const updateMyCurrentLocation = async (req, res) => {
       return res.status(400).json({ error: 'Latitude and Longitude are required' });
     }
 
-    const profile = await DeliveryAgentProfile.findOne({ where: { userId: req.user.id } });
-    if (!profile) {
-      return res.status(404).json({ error: 'Delivery profile not found' });
-    }
+    // Instead of failing if profile is missing, we try to find it or create it 
+    // to allow tracking for new agents who haven't finished their profile details yet
+    let [profile] = await DeliveryAgentProfile.findOrCreate({ 
+      where: { userId: req.user.id },
+      defaults: {
+        isActive: false, // Default to inactive until they fill details
+        vehicleType: 'bicycle', // Default placeholder
+        status: 'available'
+      }
+    });
 
     const locationData = {
       lat: parseFloat(lat),

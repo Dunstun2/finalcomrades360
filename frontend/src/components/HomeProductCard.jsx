@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -30,12 +30,29 @@ function HomeProductCard({
   const navigate = navigateProp || navigateHook;
   const isMarketing = localStorage.getItem('marketing_mode') === 'true';
   const { cart, addToCart, removeFromCart, refresh, addingToCart } = useCart();
-
-
-  const isAdding = addingToCart && addingToCart.has(Number(product.id));
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { user: authUser } = useAuth();
   const { toast } = useToast();
+
+  // 1. Local lock to prevent double-clicks during async transitions
+  const pendingRef = useRef(false);
+
+  const isFastFood = product.itemType === 'fastfood' || !!product.fastFoodId;
+  const isService = product.itemType === 'service' || !!product.serviceId;
+  const itemType = isFastFood ? 'fastfood' : (isService ? 'service' : 'product');
+
+  // 2. Calculate isInCart from context for instant feedback (even if props are stale)
+  const currentIsInCart = useMemo(() => {
+    if (!cart?.items) return false;
+    return cart.items.some(item => {
+      const pid = item.productId || item.product?.id;
+      const fid = item.fastFoodId || item.fastFood?.id;
+      const sid = item.serviceId || item.service?.id;
+      return String(pid || fid || sid || '') === String(product.id);
+    });
+  }, [cart?.items, product.id]);
+
+  const isAdding = addingToCart && addingToCart.has(Number(product.id));
 
   // Keep image URL derivation stable between renders for large grids.
   const imageUrls = useMemo(() => {
@@ -80,35 +97,41 @@ function HomeProductCard({
       e.stopPropagation();
       e.preventDefault();
     }
-    if (isAdding) return;
+    
+    // Prevent double-clicks at the handler level
+    if (isAdding || pendingRef.current) return;
+    pendingRef.current = true;
 
-    // Use current isInCart status from props
-    const wasInCart = isInCart;
+    // Use current internal state for robustness
+    const wasInCart = currentIsInCart;
 
     try {
       if (wasInCart) {
-        // Find all cart items for this product and remove them (matches ProductDetails)
-        const productItems = cart?.items?.filter(item => 
-          String(item.productId || item.product?.id || '') === String(product.id)
-        ) || [];
+        // Find matching items in cart to handle specific variants if needed
+        const matchingItems = cart?.items?.filter(item => {
+          const pid = item.productId || item.product?.id;
+          const fid = item.fastFoodId || item.fastFood?.id;
+          const sid = item.serviceId || item.service?.id;
+          return String(pid || fid || sid || '') === String(product.id);
+        }) || [];
 
-        if (productItems.length > 0) {
-          for (const item of productItems) {
-            await removeFromCart(product.id, 'product', { variantId: item.variantId });
+        if (matchingItems.length > 0) {
+          for (const item of matchingItems) {
+            await removeFromCart(product.id, itemType, { variantId: item.variantId });
           }
         } else {
-          await removeFromCart(product.id, 'product');
+          await removeFromCart(product.id, itemType);
         }
 
         toast({
           title: 'Removed from Cart',
-          description: `${product.name} has been removed from your cart`,
+          description: `${product.name} removed from your cart`,
         });
       } else {
-        if (firstVariant) {
+        if (firstVariant && itemType === 'product') {
           const vId = getVariantId(firstVariant);
           await addToCart(product.id, 1, {
-            type: 'product',
+            type: itemType,
             product,
             variantId: vId,
             selectedVariant: {
@@ -120,12 +143,12 @@ function HomeProductCard({
             }
           });
         } else {
-          await addToCart(product.id, 1, { product });
+          await addToCart(product.id, 1, { product, type: itemType });
         }
 
         toast({
           title: 'Added to Cart',
-          description: `${product.name} has been added to your cart`,
+          description: `${product.name} added to your cart`,
         });
       }
     } catch (error) {
@@ -135,6 +158,8 @@ function HomeProductCard({
         description: error.response?.data?.message || 'Failed to update cart. Please try again.',
         variant: 'destructive'
       });
+    } finally {
+      pendingRef.current = false;
     }
   };
 
@@ -207,9 +232,6 @@ function HomeProductCard({
   // Calculate display price - handle different API response structures
   const isWishlisted = isInWishlist(product.id);
   const isAuthenticated = !!authUser;
-
-  const isFastFood = product.itemType === 'fastfood' || !!product.fastFoodId;
-  const isService = product.itemType === 'service' || !!product.serviceId;
 
   // Unified Variant Logic
   const variants = useMemo(() => {
@@ -353,7 +375,7 @@ function HomeProductCard({
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : isAdding
                     ? 'bg-orange-100 text-orange-600'
-                    : isInCart
+                    : currentIsInCart
                       ? 'bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-95'
                       : 'bg-orange-600 text-white hover:bg-orange-700 active:scale-95 shadow-sm'
                 }`}
@@ -364,7 +386,7 @@ function HomeProductCard({
                   <span className="truncate">Out of Stock</span>
                 ) : isAdding ? (
                   <FaShoppingCart className="text-lg opacity-50" />
-                ) : isInCart ? (
+                ) : currentIsInCart ? (
                   <span className="flex items-center gap-1 animate-in zoom-in duration-200">
                     <FaCheck className="hidden sm:inline" /> Remove
                   </span>

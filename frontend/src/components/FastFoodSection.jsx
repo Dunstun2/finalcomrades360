@@ -4,6 +4,7 @@ import FastFoodCard from './FastFoodCard';
 import { FaHamburger } from 'react-icons/fa';
 import { useCategories } from '../contexts/CategoriesContext';
 import api from '../services/api';
+import { isFastFoodOpen } from '../utils/availabilityUtils';
 
 export default function FastFoodSection({ initialData = null, initialTotal = 0 }) {
     const [items, setItems] = useState(initialData || []);
@@ -14,6 +15,22 @@ export default function FastFoodSection({ initialData = null, initialTotal = 0 }
     const [selectedCategory, setSelectedCategory] = useState('all');
     const navigate = useNavigate();
     const { categories } = useCategories();
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const sortedItems = React.useMemo(() => {
+        return [...items].sort((a, b) => {
+            const aOpen = isFastFoodOpen(a, currentTime);
+            const bOpen = isFastFoodOpen(b, currentTime);
+            if (aOpen && !bOpen) return -1;
+            if (!aOpen && bOpen) return 1;
+            return 0;
+        });
+    }, [items, currentTime]);
 
     // Determine marketing mode
     const isMarketingMode = localStorage.getItem('marketing_mode') === 'true';
@@ -196,9 +213,9 @@ export default function FastFoodSection({ initialData = null, initialTotal = 0 }
             </div>
 
             <div className={`transition-opacity duration-300 ${loading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-                {items.length > 0 ? (
+                {sortedItems.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                        {items.map((item) => (
+                        {sortedItems.map((item) => (
                             <FastFoodCard
                                 key={item.id}
                                 item={item}

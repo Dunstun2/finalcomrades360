@@ -66,8 +66,8 @@ export default function SellerOrders() {
     'at_warehouse', 'ready_for_pickup', 'in_transit',
     'processing', 'super_admin_confirmed'
   ]
-  const COMPLETED_STATUSES = ['delivered', 'failed', 'cancelled']
-  const FINALIZED_STATUSES = ['completed']
+  const DELIVERED_STATUSES = ['delivered']
+  const FINALIZED_STATUSES = ['completed', 'failed', 'cancelled']
   const RETURN_STATUSES = [
     'return_approved', 'return_at_pick_station', 'return_in_transit', 
     'return_at_warehouse', 'returned', 'return_rejected'
@@ -144,7 +144,7 @@ export default function SellerOrders() {
         // Map activeTab to status parameter
         let statuses = '';
         if (activeTab === 'pending') statuses = [...new Set(PENDING_STATUSES)].join(',');
-        else if (activeTab === 'completed') statuses = [...new Set(COMPLETED_STATUSES)].join(',');
+        else if (activeTab === 'delivered') statuses = [...new Set(DELIVERED_STATUSES)].join(',');
         else if (activeTab === 'finalized') statuses = [...new Set(FINALIZED_STATUSES)].join(',');
         else if (activeTab === 'returns') statuses = [...new Set(RETURN_STATUSES)].join(',');
 
@@ -441,7 +441,7 @@ export default function SellerOrders() {
 
   const getStatusBadge = (status) => {
     const statusColors = {
-      'order_placed': 'bg-yellow-100 text-yellow-800',
+      'order_placed': 'bg-amber-100 text-amber-800 border border-amber-200',
       'seller_confirmed': 'bg-blue-100 text-blue-800 border border-blue-200',
       'en_route_to_warehouse': 'bg-indigo-100 text-indigo-800 border border-indigo-200',
       'at_warehouse': 'bg-teal-100 text-teal-800 border border-teal-200',
@@ -450,10 +450,10 @@ export default function SellerOrders() {
       'ready_for_pickup': 'bg-sky-100 text-sky-800 border border-sky-200',
       'in_transit': 'bg-orange-100 text-orange-800 border border-orange-200',
       'delivered': 'bg-green-100 text-green-800 border border-green-200',
-      'completed': 'bg-green-600 text-white shadow-sm',
+      'completed': 'bg-gray-900 text-white shadow-lg',
       'failed': 'bg-red-600 text-white shadow-sm',
       'cancelled': 'bg-red-100 text-red-800 border border-red-200',
-      'returned': 'bg-teal-600 text-white shadow-sm',
+      'returned': 'bg-pink-600 text-white shadow-sm',
       'return_approved': 'bg-pink-100 text-pink-800 border border-pink-200',
       'return_at_pick_station': 'bg-pink-100 text-pink-800 border border-pink-200',
       'return_in_transit': 'bg-pink-100 text-pink-800 border border-pink-200',
@@ -466,77 +466,70 @@ export default function SellerOrders() {
   return (
     <div className="w-full h-full flex flex-col">
       <div className="p-0 sm:p-6 flex flex-col flex-1">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-800 leading-tight">My Sales Management</h1>
+      <div className="flex justify-between items-center mb-6 gap-4">
+        <div className="flex-1">
+          <h1 className="text-[clamp(1.1rem,4vw,1.8rem)] font-black text-gray-800 leading-tight">My Sales Management</h1>
+
+        </div>
         <button
           onClick={() => setShowSettingsModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-black text-gray-700 shadow-sm hover:bg-gray-50 transition-all active:scale-95"
+          className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-xl text-[clamp(0.65rem,1.8vw,0.75rem)] font-black text-gray-700 shadow-sm hover:bg-gray-50 transition-all active:scale-95 whitespace-nowrap"
         >
           <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          Logistics Settings
+          <span className="hidden xs:inline">Logistics Settings</span>
+          <span className="xs:hidden">Settings</span>
         </button>
       </div>
 
 
       {/* Tabs */}
-      <div className="flex space-x-4 mb-6 border-b border-gray-200">
-        <button
-          onClick={() => handleTabChange('pending')}
-          className={`pb-2 px-1 text-sm font-bold transition-all ${activeTab === 'pending' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Pending Sales
-        </button>
-        <button
-          onClick={() => handleTabChange('completed')}
-          className={`pb-2 px-1 text-sm font-bold transition-all ${activeTab === 'completed' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Delivered Sales
-        </button>
-        <button
-          onClick={() => handleTabChange('finalized')}
-          className={`pb-2 px-1 text-sm font-bold transition-all ${activeTab === 'finalized' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Finalized Sales
-        </button>
-        <button
-          onClick={() => handleTabChange('returns')}
-          className={`pb-2 px-1 text-sm font-bold transition-all ${activeTab === 'returns' ? 'border-b-2 border-pink-600 text-pink-600' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          Returns
-        </button>
+      <div className="flex space-x-2 sm:space-x-6 mb-8 border-b border-gray-100 overflow-x-auto no-scrollbar">
+        {[
+          { id: 'pending', label: 'Pending Orders' },
+          { id: 'delivered', label: 'Delivered' },
+          { id: 'finalized', label: 'Finalized' },
+          { id: 'returns', label: 'Returns', color: 'pink' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={`pb-3 px-1 text-[clamp(0.65rem,2.2vw,0.875rem)] font-black transition-all uppercase tracking-tight whitespace-nowrap ${activeTab === tab.id 
+              ? `border-b-2 border-${tab.color || 'blue'}-600 text-${tab.color || 'blue'}-600` 
+              : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <div className="card p-0 min-h-[400px]">
-        {/* Desktop Table View */}
-        <div className="hidden md:block overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-700">
+        {/* Professional Table View (Scrollable on Mobile) */}
+        <div className="overflow-x-auto pb-4">
+          <table className="w-full table-fixed text-sm">
+            <thead className="bg-gray-50/50 text-gray-700">
             <tr>
-              <th className="p-3 w-10">
+              <th className="p-1.5 sm:p-4 w-[12%]">
                 {activeTab === 'pending' && (
                   <input 
                     type="checkbox" 
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    className="w-4 h-4 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-all"
                     checked={selectedOrderIds.length > 0 && selectedOrderIds.length === rows.filter(o => o.status === 'super_admin_confirmed' && !o.sellerConfirmed).length}
                     onChange={toggleAllSelection}
                   />
                 )}
               </th>
-              <th className="text-left p-3">Order #</th>
-              <th className="text-left p-3">Status</th>
-              <th className="text-left p-3">Items</th>
-              <th className="text-right p-3">Total (KES)</th>
-              <th className="text-left p-3">Date</th>
-              <th className="text-left p-3">Actions</th>
+              <th className="text-left p-1.5 sm:p-4 font-black uppercase tracking-wider text-[9px] text-gray-400 w-[53%] md:w-[30%]">Order #</th>
+              <th className="text-left p-1.5 sm:p-4 font-black uppercase tracking-wider text-[9px] text-gray-400 w-[35%] md:w-[20%]">Status</th>
+              <th className="hidden md:table-cell text-right p-1.5 sm:p-4 font-black uppercase tracking-wider text-[9px] text-gray-400 md:w-[20%]">Total</th>
+              <th className="hidden md:table-cell text-left p-1.5 sm:p-4 font-black uppercase tracking-wider text-[9px] text-gray-400 md:w-[20%]">Date</th>
             </tr>
           </thead>
           <tbody>
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan="6" className="p-12 text-center text-gray-500">
+                <td colSpan="5" className="p-12 text-center text-gray-500">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
                     <span className="text-xs font-bold animate-pulse text-blue-600 uppercase tracking-widest">Loading Sales...</span>
@@ -545,7 +538,7 @@ export default function SellerOrders() {
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan="6" className="p-12 text-center text-gray-500 font-medium italic">
+                <td colSpan="5" className="p-12 text-center text-gray-500 font-medium italic">
                   No {activeTab} sales found.
                 </td>
               </tr>
@@ -553,97 +546,70 @@ export default function SellerOrders() {
               filteredRows.map(o => {
                 const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
                 const isExpanded = expandedOrderId === o.id;
+                const isSelected = selectedOrderIds.includes(o.id);
+                const itemCount = (o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0);
                 return (
                   <React.Fragment key={o.id}>
                     <tr 
-                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''} ${selectedOrderIds.includes(o.id) ? 'bg-blue-50/50' : ''}`}
+                      className={`border-t hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''} ${isSelected ? 'bg-blue-50/50' : ''}`}
                       onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
                     >
-                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <td className="p-4" onClick={(e) => e.stopPropagation()}>
                         {o.status === 'super_admin_confirmed' && !o.sellerConfirmed ? (
                           <input 
                             type="checkbox" 
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                            checked={selectedOrderIds.includes(o.id)}
+                            className="w-4 h-4 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            checked={isSelected}
                             onChange={() => toggleOrderSelection(o.id)}
                           />
                         ) : (
                           <div className="w-4 h-4" />
                         )}
                       </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
-                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <td className="p-4 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
                             </svg>
                           </span>
-                          <span className="font-black text-gray-900">{o.orderNumber}</span>
+                          <span className="font-black text-gray-900 text-[11px] truncate">{o.orderNumber}</span>
                         </div>
                       </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-black uppercase tracking-tight ${getStatusBadge(o.status)}`}>
+                      <td className="p-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-tight ${getStatusBadge(o.status)}`}>
                           {o.status.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="p-3 font-bold">{(o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0)}</td>
-                      <td className="p-3 text-right font-black text-blue-600">KES {Number(o.sellerTotal || 0).toLocaleString()}</td>
-                      <td className="p-3 text-[11px] font-bold text-gray-500 uppercase">{new Date(o.createdAt).toLocaleString()}</td>
-                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-2">
-                          {o.status === 'order_placed' && (
-                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 text-[10px] rounded font-bold uppercase tracking-tight">
-                              Awaiting Admin Confirmation
-                            </span>
-                          )}
-                          {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
-                            <button
-                              onClick={() => {
-                                setSelectedOrder(o)
-                                if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
-                                  setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(o.destinationWarehouseId);
-                                } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
-                                  setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(o.destinationPickStationId);
-                                } else if (directDeliveryOrder) {
-                                  setShippingType('collected_from_seller');
-                                }
-                                const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
-                                setShowConfirmModal(true)
-                              }}
-                              className="px-3 py-1 bg-green-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-green-700 active:scale-95 transition-all"
-                            >
-                              Confirm
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
-                            }}
-                            className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-blue-700 active:scale-95 transition-all"
-                          >
-                            Chat
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedOrder(o); setShowDetailsModal(true);
-                            }}
-                            className="px-3 py-1 bg-gray-600 text-white text-[10px] font-black uppercase rounded shadow-sm hover:bg-gray-700 active:scale-95 transition-all"
-                          >
-                            Details
-                          </button>
-                        </div>
-                      </td>
+                      <td className="hidden md:table-cell p-4 text-right font-black text-blue-600 whitespace-nowrap">KES {Number(o.sellerTotal || 0).toLocaleString()}</td>
+                      <td className="hidden md:table-cell p-4 text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">{new Date(o.createdAt).toLocaleString()}</td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-blue-50/30">
-                        <td colSpan="6" className="p-4">
-                          <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4 animate-in slide-in-from-top-2 duration-300">
-                            <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-4">Ordered Items</h4>
-                            <div className="grid grid-cols-1 gap-3">
-                              {(o.OrderItems || []).map((item) => (
-                                <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50/50 rounded-xl border border-gray-100">
-                                  <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-white rounded-lg overflow-hidden border border-gray-100 flex-shrink-0">
+                      <tr className="bg-blue-50/30 border-b-2 border-blue-100">
+                        <td colSpan="5" className="p-1 sm:p-4">
+                          {/* Pinned Container: Flushed to the left margin */}
+                          <div className="sticky left-0 w-[calc(100vw-20px)] sm:w-full ml-0">
+                            <div className="bg-white rounded-2xl border border-blue-100 shadow-xl p-4 sm:p-6 animate-in slide-in-from-top-4 duration-300">
+                              <div className="grid grid-cols-2 gap-4 mb-6 pb-6 border-b border-gray-100">
+                                <div>
+                                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Earnings</p>
+                                  <p className="text-lg font-black text-blue-600">KES {Number(o.sellerTotal || 0).toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Order Date</p>
+                                  <p className="text-[11px] font-black text-gray-900 uppercase">{new Date(o.createdAt).toLocaleDateString()}</p>
+                                  <p className="text-[9px] font-bold text-gray-400">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center mb-6">
+                                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">Ordered Items ({itemCount})</h4>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase">Order ID: {o.id}</span>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                                {(o.OrderItems || []).map((item) => (
+                                  <div key={item.id} className="flex items-start gap-4 p-4 bg-gray-50/50 rounded-2xl border border-gray-100 hover:border-blue-200 transition-colors">
+                                    <div className="w-14 h-14 bg-white rounded-xl overflow-hidden border border-gray-100 flex-shrink-0 shadow-sm mt-0.5">
                                       <img
                                         src={resolveImageUrl(getOrderItemImage(item))}
                                         alt={item.name}
@@ -651,23 +617,92 @@ export default function SellerOrders() {
                                         onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
                                       />
                                     </div>
-                                    <div>
-                                      <p className="text-sm font-black text-gray-900">{item.itemLabel || item.name || item.Product?.name || item.FastFood?.name}</p>
-                                      <p className="text-[10px] text-gray-500 font-bold uppercase">Qty: {item.quantity} × KES {Number(item.Product?.basePrice || item.FastFood?.basePrice || 0).toLocaleString()}</p>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-black text-gray-900 leading-tight mb-1">{item.itemLabel || item.name || item.Product?.name || item.FastFood?.name}</p>
+                                      <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wide">Qty: {item.quantity} × KES {Number(item.Product?.basePrice || item.FastFood?.basePrice || 0).toLocaleString()}</p>
+                                      <p className="text-sm font-black text-blue-600 mt-1">KES {Number((item.Product?.basePrice || item.FastFood?.basePrice || 0) * item.quantity).toLocaleString()}</p>
                                     </div>
                                   </div>
-                                  <div className="text-right">
-                                    <p className="text-sm font-black text-blue-600">KES {Number((item.Product?.basePrice || item.FastFood?.basePrice || 0) * item.quantity).toLocaleString()}</p>
+                                ))}
+                              </div>
+
+                              {o.deliveryInstructions && (
+                                <div className="mb-8 p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-start gap-3">
+                                  <div className="p-2 bg-orange-200 rounded-lg text-orange-700 flex-shrink-0">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1">Special Instructions</p>
+                                    <p className="text-xs font-medium text-orange-800 italic leading-relaxed">"{o.deliveryInstructions}"</p>
                                   </div>
                                 </div>
-                              ))}
-                            </div>
-                            {o.deliveryInstructions && (
-                              <div className="mt-4 p-3 bg-orange-50 border border-orange-100 rounded-xl">
-                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1">Special Instructions</p>
-                                <p className="text-xs font-medium text-orange-800 italic">"{o.deliveryInstructions}"</p>
+                              )}
+
+                              {/* Actions Section */}
+                              <div className="pt-6 border-t border-gray-100">
+                                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-4">Available Actions</p>
+                                <div className="flex flex-row gap-1.5 sm:gap-3">
+                                  {o.status === 'order_placed' && (
+                                    <div className="flex-1 min-w-0 flex items-center justify-center gap-1 px-1 py-2 bg-amber-50 text-amber-700 text-[9px] xs:text-[10px] rounded-xl font-bold border border-amber-100">
+                                      <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse flex-shrink-0"></div>
+                                      <span className="truncate">Awaiting Admin</span>
+                                    </div>
+                                  )}
+                                  {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedOrder(o);
+                                        if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
+                                          setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(o.destinationWarehouseId);
+                                        } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
+                                          setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(o.destinationPickStationId);
+                                        } else if (directDeliveryOrder) {
+                                          setShippingType('collected_from_seller');
+                                        }
+                                        const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
+                                        setShowConfirmModal(true);
+                                      }}
+                                      className="flex-1 min-w-0 px-1 py-2.5 bg-green-600 text-white text-[9px] xs:text-[10px] font-black uppercase rounded-xl shadow-md hover:bg-green-700 active:scale-95 transition-all flex flex-col xs:flex-row items-center justify-center gap-1"
+                                    >
+                                      <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                      <span className="truncate">Confirm</span>
+                                    </button>
+                                  )}
+                                  
+                                  {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setSelectedOrder(o); setShowDispatchModal(true); }}
+                                      className="flex-1 min-w-0 px-1 py-2.5 bg-indigo-600 text-white text-[9px] xs:text-[10px] font-black uppercase rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition-all flex flex-col xs:flex-row items-center justify-center gap-1"
+                                    >
+                                      <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                      <span className="truncate">Dispatch</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
+                                    }}
+                                    className="flex-1 min-w-0 px-1 py-2.5 bg-blue-600 text-white text-[9px] xs:text-[10px] font-black uppercase rounded-xl shadow-md hover:bg-blue-700 active:scale-95 transition-all flex flex-col xs:flex-row items-center justify-center gap-1"
+                                  >
+                                    <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                                    <span className="truncate">Chat</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedOrder(o); setShowDetailsModal(true);
+                                    }}
+                                    className="flex-1 min-w-0 px-1 py-2.5 bg-gray-600 text-white text-[9px] xs:text-[10px] font-black uppercase rounded-xl shadow-md hover:bg-gray-700 active:scale-95 transition-all flex flex-col xs:flex-row items-center justify-center gap-1"
+                                  >
+                                    <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    <span className="truncate">Details</span>
+                                  </button>
+                                </div>
                               </div>
-                            )}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -679,149 +714,6 @@ export default function SellerOrders() {
             </tbody>
           </table>
         </div>
-
-        {/* Mobile Grid View */}
-        <div className="md:hidden p-2">
-          {loading && rows.length === 0 ? (
-            <div className="p-12 text-center text-gray-500">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-                <span className="text-[10px] font-bold animate-pulse text-blue-600 uppercase tracking-widest">Loading Sales...</span>
-              </div>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="p-12 text-center text-gray-500 font-medium italic text-sm">
-              No {activeTab} sales found.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {filteredRows.map(o => {
-                const directDeliveryOrder = o.adminRoutingStrategy === 'direct_delivery' || isFastFoodOnlyOrder(o);
-                const isExpanded = expandedOrderId === o.id;
-                return (
-                  <div 
-                    key={o.id} 
-                    className={`bg-white rounded-2xl border transition-all duration-300 ${isExpanded ? 'border-blue-200 shadow-lg scale-[1.02] z-10 ring-4 ring-blue-50' : 'border-gray-100 shadow-sm'} p-3 flex flex-col relative overflow-hidden`}
-                    onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
-                  >
-                    {/* Background Accent */}
-                    {isExpanded && <div className="absolute top-0 left-0 w-1 h-full bg-blue-600" />}
-
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex flex-col">
-                        <span className="text-[11px] font-black text-gray-900 flex items-center gap-1">
-                          #{o.orderNumber}
-                          <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
-                            <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                          </span>
-                        </span>
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">{new Date(o.createdAt).toLocaleDateString()}</span>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight ${getStatusBadge(o.status)}`}>
-                        {o.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-end mb-3">
-                      <div className="flex flex-col">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Total Earning</span>
-                        <span className="text-sm font-black text-blue-600">KES {Number(o.sellerTotal || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">Items</span>
-                        <p className="text-xs font-black text-gray-800">{(o.OrderItems || []).reduce((a, b) => a + (b.quantity || 0), 0)} Units</p>
-                      </div>
-                    </div>
-
-                    {/* Expanded Items Section */}
-                    {isExpanded && (
-                      <div className="mt-2 pt-3 border-t border-blue-50 space-y-2 animate-in fade-in zoom-in-95 duration-300">
-                        <h4 className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Order Contents</h4>
-                        {(o.OrderItems || []).map((item) => (
-                          <div key={item.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-xl border border-gray-100">
-                            <div className="w-10 h-10 bg-white rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
-                              <img
-                                src={resolveImageUrl(getOrderItemImage(item))}
-                                alt={item.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-black text-gray-900 truncate">{item.itemLabel || item.name || item.Product?.name || item.FastFood?.name}</p>
-                              <p className="text-[9px] text-gray-500 font-bold uppercase">{item.quantity} Unit(s) • KES {Number(item.Product?.basePrice || item.FastFood?.basePrice || 0).toLocaleString()}</p>
-                            </div>
-                          </div>
-                        ))}
-                        {o.deliveryInstructions && (
-                          <div className="p-2 bg-orange-50 border border-orange-100 rounded-lg">
-                            <p className="text-[8px] font-black text-orange-600 uppercase mb-0.5">Special Instructions</p>
-                            <p className="text-[10px] text-orange-800 italic">"{o.deliveryInstructions}"</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Actions Grid */}
-                    <div className="grid grid-cols-1 gap-1.5 pt-3 mt-2 border-t border-gray-50" onClick={(e) => e.stopPropagation()}>
-                      {o.status === 'super_admin_confirmed' && !o.sellerConfirmed && (
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(o)
-                            if (o.adminRoutingStrategy === 'warehouse' && o.destinationWarehouseId) {
-                              setShippingType('shipped_from_seller'); setDestinationType('warehouse'); setSelectedWarehouseId(o.destinationWarehouseId);
-                            } else if (o.adminRoutingStrategy === 'pick_station' && o.destinationPickStationId) {
-                              setShippingType('shipped_from_seller'); setDestinationType('pickup_station'); setSelectedPickupStationId(o.destinationPickStationId);
-                            } else if (directDeliveryOrder) {
-                              setShippingType('collected_from_seller');
-                            }
-                            const dl = new Date(); dl.setHours(dl.getHours() + 24); setSubmissionDeadline(dl.toISOString());
-                            setShowConfirmModal(true);
-                          }}
-                          className="w-full py-2.5 bg-green-600 text-white text-[10px] font-black uppercase rounded-xl shadow-md active:scale-95 transition-all"
-                        >
-                          Confirm Order
-                        </button>
-                      )}
-
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(o); setShowMessageModal(true); loadCommunicationLog(o.id);
-                          }}
-                          className="flex-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black uppercase rounded-xl border border-blue-100 active:scale-95 transition-all"
-                        >
-                          Chat
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(o); setShowDetailsModal(true);
-                          }}
-                          className="flex-1 py-2 bg-gray-50 text-gray-600 text-[10px] font-black uppercase rounded-xl border border-gray-100 active:scale-95 transition-all"
-                        >
-                          Details
-                        </button>
-                      </div>
-
-                      {/* Specialized Action (Handover/Dispatch) */}
-                      {o.status === 'seller_confirmed' && o.shippingType === 'shipped_from_seller' && !directDeliveryOrder && (
-                        <button
-                          onClick={() => { setSelectedOrder(o); setShowDispatchModal(true); }}
-                          className="w-full py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl shadow-md active:scale-95 transition-all"
-                        >
-                          Dispatch Item
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Floating Selection Bar */}
       {selectedOrderIds.length > 0 && (

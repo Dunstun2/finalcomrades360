@@ -24,6 +24,8 @@ let isWhatsAppReady = false;
 let latestQr = null;
 let isInitializing = false;
 let whatsappStatus = 'initializing'; // initializing, qr_ready, authenticated, ready, disconnected, error
+let configCache = new Map();
+const CACHE_TTL = 300000; // 5 minutes
 
 // Prepare session directory (using absolute path for cPanel/Passenger stability)
 const sessionDir = path.join(__dirname, '../.wwebjs_auth/baileys_session');
@@ -243,13 +245,23 @@ const sendMessage = async (to, message, method = 'whatsapp') => {
 
     if (method === 'whatsapp') {
         try {
-            const { PlatformConfig } = require('../models');
-            const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
-            if (configRecord) {
-                const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
-                if (dbConfig.method === 'cloud') {
-                    return sendWhatsAppCloud(formattedPhone, message, dbConfig);
+            // Use cached config if fresh
+            const now = Date.now();
+            let dbConfig = null;
+            
+            if (configCache.has('whatsapp_config') && (now - configCache.get('whatsapp_config').timestamp < CACHE_TTL)) {
+                dbConfig = configCache.get('whatsapp_config').value;
+            } else {
+                const { PlatformConfig } = require('../models');
+                const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
+                if (configRecord) {
+                    dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+                    configCache.set('whatsapp_config', { value: dbConfig, timestamp: now });
                 }
+            }
+
+            if (dbConfig && dbConfig.method === 'cloud') {
+                return sendWhatsAppCloud(formattedPhone, message, dbConfig);
             }
         } catch (err) {
             logWhatsApp(`ERROR in sendMessage (cloud-check): ${err.message}`);
@@ -285,10 +297,21 @@ const sendSms = async (to, message) => {
     let from = '';
 
     try {
-        const { PlatformConfig } = require('../models');
-        const configRecord = await PlatformConfig.findOne({ where: { key: 'sms_config' } });
-        if (configRecord) {
-            const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+        const now = Date.now();
+        let dbConfig = null;
+
+        if (configCache.has('sms_config') && (now - configCache.get('sms_config').timestamp < CACHE_TTL)) {
+            dbConfig = configCache.get('sms_config').value;
+        } else {
+            const { PlatformConfig } = require('../models');
+            const configRecord = await PlatformConfig.findOne({ where: { key: 'sms_config' } });
+            if (configRecord) {
+                dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
+                configCache.set('sms_config', { value: dbConfig, timestamp: now });
+            }
+        }
+
+        if (dbConfig) {
             username = (dbConfig.username || '').trim();
             apiKey = (dbConfig.apiKey || '').trim();
             from = (dbConfig.senderId || dbConfig.from || '').trim();
