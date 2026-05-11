@@ -18,32 +18,48 @@ async function fixFulfillmentSchema() {
     }
   };
 
+  const getActualTableName = async (singular, plural) => {
+    const tables = await queryInterface.showAllTables();
+    if (tables.includes(singular)) return singular;
+    if (tables.includes(plural)) return plural;
+    return null;
+  };
+
   try {
-    // 1. Add columns to Orders table
-    console.log('\n--- Patching Orders Table ---');
-    await addColumnSafely('Orders', 'batchId', {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'Batches',
-        key: 'id'
-      }
-    });
+    const orderTable = await getActualTableName('Order', 'Orders');
+    const batchTable = await getActualTableName('Batch', 'Batches');
 
-    await addColumnSafely('Orders', 'deliveryTimePreference', {
-      type: DataTypes.STRING,
-      allowNull: true,
-      comment: 'Customer preferred time of delivery'
-    });
+    if (!orderTable) {
+      console.error('🚨 Could not find Order or Orders table!');
+    } else {
+      console.log(`\n--- Patching ${orderTable} Table ---`);
+      await addColumnSafely(orderTable, 'batchId', {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: batchTable || 'Batches',
+          key: 'id'
+        }
+      });
 
-    // 2. Add columns to Batches table
-    console.log('\n--- Patching Batches Table ---');
-    await addColumnSafely('Batches', 'expectedDelivery', {
-      type: DataTypes.STRING,
-      allowNull: false,
-      defaultValue: '12:00',
-      comment: 'Expected delivery time (HH:MM)'
-    });
+      await addColumnSafely(orderTable, 'deliveryTimePreference', {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Customer preferred time of delivery'
+      });
+    }
+
+    if (!batchTable) {
+      console.error('🚨 Could not find Batch or Batches table!');
+    } else {
+      console.log(`\n--- Patching ${batchTable} Table ---`);
+      await addColumnSafely(batchTable, 'expectedDelivery', {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: '12:00',
+        comment: 'Expected delivery time (HH:MM)'
+      });
+    }
 
     console.log('\n✨ Database repair completed successfully!');
   } catch (error) {
