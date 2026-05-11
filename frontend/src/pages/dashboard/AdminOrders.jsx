@@ -1452,8 +1452,21 @@ export default function AdminOrders() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {isParentRow ? 'Total Consolidated Items' : `${order.OrderItems?.length || 0} item${order.OrderItems?.length !== 1 ? 's' : ''}`}
+                            <div className="text-xs text-gray-500 flex flex-col gap-1">
+                              <span>{isParentRow ? 'Total Consolidated Items' : `${order.OrderItems?.length || 0} item${order.OrderItems?.length !== 1 ? 's' : ''}`}</span>
+                              
+                              {/* Fulfillment Info At-A-Glance */}
+                              {!isParentRow && (order.batch || order.deliveryTimePreference) && (
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <div className="px-2 py-0.5 bg-blue-50 border border-blue-100 rounded text-[9px] font-black text-blue-600 uppercase flex items-center gap-1">
+                                    <FaClock className="h-2 w-2" />
+                                    {order.batch ? order.batch.name : order.deliveryTimePreference}
+                                  </div>
+                                  {order.batch?.expectedDeliveryTime && (
+                                    <span className="text-[9px] font-bold text-gray-400">@{order.batch.expectedDeliveryTime}</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1776,7 +1789,7 @@ export default function AdminOrders() {
                     </div>
                   )}
 
-                  {selectedOrder.batch && (
+                   {selectedOrder.batch && (
                     <div className="bg-blue-50 border-2 border-blue-200 p-4 rounded-xl shadow-sm">
                       <h4 className="font-black text-blue-900 text-xs uppercase tracking-widest mb-2 flex items-center gap-2">
                         <FaClock className="text-blue-600" />
@@ -1795,6 +1808,19 @@ export default function AdminOrders() {
                           <p className="text-[10px] text-blue-600 font-bold uppercase">Preparation Window</p>
                           <p className="text-sm font-black text-blue-900">{selectedOrder.batch.startTime} - {selectedOrder.batch.endTime}</p>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!selectedOrder.batch && selectedOrder.deliveryTimePreference && (
+                    <div className="bg-sky-50 border-2 border-sky-200 p-4 rounded-xl shadow-sm">
+                      <h4 className="font-black text-sky-900 text-xs uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <FaClock className="text-sky-600" />
+                        Preferred Delivery Time
+                      </h4>
+                      <div className="bg-white/50 p-3 rounded-lg border border-sky-100">
+                        <p className="text-[10px] text-sky-600 font-bold uppercase">Customer Requested Time</p>
+                        <p className="text-sm font-black text-sky-900">{selectedOrder.deliveryTimePreference}</p>
                       </div>
                     </div>
                   )}

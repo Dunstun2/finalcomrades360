@@ -514,6 +514,17 @@ export default function Orders() {
                                   {order.deliveryMethod === 'pick_station' && order.pickStation && (
                                     <p><strong>Pick Station:</strong> {order.pickStation}</p>
                                   )}
+                                  {order.batch && (
+                                    <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-100">
+                                      <p className="text-xs font-bold text-blue-800">Fast Food Batch: {order.batch.name}</p>
+                                      <p className="text-[11px] text-blue-600">Expected Delivery: {order.batch.expectedDelivery || 'Not specified'}</p>
+                                    </div>
+                                  )}
+                                  {order.deliveryTimePreference && !order.batch && (
+                                    <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-100">
+                                      <p className="text-xs font-bold text-orange-800">Preferred Delivery: {order.deliveryTimePreference}</p>
+                                    </div>
+                                  )}
                                   {order.deliveryAgentId && (
                                     <p><strong>Delivery Agent:</strong> Assigned</p>
                                   )}
@@ -832,6 +843,17 @@ export default function Orders() {
                                   )}
                                   {order.deliveryAgentId && (
                                     <p><strong>Delivery Agent:</strong> Assigned</p>
+                                  )}
+                                  {order.batch && (
+                                    <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-100">
+                                      <p className="text-xs font-bold text-blue-800">Fast Food Batch: {order.batch.name}</p>
+                                      <p className="text-[11px] text-blue-600">Expected Delivery: {order.batch.expectedDelivery || 'Not specified'}</p>
+                                    </div>
+                                  )}
+                                  {order.deliveryTimePreference && !order.batch && (
+                                    <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-100">
+                                      <p className="text-xs font-bold text-orange-800">Preferred Delivery: {order.deliveryTimePreference}</p>
+                                    </div>
                                   )}
                                 </div>
                               </div>

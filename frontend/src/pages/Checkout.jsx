@@ -601,9 +601,8 @@ function Checkout() {
     // Step 1: Frontend Validation
     console.log('🛒 Step 1: Starting frontend validation...');
 
-    if (batchSystemEnabled && isFastFoodScope && !selectedOrderBatchId) {
-      alert('⚠️ Batch Selection Required\n\nPlease select one active batch for this order before checkout.');
-      return;
+    if (batchSystemEnabled && isFastFoodScope) {
+      console.log('📦 Batch system enabled but selection is hidden/optional');
     }
 
     const isMarketingMode = localStorage.getItem('marketing_mode') === 'true';
@@ -723,7 +722,7 @@ function Checkout() {
         return;
       } else {
         // Step 2: Prepare order data (for cash on delivery or completed prepay)
-        if (batchSystemEnabled && isFastFoodScope) {
+        if (batchSystemEnabled && isFastFoodScope && selectedOrderBatchId) {
           const activeCartType = localStorage.getItem('marketing_mode') === 'true' ? 'marketing' : 'personal';
           await api.patch('/cart/fastfood/batch', {
             batchId: Number(selectedOrderBatchId),
@@ -799,7 +798,7 @@ function Checkout() {
               price: item.price,
               total: item.total,
               deliveryFee: itemDeliveryFee, // Pass item-level fee to backend
-              batchId: isFastFoodScope && batchSystemEnabled ? Number(selectedOrderBatchId) : (item.batchId || null),
+              batchId: (isFastFoodScope && batchSystemEnabled && selectedOrderBatchId) ? Number(selectedOrderBatchId) : (item.batchId || null),
               variantId: item.variantId || item.variant_id || null,
               comboId: item.comboId || item.combo_id || null
             };
@@ -1042,7 +1041,8 @@ function Checkout() {
                   </div>
                 </div>
 
-                {isFastFoodScope && batchSystemEnabled && (
+                {/* Batch selection hidden as per user request */}
+                {false && isFastFoodScope && batchSystemEnabled && (
                   <div className="mt-6 pt-6 border-t border-gray-100 transition-all animate-in fade-in slide-in-from-top-2">
                     <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-2">
                       Select Order Batch *

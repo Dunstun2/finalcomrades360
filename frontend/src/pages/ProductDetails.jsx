@@ -451,7 +451,11 @@ export default function ProductDetails() {
     navigate('/products');
   };
 
+   const [primaryButtonBusy, setPrimaryButtonBusy] = useState(false);
+
   const addToCartHandler = async () => {
+    if (primaryButtonBusy) return;
+    setPrimaryButtonBusy(true);
     try {
       if (isItemInCart) {
         // Find all cart items for this product and remove them
@@ -486,6 +490,8 @@ export default function ProductDetails() {
       }
     } catch (e) {
       alert(e?.response?.data?.message || 'Unable to update cart');
+    } finally {
+      setPrimaryButtonBusy(false);
     }
   };
 
@@ -638,13 +644,13 @@ export default function ProductDetails() {
                   {hasDiscount && (
                     <span className="text-base md:text-xl font-black text-emerald-400">{discountPercentage}% OFF</span>
                   )}
-                  <button
+                   <button
                     onClick={addToCartHandler}
-                    disabled={hasStockData ? product.stock <= 0 : false}
+                    disabled={(hasStockData ? product.stock <= 0 : false) || primaryButtonBusy}
                     className={`ml-auto h-12 px-4 text-base font-bold shadow-lg flex items-center justify-center gap-2 rounded-xl transition-all ${(hasStockData && product.stock <= 0) ? 'bg-gray-200 text-gray-500 cursor-not-allowed shadow-none border-0' : isItemInCart ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 shadow-red-100' : 'bg-orange-600 hover:bg-orange-700 text-white shadow-orange-200'}`}
                   >
-                    <ShoppingBag className="h-5 w-5" />
-                    {(hasStockData && product.stock <= 0) ? 'Out of Stock' : isItemInCart ? 'Remove' : '+ Cart'}
+                    <ShoppingBag className={`h-5 w-5 ${primaryButtonBusy ? 'animate-spin' : ''}`} />
+                    {(hasStockData && product.stock <= 0) ? 'Out of Stock' : primaryButtonBusy ? 'Updating...' : isItemInCart ? 'Remove' : '+ Cart'}
                   </button>
                 </div>
               )}

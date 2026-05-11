@@ -58,7 +58,6 @@ export function CartProvider({ children }) {
   const getActiveCartType = useCallback(() => {
     const mode = localStorage.getItem('marketing_mode');
     const type = mode === 'true' ? 'marketing' : 'personal';
-    console.log(`[CartContext] getActiveCartType: ${type} (localStorage.marketing_mode: ${mode})`);
     return type;
   }, []);
 
@@ -108,10 +107,7 @@ export function CartProvider({ children }) {
   const getVariantIdentifier = (variant) => {
     const finalId = unifiedGetVariantId(variant);
     
-    console.log('[CartContext] getVariantIdentifier debug:', { 
-      input: variant, 
-      final: finalId 
-    });
+
 
     return finalId;
   };
@@ -343,7 +339,7 @@ export function CartProvider({ children }) {
     const itemType = options.type || 'product';
     const cartType = getActiveCartType();
     
-    console.log(`🛒 [CartContext] addToCartInternal: Adding ${itemType} (ID: ${productId}) to ${cartType} cart`);
+
     
     const productData = options.product || {};
     let unitPrice = Number(productData.discountPrice || productData.displayPrice || productData.basePrice || productData.price || 0);

@@ -221,6 +221,17 @@ export default function PublicTracking() {
                   Estimated delivery: <strong>{formatDate(tracking.estimatedDelivery)}</strong>
                 </p>
               )}
+              {tracking.batch && (
+                <div className="mt-4 p-2.5 bg-blue-50 rounded-xl border border-blue-100">
+                  <p className="text-xs font-bold text-blue-800">Fast Food Batch: {tracking.batch.name}</p>
+                  <p className="text-[10px] text-blue-600 font-medium">Expected Delivery Time: {tracking.batch.expectedDelivery || 'Not specified'}</p>
+                </div>
+              )}
+              {tracking.deliveryTimePreference && !tracking.batch && (
+                <div className="mt-4 p-2.5 bg-orange-50 rounded-xl border border-orange-100">
+                  <p className="text-xs font-bold text-orange-800">Preferred Delivery Time: {tracking.deliveryTimePreference}</p>
+                </div>
+              )}
             </div>
 
             {/* Delivery Agent */}

@@ -233,6 +233,9 @@ const DirectOrders = () => {
   const [pickupStations, setPickupStations] = useState([]);
   const [orderResult, setOrderResult] = useState(null);
   const [addressError, setAddressError] = useState(false);
+  const [batches, setBatches] = useState([]);
+  const [selectedBatchId, setSelectedBatchId] = useState(null);
+  const [deliveryTimePreference, setDeliveryTimePreference] = useState('');
   const submittingRef = useRef(false);
 
   // --- Manage Orders State ---
@@ -267,6 +270,18 @@ const DirectOrders = () => {
     };
     if (canPlace) fetchStations();
   }, [canPlace]);
+  
+  useEffect(() => {
+    const fetchBatches = async () => {
+      try {
+        const { data } = await api.get('/batches/active');
+        setBatches(data || []);
+      } catch (err) {
+        console.error('Failed to fetch active batches', err);
+      }
+    };
+    if (canPlace && type === 'fastfood') fetchBatches();
+  }, [canPlace, type]);
 
   const handleParse = async () => {
     console.log('[DirectOrder] handleParse triggered. TextBlock length:', textBlock?.length);
@@ -398,7 +413,9 @@ const DirectOrders = () => {
         pickupStationId: selectedPickupStationId,
         customerName: parsedData.customerName,
         customerEmail: parsedData.customerEmail,
-        originalTextBlock: textBlock
+        originalTextBlock: textBlock,
+        batchId: selectedBatchId,
+        deliveryTimePreference: deliveryTimePreference
       };
 
       console.log('[DirectOrder] Sending confirm payload:', payload);

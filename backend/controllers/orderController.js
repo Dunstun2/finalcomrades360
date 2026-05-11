@@ -527,11 +527,19 @@ const createOrderFromCart = async (req, res) => {
 
     // Step 2.5: Check for Batch System Toggle
     let batchSystemEnabled = false;
+    let activeBatchCount = 0;
     try {
       const config = await PlatformConfig.findOne({ where: { key: 'batch_system_enabled' }, transaction: t });
       batchSystemEnabled = config && config.value === 'true';
+      
+      if (batchSystemEnabled) {
+        activeBatchCount = await Batch.count({
+          where: { status: 'active' },
+          transaction: t
+        });
+      }
     } catch (configErr) {
-      console.warn('Failed to fetch batch_system_enabled config:', configErr);
+      console.warn('Failed to fetch batch_system_enabled or active batches:', configErr);
     }
 
     if (!cartItems || cartItems.length === 0) {
@@ -552,14 +560,7 @@ const createOrderFromCart = async (req, res) => {
       const isFastFood = cartItem.type === 'fastfood';
       
       if (isFastFood) {
-        if (batchSystemEnabled && !cartItem.batchId) {
-          await t.rollback();
-          return res.status(400).json({
-            success: false,
-            message: `Batch selection is required for ${product?.name}. Please choose one order batch in checkout before placing the order.`
-          });
-        }
-        if (cartItem.batchId) {
+        if (batchSystemEnabled && cartItem.batchId) {
           fastFoodBatchIds.add(String(cartItem.batchId));
         }
       }
@@ -1496,7 +1497,8 @@ const getSuperAdminProductOrders = async (req, res) => {
         { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'contactPhone'] },
         { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
         { model: User, as: 'seller', attributes: ['id', 'name', 'email', 'phone', 'businessName'] },
-        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'businessName'] }
+        { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'role', 'businessName'] },
+        { model: Batch, as: 'batch', attributes: ['id', 'name', 'expectedDelivery'], required: false }
       ],
       order: [['createdAt', 'DESC']],
       limit: pageSize,
@@ -2473,7 +2475,8 @@ const publicTrackOrder = async (req, res) => {
       { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone', 'businessPhone'] },
       { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
       { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] },
-      { model: OrderItem, as: 'OrderItems' }
+      { model: OrderItem, as: 'OrderItems' },
+      { model: Batch, as: 'batch', attributes: ['id', 'name', 'expectedDelivery'], required: false }
     ];
 
     const order = await Order.findOne({
@@ -2556,6 +2559,8 @@ const publicTrackOrder = async (req, res) => {
       trackingNumber: order.trackingNumber,
       status: order.status,
       liveTracking,
+      batch: order.batch || null,
+      deliveryTimePreference: order.deliveryTimePreference || null,
       // Metadata for friendly status / progress bar
       order: {
         adminRoutingStrategy: order.adminRoutingStrategy,
@@ -2602,7 +2607,8 @@ const getOrderTracking = async (req, res) => {
       { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] },
       { model: User, as: 'seller', attributes: ['id', 'name', 'businessAddress', 'businessLat', 'businessLng', 'businessTown', 'businessName'] },
       { model: Warehouse, as: 'Warehouse', attributes: ['id', 'name', 'address', 'lat', 'lng'] },
-      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] }
+      { model: PickupStation, as: 'PickupStation', attributes: ['id', 'name', 'location', 'lat', 'lng'] },
+      { model: Batch, as: 'batch', attributes: ['id', 'name', 'expectedDelivery'], required: false }
     ];
 
     if (isGroup) {
@@ -2695,6 +2701,8 @@ const getOrderTracking = async (req, res) => {
       orderNumber: isGroup ? (firstOrder.checkoutOrderNumber || firstOrder.orderNumber) : firstOrder.orderNumber,
       status: firstOrder.status,
       handoverCode: !!handoverCode,
+      batch: firstOrder.batch || null,
+      deliveryTimePreference: firstOrder.deliveryTimePreference || null,
       trackingNumber: firstOrder.trackingNumber || null,
       estimatedDelivery: firstOrder.estimatedDelivery || null,
       actualDelivery: firstOrder.actualDelivery || null,

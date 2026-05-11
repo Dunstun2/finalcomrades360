@@ -567,13 +567,28 @@ export default function SellerOrders() {
                         )}
                       </td>
                       <td className="p-4 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
-                            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                          </span>
-                          <span className="font-black text-gray-900 text-[11px] truncate">{o.orderNumber}</span>
+                        <div className="flex flex-col gap-1 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                              </svg>
+                            </span>
+                            <span className="font-black text-gray-900 text-[11px] truncate">{o.orderNumber}</span>
+                          </div>
+                          
+                          {/* Fulfillment Visibility At-A-Glance */}
+                          {(o.batch || o.deliveryTimePreference) && (
+                            <div className="flex items-center gap-1.5 ml-5">
+                              <div className="px-2 py-0.5 bg-blue-50 border border-blue-100 rounded text-[9px] font-black text-blue-600 uppercase flex items-center gap-1">
+                                <FaClock className="h-2 w-2" />
+                                {o.batch ? o.batch.name : o.deliveryTimePreference}
+                              </div>
+                              {o.batch?.expectedDeliveryTime && (
+                                <span className="text-[9px] font-bold text-gray-400">@{o.batch.expectedDeliveryTime}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="p-4 whitespace-nowrap">

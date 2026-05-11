@@ -237,6 +237,17 @@ export default function OrderTracking() {
                     <p className="font-medium">{formatDate(tracking.actualDelivery)}</p>
                   </div>
                 )}
+                {tracking.batch && (
+                  <div className="md:col-span-2 mt-2 p-2 bg-blue-50 rounded border border-blue-100">
+                    <p className="text-xs font-bold text-blue-800">Fast Food Batch: {tracking.batch.name}</p>
+                    <p className="text-[11px] text-blue-600 font-medium">Expected Delivery Time: {tracking.batch.expectedDelivery || 'Not specified'}</p>
+                  </div>
+                )}
+                {tracking.deliveryTimePreference && !tracking.batch && (
+                  <div className="md:col-span-2 mt-2 p-2 bg-orange-50 rounded border border-orange-100">
+                    <p className="text-xs font-bold text-orange-800">Preferred Delivery Time: {tracking.deliveryTimePreference}</p>
+                  </div>
+                )}
               </div>
 
               {/* Handover Code Input: Show if tracking.handoverCode exists, even before status is 'delivered' */}

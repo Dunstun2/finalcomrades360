@@ -394,7 +394,9 @@ exports.placeDirectOrder = async (req, res) => {
             pickupStationId,
             customerName = 'Guest Customer',
             customerEmail,
-            originalTextBlock
+            originalTextBlock,
+            batchId,
+            deliveryTimePreference
         } = req.body;
 
         const normalizedCustomerPhone = normalizeKenyanPhone(customerPhone) || (customerPhone || '').replace(/\D/g, '');
@@ -638,6 +640,8 @@ exports.placeDirectOrder = async (req, res) => {
             primaryReferralCode: (!isAdmin && isMarketer) ? req.user.referralCode : null,
             secondaryReferralCode: user?.referredByReferralCode || null,
             pickupStationId: pickupStationId || null,
+            batchId: batchId || null,
+            deliveryTimePreference: deliveryTimePreference || null,
             originalTextBlock: originalTextBlock || null,
             items: processedItems.length
         }, { transaction: t });

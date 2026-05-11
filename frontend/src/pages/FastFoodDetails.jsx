@@ -843,6 +843,7 @@ const FastFoodDetails = () => {
       payload.comboId = null;
     }
 
+     setPrimaryButtonBusy(true);
     try {
       pushDebugEvent('submit-add-start', {
         source,
