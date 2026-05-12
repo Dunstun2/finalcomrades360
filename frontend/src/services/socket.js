@@ -37,8 +37,8 @@ const connectSocket = () => {
 
   // Create new socket connection
   socket = io(WS_URL, {
-    // Attempt websocket first for performance, fallback to polling if proxy blocks upgrades
-    transports: ['websocket', 'polling'], 
+    // Prioritize polling for cPanel compatibility, then try websocket
+    transports: ['polling', 'websocket'], 
     upgrade: true,
     rememberUpgrade: true,
     autoConnect: true,
