@@ -227,7 +227,7 @@ export default function Navbar() {
   }, []);
 
   const isDashboardRoute = location.pathname.startsWith('/dashboard') ||
-    ['/marketing', '/seller', '/customer', '/ops', '/logistics', '/finance', '/station'].some(path => location.pathname.startsWith(path));
+    ['/marketing', '/seller', '/customer', '/ops', '/logistics', '/finance', '/station', '/delivery'].some(path => location.pathname.startsWith(path));
 
   const isDetailRoute = location.pathname.startsWith('/product/') || 
                        location.pathname.startsWith('/category/') ||

@@ -191,7 +191,7 @@ const DeliveryWallet = () => {
     }
 
     return (
-        <div className="p-4 md:p-6 space-y-8 animate-fadeIn max-w-5xl mx-auto">
+        <div className="space-y-4 p-0.5 animate-fadeIn w-full">
 
             {/* ── Header ── */}
             <div>
@@ -200,9 +200,9 @@ const DeliveryWallet = () => {
             </div>
 
             {/* ── Balance Cards ── */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Withdrawable */}
-                <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+                <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-4 text-white shadow-lg relative overflow-hidden">
                     <div className="relative z-10">
                         <div className="flex justify-between items-start mb-4">
                             <span className="text-blue-100 font-medium text-sm">Available (Paid)</span>

@@ -327,25 +327,26 @@ const DeliveryAgentAvailable = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 p-0.5">
       <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">Available Orders</h2>
-          <p className="text-gray-600">Request assignment for orders in your area</p>
-          
-          <div className="mt-4 relative">
-            <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter by Order #, Customer Name, Town, Estate, or House Number..."
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+        <div className="px-1 py-1 border-b border-gray-200">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base font-bold text-gray-900 whitespace-nowrap">Available</h2>
+            <div className="flex-1 max-w-[200px] md:max-w-md">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter..."
+                  className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
-          <div className="p-6">
+          <div className="p-1">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-lg text-white">
                 <div className="flex items-center justify-between">

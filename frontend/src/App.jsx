@@ -384,7 +384,7 @@ const AppContent = () => {
   // Simplified and robust padding logic
   let topPadding = "pt-[128px]"; // Default for home/search (Navbar + Search bar)
   if (isDetailRoute || isDashboardRoute) {
-    topPadding = "pt-14 md:pt-16"; // 56px/64px to clear Navbar (no search bar)
+    topPadding = "pt-[50px] md:pt-16"; // Reduced from 56px to 50px to tighten mobile gaps
   }
   
   // If we have a referrer banner, we need extra space

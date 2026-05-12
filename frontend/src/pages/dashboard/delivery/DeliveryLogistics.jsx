@@ -169,10 +169,10 @@ const DeliveryLogistics = () => {
     }
 
     return (
-        <div className="space-y-6 p-4 md:p-6 animate-fadeIn max-w-5xl mx-auto">
+        <div className="space-y-4 p-0.5 animate-fadeIn w-full">
 
             {/* ── Header ── */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Logistics &amp; Earnings</h1>
                     <p className="text-gray-500 text-sm">Consolidated view of your performance and income</p>

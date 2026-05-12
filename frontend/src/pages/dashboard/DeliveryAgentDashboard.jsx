@@ -149,6 +149,8 @@ const DeliveryAgentDashboard = () => {
     return null;
   };
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.roles?.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
+
   const menuItems = [
     {
       name: 'Available Orders',
@@ -212,12 +214,19 @@ const DeliveryAgentDashboard = () => {
       key: 'tools'
     },
     {
+      name: 'Admin Dashboard',
+      path: '/dashboard',
+      icon: <FaCog className="lg:mr-3 text-blue-600 font-bold" />,
+      key: 'admin-dash',
+      hidden: !isAdmin
+    },
+    {
       name: 'Delivery Manual',
       path: '/delivery/manual',
       icon: null,
       key: 'manual'
     }
-  ];
+  ].filter(item => !item.hidden);
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
@@ -230,7 +239,7 @@ const DeliveryAgentDashboard = () => {
       />
 
       {/* Sidebar - Desktop / Drawer - Mobile */}
-      <div className={`fixed top-14 lg:top-16 inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col shadow-xl lg:shadow-sm z-50 transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed top-[50px] lg:top-16 inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col shadow-xl lg:shadow-sm z-50 transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-800 tracking-tight">Delivery Console</h2>
@@ -305,7 +314,7 @@ const DeliveryAgentDashboard = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-14 z-30 shadow-sm">
+        <header className="lg:hidden flex items-center justify-between p-1 border-b border-gray-100 bg-white sticky top-[50px] z-30 shadow-sm">
           <div className="flex items-center gap-3">
 
             <div className="flex items-center gap-2">
@@ -331,35 +340,9 @@ const DeliveryAgentDashboard = () => {
               You are <strong>Offline</strong>. No new requests will be received.
             </div>
           )}
-          <div className="max-w-7xl mx-auto min-h-full">
+          <div className="w-full min-h-full">
             <LocationTracker isOnline={isOnline} />
-            <div className="p-3 md:p-6 lg:p-8">
-              {/* Page Header with Navigation Buttons */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-800">Agent Console</h1>
-                  <p className="text-sm text-gray-500">Manage your delivery tasks and earnings.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {(user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.roles?.some(r => ['admin', 'superadmin', 'super_admin'].includes(r))) && (
-                    <Link
-                      to="/dashboard"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg hover:bg-black transition-all border border-gray-800"
-                    >
-                      <span>⬅️</span>
-                      <span>Admin Dashboard</span>
-                    </Link>
-                  )}
-                  <button
-                    onClick={() => window.location.href = '/'}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm hover:bg-gray-50 transition-all border border-gray-200"
-                  >
-                    <span>🏠</span>
-                    <span>Exit Home</span>
-                  </button>
-                </div>
-              </div>
-
+            <div className="p-0.5 md:p-1 lg:p-2">
               <Outlet context={{ fetchStatus, lastUpdate }} />
             </div>
           </div>

@@ -382,7 +382,7 @@ const DeliveryTaskConsole = ({
             {/* Header Section */}
             <div
                 onClick={onToggleExpand}
-                className="p-3 sm:p-5 cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4"
+                className="p-2 sm:p-4 cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4"
             >
                 <div className="flex items-start gap-4">
                     {checkbox && (
@@ -426,7 +426,7 @@ const DeliveryTaskConsole = ({
 
             {/* Expanded Content */}
             {isExpanded && (
-                <div className="px-5 pb-6 border-t border-gray-100 bg-gray-50/30 animate-in slide-in-from-top-2 duration-300">
+                <div className="px-1.5 pb-4 border-t border-gray-100 bg-gray-50/30 animate-in slide-in-from-top-2 duration-300">
                     <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
 
                         {/* Route Timeline */}
@@ -498,8 +498,8 @@ const DeliveryTaskConsole = ({
                             {isTransitional && order.deliveryAddress && (
                                 <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-blue-500">
-                                            <FaMapMarkedAlt />
+                                        <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm text-blue-500">
+                                            <FaMapMarkedAlt size={14} />
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest leading-none mb-1">Final Customer Destination</p>
