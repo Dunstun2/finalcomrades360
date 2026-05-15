@@ -75,10 +75,10 @@ const config = {
     dialect: 'mysql', // Explicitly force mysql for production config
     logging: process.env.SEQUELIZE_LOGGING === 'true' ? console.log : false,
     pool: {
-      max: 25, // Increased from 10 to 25 to prevent pool exhaustion in production
-      min: 2,
+      max: 8, // Reduced from 25 to fit shared hosting 'max_user_connections' limits
+      min: 0,
       acquire: 60000,
-      idle: 20000,
+      idle: 10000,
     },
     dialectOptions: process.env.DB_SSL === 'true' ? {
       ssl: {
