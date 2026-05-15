@@ -1,4 +1,4 @@
-const { sequelize } = require('./backend/models');
+const { sequelize } = require('./models');
 
 async function applyProductionFixes() {
   console.log('🚀 Starting production database fixes...');
