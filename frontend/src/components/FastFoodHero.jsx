@@ -1,10 +1,7 @@
 import React from 'react';
 import LiveMenuHero from './LiveMenuHero';
-import FastFoodCard from './FastFoodCard';
-import { Button } from './ui/button';
-import OptimizedImageWithCDN from './OptimizedImageWithCDN';
 import { resolveImageUrl } from '../utils/imageUtils';
-import { FaShoppingCart, FaStar } from 'react-icons/fa';
+import { FaShoppingCart, FaStar, FaBolt, FaCheckCircle, FaUserGraduate } from 'react-icons/fa';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { formatPrice } from '../utils/currency';
 
@@ -12,218 +9,243 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Show shimmer/placeholder if loading
     if (loading) {
         return (
-            <div className="w-full h-40 sm:h-56 bg-gradient-to-br from-orange-100 to-orange-200 animate-pulse rounded-lg mb-4" />
+            <div className="w-full h-60 sm:h-64 md:h-[400px] lg:h-[440px] bg-gradient-to-br from-orange-100 to-orange-200 animate-pulse rounded-2xl sm:rounded-3xl mb-8" />
         );
     }
-    // Background Themes (Gradient + Pattern + Texture)
+
     const backgroundThemes = [
-        {
-            name: 'Sunny Grid',
-            gradient: "bg-gradient-to-br from-amber-50 to-orange-100",
-            pattern: "radial-gradient(circle, #f59e0b 1.5px, transparent 1.5px)",
-            backgroundSize: "24px 24px",
-            opacity: "0.15"
-        },
-        {
-            name: 'Fresh Mint',
-            gradient: "bg-gradient-to-br from-emerald-50 to-green-100",
-            pattern: "linear-gradient(45deg, #059669 0.5px, transparent 0.5px), linear-gradient(-45deg, #059669 0.5px, transparent 0.5px)",
-            backgroundSize: "30px 30px",
-            opacity: "0.1"
-        },
-        {
-            name: 'Red Hot',
-            gradient: "bg-gradient-to-br from-red-50 to-rose-100",
-            pattern: "linear-gradient(90deg, #dc2626 1px, transparent 1px), linear-gradient(#dc2626 1px, transparent 1px)",
-            backgroundSize: "45px 45px",
-            opacity: "0.08"
-        },
-        {
-            name: 'Royal Stone',
-            gradient: "bg-gradient-to-br from-slate-50 to-stone-200",
-            pattern: "repeating-linear-gradient(45deg, #475569 0, #475569 1px, transparent 0, transparent 20px)",
-            backgroundSize: "20px 20px",
-            opacity: "0.05"
-        },
-        {
-            name: 'Deep Amber',
-            gradient: "bg-gradient-to-br from-yellow-50 to-amber-200",
-            pattern: "radial-gradient(circle at center, #d97706 1px, transparent 1px)",
-            backgroundSize: "16px 16px",
-            opacity: "0.12"
-        },
-        {
-            name: 'Soft Violet',
-            gradient: "bg-gradient-to-br from-violet-50 to-purple-100",
-            pattern: "linear-gradient(135deg, #7c3aed 1px, transparent 1px)",
-            backgroundSize: "25px 25px",
-            opacity: "0.1"
-        }
+        { pattern: "radial-gradient(circle, #f59e0b 1.5px, transparent 1.5px)", backgroundSize: "24px 24px", opacity: "0.15" },
+        { pattern: "linear-gradient(45deg, #059669 0.5px, transparent 0.5px), linear-gradient(-45deg, #059669 0.5px, transparent 0.5px)", backgroundSize: "30px 30px", opacity: "0.1" },
+        { pattern: "linear-gradient(90deg, #dc2626 1px, transparent 1px), linear-gradient(#dc2626 1px, transparent 1px)", backgroundSize: "45px 45px", opacity: "0.08" },
+        { pattern: "repeating-linear-gradient(45deg, #475569 0, #475569 1px, transparent 0, transparent 20px)", backgroundSize: "20px 20px", opacity: "0.05" },
+        { pattern: "radial-gradient(circle at center, #d97706 1px, transparent 1px)", backgroundSize: "16px 16px", opacity: "0.12" },
+        { pattern: "linear-gradient(135deg, #7c3aed 1px, transparent 1px)", backgroundSize: "25px 25px", opacity: "0.1" },
     ];
 
     const getTheme = (id) => {
         if (!id) return backgroundThemes[0];
-        // For campaign IDs like "camp_123", extract the numeric part or hash it
         const idStr = String(id);
         const numericPart = idStr.includes('_') ? idStr.split('_').pop() : idStr;
         const index = isNaN(Number(numericPart)) ? 0 : Number(numericPart) % backgroundThemes.length;
         return backgroundThemes[index] || backgroundThemes[0];
     };
 
-    // Show Split Layout if:
-    // - Linked to an item 
-    // - OR explicitly marked as 'manual' type 
-    // AND NOT 'manual_image_only'
-    // 1. Featured Item Mode (Split View)
-    // Only show split view if we have an actual item or a manual title.
+    // Split layout: item linked OR manual campaign with title
     if ((item || (settings.type === 'manual' && settings.title)) && settings.type !== 'manual_image_only') {
         const activeTheme = getTheme(item?.id || settings.id);
 
-        // "Buy Now" opens the detail page; adding to cart is handled there
         const handleViewDetails = () => {
             if (item) navigate(`/fastfood/${item.id}`, { state: { from: location.pathname } });
         };
 
-        // Standardized Price Calculation
         const originalPrice = Number(item?.displayPrice || 0);
         const finalPrice = Number(item?.discountPrice || originalPrice);
         const hasDiscount = Number(item?.discountPercentage || 0) > 0 && finalPrice < originalPrice;
 
-        // Image Resolution
         const itemImage = item?.mainImage ? resolveImageUrl(item.mainImage, null, item.updatedAt) : null;
         const displayImage = itemImage || settings.image;
+
         return (
             <div className="relative w-full overflow-hidden group rounded-2xl sm:rounded-3xl shadow-2xl mb-8">
-                <div className="flex flex-row w-full h-60 sm:h-64 md:min-h-[500px] overflow-hidden">
-                    {/* Left Content Side - always visible */}
-                    <div className="relative w-[55%] sm:w-3/5 h-auto sm:h-full px-2 sm:px-8 md:px-12 py-4 sm:py-8 md:py-12 flex flex-col justify-between animate-fade-in-up overflow-hidden min-h-[220px] sm:min-h-[350px] bg-[#b57be0]">
-                        {/* Theme Pattern Overlay */}
+                {/* Fixed height matching HeroSlider */}
+                <div className="flex flex-row w-full h-60 sm:h-64 md:h-[400px] lg:h-[440px]">
+
+                    {/* ── LEFT: Content ── */}
+                    <div className="relative w-[55%] sm:w-3/5 h-full flex flex-col justify-between px-3 sm:px-7 md:px-12 py-3 sm:py-5 md:py-9 overflow-hidden bg-gradient-to-br from-[#6d28d9] via-[#b57be0] to-[#7c3aed]">
+                        {/* Pattern overlay */}
                         <div
                             className="absolute inset-0 pointer-events-none mix-blend-overlay"
                             style={{
                                 backgroundImage: activeTheme.pattern,
                                 backgroundSize: activeTheme.backgroundSize,
-                                opacity: activeTheme.opacity || '0.06'
+                                opacity: activeTheme.opacity || '0.06',
                             }}
                         />
-                        {/* Content Card */}
-                        <div className="flex flex-col h-full justify-between relative z-10">
-                            {/* Top Badges */}
-                            <div className="flex flex-row flex-wrap gap-2 mb-2">
+
+                        {/* TOP: Badges + title + subtitle */}
+                        <div className="relative z-10 flex flex-col gap-1 overflow-hidden">
+                            {/* Badges */}
+                            <div className="flex flex-row flex-wrap gap-1 mb-0.5">
                                 {(item || settings.title) && (
-                                    <span className="inline-flex items-center px-3 py-1 bg-white/20 text-white text-xs font-bold tracking-widest uppercase rounded-full backdrop-blur-sm">
+                                    <span className="inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 bg-white/20 text-white text-[9px] sm:text-[11px] font-bold tracking-widest uppercase rounded-full backdrop-blur-sm border border-white/10">
                                         {item ? 'Fast Food Feature' : 'Special Campaign'}
                                     </span>
                                 )}
+                                <span className="inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 bg-amber-400 text-black text-[9px] sm:text-[11px] font-black tracking-tighter uppercase rounded-full shadow-lg transform rotate-2">
+                                    🔥 Fresh & Hot
+                                </span>
                                 {hasDiscount && (
-                                    <span className="inline-flex items-center px-3 py-1 bg-white text-[#f59e0b] text-xs font-bold rounded-full">
+                                    <span className="inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 bg-white text-[#f59e0b] text-[9px] sm:text-[11px] font-bold rounded-full">
                                         Save {item.discountPercentage}%
                                     </span>
                                 )}
                             </div>
-                            {/* Title & Subtitle */}
-                            <div className="flex flex-col gap-1 max-w-[95%] mt-2">
-                                {settings.title && item && (
-                                    <span className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1">
-                                        {settings.title}
-                                    </span>
-                                )}
-                                <h2
-                                    onClick={handleViewDetails}
-                                    className="text-white text-2xl md:text-4xl font-extrabold leading-tight tracking-tight break-words cursor-pointer hover:text-amber-100 transition-colors mb-1"
-                                >
-                                    {item?.name || settings.title}
-                                </h2>
-                                <p className="text-white/90 text-base md:text-lg font-medium leading-snug break-words max-w-[90%]">
-                                    {settings.subtitle || item?.shortDescription}
-                                </p>
-                            </div>
-                            {/* Price, Actions, and Rating */}
-                            <div className="flex flex-row items-end gap-6 mt-2 mb-2">
-                                {item && (
-                                    <div className="flex flex-col items-start gap-1">
-                                        <div className="bg-[#ff9f1a] text-white rounded-md px-4 py-2 shadow-lg min-w-[120px]">
-                                            {hasDiscount && (
-                                                <span className="block text-xs text-white/80 line-through font-bold leading-none">
-                                                    {formatPrice(originalPrice).replace('KSh', 'KSH')}
-                                                </span>
-                                            )}
-                                            <span className="block text-2xl md:text-3xl font-black leading-none tracking-tight">
-                                                {formatPrice(finalPrice).replace('KSh', 'KSH')}
-                                            </span>
-                                        </div>
-                                        {item?.rating && (
-                                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-black/20 text-white rounded-full text-xs font-bold mt-2">
-                                                <FaStar className="text-yellow-300" />
-                                                <span>{item.rating}</span>
+
+                            {/* Campaign label above item name - only show if distinct from item name */}
+                            {settings.title && item && 
+                             !settings.title.toLowerCase().includes(item.name.toLowerCase()) && 
+                             !item.name.toLowerCase().includes(settings.title.toLowerCase().split(' ')[0]) && (
+                                <span className="text-white/75 text-[9px] sm:text-[11px] font-bold uppercase tracking-widest leading-none">
+                                    {settings.title}
+                                </span>
+                            )}
+
+                            {/* Main title */}
+                            <h2
+                                onClick={handleViewDetails}
+                                className="text-white text-base sm:text-2xl md:text-4xl font-extrabold leading-tight tracking-tight cursor-pointer hover:text-amber-100 transition-colors"
+                                style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+                            >
+                                {item?.name || settings.title}
+                            </h2>
+
+                            {/* Subtitle */}
+                            <p
+                                className="text-white/95 text-[10px] sm:text-base md:text-lg font-bold leading-tight mt-1 max-w-[90%] drop-shadow-sm"
+                                style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+                            >
+                                {settings.subtitle || item?.shortDescription || "Deliciously prepared for you."}
+                            </p>
+
+                            {/* Trust & Speed Bar */}
+                            {(settings.trustPoints || [
+                                { icon: '🚀', text: 'Fast Delivery' },
+                                { icon: '✅', text: 'Verified' },
+                                { icon: '🎓', text: 'Student Choice' }
+                            ]).length > 0 && (
+                                <div className="mt-2 sm:mt-4 flex items-center flex-wrap gap-2 sm:gap-4 text-white/90 bg-white/10 w-fit px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm border border-white/10">
+                                    {(settings.trustPoints || [
+                                        { icon: '🚀', text: 'Fast Delivery' },
+                                        { icon: '✅', text: 'Verified' },
+                                        { icon: '🎓', text: 'Student Choice' }
+                                    ]).map((tp, idx, arr) => (
+                                        <React.Fragment key={idx}>
+                                            <div className="flex items-center gap-1 sm:gap-1.5">
+                                                <span className="text-[10px] sm:text-xs">{tp.icon}</span>
+                                                <span className="text-[7px] sm:text-[10px] font-black uppercase tracking-tight whitespace-nowrap">{tp.text}</span>
                                             </div>
-                                        )}
-                                    </div>
-                                )}
-                                <div className="flex flex-col gap-2">
+                                    {idx < arr.length - 1 && <div className="w-px h-3 bg-white/20"></div>}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Social Proof Indicator */}
+                            <div className="mt-3 sm:mt-5 flex items-center gap-1.5 sm:gap-4 bg-black/20 w-fit p-1 sm:p-2.5 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-2xl">
+                                <div className="flex -space-x-1.5 sm:-space-x-3">
+                                    {(() => {
+                                        const imgs = [];
+                                        if (item?.mainImage) imgs.push(item.mainImage);
+                                        if (Array.isArray(item?.images)) {
+                                            item.images.forEach(img => {
+                                                if (img && !imgs.includes(img)) imgs.push(img);
+                                            });
+                                        }
+                                        while (imgs.length < 4) {
+                                            imgs.push(item?.mainImage || settings.image || '/logo192.png');
+                                        }
+                                        return imgs.slice(0, 4).map((img, i) => (
+                                            <div key={i} className="w-4 h-4 sm:w-10 sm:h-10 rounded-full border sm:border-4 border-white shadow-xl overflow-hidden transform hover:scale-110 transition-transform bg-white">
+                                                <img src={resolveImageUrl(img)} alt="item" className="w-full h-full object-cover" />
+                                            </div>
+                                        ));
+                                    })()}
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-white text-[7px] sm:text-lg font-black leading-none tracking-tight">
+                                        {item?.soldCount > 0 ? `${item.soldCount}+ Orders` : 'Trending Now'}
+                                    </span>
+                                    <span className="text-white/60 text-[5px] sm:text-xs font-bold uppercase tracking-widest mt-0.5 hidden sm:block">Verified Orders This Week</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* BOTTOM: Price + rating + button */}
+                        <div className="relative z-10 flex flex-row items-end gap-2 sm:gap-4 mt-auto">
+                            {item && (
+                                <>
+                                    {/* Price block */}
+                                    {/* Price block removed */}
+
+                                    {/* Rating badge */}
+                                    {item?.rating && (
+                                        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-black/20 text-white rounded-full text-xs font-bold">
+                                            <FaStar className="text-yellow-300" />
+                                            <span>{item.rating}</span>
+                                        </div>
+                                    )}
+
+                                    {/* Order Now button (desktop left panel) */}
                                     <button
                                         onClick={handleViewDetails}
-                                        className="inline-flex items-center gap-2 px-5 py-2 bg-white text-[#111827] rounded-md font-bold text-base shadow-md hover:opacity-95 transition"
+                                        className="hidden sm:inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-white text-[#111827] rounded-md font-bold text-sm shadow-md hover:opacity-95 transition ml-auto"
                                     >
-                                        {item ? 'Order Now' : 'Explore Menu'}
+                                        Order Now
                                     </button>
-                                </div>
-                            </div>
+                                </>
+                            )}
+
+                            {/* No-item: explore CTA */}
+                            {!item && settings.title && (
+                                <button
+                                    onClick={handleViewDetails}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-white text-[#111827] rounded-md font-bold text-xs sm:text-sm shadow-md hover:opacity-95 transition"
+                                >
+                                    Explore Menu
+                                </button>
+                            )}
                         </div>
                     </div>
-                    {/* Right Image/Card Side */}
-                    <div className="relative w-[45%] sm:w-[48%] h-full flex items-center justify-center animate-fade-in-up delay-300 overflow-hidden bg-transparent">
-                        {/* On mobile, show FastFoodCard; on desktop, show image */}
-                        <div className="block sm:hidden w-full h-full px-0 pt-2 pb-4 flex flex-col h-full">
-                            {item && (
-                                <div className="flex flex-col h-full w-full">
-                                    <FastFoodCard
-                                        item={item}
-                                        clickable={false}
-                                        renderActions={() => null}
-                                        className="w-full h-full flex flex-col"
-                                        hideImageBadges={true}
-                                        hideTitle={true}
-                                        imageHeight=""
-                                        contentClassName=""
-                                        style={{height: '100%', display: 'flex', flexDirection: 'column'}} // force full height
-                                    />
+
+                    {/* ── RIGHT: Image + Price + Buy Now ── */}
+                    <div className="relative w-[45%] sm:w-2/5 h-full flex flex-col overflow-hidden">
+                        {/* Image fills the top */}
+                        <div className="relative flex-1 overflow-hidden">
+                            <img
+                                src={displayImage}
+                                alt={item?.name || settings.title || 'Campaign'}
+                                className="absolute inset-0 w-full h-full object-cover object-center"
+                            />
+                            {/* Discount badge over image */}
+                            {hasDiscount && (
+                                <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 bg-[#f59e0b] text-white px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-xs font-black shadow-lg rotate-6">
+                                    -{item.discountPercentage}%
                                 </div>
                             )}
-                            {/* If no item, fallback to image */}
-                            {!item && (
-                                <img
-                                    src={displayImage}
-                                    alt={settings.title || 'Banner'}
-                                    className="w-full h-full object-cover rounded-xl"
-                                />
-                            )}
                         </div>
-                        <img
-                            src={displayImage}
-                            alt={settings.title || item?.name || 'Banner'}
-                            className="hidden sm:block absolute left-0 top-0 w-full h-full object-cover object-center z-0 rounded-none"
-                        />
+
+                        {/* Price + Buy Now pinned below image */}
+                        {item && (
+                            <div className="w-full flex flex-col items-center gap-1 sm:gap-1.5 py-1.5 sm:py-2.5 px-2 sm:px-3 bg-[#9b59cc]/90 backdrop-blur-sm">
+                                {/* Price row removed */}
+
+                                {/* Buy Now button */}
+                                <button
+                                    onClick={handleViewDetails}
+                                    className="w-full flex items-center justify-center gap-2 py-2 sm:py-3.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-lg sm:rounded-xl font-black text-[10px] sm:text-base shadow-[0_8px_20px_rgba(245,158,11,0.4)] hover:from-amber-500 hover:to-orange-600 hover:scale-[1.02] active:scale-95 transition-all border-b-2 sm:border-b-4 border-orange-700"
+                                >
+                                    <FaShoppingCart className="text-[10px] sm:text-lg" />
+                                    BUY NOW
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
+
                 <style jsx="true">{`
                     @keyframes fade-in-up {
                         0% { opacity: 0; transform: translateY(20px); }
                         100% { opacity: 1; transform: translateY(0); }
                     }
                     .animate-fade-in-up { animation: fade-in-up 0.8s forwards ease-out; }
-                    .delay-100 { animation-delay: 0.1s; }
-                    .delay-200 { animation-delay: 0.2s; }
-                    .delay-300 { animation-delay: 0.3s; }
                 `}</style>
             </div>
         );
     }
 
-    // Default / Image Mode
+    // Default / image-only mode
     return (
         <LiveMenuHero
             title={settings.title}
@@ -233,6 +255,6 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
             setSearchTerm={setSearchTerm}
         />
     );
-}
+};
 
 export default FastFoodHero;

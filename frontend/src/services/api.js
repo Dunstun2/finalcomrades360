@@ -623,7 +623,11 @@ export const adminApi = {
   
   // Orders & Products
   getAllOrders: (params = {}) => api.get('/orders', { params }),
-  getAllProducts: (params = {}) => api.get('/products/admin/all', { params })
+  getAllProducts: (params = {}) => api.get('/products/admin/all', { params }),
+
+  // Platform Config
+  getPlatformConfig: (key) => api.get(`/admin/config/${key}`),
+  updatePlatformConfig: (key, value) => api.post(`/admin/config/${key}`, { value })
 };
 
 export const orderApi = {

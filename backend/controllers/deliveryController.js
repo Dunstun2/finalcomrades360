@@ -7,9 +7,10 @@ const {
   notifyDeliveryAgentAssignment, 
   notifyAdminTaskRejection, 
   notifyCustomerDeliveryUpdate, 
-  notifyCustomerReadyForPickupStation,
-  notifyCustomerAgentArrived,
-  notifyCustomerOutForDelivery
+  notifyCustomerReadyForPickupStation, 
+  notifyCustomerAgentArrived, 
+  notifyCustomerOutForDelivery,
+  notifyCustomerAgentAccepted
 } = require('../utils/notificationHelpers');
 const { creditPending, moveToSuccess, revertPending } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout, settleDeliveryChargeForTask, upsertDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
@@ -817,12 +818,7 @@ const acceptDeliveryTask = async (req, res, next) => {
       
       if (statusesToProcess.includes(currentStatus)) {
         await task.order.update({ status: 'processing' });
-        await notifyCustomerDeliveryUpdate(
-          task.order.userId,
-          task.order.orderNumber,
-          'accepted',
-          `Your delivery has been accepted by our delivery agent. Status: Processing.`
-        );
+        await notifyCustomerAgentAccepted(task.order, req.user);
       } else {
         console.log(`[acceptDeliveryTask] Skipping status update to 'processing' for order ${task.order.orderNumber}. Current status: ${currentStatus}`);
       }
@@ -2119,12 +2115,21 @@ const confirmCollection = async (req, res) => {
       return res.status(403).json({ error: 'This task is not assigned to you' });
     }
 
-    // Only allow collection confirmation if task status is arrived_at_pickup
-    if (task.status !== 'arrived_at_pickup') {
-      return res.status(400).json({ error: 'Task must be marked as "arrived_at_pickup" before collection can be confirmed' });
+    // Allow collection confirmation if task status is accepted or arrived_at_pickup
+    if (task.status !== 'arrived_at_pickup' && task.status !== 'accepted') {
+      return res.status(400).json({ error: 'Task must be in "accepted" or "arrived" status to confirm collection' });
     }
 
     const now = new Date();
+
+    // Auto-mark as arrived if they skipped the manual step
+    if (task.status === 'accepted') {
+        await task.update({ 
+            status: 'arrived_at_pickup', 
+            arrivedAt: now 
+        });
+        console.log(`[confirmCollection] Auto-marked task ${task.id} as arrived.`);
+    }
 
     // Determine the appropriate order status based on delivery type
     const deliveryType = task.deliveryType || task.order?.deliveryType;
@@ -2221,6 +2226,10 @@ const markArrivedAtPickup = async (req, res) => {
     if (!task) return res.status(404).json({ error: 'Task not found' });
     if (task.deliveryAgentId !== req.user.id) {
       return res.status(403).json({ error: 'This task is not assigned to you' });
+    }
+
+    if (task.status === 'arrived_at_pickup' || task.status === 'in_progress') {
+      return res.json({ success: true, message: 'Already marked as arrived', task });
     }
 
     if (task.status !== 'accepted') {

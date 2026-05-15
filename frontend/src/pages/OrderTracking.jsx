@@ -160,6 +160,22 @@ export default function OrderTracking() {
           </div>
         </div>
 
+        {/* Guest Verification Notice */}
+        {order && !order.userId && !order.phoneVerified && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4 shadow-sm">
+            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
+              <FaExclamationCircle className="text-amber-500 text-xl" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">Verify Your Phone Number</h4>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                Our delivery agent will need to call you at <strong>{order.customerPhone}</strong>. 
+                Please ensure your phone is reachable to avoid delivery delays.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Live Map Integration */}
         {!['cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (
           <div className="mb-8 rounded-2xl overflow-hidden shadow-sm border border-gray-100">

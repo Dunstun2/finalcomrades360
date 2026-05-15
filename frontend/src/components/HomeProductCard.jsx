@@ -13,6 +13,7 @@ import {
   getVariantId as unifiedGetVariantId, 
   getDefaultVariant as unifiedGetDefaultVariant 
 } from '../utils/variantUtils';
+import api from '../services/api';
 
 function HomeProductCard({
   product,
@@ -92,6 +93,20 @@ function HomeProductCard({
     return getVersionedUrl(getResizedImageUrl(originalUrl, { width: 400, quality: 80 }));
   }, [imageUrls, getVersionedUrl]);
 
+  const logAction = async (actionType) => {
+    try {
+      await api.post('/analytics/log-action', {
+        itemId: product.id,
+        itemType,
+        actionType,
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: authUser?.id
+      });
+    } catch (err) {
+      console.warn(`[Analytics] ${actionType} tracking failed:`, err.message);
+    }
+  };
+
   const handleAddToCart = async (e) => {
     if (e) {
       e.stopPropagation();
@@ -128,6 +143,9 @@ function HomeProductCard({
           description: `${product.name} removed from your cart`,
         });
       } else {
+        // Log conversion (Add to Cart)
+        logAction('conversion');
+
         if (firstVariant && itemType === 'product') {
           const vId = getVariantId(firstVariant);
           await addToCart(product.id, 1, {
@@ -229,6 +247,11 @@ function HomeProductCard({
     }
   };
 
+  const handleCardClick = (e) => {
+    logAction('click');
+    handleView(e);
+  };
+
   // Calculate display price - handle different API response structures
   const isWishlisted = isInWishlist(product.id);
   const isAuthenticated = !!authUser;
@@ -283,7 +306,7 @@ function HomeProductCard({
     : `w-full ${className || ''}`;
 
   return (
-    <div data-testid="product-card" className={`group flex-shrink-0 bg-white rounded-lg shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200 border border-gray-100 ${cardBase}`}>
+    <div data-testid="product-card" onClick={handleCardClick} className={`group flex-shrink-0 bg-white rounded-lg shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200 border border-gray-100 cursor-pointer ${cardBase}`}>
       <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
         <img
           src={productImageUrl}

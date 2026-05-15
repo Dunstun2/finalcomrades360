@@ -32,7 +32,14 @@ export default function AdminCreateHeroPromotion() {
     subtitle: '',
     customImageUrl: '',
     targetUrl: '',
-    type: 'system'
+    type: 'system',
+    promoType: 'product',
+    fastFoodIds: [],
+    trustPoints: [
+      { icon: '🚀', text: 'Fast Delivery' },
+      { icon: '✅', text: 'Verified' },
+      { icon: '🎓', text: 'Student Choice' }
+    ]
   })
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -70,6 +77,8 @@ export default function AdminCreateHeroPromotion() {
   const [sellerProducts, setSellerProducts] = useState([])
   const [loadingProducts, setLoadingProducts] = useState(false)
   const lastSellerId = useRef(null)
+  const [fastfoods, setFastfoods] = useState([])
+  const [loadingFastfoods, setLoadingFastfoods] = useState(false)
 
   useEffect(() => {
     if (!form.sellerId) { setSellerProducts([]); return }
@@ -86,6 +95,19 @@ export default function AdminCreateHeroPromotion() {
       .finally(() => setLoadingProducts(false))
   }, [form.sellerId])
 
+  useEffect(() => {
+    if (!form.sellerId || form.promoType !== 'fastfood') { setFastfoods([]); return }
+    const sid = Number(form.sellerId)
+    setLoadingFastfoods(true)
+    api.get('/admin/fastfood', { params: { sellerId: sid, limit: 200 } })
+      .then(r => {
+        const data = r.data
+        setFastfoods(Array.isArray(data) ? data : (data?.fastfoods || data?.data || []))
+      })
+      .catch(() => setFastfoods([]))
+      .finally(() => setLoadingFastfoods(false))
+  }, [form.sellerId, form.promoType])
+
   // Derived values
   const selectedProducts = useMemo(() =>
     sellerProducts.filter(p => form.productIds.includes(p.id)), [sellerProducts, form.productIds])
@@ -95,20 +117,25 @@ export default function AdminCreateHeroPromotion() {
       const first = selectedProducts[0]
       return first ? resolveImageUrl(first.coverImage) : null
     }
+    if (form.type === 'seller' && form.promoType === 'fastfood') {
+      const selected = fastfoods.filter(f => form.fastFoodIds.includes(f.id))
+      const first = selected[0]
+      return first ? resolveImageUrl(first.mainImage) : null
+    }
     return form.customImageUrl || null
-  }, [form.type, form.customImageUrl, selectedProducts])
+  }, [form.type, form.promoType, form.customImageUrl, selectedProducts, fastfoods, form.fastFoodIds])
 
   const endDate = useMemo(() => calcEndDate(form.startAt, form.durationDays), [form.startAt, form.durationDays])
 
   const chargeBreakdown = useMemo(() => {
     if (form.type !== 'seller' || form.mode !== 'charged') return null
     const days = Number(form.durationDays) || 7
-    const numProducts = form.productIds.length
+    const numItems = form.promoType === 'product' ? form.productIds.length : form.fastFoodIds.length
     const base = days * rates.perDay
-    const productFee = days * numProducts * rates.perProduct
+    const productFee = days * numItems * rates.perProduct
     const total = base + productFee
-    return { days, numProducts, base, productFee, total }
-  }, [form.type, form.mode, form.durationDays, form.productIds.length, rates])
+    return { days, numItems, base, productFee, total }
+  }, [form.type, form.mode, form.durationDays, form.productIds.length, form.fastFoodIds.length, form.promoType, rates])
 
   const toggleProduct = (pid) => {
     setForm(prev => ({
@@ -116,6 +143,15 @@ export default function AdminCreateHeroPromotion() {
       productIds: prev.productIds.includes(pid)
         ? prev.productIds.filter(x => x !== pid)
         : [...prev.productIds, pid]
+    }))
+  }
+
+  const toggleFastFood = (fid) => {
+    setForm(prev => ({
+      ...prev,
+      fastFoodIds: prev.fastFoodIds.includes(fid)
+        ? prev.fastFoodIds.filter(x => x !== fid)
+        : [...prev.fastFoodIds, fid]
     }))
   }
 
@@ -145,7 +181,8 @@ export default function AdminCreateHeroPromotion() {
     e.preventDefault()
     if (form.type === 'seller') {
       if (!form.sellerId) return setError('Please select a seller')
-      if (!form.productIds.length && !form.customImageUrl) return setError('Select at least one product or upload a custom image')
+      if (form.promoType === 'product' && !form.productIds.length && !form.customImageUrl) return setError('Select at least one product or upload a custom image')
+      if (form.promoType === 'fastfood' && !form.fastFoodIds.length && !form.customImageUrl) return setError('Select at least one fast food item or upload a custom image')
     } else {
       if (!form.customImageUrl && !form.productIds.length) return setError('Upload a custom image for this system banner')
     }
@@ -165,7 +202,10 @@ export default function AdminCreateHeroPromotion() {
         targetUrl: form.targetUrl,
         isDefault: form.isDefault,
         isSystem: form.type === 'system',
-        free: form.mode === 'free' || form.type === 'system'
+        promoType: form.promoType,
+        fastFoodIds: form.fastFoodIds,
+        free: form.mode === 'free' || form.type === 'system',
+        trustPoints: form.trustPoints
       }
       if (form.startAt) payload.startAt = new Date(form.startAt)
 
@@ -293,6 +333,55 @@ export default function AdminCreateHeroPromotion() {
                 <label className="block text-xs font-bold text-gray-500 mb-1 uppercase flex gap-1 items-center"><FaLink /> Target URL <span className="font-normal normal-case text-[10px] text-gray-400 ml-1">(optional — where does clicking go?)</span></label>
                 <input type="text" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. /products or https://..." value={form.targetUrl} onChange={e => setForm(p => ({ ...p, targetUrl: e.target.value }))} />
               </div>
+
+              {/* Trust Markers Section */}
+              <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest">Trust & Speed Markers</label>
+                  <button 
+                    type="button"
+                    className="text-xs font-black text-emerald-600 hover:underline"
+                    onClick={() => setForm(p => ({ ...p, trustPoints: [...p.trustPoints, { icon: '✨', text: 'New Marker' }] }))}
+                  >
+                    + Add Marker
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  {(form.trustPoints || []).map((tp, idx) => (
+                    <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
+                      <input 
+                        className="w-10 text-center border-b outline-none focus:border-emerald-500"
+                        value={tp.icon} 
+                        onChange={e => {
+                          const next = [...form.trustPoints];
+                          next[idx].icon = e.target.value;
+                          setForm(p => ({ ...p, trustPoints: next }));
+                        }}
+                      />
+                      <input 
+                        className="flex-1 text-xs font-medium outline-none border-b focus:border-emerald-500"
+                        placeholder="Marker text..."
+                        value={tp.text} 
+                        onChange={e => {
+                          const next = [...form.trustPoints];
+                          next[idx].text = e.target.value;
+                          setForm(p => ({ ...p, trustPoints: next }));
+                        }}
+                      />
+                      <button 
+                        type="button"
+                        className="text-gray-400 hover:text-red-500 transition-colors"
+                        onClick={() => {
+                          const next = form.trustPoints.filter((_, i) => i !== idx);
+                          setForm(p => ({ ...p, trustPoints: next }));
+                        }}
+                      >
+                        <FaTimesCircle size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -302,7 +391,13 @@ export default function AdminCreateHeroPromotion() {
             {/* SELLER specific */}
             {form.type === 'seller' ? (
               <div className="p-5 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-5">
-                <label className="block text-xs font-black text-blue-600 uppercase tracking-widest">Seller & Products</label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-black text-blue-600 uppercase tracking-widest">Seller & Content</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setForm(p => ({ ...p, promoType: 'product', productIds: [], fastFoodIds: [] }))} className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${form.promoType === 'product' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-200'}`}>Products</button>
+                    <button type="button" onClick={() => setForm(p => ({ ...p, promoType: 'fastfood', productIds: [], fastFoodIds: [] }))} className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${form.promoType === 'fastfood' ? 'bg-orange-600 text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-200'}`}>FastFood</button>
+                  </div>
+                </div>
 
                 {/* Seller select */}
                 <div className="relative">
@@ -314,8 +409,8 @@ export default function AdminCreateHeroPromotion() {
                   </select>
                 </div>
 
-                {/* Products checklist */}
-                {form.sellerId && (
+                {/* Content selection based on promoType */}
+                {form.sellerId && form.promoType === 'product' && (
                   <div>
                     <label className="block text-xs font-bold text-blue-500 mb-2">Products to Feature</label>
                     {loadingProducts ? (
@@ -338,6 +433,33 @@ export default function AdminCreateHeroPromotion() {
                       </div>
                     ) : (
                       <div className="text-sm text-gray-400 italic p-3 text-center border rounded-xl">No products found for this seller</div>
+                    )}
+                  </div>
+                )}
+
+                {form.sellerId && form.promoType === 'fastfood' && (
+                  <div>
+                    <label className="block text-xs font-bold text-orange-500 mb-2">FastFood Items to Feature</label>
+                    {loadingFastfoods ? (
+                      <div className="flex items-center gap-2 py-4 text-orange-500 text-sm font-bold"><FaSpinner className="animate-spin" /> Loading items...</div>
+                    ) : fastfoods.length ? (
+                      <div className="max-h-56 overflow-auto border border-orange-100 bg-white rounded-xl divide-y">
+                        {fastfoods.map(f => {
+                          const isChecked = form.fastFoodIds.includes(f.id)
+                          return (
+                            <label key={f.id} className={`flex items-center gap-3 p-3 cursor-pointer transition-colors ${isChecked ? 'bg-orange-50' : 'hover:bg-gray-50'}`}>
+                              <input type="checkbox" className="w-4 h-4 rounded text-orange-600 flex-shrink-0" checked={isChecked} onChange={() => toggleFastFood(f.id)} />
+                              <img src={resolveImageUrl(f.mainImage)} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border" onError={e => { e.target.src = FALLBACK_IMAGE }} />
+                              <div className="min-w-0">
+                                <div className="text-sm font-bold text-gray-900 truncate">{f.name}</div>
+                                <div className="text-xs text-gray-400">#{f.id}</div>
+                              </div>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-400 italic p-3 text-center border rounded-xl">No items found for this seller</div>
                     )}
                   </div>
                 )}
@@ -404,9 +526,9 @@ export default function AdminCreateHeroPromotion() {
                       <span className="text-gray-600">Base ({chargeBreakdown.days} days × {formatKES(rates.perDay)}/day)</span>
                       <span className="font-bold">{formatKES(chargeBreakdown.base)}</span>
                     </div>
-                    {chargeBreakdown.numProducts > 0 && (
+                    {chargeBreakdown.numItems > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-gray-600">{chargeBreakdown.numProducts} product{chargeBreakdown.numProducts > 1 ? 's' : ''} × {chargeBreakdown.days} days × {formatKES(rates.perProduct)}</span>
+                        <span className="text-gray-600">{chargeBreakdown.numItems} item{chargeBreakdown.numItems > 1 ? 's' : ''} × {chargeBreakdown.days} days × {formatKES(rates.perProduct)}</span>
                         <span className="font-bold">{formatKES(chargeBreakdown.productFee)}</span>
                       </div>
                     )}

@@ -3,7 +3,7 @@ import api, { orderApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { normalizeKenyanPhone } from '../../utils/validation';
 import { 
-  ClipboardList, Send, CheckCircle2, AlertCircle, Loader2, Phone, MapPin, 
+  ClipboardList, Send, CheckCircle2, XCircle, AlertCircle, Loader2, Phone, MapPin, 
   ShoppingCart, UserCheck, UserPlus, ArrowRight, RefreshCw, Package,
   Clock, ChevronDown, ChevronRight, PlusCircle, ListOrdered, Store, User, Shield, Mail, Trash2, Copy
 } from 'lucide-react';
@@ -735,18 +735,23 @@ const DirectOrders = () => {
                                 newItems[idx].type = match.type || type;
                                 setParsedData({ ...parsedData, items: newItems });
                               }}
-                              className={`p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group ${item.selectedId === match.id ? 'border-blue-600 bg-blue-50 shadow-md ring-4 ring-blue-500/5' : 'border-gray-100 bg-white hover:border-blue-200'}`}
+                              className={`p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group ${item.selectedId === match.id ? (match.isOpen === false ? 'border-red-400 bg-red-50 ring-4 ring-red-400/5' : 'border-blue-600 bg-blue-50 shadow-md ring-4 ring-blue-500/5') : (match.isOpen === false ? 'border-red-100 bg-red-50/30 grayscale-[0.5]' : 'border-gray-100 bg-white hover:border-blue-200')}`}
                             >
                               {item.selectedId === match.id && (
-                                <div className="absolute top-0 right-0 p-1.5 bg-blue-600 text-white rounded-bl-xl shadow-lg">
-                                  <CheckCircle2 className="w-3 h-3" />
+                                <div className={`absolute top-0 right-0 p-1.5 ${match.isOpen === false ? 'bg-red-500' : 'bg-blue-600'} text-white rounded-bl-xl shadow-lg`}>
+                                  {match.isOpen === false ? <XCircle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
                                 </div>
                               )}
-                              <p className={`text-sm font-black uppercase tracking-tight leading-tight ${item.selectedId === match.id ? 'text-blue-700' : 'text-gray-900'}`}>{match.name}</p>
-                              <p className="text-xs font-bold text-gray-500 mt-1.5 flex items-center gap-1">
-                                <span className="text-[10px] text-gray-300">PRICE:</span> 
-                                KES {match.price?.toLocaleString()}
-                              </p>
+                              <p className={`text-sm font-black uppercase tracking-tight leading-tight ${item.selectedId === match.id ? (match.isOpen === false ? 'text-red-700' : 'text-blue-700') : 'text-gray-900'}`}>{match.name}</p>
+                              <div className="flex items-center justify-between mt-1.5">
+                                <p className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                                  <span className="text-[10px] text-gray-300">PRICE:</span> 
+                                  KES {match.price?.toLocaleString()}
+                                </p>
+                                {match.isOpen === false && (
+                                  <span className="text-[9px] font-black text-red-600 uppercase bg-red-100 px-1.5 py-0.5 rounded-md">CLOSED</span>
+                                )}
+                              </div>
                             </button>
                           ))}
                         </div>

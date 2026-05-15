@@ -3,7 +3,9 @@ const { DataTypes } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   const ProductView = sequelize.define("ProductView", {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    productId: { type: DataTypes.INTEGER, allowNull: false },
+    productId: { type: DataTypes.INTEGER, allowNull: true },
+    fastFoodId: { type: DataTypes.INTEGER, allowNull: true },
+    serviceId: { type: DataTypes.INTEGER, allowNull: true },
     userId: { type: DataTypes.INTEGER }, // null for anonymous views
     marketerId: { type: DataTypes.INTEGER }, // which marketer's link was used
     ipAddress: { type: DataTypes.STRING },
@@ -21,6 +23,8 @@ module.exports = (sequelize, DataTypes) => {
   // Define associations
   ProductView.associate = (models) => {
     ProductView.belongsTo(models.Product, { foreignKey: 'productId' });
+    ProductView.belongsTo(models.FastFood, { foreignKey: 'fastFoodId' });
+    ProductView.belongsTo(models.Service, { foreignKey: 'serviceId' });
     ProductView.belongsTo(models.User, { foreignKey: 'userId' });
     ProductView.belongsTo(models.User, { foreignKey: 'marketerId', as: 'Marketer' });
   };

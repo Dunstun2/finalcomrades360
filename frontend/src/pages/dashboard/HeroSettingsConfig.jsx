@@ -30,12 +30,7 @@ const HeroSettingsConfig = () => {
     // Dashboard State (Complex JSON)
     const [config, setConfig] = useState({
         activeCampaignId: 'auto', // 'auto' or specific campaign ID
-        campaigns: [
-            {
-                id: 'default', title: '', type: 'manual', subtitle: '', image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80', active: true, priority: 10,
-                schedule: { startDate: '', endDate: '', startTime: '', endTime: '', days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }
-            }
-        ],
+        campaigns: [],  // starts empty; populated from DB on load
         automation: {
             enableBreakfast: true,
             enableLateNight: false,
@@ -108,10 +103,12 @@ const HeroSettingsConfig = () => {
             if (response.success) {
                 toast({ title: "Settings Saved", description: "Rotation schedule updated successfully." });
             } else {
-                toast({ variant: "destructive", title: "Error", description: response.message });
+                toast({ variant: "destructive", title: "Error", description: response.message || 'Save failed' });
             }
         } catch (error) {
-            toast({ variant: "destructive", title: "Error", description: "Failed to save settings." });
+            console.error('[HeroSettingsConfig] Save error:', error);
+            const msg = error?.response?.data?.message || error?.message || 'Failed to save settings.';
+            toast({ variant: "destructive", title: "Save Failed", description: msg });
         } finally {
             setSaving(false);
         }
@@ -132,6 +129,11 @@ const HeroSettingsConfig = () => {
                     type: 'manual',
                     active: false,
                     priority: 50,
+                    trustPoints: [
+                        { icon: '🚀', text: 'Fast Delivery' },
+                        { icon: '✅', text: 'Verified' },
+                        { icon: '🎓', text: 'Student Choice' }
+                    ],
                     schedule: { startDate: '', endDate: '', startTime: '', endTime: '', days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }
                 }
             ]
@@ -534,6 +536,68 @@ const HeroSettingsConfig = () => {
                                                                         <Clock className="inline-block w-3 h-3 mr-1" />
                                                                         Campaign will only be visible within these dates and times. Leave blank for perpetual display.
                                                                     </p>
+                                                                </div>
+
+                                                                {/* Trust Markers Section */}
+                                                                <div className="space-y-6 pt-4">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="w-1 h-5 bg-blue-500 rounded-full" />
+                                                                            <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Trust & Speed Markers</h4>
+                                                                        </div>
+                                                                        <Button 
+                                                                            variant="ghost" 
+                                                                            size="sm" 
+                                                                            className="text-orange-600 font-bold text-[10px]"
+                                                                            onClick={() => {
+                                                                                const current = camp.trustPoints || [];
+                                                                                updateCampaign(camp.id, 'trustPoints', [...current, { icon: '✨', text: 'New Marker' }]);
+                                                                            }}
+                                                                        >
+                                                                            <Plus className="h-3 w-3 mr-1" /> ADD MARKER
+                                                                        </Button>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-1 gap-3">
+                                                                        {(camp.trustPoints || []).map((tp, idx) => (
+                                                                            <div key={idx} className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
+                                                                                <Input 
+                                                                                    value={tp.icon} 
+                                                                                    onChange={(e) => {
+                                                                                        const next = [...(camp.trustPoints || [])];
+                                                                                        next[idx] = { ...next[idx], icon: e.target.value };
+                                                                                        updateCampaign(camp.id, 'trustPoints', next);
+                                                                                    }}
+                                                                                    className="w-12 h-9 text-center bg-white border-gray-200"
+                                                                                    placeholder="Icon"
+                                                                                />
+                                                                                <Input 
+                                                                                    value={tp.text} 
+                                                                                    onChange={(e) => {
+                                                                                        const next = [...(camp.trustPoints || [])];
+                                                                                        next[idx] = { ...next[idx], text: e.target.value };
+                                                                                        updateCampaign(camp.id, 'trustPoints', next);
+                                                                                    }}
+                                                                                    className="flex-1 h-9 bg-white border-gray-200 text-xs font-medium"
+                                                                                    placeholder="Marker Text (e.g. Fast Delivery)"
+                                                                                />
+                                                                                <Button 
+                                                                                    variant="ghost" 
+                                                                                    size="icon" 
+                                                                                    className="h-8 w-8 text-gray-400 hover:text-red-500"
+                                                                                    onClick={() => {
+                                                                                        const next = camp.trustPoints.filter((_, i) => i !== idx);
+                                                                                        updateCampaign(camp.id, 'trustPoints', next);
+                                                                                    }}
+                                                                                >
+                                                                                    <X className="h-3 w-3" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        ))}
+                                                                        {(!camp.trustPoints || camp.trustPoints.length === 0) && (
+                                                                            <p className="text-[10px] text-gray-400 text-center py-2 italic">No trust markers defined for this campaign.</p>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>

@@ -1001,6 +1001,20 @@ const createOrderFromCart = async (req, res) => {
       } catch (err) {
         console.warn('Failed to fetch pickup station fee:', err.message);
       }
+    } else if (deliveryMethod === 'home_delivery' && (orderDeliveryFee === 0)) {
+      // Regular orders: If fee is still 0 for home delivery, try to fetch from route fees (seller_to_customer)
+      try {
+        const routeFeesConfig = await PlatformConfig.findOne({ where: { key: 'delivery_route_fees' }, transaction: t });
+        if (routeFeesConfig) {
+          const routeFees = typeof routeFeesConfig.value === 'string' ? JSON.parse(routeFeesConfig.value) : routeFeesConfig.value;
+          if (routeFees && routeFees.seller_to_customer && routeFees.seller_to_customer.fee !== undefined) {
+            orderDeliveryFee = parseFloat(routeFees.seller_to_customer.fee);
+            console.log(`🚚 Backend: Applied route fee: ${orderDeliveryFee} for home delivery`);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch route fee:', err.message);
+      }
     }
 
     const orderTotal = orderSubtotal + orderDeliveryFee;
@@ -1171,7 +1185,8 @@ const createOrderFromCart = async (req, res) => {
           const itemNames = cartItems.map(item => {
             const name = item.product?.name || item.name || 'Item';
             const price = Number(item.price || item.product?.discountPrice || item.product?.displayPrice || 0);
-            return `${item.quantity}x ${name} - KES ${price.toLocaleString()}`;
+            const subtotal = price * item.quantity;
+            return `* ${name} x${item.quantity} - KES ${subtotal.toLocaleString()}`;
           }).join('\n');
 
           // Pass the order and customer (even if null) to the helper which handles fallbacks
@@ -4765,30 +4780,31 @@ const getOrdersByBatch = async (req, res) => {
 
 const triggerAutoConfirmation = async (orderId) => {
   try {
-    const { Order, OrderItem, Product, FastFood, User } = require('../models');
+    const { Order, OrderItem, User } = require('../models');
     const order = await Order.findByPk(orderId, {
       include: [{ 
         model: OrderItem, 
-        as: 'OrderItems',
-        include: [
-          { model: Product, attributes: ['id', 'sellerId'] },
-          { model: FastFood, attributes: ['id', 'vendor'] }
-        ]
+        as: 'OrderItems'
       }]
     });
 
-    if (!order || order.status !== 'order_placed') return;
+    if (!order || !['order_placed', 'super_admin_confirmed', 'paid'].includes(order.status)) return;
 
     // Get the primary seller/vendor
     // Note: Multi-seller support might need more granular item-level confirmation in the future
-    const sellerId = order.sellerId;
+    let sellerId = order.sellerId;
+    
+    if (!sellerId && order.OrderItems && order.OrderItems.length > 0) {
+      sellerId = order.OrderItems[0].sellerId;
+    }
+    
     if (!sellerId) return;
 
     const seller = await User.findByPk(sellerId);
     if (!seller) return;
 
-    const hasFastFood = order.OrderItems.some(item => !!item.FastFood);
-    const hasProducts = order.OrderItems.some(item => !!item.Product);
+    const hasFastFood = order.OrderItems.some(item => !!item.fastFoodId || item.itemType === 'fastfood');
+    const hasProducts = order.OrderItems.some(item => !!item.productId || item.itemType === 'product');
 
     let shouldConfirm = false;
     let shippingType = order.shippingType;
@@ -4818,23 +4834,37 @@ const triggerAutoConfirmation = async (orderId) => {
 
       // Add tracking update
       try {
-        const { addOrderTrackingUpdate } = require('../utils/orderHelpers');
-        await addOrderTrackingUpdate(order.id, 'seller_confirmed', `Order automatically confirmed via seller preferences.`, 'System');
+        let updates = [];
+        if (order.trackingUpdates) {
+          updates = JSON.parse(order.trackingUpdates);
+        }
+        updates.push({
+          status: 'seller_confirmed',
+          message: 'Order automatically confirmed via seller preferences.',
+          location: null,
+          timestamp: new Date().toISOString(),
+          updatedBy: 'System'
+        });
+        await order.update({ trackingUpdates: JSON.stringify(updates) });
       } catch (trackErr) {
         console.error('[AutoConfirm] Tracking update error:', trackErr);
       }
 
       // Notify via Socket if available
       try {
-        const { getIO } = require('../socket');
+        const { getIO } = require('../realtime/socket');
         const io = getIO();
         if (io) {
           const { formatOrderSocketData, ORDER_SOCKET_INCLUDES } = require('../utils/orderHelpers');
           const updatedOrder = await Order.findByPk(order.id, { include: ORDER_SOCKET_INCLUDES });
-          io.emit('orderUpdate', formatOrderSocketData(updatedOrder));
+          const socketPayload = formatOrderSocketData(updatedOrder);
+          // Notify the seller
+          io.to(`user:${sellerId}`).emit('orderStatusUpdate', socketPayload);
+          // Notify all admins
+          io.to('admin').emit('orderStatusUpdate', socketPayload);
         }
       } catch (socketErr) {
-        // Ignore socket errors in background task
+        console.warn('[AutoConfirm] Socket notification failed (non-critical):', socketErr.message);
       }
     }
   } catch (error) {

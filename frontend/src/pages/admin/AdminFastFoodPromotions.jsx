@@ -25,6 +25,7 @@ export default function AdminFastFoodPromotions() {
   const [notes, setNotes] = useState('')
   const [promoTitle, setPromoTitle] = useState('')
   const [promoSubtitle, setPromoSubtitle] = useState('')
+  const [trustPoints, setTrustPoints] = useState([])
   const [actionLoading, setActionLoading] = useState(false)
 
   // Resolve backend file URLs (e.g., /uploads/...) to absolute using API base
@@ -128,6 +129,11 @@ export default function AdminFastFoodPromotions() {
     setNotes('')
     setPromoTitle(app.title || '')
     setPromoSubtitle(app.subtitle || '')
+    setTrustPoints(app.trustPoints || [
+      { icon: '🚀', text: 'Fast Delivery' },
+      { icon: '✅', text: 'Verified' },
+      { icon: '🎓', text: 'Student Choice' }
+    ])
   }
 
   const openStatusModal = (app) => {
@@ -142,7 +148,11 @@ export default function AdminFastFoodPromotions() {
     try {
       setActionLoading(true)
       if (modalAction === 'approve') {
-        const body = { title: promoTitle, subtitle: promoSubtitle }
+        const body = { 
+          title: promoTitle, 
+          subtitle: promoSubtitle,
+          trustPoints: trustPoints
+        }
         if (startAt) body.startAt = new Date(startAt)
         await api.post(`/admin/hero-promotions/applications/${selectedApp.id}/approve`, body)
       } else if (modalAction === 'status') {
@@ -459,6 +469,53 @@ export default function AdminFastFoodPromotions() {
                       <label className="block text-sm font-bold text-gray-700 mb-1">Live Start Date & Time</label>
                       <input type="datetime-local" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" value={startAt} onChange={e => setStartAt(e.target.value)} />
                     </div>
+
+                    {/* Trust Markers Section */}
+                    <div className="space-y-4 pt-4 border-t border-dashed">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-bold text-orange-900 uppercase tracking-widest">Trust & Speed Markers</div>
+                        <button 
+                          type="button"
+                          className="text-xs font-black text-orange-600 hover:underline flex items-center gap-1"
+                          onClick={() => setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }])}
+                        >
+                          + Add Marker
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {trustPoints.map((tp, idx) => (
+                          <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
+                            <input 
+                              className="w-10 text-center border-b outline-none focus:border-orange-500"
+                              value={tp.icon} 
+                              onChange={e => {
+                                const next = [...trustPoints];
+                                next[idx].icon = e.target.value;
+                                setTrustPoints(next);
+                              }}
+                            />
+                            <input 
+                              className="flex-1 text-xs font-medium outline-none border-b focus:border-orange-500"
+                              placeholder="Marker text..."
+                              value={tp.text} 
+                              onChange={e => {
+                                const next = [...trustPoints];
+                                next[idx].text = e.target.value;
+                                setTrustPoints(next);
+                              }}
+                            />
+                            <button 
+                              type="button"
+                              className="text-gray-400 hover:text-red-500 transition-colors"
+                              onClick={() => setTrustPoints(trustPoints.filter((_, i) => i !== idx))}
+                            >
+                              <FaTimesCircle size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     <button disabled={actionLoading} onClick={handleModalAction} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold flex items-center justify-center gap-2">
                       {actionLoading ? 'Processing...' : 'Approve & Go Live'}
                     </button>

@@ -33,6 +33,7 @@ import { ensureArray, normalizeIngredient, recursiveParse } from '../utils/parsi
 import Footer from '../components/Footer';
 import AdminInquiryModal from '../components/AdminInquiryModal';
 import FastFoodCard from '../components/FastFoodCard';
+import api from '../services/api';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -148,6 +149,20 @@ const FastFoodDetails = () => {
     }
   };
   const [debugEvents, setDebugEvents] = useState([]);
+
+  const logAction = async (actionType) => {
+    try {
+      await api.post('/analytics/log-action', {
+        itemId: id,
+        itemType: 'fastfood',
+        actionType,
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: user?.id
+      });
+    } catch (err) {
+      console.warn(`[Analytics] ${actionType} tracking failed:`, err.message);
+    }
+  };
 
   const buyDebugEnabled = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -630,6 +645,15 @@ const FastFoodDetails = () => {
         relatedItemId: relatedItem.id,
         relatedItemName: relatedItem.name
       });
+
+      // Log conversion attempt for related item
+      api.post('/analytics/log-action', {
+        itemId: relatedItem.id,
+        itemType: 'fastfood',
+        actionType: 'conversion',
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: user?.id
+      }).catch(err => console.warn('Related item conversion tracking failed:', err.message));
 
       await addToCart(relatedItem.id, 1, {
         type: 'fastfood',

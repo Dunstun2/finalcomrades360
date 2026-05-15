@@ -76,15 +76,21 @@ const calculateFastFoodHomeDeliveryTotal = (items = []) => {
   return total;
 };
 
-const calculateGroupedDeliveryFee = (items = []) => {
+const calculateGroupedDeliveryFee = (items = [], routeFees = null) => {
   const hasFastFood = items.some((item) => item.itemType === 'fastfood');
   if (hasFastFood) {
     return calculateFastFoodHomeDeliveryTotal(items);
   }
 
-  return items.reduce((sum, item) => {
+  const baseTotal = items.reduce((sum, item) => {
     return sum + Number(item.deliveryFee || 0);
   }, 0);
+
+  if (baseTotal === 0 && routeFees?.seller_to_customer?.fee !== undefined) {
+    return parseFloat(routeFees.seller_to_customer.fee);
+  }
+
+  return baseTotal;
 };
 
 function Checkout() {
@@ -134,9 +140,11 @@ function Checkout() {
     return items.filter((item) => (cartScope === 'fastfood' ? item.itemType === 'fastfood' : item.itemType !== 'fastfood'));
   }, [cart?.items, cartScope]);
 
+  const [routeFees, setRouteFees] = useState(null);
+
   const scopedSummary = useMemo(() => {
     const subtotal = scopedItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
-    const deliveryFee = calculateGroupedDeliveryFee(scopedItems);
+    const deliveryFee = calculateGroupedDeliveryFee(scopedItems, routeFees);
     const totalCommission = scopedItems.reduce((sum, item) => sum + Number(item.itemCommission || 0), 0);
     return {
       itemCount: scopedItems.length,
@@ -145,7 +153,7 @@ function Checkout() {
       totalCommission,
       total: subtotal + deliveryFee
     };
-  }, [scopedItems]);
+  }, [scopedItems, routeFees]);
   const [formData, setFormData] = useState({
     deliveryMethod: 'home_delivery',
     pickStation: '',
@@ -172,6 +180,7 @@ function Checkout() {
   const [activeBatches, setActiveBatches] = useState([]);
   const [selectedOrderBatchId, setSelectedOrderBatchId] = useState('');
   const [loadingBatches, setLoadingBatches] = useState(false);
+
 
   const [pickStations, setPickStations] = useState([]);
   const [loadingStations, setLoadingStations] = useState(false);
@@ -233,6 +242,21 @@ function Checkout() {
       }
     };
     fetchBatchConfig();
+  }, []);
+
+  // Fetch Delivery Route Fees
+  useEffect(() => {
+    const fetchRouteFees = async () => {
+      try {
+        const res = await api.get('/platform/config/delivery_route_fees');
+        if (res.data) {
+          setRouteFees(res.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch route fees:', err);
+      }
+    };
+    fetchRouteFees();
   }, []);
 
   useEffect(() => {
@@ -787,7 +811,13 @@ function Checkout() {
                 }
                 chargedFastFoodSellers.add(sellerKey);
               } else {
-                itemDeliveryFee = (item.product?.deliveryFee || item.deliveryFee || 0) * item.quantity;
+                let unitFee = parseFloat(item.product?.deliveryFee || item.deliveryFee || 0);
+                if (unitFee === 0 && routeFees?.seller_to_customer?.fee !== undefined) {
+                    unitFee = parseFloat(routeFees.seller_to_customer.fee) / (scopedItems.length || 1); 
+                    // Note: This is a bit tricky since itemDeliveryFee is per item. 
+                    // If we want the total to be 150, we should probably handle it in the summary or split it.
+                }
+                itemDeliveryFee = unitFee * item.quantity;
               }
             }
 
@@ -1433,11 +1463,14 @@ function Checkout() {
 
                         {/* Guest OTP Verification UI */}
                         {!user && localStorage.getItem('marketing_mode') !== 'true' && (
-                          <div className="mt-4 p-4 bg-white rounded-lg border border-orange-200 shadow-sm">
+                          <div className="mt-4 p-4 bg-white rounded-lg border-2 border-orange-400 shadow-lg animate-pulse-subtle">
                             {!isGuestVerified ? (
                               <div className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                  <label className="text-xs font-bold text-gray-700 uppercase">Phone Verification Required</label>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-orange-500 animate-ping"></div>
+                                    <label className="text-[11px] font-black text-orange-800 uppercase tracking-wider">Phone Verification Required</label>
+                                  </div>
                                   {otpSent && (
                                     <button 
                                       type="button" 
@@ -1449,6 +1482,10 @@ function Checkout() {
                                     </button>
                                   )}
                                 </div>
+                                
+                                <p className="text-[10px] text-gray-600 font-medium leading-relaxed">
+                                  To ensure secure delivery and prevent fraudulent orders, guest customers must verify their phone number.
+                                </p>
 
                                 {!otpSent ? (
                                   <div className="space-y-3">
@@ -1477,51 +1514,51 @@ function Checkout() {
                                       id="request-otp-btn"
                                       onClick={handleRequestGuestOtp}
                                       disabled={isSendingOtp || !formData.customerPhone}
-                                      className={`w-full py-2.5 text-white rounded-md font-bold text-sm shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2 ${
-                                        verificationMethod === 'whatsapp' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
+                                      className={`w-full py-3 text-white rounded-md font-black text-xs shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest ${
+                                        verificationMethod === 'whatsapp' ? 'bg-green-600 hover:bg-green-700 hover:shadow-green-200' : 'bg-orange-600 hover:bg-orange-700 hover:shadow-orange-200'
                                       }`}
                                     >
                                       {isSendingOtp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
-                                      Send Verification Code
+                                      Verify My Number
                                     </button>
                                   </div>
                                 ) : (
                                   <div className="space-y-3">
-                                    <div className="bg-blue-50 p-3 rounded text-[11px] text-blue-800 leading-relaxed">
-                                      We've sent a verification code to <strong>{formData.customerPhone}</strong> via <strong>{verificationMethod.toUpperCase()}</strong>.
+                                    <div className="bg-blue-50 p-3 rounded text-[11px] text-blue-800 leading-relaxed border border-blue-100">
+                                      We've sent a 6-digit code to <strong>{formData.customerPhone}</strong>. Please enter it below.
                                     </div>
                                     <div className="flex gap-2">
                                       <input
                                         type="text"
                                         value={otpCode}
                                         onChange={(e) => setOtpCode(e.target.value)}
-                                        placeholder="Enter 6-digit code"
+                                        placeholder="000000"
                                         maxLength={6}
-                                        className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-center font-bold tracking-widest focus:ring-2 focus:ring-orange-500"
+                                        className="flex-1 border-2 border-orange-200 rounded-md px-3 py-2 text-center font-black text-lg tracking-[0.5em] focus:border-orange-500 focus:ring-0 transition-colors placeholder:tracking-normal placeholder:font-normal placeholder:text-gray-300"
                                       />
                                       <button
                                         type="button"
                                         onClick={handleVerifyGuestOtp}
                                         disabled={isVerifyingOtp || otpCode.length < 4}
-                                        className="px-6 py-2 bg-green-600 text-white rounded-md font-bold text-sm hover:bg-green-700 disabled:opacity-50 transition-all flex items-center justify-center min-w-[100px]"
+                                        className="px-6 py-2 bg-green-600 text-white rounded-md font-black text-xs hover:bg-green-700 disabled:opacity-50 transition-all flex items-center justify-center min-w-[100px] uppercase tracking-widest shadow-md"
                                       >
-                                        {isVerifyingOtp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Verify'}
+                                        {isVerifyingOtp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Confirm'}
                                       </button>
                                     </div>
                                   </div>
                                 )}
-                                {otpError && <p className="text-[11px] text-red-600 font-bold">{otpError}</p>}
+                                {otpError && <p className="text-[10px] text-red-600 font-bold bg-red-50 p-2 rounded border border-red-100">{otpError}</p>}
                               </div>
                             ) : (
-                              <div className="flex items-center gap-3 text-green-700">
-                                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                              <div className="flex items-center gap-3 text-green-700 bg-green-50 p-3 rounded-lg border border-green-200">
+                                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-600 shrink-0">
                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
                                   </svg>
                                 </div>
                                 <div>
-                                  <p className="text-sm font-bold">Phone Number Verified</p>
-                                  <p className="text-[11px] opacity-80">You can now proceed to place your order.</p>
+                                  <p className="text-xs font-black uppercase tracking-tight">Number Verified</p>
+                                  <p className="text-[10px] opacity-80 font-medium">You can now proceed to place your order securely.</p>
                                 </div>
                               </div>
                             )}

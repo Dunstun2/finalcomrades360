@@ -621,17 +621,24 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     };
 
     const activeAssignment = order?.deliveryTasks?.find(t => t.status === 'assigned');
+    
+    const getAssignmentTimeout = () => {
+        if (!order) return 30;
+        const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || false;
+        return isFastfood ? 2.5 : 30;
+    };
+
     const isAssignmentLocked = (() => {
         if (!activeAssignment) return false;
         const assignedAt = new Date(activeAssignment.assignedAt);
-        const expiryTime = new Date(assignedAt.getTime() + 30 * 60 * 1000);
+        const expiryTime = new Date(assignedAt.getTime() + getAssignmentTimeout() * 60 * 1000);
         return new Date() < expiryTime;
     })();
 
     const handleConfirm = () => {
         if (!selectedDriverId) return;
         if (isAssignmentLocked) {
-            alert('Reassignment is locked until the current agent\'s 30-minute window expires.');
+            alert(`Reassignment is locked until the current agent's ${getAssignmentTimeout()}-minute window expires.`);
             return;
         }
         const route = normalizeDeliveryType(deliveryType);
@@ -1163,7 +1170,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                                 🔒 Reassignment Locked
                             </div>
                             <div className="text-[10px] text-amber-600 text-center">
-                                Agent has {Math.ceil((new Date(activeAssignment.assignedAt).getTime() + 30 * 60 * 1000 - Date.now()) / 60000)} min left to accept
+                                Agent has {Math.ceil((new Date(activeAssignment.assignedAt).getTime() + getAssignmentTimeout() * 60 * 1000 - Date.now()) / 60000)} min left to accept
                             </div>
                         </div>
                     ) : (() => {

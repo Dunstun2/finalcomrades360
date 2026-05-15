@@ -14,7 +14,8 @@ import {
   FaComments,
   FaLocationArrow,
   FaSearch,
-  FaMobileAlt
+  FaMobileAlt,
+  FaMoneyBillWave
 } from 'react-icons/fa';
 import { useOutletContext, Link } from 'react-router-dom';
 import api from '../../../services/api';
@@ -300,6 +301,25 @@ const DeliveryAgentOrders = () => {
     }
   };
 
+  const handleMarkAsPaidCash = async (order) => {
+    if (!window.confirm(`Confirm that you have received KES ${order.total} in CASH from the customer?`)) return;
+    try {
+      const res = await api.post('/payments/verify', {
+        orderId: order.id,
+        manual: true,
+        verificationData: { method: 'cash' }
+      });
+      if (res.data.success) {
+        alert('Cash payment confirmed. Delivery code is now generated.');
+        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, paymentConfirmed: true } : o));
+        setAutoGenerateCodeOrderId(order.id);
+        loadMyDeliveries(false);
+      }
+    } catch (err) {
+      alert('Failed to confirm cash payment: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
   const handleAcceptTask = async (taskId) => {
     try {
       await api.post(`/delivery/tasks/${taskId}/accept`);
@@ -405,12 +425,8 @@ const DeliveryAgentOrders = () => {
              // For bulk rejection, we use a default reason or could prompt
              await api.post(`/delivery/tasks/${taskId}/reject`, { reason: 'Bulk rejection by agent' });
           }
-        } else if (targetAction === 'arrived') {
-          if (task.status === 'accepted') {
-            await api.post(`/delivery/tasks/${taskId}/mark-arrived`);
-          }
         } else if (targetAction === 'collected') {
-          if (task.status === 'arrived_at_pickup') {
+          if (['accepted', 'arrived_at_pickup'].includes(task.status)) {
             await api.post(`/delivery/tasks/${taskId}/confirm-collection`, { notes: 'Bulk collection confirmed' });
           }
         }
@@ -527,17 +543,7 @@ const DeliveryAgentOrders = () => {
                         </>
                       )}
                       
-                      {hasAccepted && (
-                        <button
-                          onClick={() => handleBulkStatusChange('arrived')}
-                          disabled={bulkProcessing}
-                          className="px-4 py-2 bg-indigo-500/30 hover:bg-indigo-500/50 text-white border border-indigo-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-                        >
-                          <FaMapMarkedAlt className="h-3 w-3" /> Mark Arrived
-                        </button>
-                      )}
-
-                      {hasArrived && (
+                      {(hasAccepted || hasArrived) && (
                          <button
                           onClick={() => handleBulkStatusChange('collected')}
                           disabled={bulkProcessing}
@@ -728,18 +734,16 @@ const DeliveryAgentOrders = () => {
                                 </div>
                               ) : (
                                 <>
-                                  {task.status === 'accepted' && (
-                                    <button onClick={(e) => { e.stopPropagation(); handleMarkArrived(task.id); }} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg flex items-center gap-2">
-                                      <FaMapMarkedAlt /> Arrived
-                                    </button>
-                                  )}
-
-                                  {/* Pickup Flow */}
+                                  {/* Pickup Flow: Show handover entry immediately after acceptance */}
                                   {['accepted', 'arrived_at_pickup'].includes(task.status) && (
                                     <div className="w-full mt-2">
-                                      {task.status === 'arrived_at_pickup' && (
-                                        <HandoverCodeWidget mode="receiver" handoverType={collectHandoverType} orderId={order.id} taskId={task.id} onConfirmed={handleHandoverConfirmed} />
-                                      )}
+                                      <HandoverCodeWidget 
+                                        mode="receiver" 
+                                        handoverType={collectHandoverType} 
+                                        orderId={order.id} 
+                                        taskId={task.id} 
+                                        onConfirmed={handleHandoverConfirmed} 
+                                      />
                                     </div>
                                   )}
 
@@ -748,11 +752,17 @@ const DeliveryAgentOrders = () => {
                                     <div className="w-full mt-2">
                                        <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
                                           {isCustomerDropoff && order.paymentType === 'cash_on_delivery' && !order.paymentConfirmed ? (
-                                             <div className="flex flex-col gap-2">
-                                                <p className="text-xs text-amber-700 font-bold bg-amber-50 rounded-lg px-3 py-1">💰 Payment required</p>
-                                                <div className="flex gap-2">
-                                                   <button onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }} className="flex-1 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg">Verify Payment</button>
-                                                   <button onClick={(e) => { e.stopPropagation(); handleQuickPush(order); }} className="flex-1 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2"><FaMobileAlt /> Push M-Pesa</button>
+                                             <div className="flex flex-col gap-3">
+                                                <div className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
+                                                   <p className="text-[11px] text-amber-800 font-black tracking-tight flex items-center gap-1"><FaMoneyBillWave className="text-amber-500" /> Payment Pending</p>
+                                                   <button onClick={(e) => { e.stopPropagation(); openDeliveryFlow(order); }} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg shadow-sm transition-colors uppercase tracking-widest">Verify</button>
+                                                </div>
+                                                <div className="bg-gray-50 p-2 rounded-xl border border-gray-100">
+                                                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 text-center">Pay Now</p>
+                                                   <div className="flex gap-2">
+                                                      <button onClick={(e) => { e.stopPropagation(); handleQuickPush(order); }} className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-colors"><FaMobileAlt className="text-xs" /> Push M-Pesa</button>
+                                                      <button onClick={(e) => { e.stopPropagation(); handleMarkAsPaidCash(order); }} className="flex-1 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-colors"><FaMoneyBillWave className="text-xs text-emerald-400" /> Paid Cash</button>
+                                                   </div>
                                                 </div>
                                              </div>
                                           ) : (

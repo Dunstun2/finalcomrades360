@@ -5,6 +5,7 @@ const path = require('path');
 const { optimizeImage } = require('../utils/imageValidation');
 const { normalizeItemName } = require('../utils/itemNamePolicy');
 const { deleteFiles } = require('../utils/fileCleanup');
+const { isFastFoodOpen } = require('../utils/fastFoodUtils');
 
 // Helper function to calculate distance using Haversine formula
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -114,6 +115,7 @@ exports.getAllFastFoods = async (req, res) => {
 
         // Check if explicit public view is requested
         const isPublicView = req.query.view === 'public';
+        const isPublicBrowse = !isPrivileged || isPublicView;
 
         // browseAll=true: show all approved items regardless of isAvailable (includes closed shops)
         const isBrowseAll = req.query.browseAll === 'true';
@@ -123,7 +125,7 @@ exports.getAllFastFoods = async (req, res) => {
         // so marketers can pre-share approved items that may not be currently "open"
         const isMarketing = req.query.marketing === 'true';
 
-        if (!isPrivileged || isPublicView) {
+        if (isPublicBrowse) {
             // In marketing mode: skip isActive requirement (marketers can share approved-but-closed items)
             if (!isMarketing) {
                 queryOptions.where.isActive = true;
@@ -189,12 +191,6 @@ exports.getAllFastFoods = async (req, res) => {
             if (maxPrice) queryOptions.where.basePrice[Op.lte] = maxPrice;
         }
 
-        // Pagination
-        if (limit && page) {
-            queryOptions.limit = parseInt(limit);
-            queryOptions.offset = (parseInt(page) - 1) * parseInt(limit);
-        }
-
         // Include vendor details
         queryOptions.include = [
             {
@@ -204,59 +200,94 @@ exports.getAllFastFoods = async (req, res) => {
             }
         ];
 
-        console.log('🔍 [getAllFastFoods] Executing DB Query...');
-        const { count, rows: fastFoodsRaw } = await FastFood.findAndCountAll(queryOptions);
-        console.log(`✅ [getAllFastFoods] DB Success: Found ${count} items (Page ${page})`);
-
-        // Convert to plain objects to add distance
-        let fastFoods = fastFoodsRaw.map(item => item.get({ plain: true }));
-
-        // Calculate distance if coordinates provided
-        if (userLat && userLng) {
-            try {
-                fastFoods = fastFoods.map(item => {
-                    if (item.vendorLat && item.vendorLng) {
-                        item.distance = calculateDistance(
-                            parseFloat(userLat),
-                            parseFloat(userLng),
-                            parseFloat(item.vendorLat),
-                            parseFloat(item.vendorLng)
-                        );
-                    } else {
-                        item.distance = null;
-                    }
-                    return item;
-                });
-
-                // Sort by distance if requested
-                if (sortBy === 'distance') {
-                    fastFoods.sort((a, b) => {
-                        if (a.distance === null) return 1;
-                        if (b.distance === null) return -1;
-                        return a.distance - b.distance;
-                    });
-                }
-            } catch (distError) {
-                console.error('⚠️ [getAllFastFoods] Distance calculation error:', distError);
-                // Fail gracefully: Just don't sort/calculate distance
-            }
+        // Pagination: Only apply to DB query if NOT in public browse mode 
+        // (Public browse needs all items to sort by 'isOpen' in memory)
+        if (limit && page && !isPublicBrowse) {
+            queryOptions.limit = parseInt(limit);
+            queryOptions.offset = (parseInt(page) - 1) * parseInt(limit);
         }
 
-        const totalPages = limit ? Math.ceil(count / parseInt(limit)) : 1;
+        console.log('🔍 [getAllFastFoods] Executing DB Query...');
+        const { count, rows: fastFoodsRaw } = await FastFood.findAndCountAll(queryOptions);
+        console.log(`✅ [getAllFastFoods] DB Success: Found ${count} items`);
 
-        console.log(`📦 [getAllFastFoods] Returning IDs: [${fastFoods.map(f => f.id).join(', ')}]`);
+        // --- SMART SORTING & PAGINATION ---
+        // For public views, we want to show OPEN kitchens first. 
+        // Since "open" status is dynamic (time-based), we fetch all matching items, 
+        // calculate status in memory, sort, and then paginate.
+        
+        // Convert to plain objects and add distance + open status
+        let fastFoods = fastFoodsRaw.map(item => {
+            const plain = item.get({ plain: true });
+            
+            // Add distance if coordinates provided
+            if (userLat && userLng && plain.vendorLat && plain.vendorLng) {
+                plain.distance = calculateDistance(
+                    parseFloat(userLat),
+                    parseFloat(userLng),
+                    parseFloat(plain.vendorLat),
+                    parseFloat(plain.vendorLng)
+                );
+            } else {
+                plain.distance = null;
+            }
+
+            // Add open status
+            plain.isOpen = isFastFoodOpen(plain);
+            
+            return plain;
+        });
+
+        // Apply Sorting
+        fastFoods.sort((a, b) => {
+            // 1. Open items first
+            if (a.isOpen && !b.isOpen) return -1;
+            if (!a.isOpen && b.isOpen) return 1;
+
+            // 2. Featured items second
+            if (a.isFeatured && !b.isFeatured) return -1;
+            if (!a.isFeatured && b.isFeatured) return 1;
+
+            // 3. User-requested sort (default distance if coords provided, else createdAt)
+            if (sortBy === 'distance' && a.distance !== null && b.distance !== null) {
+                return a.distance - b.distance;
+            }
+
+            // Fallback to createdAt DESC
+            const dateA = new Date(a.createdAt || 0);
+            const dateB = new Date(b.createdAt || 0);
+            return dateB - dateA;
+        });
+
+        // 4. In-Memory Pagination
+        // We only do in-memory pagination if limit/page were provided and we are in public browse mode
+        // (If not in public browse, the DB query already handled pagination)
+        let paginatedData = fastFoods;
+        const totalCount = count;
+        const requestedLimit = limit ? parseInt(limit) : null;
+        const requestedPage = page ? parseInt(page) : 1;
+
+        if (requestedLimit) {
+            const start = (requestedPage - 1) * requestedLimit;
+            const end = start + requestedLimit;
+            paginatedData = fastFoods.slice(start, end);
+        }
+
+        const totalPages = requestedLimit ? Math.ceil(totalCount / requestedLimit) : 1;
+
+        console.log(`📦 [getAllFastFoods] Returning ${paginatedData.length} items (Page ${requestedPage} of ${totalPages})`);
 
         res.status(200).json({
             success: true,
-            count: fastFoods.length, // Items on THIS page
-            totalCount: count, // Total items matching query
+            count: paginatedData.length,
+            totalCount: totalCount,
             totalPages: totalPages,
-            currentPage: page ? parseInt(page) : 1,
-            data: fastFoods
+            currentPage: requestedPage,
+            data: paginatedData
         });
     } catch (error) {
         console.error('❌ [getAllFastFoods] CRASH:', error);
-        res.status(500).json({ success: false, message: error.message, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined });
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 

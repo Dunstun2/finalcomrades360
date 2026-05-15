@@ -10,6 +10,7 @@ import { formatPrice } from '../utils/currency';
 import { recursiveParse, ensureArray } from '../utils/parsingUtils';
 
 import { useLocation, useNavigate } from 'react-router-dom';
+import api from '../services/api';
 
 export default function FastFoodCard({
   item,
@@ -41,8 +42,23 @@ export default function FastFoodCard({
     e?.stopPropagation?.();
     e?.preventDefault?.();
 
+    logAction('click');
     if (onView) onView(item);
     else if (navigate) navigate(`/fastfood/${item.id}`, { state: { from: location.pathname, ...extraState } });
+  };
+
+  const logAction = async (actionType) => {
+    try {
+      await api.post('/analytics/log-action', {
+        itemId: item.id,
+        itemType: 'fastfood',
+        actionType,
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: user?.id
+      });
+    } catch (err) {
+      console.warn(`[Analytics] ${actionType} tracking failed:`, err.message);
+    }
   };
 
   const checkCartConflicts = () => {
@@ -89,6 +105,7 @@ export default function FastFoodCard({
     }
 
     // Redirect to details (auto-add removed as per request)
+    logAction('conversion'); // Counting "Order Now" as a conversion attempt
     handleView(e);
   };
 
@@ -161,7 +178,8 @@ export default function FastFoodCard({
 
   return (
     <div
-      className={`flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col border border-gray-100 ${!isOpen ? 'opacity-90' : ''} ${cardBase} ${isBannerCard ? 'h-full min-h-0' : ''}`}
+      onClick={(e) => handleView(e)}
+      className={`flex-shrink-0 bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col border border-gray-100 cursor-pointer ${!isOpen ? 'opacity-90' : ''} ${cardBase} ${isBannerCard ? 'h-full min-h-0' : ''}`}
       style={isBannerCard ? { display: 'flex', flexDirection: 'column', height: '100%' } : {}}
     >
       <div

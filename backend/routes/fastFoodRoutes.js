@@ -67,11 +67,11 @@ router.delete('/reviews/admin/:id', protect, authorize('admin', 'superadmin'), d
 // --- PLATFORM CONFIG (HERO SETTINGS) ---
 const { getConfig, updateConfig } = require('../controllers/PlatformConfigController');
 
-// Public/Semi-protected: Get Hero Config
-router.get('/config/:key', getConfig);
+// Public (or authenticated admins for non-public keys): Get Hero Config
+router.get('/config/:key', optionalAuth, getConfig);
 
-// Super Admin Only: Update Config
-router.post('/config/:key', protect, authorize('superadmin'), updateConfig);
+// Admin/Super Admin: Update Config
+router.post('/config/:key', protect, authorize('admin', 'super_admin', 'superadmin'), updateConfig);
 
 
 // --- PICKUP POINTS ---

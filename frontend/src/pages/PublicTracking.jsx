@@ -152,6 +152,22 @@ export default function PublicTracking() {
         {/* Results */}
         {tracking && (
           <div className="space-y-5 animate-fadeIn">
+            {/* Guest Verification Notice */}
+            {!tracking.order?.userId && !tracking.order?.phoneVerified && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4 shadow-sm animate-pulse">
+                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
+                  <FaExclamationCircle className="text-amber-500 text-xl" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-900">Verify Your Phone Number</h4>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    Our delivery agent will need to call you at <strong>{tracking.order?.customerPhone}</strong>. 
+                    Please ensure your phone is reachable. If you haven't received a verification SMS, please contact support.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Live Map */}
             {/* Live Map - Visible for all statuses except cancelled/failed */}
             {!['cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (

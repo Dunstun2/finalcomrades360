@@ -281,6 +281,19 @@ const testConnection = async () => {
           })
         },
         {
+          key: 'delivery_route_fees',
+          value: JSON.stringify({
+            seller_to_warehouse: { fee: 50, note: 'Seller to Warehouse Hub' },
+            warehouse_to_pickup_station: { fee: 30, note: 'Between Hubs' },
+            seller_to_pickup_station: { fee: 40, note: 'Seller to Pickup Station' },
+            warehouse_to_customer: { fee: 100, note: 'Warehouse to Customer' },
+            pickup_station_to_customer: { fee: 80, note: 'Pickup Station to Customer' },
+            seller_to_customer: { fee: 150, note: 'Direct Delivery' },
+            fastfood_pickup_point: { fee: 50, note: 'Fastfood Hub Delivery' },
+            last_mile: { fee: 100, note: 'Last Mile Delivery' }
+          })
+        },
+        {
           key: 'security_settings',
           value: JSON.stringify({
             sessionTimeout: 30,

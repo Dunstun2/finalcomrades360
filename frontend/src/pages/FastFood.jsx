@@ -24,7 +24,11 @@ export default function FastFood() {
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [selectedSubcategory, setSelectedSubcategory] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
-    const [activeTab, setActiveTab] = useState('all');
+    const [activeTab, setActiveTab] = useState(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('tab') || 'live';
+    });
+    const [hasAttemptedDefaultTab, setHasAttemptedDefaultTab] = useState(false);
     const [activeCampaigns, setActiveCampaigns] = useState([]);
     const [campaignItems, setCampaignItems] = useState({});
     const [currentCampaignIndex, setCurrentCampaignIndex] = useState(0);
@@ -86,21 +90,34 @@ export default function FastFood() {
     useEffect(() => {
         const loadHeroConfig = async () => {
             try {
-                const res = await platformService.getConfig('fast_food_hero');
-                if (res.success) {
-                    const config = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-                    let activeList = (config.campaigns || []).filter(c => c.active).sort((a, b) => b.priority - a.priority);
+                let activeList = [];
+                const itemsMap = {};
+
+                // 1. Load campaigns from platform config (fast_food_hero)
+                try {
+                    const res = await platformService.getConfig('fast_food_hero');
+                    if (res.success && res.data && typeof res.data === 'object') {
+                        const config = res.data;
+                        const configCampaigns = Array.isArray(config.campaigns)
+                            ? config.campaigns.filter(c => c.active).sort((a, b) => b.priority - a.priority)
+                            : [];
+                        activeList = [...configCampaigns];
+                    }
+                } catch (e) {
+                    console.warn('Could not load fast_food_hero platform config:', e.message);
+                }
+
+                // 2. Always load hero promotions from the API (promoType === 'fastfood')
+                try {
+                    const promoRes = await api.get('/hero-promotions/active');
+                    const promos = Array.isArray(promoRes.data?.items) ? promoRes.data.items : (Array.isArray(promoRes.data) ? promoRes.data : []);
+                    const fastFoodPromos = promos.filter(p => p.promoType === 'fastfood' && Array.isArray(p.fastfoods) && p.fastfoods.length > 0);
                     
-                    const itemsMap = {};
-                    
-                    try {
-                        const promoRes = await api.get('/hero-promotions/active');
-                        const promos = Array.isArray(promoRes.data?.items) ? promoRes.data.items : (Array.isArray(promoRes.data) ? promoRes.data : []);
-                        const fastFoodPromos = promos.filter(p => p.promoType === 'fastfood' && Array.isArray(p.fastfoods) && p.fastfoods.length > 0);
-                        
-                        fastFoodPromos.forEach(p => {
-                            const fastFoodItem = p.fastfoods[0];
-                            const campId = `promo_${p.id}`;
+                    fastFoodPromos.forEach(p => {
+                        const fastFoodItem = p.fastfoods[0];
+                        const campId = `promo_${p.id}`;
+                        // Don't add duplicate if already in list
+                        if (!activeList.find(c => c.id === campId)) {
                             activeList.push({
                                 id: campId,
                                 active: true,
@@ -111,26 +128,27 @@ export default function FastFood() {
                                 image: p.customImageUrl || fastFoodItem.mainImage,
                                 itemId: fastFoodItem.id
                             });
-                            itemsMap[fastFoodItem.id] = fastFoodItem;
-                        });
-                    } catch (e) {
-                         console.error('Failed to load hero promotions:', e);
-                    }
-
-                    setActiveCampaigns(activeList.sort((a, b) => b.priority - a.priority));
-                    
-                    const campaignsWithItems = activeList.filter(c => c.itemId && c.itemId !== 'none' && !itemsMap[c.itemId]);
-                    const uniqueItemIds = [...new Set(campaignsWithItems.map(c => c.itemId))];
-                    
-                    if (uniqueItemIds.length > 0) {
-                        const itemFetchPromises = uniqueItemIds.map(id => fastFoodService.getFastFoodById(id));
-                        const itemResponses = await Promise.all(itemFetchPromises);
-                        itemResponses.forEach((response, index) => {
-                            if (response.success && response.data) itemsMap[uniqueItemIds[index]] = response.data;
-                        });
-                    }
-                    setCampaignItems(itemsMap);
+                        }
+                        itemsMap[fastFoodItem.id] = fastFoodItem;
+                    });
+                } catch (e) {
+                    console.error('Failed to load hero promotions:', e);
                 }
+
+                setActiveCampaigns(activeList.sort((a, b) => b.priority - a.priority));
+                
+                // 3. Fetch item details for any campaign items not yet in itemsMap
+                const campaignsWithItems = activeList.filter(c => c.itemId && c.itemId !== 'none' && !itemsMap[c.itemId]);
+                const uniqueItemIds = [...new Set(campaignsWithItems.map(c => c.itemId))];
+                
+                if (uniqueItemIds.length > 0) {
+                    const itemFetchPromises = uniqueItemIds.map(id => fastFoodService.getFastFoodById(id));
+                    const itemResponses = await Promise.all(itemFetchPromises);
+                    itemResponses.forEach((response, index) => {
+                        if (response.success && response.data) itemsMap[uniqueItemIds[index]] = response.data;
+                    });
+                }
+                setCampaignItems(itemsMap);
             } catch (error) { console.error('Failed to load hero config:', error); }
         };
         loadHeroConfig();
@@ -155,7 +173,8 @@ export default function FastFood() {
         const urlParams = new URLSearchParams(location.search);
         const subcategoryId = urlParams.get('subcategoryId');
         const tabParam = urlParams.get('tab');
-        setActiveTab(tabParam === 'live' ? 'live' : 'all');
+        if (tabParam) setActiveTab(tabParam);
+        
         if (subcategoryId && subcategories.length > 0) {
             const subcategory = subcategories.find(sub => sub.id === parseInt(subcategoryId));
             if (subcategory) setSelectedSubcategory(subcategory);
@@ -186,6 +205,15 @@ export default function FastFood() {
             if (response.data.success) {
                 let fetchedItems = response.data.data;
                 
+                // Fallback logic: If 'live' was default and no items, switch to 'all'
+                if (activeTab === 'live' && fetchedItems.length === 0 && !hasAttemptedDefaultTab && !urlSearchQuery) {
+                    setHasAttemptedDefaultTab(true);
+                    setActiveTab('all');
+                    return; // The useEffect for activeTab will trigger a fresh fetch
+                }
+
+                setHasAttemptedDefaultTab(true);
+
                 if (reset) {
                     setItems(fetchedItems);
                 } else {

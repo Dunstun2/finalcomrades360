@@ -398,7 +398,7 @@ exports.getAuditLogs = async (req, res) => {
       offset: parseInt(offset),
       order: [['createdAt', 'DESC']],
       include: [
-        { model: User, as: 'admin', attributes: ['id', 'name', 'email', 'avatar'] }
+        { model: User, as: 'admin', attributes: ['id', 'name', 'email', 'profileImage'] }
       ]
     });
 
@@ -952,7 +952,14 @@ exports.resendOrderNotification = async (req, res) => {
 
     switch (type) {
       case 'placed':
-        await notificationHelpers.notifyCustomerOrderPlaced(order, order.user, order.itemsCount, null);
+        // Fetch full order with items for the notification
+        const fullOrder = await Order.findByPk(orderId, {
+          include: [{ model: OrderItem, as: 'OrderItems' }]
+        });
+        const items = fullOrder.OrderItems || [];
+        const itemsList = items.map(i => `* ${i.name} x${i.quantity} - KES ${(Number(i.price) * i.quantity).toLocaleString()}`).join('\n');
+        
+        await notificationHelpers.notifyCustomerOrderPlaced(fullOrder, order.user, items.length, itemsList);
         sent = true;
         break;
       case 'confirmed':
@@ -1168,7 +1175,7 @@ exports.getBlockedIPs = async (req, res) => {
       include: [{ model: User, as: 'admin', attributes: ['name'] }],
       order: [['createdAt', 'DESC']]
     });
-    res.json({ list });
+    res.json({ success: true, list, ips: list });
   } catch (error) {
     console.error('[AdminTools] Get Blocked IPs error:', error);
     res.status(500).json({ message: 'Internal server error.' });

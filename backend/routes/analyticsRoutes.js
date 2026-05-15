@@ -9,15 +9,18 @@ const {
   getMarketingCampaignROI,
   getGrowthPosterData,
   logSiteVisit,
-  getTrafficStats
+  logItemAction,
+  getTrafficStats,
+  getBusinessHealthAnalytics
 } = require('../controllers/analyticsController');
 const { getRevenueAnalytics } = require('../controllers/adminController');
 const { auth, adminOnly, adminOrFinance } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Public route to log visits
+// Public routes to log visits and actions
 router.post('/log-visit', logSiteVisit);
+router.post('/log-action', logItemAction);
 
 // All other analytics routes require admin or finance authorization
 router.use(auth);
@@ -48,5 +51,8 @@ router.get('/traffic/stats', adminOrFinance, getTrafficStats);
 
 // Revenue stats - admin/finance only
 router.get('/revenue', adminOrFinance, getRevenueAnalytics);
+
+// Business health analytics - admin only
+router.get('/business', adminOnly, getBusinessHealthAnalytics);
 
 module.exports = router;

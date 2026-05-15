@@ -38,6 +38,8 @@ import {
 } from 'react-icons/fa';
 import AdminDirectCreateUserModal from './UserManagementComponents/AdminDirectCreateUserModal';
 import AdminForceVerifyModal from './UserManagementComponents/AdminForceVerifyModal';
+import SecuritySettingsTab from './UserManagementComponents/SecuritySettingsTab';
+import UserReportsTab from './UserManagementComponents/UserReportsTab';
 
 // Support Messaging Modal Component
 const SupportModal = ({ isOpen, onClose, user }) => {
@@ -235,14 +237,14 @@ const BulkMessageModal = ({ isOpen, onClose, selectedUserIds, onSuccess }) => {
 };
 
 // Tab Navigation Component
-const TabNavigation = ({ activeTab, onTabChange }) => {
+const TabNavigation = ({ activeTab, onTabChange, unreadCount = 0 }) => {
   const tabs = [
     { id: 'list', label: 'User List', icon: FaUsers },
     { id: 'archived', label: 'Archived Users', icon: FaUserTimes },
     { id: 'profile', label: 'User Profile', icon: FaUser },
     { id: 'verification', label: 'Verified Users', icon: FaShieldAlt },
     { id: 'security', label: 'Security', icon: FaLock },
-    { id: 'communication', label: 'Communication', icon: FaComments },
+    { id: 'communication', label: 'Communication', icon: FaComments, badge: unreadCount },
     { id: 'reports', label: 'Reports', icon: FaChartBar }
   ];
 
@@ -256,7 +258,7 @@ const TabNavigation = ({ activeTab, onTabChange }) => {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`
-                flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
+                relative flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                 ${activeTab === tab.id
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -265,6 +267,11 @@ const TabNavigation = ({ activeTab, onTabChange }) => {
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                  {tab.badge > 99 ? '99+' : tab.badge}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1860,7 +1867,7 @@ const CommunicationTab = () => {
 
   useEffect(() => {
     loadConversations();
-    const interval = setInterval(loadConversations, 20000); // Poll conversation list every 20s
+    const interval = setInterval(loadConversations, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1868,7 +1875,6 @@ const CommunicationTab = () => {
     try {
       setLoading(true);
       const response = await supportApi.getSummary();
-      // Group by other user
       const grouped = response.data.data.reduce((acc, msg) => {
         const otherUser = msg.type === 'admin_to_user' ? msg.receiver : msg.sender;
         if (!acc[otherUser.id]) {
@@ -1876,11 +1882,15 @@ const CommunicationTab = () => {
             user: otherUser,
             lastMessage: msg.message,
             timestamp: msg.createdAt,
-            unreadCount: msg.type === 'user_to_admin' && !msg.isRead ? 1 : 0
+            unreadCount: msg.type === 'user_to_admin' && !msg.isRead ? 1 : 0,
+            sentCount: msg.type === 'admin_to_user' ? 1 : 0
           };
         } else {
           if (msg.type === 'user_to_admin' && !msg.isRead) {
             acc[otherUser.id].unreadCount++;
+          }
+          if (msg.type === 'admin_to_user') {
+            acc[otherUser.id].sentCount++;
           }
         }
         return acc;
@@ -1925,13 +1935,21 @@ const CommunicationTab = () => {
                   <p className="text-sm text-gray-500 truncate max-w-md">{conv.lastMessage}</p>
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-right flex flex-col items-end gap-1">
                 <p className="text-xs text-gray-400">{new Date(conv.timestamp).toLocaleDateString()}</p>
-                {conv.unreadCount > 0 && (
-                  <span className="inline-block bg-red-500 text-white text-[10px] px-2 py-1 rounded-full mt-1">
-                    {conv.unreadCount} new
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {conv.sentCount > 0 && (
+                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      <FaComments className="w-2.5 h-2.5" />
+                      {conv.sentCount} sent
+                    </span>
+                  )}
+                  {conv.unreadCount > 0 && (
+                    <span className="inline-flex items-center bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {conv.unreadCount} new
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           ))
@@ -1957,6 +1975,29 @@ export default function UserManagement() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('list');
   const [loading, setLoading] = useState(false);
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+
+  // Poll for unread message count to show badge on Communication tab
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const res = await supportApi.getSummary();
+        const count = (res.data.data || []).filter(
+          (m) => m.type === 'user_to_admin' && !m.isRead
+        ).length;
+        setUnreadMsgCount(count);
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Clear badge when user opens Communication tab
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'communication') setUnreadMsgCount(0);
+  };
 
   // Tab content renderer
   const renderTabContent = () => {
@@ -1977,25 +2018,11 @@ export default function UserManagement() {
       case 'verification':
         return <UserListTab forcedStatus="verified" activeTab={activeTab} />;
       case 'security':
-        return (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Security Settings</h3>
-              <p className="text-gray-600">This feature is coming soon. You'll be able to manage security settings here.</p>
-            </div>
-          </div>
-        );
+        return <SecuritySettingsTab />;
       case 'communication':
         return <CommunicationTab />;
       case 'reports':
-        return (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">User Reports & Analytics</h3>
-              <p className="text-gray-600">This feature is coming soon. You'll be able to generate reports here.</p>
-            </div>
-          </div>
-        );
+        return <UserReportsTab />;
       default:
         return <UserListTab activeTab={activeTab} />;
     }
@@ -2042,7 +2069,7 @@ export default function UserManagement() {
         </div>
 
         {/* Tab Navigation */}
-        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabNavigation activeTab={activeTab} onTabChange={handleTabChange} unreadCount={unreadMsgCount} />
 
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow-sm">

@@ -250,16 +250,19 @@ const autoCreateDeliveryTask = async (order, fromStatus, toStatus) => {
 
     // Determine the delivery fee for this specific leg
     let taskDeliveryFee = 0;
-    
-    // 1. Check for specific logistics route fees in PlatformConfig
-    if (routeFees[dType] && routeFees[dType].fee !== undefined) {
+    const terminalRoutes = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point', 'last_mile'];
+
+    // 1. For terminal legs, prioritize the customer-facing delivery fee from the order
+    if (terminalRoutes.includes(dType) && (parseFloat(order.deliveryFee) > 0)) {
+      taskDeliveryFee = parseFloat(order.deliveryFee);
+    } 
+    // 2. Check for specific logistics route fees in PlatformConfig (Internal legs or fallback for terminal)
+    else if (routeFees[dType] && routeFees[dType].fee !== undefined) {
       taskDeliveryFee = parseFloat(routeFees[dType].fee);
-    } else {
-      // 2. Fallback to terminal customer-facing fees if it's a terminal leg
-      const terminalRoutes = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point', 'last_mile'];
-      if (terminalRoutes.includes(dType)) {
-        taskDeliveryFee = parseFloat(order.deliveryFee) || 0;
-      }
+    }
+    // 3. Absolute fallback to order.deliveryFee if it's a terminal leg and route fees were missing
+    else if (terminalRoutes.includes(dType)) {
+      taskDeliveryFee = parseFloat(order.deliveryFee) || 0;
     }
 
     // Create delivery task

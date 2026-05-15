@@ -7,7 +7,9 @@ const PUBLIC_KEYS = [
     'seo_settings',
     'finance_settings',
     'logistic_settings',
+    'delivery_route_fees',
     'batch_system_enabled',
+    'fast_food_hero',
     'content_page_about',
     'content_page_contact',
     'content_page_terms',
@@ -46,7 +48,7 @@ exports.getConfig = async (req, res) => {
                 metaAccessToken: '',
                 metaPhoneNumberId: '',
                 templates: {
-                    orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`,
+                    orderPlaced: `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}\n\nTotal: KES {total}\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nTrack your order here: {trackUrl}\n\nThank you for shopping with Comrades360!`,
                     sellerConfirmed: `Hello {name}, good news! 🥗\n\nYour order #{orderNumber} has been confirmed by {sellerName} and is now being prepared.\n\nWe will notify you as soon as it is handed over to our delivery agent.\n\nThank you for choosing Comrades360!`,
                     orderInTransit: `Your order #{orderNumber} is on its way! 🚚\n\nHello {name}, your package has been collected by {agentName} ({agentPhone}) and is in transit.\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryAddress}\n\nPlease stay reachable for a smooth delivery!`,
                     orderReadyPickup: `Your order #{orderNumber} is ready for collection! 📦\n\nHello {name}, your items have arrived at the pickup location and are ready for you.\n\nPickup Details:\nStation: {stationName}\nLocation: {stationLocation}\nContact: {stationPhone}\n\nSee you soon at Comrades360!`,
@@ -77,6 +79,16 @@ exports.getConfig = async (req, res) => {
                 ]
             },
             logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0, autoApproveRequests: false, autoDispatchOrders: false },
+            delivery_route_fees: {
+                seller_to_warehouse: { fee: 50, note: 'Seller to Warehouse Hub' },
+                warehouse_to_pickup_station: { fee: 30, note: 'Between Hubs' },
+                seller_to_pickup_station: { fee: 40, note: 'Seller to Pickup Station' },
+                warehouse_to_customer: { fee: 100, note: 'Warehouse to Customer' },
+                pickup_station_to_customer: { fee: 80, note: 'Pickup Station to Customer' },
+                seller_to_customer: { fee: 150, note: 'Direct Delivery' },
+                fastfood_pickup_point: { fee: 50, note: 'Fastfood Hub Delivery' },
+                last_mile: { fee: 100, note: 'Last Mile Delivery' }
+            },
             security_settings: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
             notification_settings: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
             seo_settings: { title: 'Comrades360', description: 'Student Marketplace', keywords: 'university, marketplace', socialLinks: { facebook: '', instagram: '', twitter: '' } },

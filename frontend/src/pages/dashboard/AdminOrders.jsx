@@ -442,8 +442,11 @@ export default function AdminOrders() {
       if (!activeTask) return;
 
       const calculateTimeLeft = () => {
+        const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || false;
+        const timeoutMinutes = isFastfood ? 2.5 : 30;
+
         const assignedAt = new Date(activeTask.assignedAt);
-        const expiryTime = new Date(assignedAt.getTime() + 30 * 60 * 1000); // 30 mins
+        const expiryTime = new Date(assignedAt.getTime() + timeoutMinutes * 60 * 1000);
         const now = new Date();
         const diff = expiryTime - now;
 

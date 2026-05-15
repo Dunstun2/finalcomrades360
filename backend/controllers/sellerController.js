@@ -703,6 +703,7 @@ const getOverview = async (req, res, next) => {
 
 const updateSellerSettings = async (req, res, next) => {
   try {
+    console.log('[sellerController] updateSellerSettings received:', req.body);
     const { autoConfirmFastFood, autoConfirmProducts, defaultProductShippingType } = req.body;
     const user = await User.findByPk(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });

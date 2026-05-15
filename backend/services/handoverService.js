@@ -155,10 +155,20 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
         }
 
         if (task) {
-            await task.update({
+            const taskUpdates = {
                 status: nextTaskStatus,
                 completedAt: nextTaskStatus === 'completed' ? new Date() : null
-            }, { transaction: t });
+            };
+
+            // AUTO-ARRIVE: If this is a pickup leg and they haven't marked arrived, do it now
+            // This supports the "one-tap" pickup where an agent goes straight from 'accepted' to 'collected'
+            if (['seller_to_agent', 'warehouse_to_agent', 'station_to_agent'].includes(handoverType) && task.status === 'accepted') {
+                taskUpdates.arrivedAt = new Date();
+                taskUpdates.status = 'arrived_at_pickup';
+                console.log(`[handoverService] Auto-marking task ${task.id} as arrived at pickup via handover confirmation.`);
+            }
+
+            await task.update(taskUpdates, { transaction: t });
 
             // 4. Handle Earnings and Logistics Deductions
             if (nextTaskStatus === 'completed') {

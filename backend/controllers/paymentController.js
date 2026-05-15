@@ -1007,7 +1007,7 @@ const verifyPaymentByOrder = async (req, res) => {
       payment = await Payment.create({
         orderId,
         userId: order.userId,
-        paymentMethod: 'cash_on_delivery', // Default for manual agent confirmation
+        paymentMethod: verificationData?.method === 'mpesa_receipt' ? 'mpesa' : 'card', // Default for manual agent confirmation
         paymentType: order.paymentType || 'prepay',
         amount: order.total,
         currency: 'KES',
@@ -1034,7 +1034,7 @@ const verifyPaymentByOrder = async (req, res) => {
 
   } catch (error) {
     console.error('Error verifying order payment:', error);
-    res.status(500).json({ success: false, message: 'Failed to verify order payment' });
+    res.status(500).json({ success: false, message: 'Failed to verify order payment', error: error.message });
   }
 };
 

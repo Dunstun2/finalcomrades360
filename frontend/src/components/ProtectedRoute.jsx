@@ -79,7 +79,8 @@ const ProtectedRoute = ({ children, requiredRole }) => {
         const normalizedRequired = roles.map(normalize);
 
         // Check if user has one of the required roles in their roles array
-        const hasRole = normalizedRequired.some(role => userRoles.includes(role));
+        // Super admin bypasses all role gates (matches backend wildcard behavior)
+        const hasRole = isAdmin || normalizedRequired.some(role => userRoles.includes(role));
 
         if (!hasRole) {
             // User doesn't have the right role, redirect to a safe place

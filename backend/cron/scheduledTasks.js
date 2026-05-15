@@ -234,7 +234,7 @@ const initScheduledTasks = () => {
 
             // Get per-type expiry times from config
             const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
-            let fastfoodExpiryMinutes = 5;
+            let fastfoodExpiryMinutes = 2.5;
             let productExpiryMinutes = 30;
             let settings = {};
             if (config) {

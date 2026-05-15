@@ -188,8 +188,20 @@ async function createNotification(userId, title, message, type = 'info') {
 /**
  * Notify delivery agent about new task assignment
  */
+/**
+ * Notify delivery agent about new task assignment across all channels (In-app, WhatsApp, SMS, Email)
+ */
 async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrderNumber, optionalDeliveryType) {
-    const agentId = typeof agentOrId === 'object' ? agentOrId.id : agentOrId;
+    let agent = agentOrId;
+    if (typeof agentOrId !== 'object') {
+        agent = await User.findByPk(agentOrId);
+    }
+    
+    if (!agent) {
+        logNotify(`ABORT: No agent found for ID ${typeof agentOrId === 'object' ? agentOrId.id : agentOrId}`);
+        return null;
+    }
+
     const order = typeof orderOrId === 'object' ? orderOrId : null;
     const orderNumber = order ? order.orderNumber : (optionalOrderNumber || orderOrId);
     const deliveryType = optionalDeliveryType || (order ? order.deliveryType : null);
@@ -208,41 +220,129 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
     // Extract extra details for the agent
     let itemsList = 'N/A';
     let totalAmount = '0';
+    let pickupLocation = 'N/A';
     let deliveryLocation = 'N/A';
     let customerPhone = 'N/A';
 
-    if (order) {
-        if (order.OrderItems && order.OrderItems.length > 0) {
-            itemsList = order.OrderItems.map(i => `${i.name || 'Item'} x${i.quantity || 1}`).join(', ');
-        } else if (order.itemsCount) {
-            itemsList = `${order.itemsCount} items`;
-        }
+    const { Order, OrderItem, Product, FastFood, Service, DeliveryTask, User, Warehouse, PickupStation } = require('../models');
 
-        totalAmount = order.total?.toLocaleString() || '0';
-        deliveryLocation = order.deliveryAddress || order.marketingDeliveryAddress || 'Selected Location';
-        customerPhone = order.customerPhone || order.user?.phone || 'N/A';
+    // Make sure we have the full order with items if not already loaded
+    let fullOrder = order;
+    if (order && order.id) {
+        try {
+            const found = await Order.findByPk(order.id, {
+                include: [
+                    {
+                        model: OrderItem,
+                        as: 'OrderItems',
+                        include: [
+                            { model: Product, as: 'Product', attributes: ['name'] },
+                            { model: FastFood, as: 'FastFood', attributes: ['name'] },
+                            { model: Service, as: 'Service', attributes: ['title'] }
+                        ]
+                    },
+                    { model: User, as: 'seller', attributes: ['hostelName', 'roomNumber', 'address', 'campusName', 'phone', 'firstName', 'lastName', 'shopName'] },
+                    { model: Warehouse, as: 'Warehouse', attributes: ['name', 'address', 'contactPhone'] },
+                    { model: PickupStation, as: 'PickupStation', attributes: ['name', 'address', 'contactPhone'] },
+                    { model: User, as: 'user', attributes: ['phone', 'firstName', 'lastName'] }
+                ]
+            });
+            if (found) fullOrder = found;
+        } catch(e) {
+            console.error('Failed to fetch full order for notification', e);
+        }
     }
 
-    const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nLocation: {deliveryLocation}\nCustomer Phone: {customerPhone}`;
-
-    const message = await getDynamicMessage('agentTaskAssigned', 
-        defaultTemplate,
-        { 
-            orderNumber, 
-            deliveryType: typeLabels[deliveryType] || deliveryType,
-            itemsList,
-            totalAmount,
-            deliveryLocation,
-            customerPhone
+    if (fullOrder) {
+        if (fullOrder.OrderItems && fullOrder.OrderItems.length > 0) {
+            itemsList = fullOrder.OrderItems.map(i => {
+                const name = i.Product?.name || i.FastFood?.name || i.Service?.title || i.name || 'Item';
+                return `${name} x${i.quantity || 1}`;
+            }).join(', ');
+        } else if (fullOrder.itemsCount) {
+            itemsList = `${fullOrder.itemsCount} items`;
         }
-    );
 
-    return await createNotification(
-        agentId,
-        'New Delivery Task Assigned',
-        message,
-        'info'
-    );
+        totalAmount = fullOrder.total?.toLocaleString() || '0';
+        deliveryLocation = fullOrder.deliveryAddress || fullOrder.marketingDeliveryAddress || 'Selected Location';
+        customerPhone = fullOrder.customerPhone || fullOrder.user?.phone || 'N/A';
+    }
+
+    // Try to get pickup location and updated delivery location from DeliveryTask
+    try {
+        const orderIdToSearch = fullOrder ? fullOrder.id : (typeof orderOrId !== 'object' ? orderOrId : null);
+        if (orderIdToSearch) {
+            const task = await DeliveryTask.findOne({
+                where: {
+                    orderId: orderIdToSearch,
+                    deliveryAgentId: agent.id
+                },
+                order: [['createdAt', 'DESC']]
+            });
+            if (task) {
+                if (task.pickupLocation) pickupLocation = task.pickupLocation;
+                if (task.deliveryLocation) deliveryLocation = task.deliveryLocation;
+            }
+        }
+    } catch(e) {
+        console.error("Failed to fetch delivery task for agent notification", e);
+    }
+
+    // Fallback logic to derive pickup location if still missing
+    if (pickupLocation === 'N/A' && fullOrder) {
+        if (deliveryType === 'seller_to_customer' || deliveryType === 'seller_to_warehouse' || deliveryType === 'seller_to_pickup_station') {
+            const seller = fullOrder.seller;
+            if (seller) {
+                pickupLocation = [seller.shopName, seller.hostelName, seller.roomNumber, seller.address].filter(Boolean).join(', ') || `${seller.firstName} ${seller.lastName}`;
+                if (seller.phone) pickupLocation += ` (${seller.phone})`;
+            } else {
+                pickupLocation = 'Seller Location';
+            }
+        } else if (deliveryType === 'warehouse_to_customer' || deliveryType === 'warehouse_to_pickup_station' || deliveryType === 'warehouse_to_seller') {
+            const warehouse = fullOrder.Warehouse;
+            if (warehouse) {
+                pickupLocation = `${warehouse.name} - ${warehouse.address || ''}`;
+                if (warehouse.contactPhone) pickupLocation += ` (${warehouse.contactPhone})`;
+            } else {
+                pickupLocation = 'Warehouse';
+            }
+        } else if (deliveryType === 'pickup_station_to_customer' || deliveryType === 'pickup_station_to_warehouse') {
+            const station = fullOrder.PickupStation;
+            if (station) {
+                pickupLocation = `${station.name} - ${station.address || ''}`;
+                if (station.contactPhone) pickupLocation += ` (${station.contactPhone})`;
+            } else {
+                pickupLocation = 'Pickup Station';
+            }
+        } else if (deliveryType === 'customer_to_warehouse' || deliveryType === 'customer_to_pickup_station') {
+            pickupLocation = fullOrder.deliveryAddress || fullOrder.marketingDeliveryAddress || 'Customer Address';
+            if (fullOrder.customerPhone) pickupLocation += ` (${fullOrder.customerPhone})`;
+        }
+    }
+
+    const isFastfood = fullOrder?.OrderItems?.some(i => i.fastFoodId != null) || false;
+    const timeoutMsg = isFastfood ? "2.5 minutes" : "30 minutes";
+    const dashboardUrl = `${process.env.FRONTEND_URL || 'https://comrades360.shop'}/dashboard/delivery`;
+
+    const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nPickup Point: {pickupLocation}\nDrop-off: {deliveryLocation}\nCustomer Phone: {customerPhone}\n\n⚠️ PLEASE ACCEPT WITHIN ${timeoutMsg} TO AVOID AUTOMATIC REASSIGNMENT.\n\nManage Task:\n{dashboardUrl}`;
+
+    // We use sendCustomerNotificationAcrossChannels but pass the agent as the recipient
+    // and explicitly set the template key to 'agentTaskAssigned'
+    await sendCustomerNotificationAcrossChannels('agentTaskAssigned', {
+        orderNumber,
+        deliveryType: typeLabels[deliveryType] || deliveryType,
+        itemsList,
+        totalAmount,
+        pickupLocation,
+        deliveryLocation,
+        customerPhone,
+        dashboardUrl,
+        title: 'New Delivery Task Assigned',
+        type: 'info',
+        defaultTemplate
+    }, agent, null); // We pass order=null so it doesn't accidentally use customer phone/email
+
+    return true;
 }
 
 /**
@@ -281,7 +381,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         : (order.deliveryAddress || order.marketingDeliveryAddress || 'N/A');
 
     const deliveryFeeVal = Number(order.deliveryFee || 0);
-    const deliveryFee = deliveryFeeVal > 0 ? deliveryFeeVal.toLocaleString() : 'Free';
+    const deliveryFee = deliveryFeeVal > 0 ? deliveryFeeVal.toLocaleString() : '0';
     const paymentMethodLabel = `${order.paymentMethod || 'N/A'} - ${order.paymentType || 'N/A'}`;
     const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
     const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
@@ -297,8 +397,8 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         : null;
 
     const defaultTemplate = signupUrl
-        ? `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\n🔍 Track your order: {trackUrl}\n\n👤 Don't have an account yet? Create one to manage all your orders:\n{signupUrl}`
-        : `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\n\nDelivery Fee: KES {deliveryFee}\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
+        ? `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}\n\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\n🔍 Track your order: {trackUrl}\n\n👤 Don't have an account yet? Create one to manage all your orders:\n{signupUrl}`
+        : `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}\n\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
 
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
@@ -419,6 +519,23 @@ async function notifyCustomerOrderCancelled(order, reason) {
 }
 
 
+
+/**
+ * Notify customer that an agent has accepted their delivery
+ */
+async function notifyCustomerAgentAccepted(order, agent) {
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been accepted by our delivery agent {agentName}. 🚚\n\nPlease expect a call via {agentPhone}. Thank you for choosing Comrades360!`;
+
+    await sendCustomerNotificationAcrossChannels('agentAccepted', {
+        name: order.User?.name || order.customerName || 'Customer',
+        orderNumber: order.orderNumber,
+        agentName: agent.name,
+        agentPhone: agent.phone || 'N/A',
+        title: 'Delivery Accepted 🚚',
+        type: 'success',
+        defaultTemplate
+    }, { id: order.userId, name: order.customerName, phone: order.customerPhone, email: order.customerEmail }, order);
+}
 
 /**
  * Notify customer about delivery status update (Legacy generic fallback)
@@ -650,6 +767,7 @@ module.exports = {
     notifyUserIdStatusUpdate,
     notifyCustomerOrderThankYou,
     notifySellerOrderPlaced,
+    notifyCustomerAgentAccepted,
     logNotify,
     sendCustomerNotificationAcrossChannels
 };

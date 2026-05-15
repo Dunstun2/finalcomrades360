@@ -212,6 +212,7 @@ export default function AdvancedReports() {
 
   const productItems = itemPerformance.items?.filter(item => item.itemType === 'product') || [];
   const fastfoodItems = itemPerformance.items?.filter(item => item.itemType === 'fastfood' || item.itemType === 'fastFood' || item.itemType === 'fast_food') || [];
+  const serviceItems = itemPerformance.items?.filter(item => item.itemType === 'service') || [];
 
   return (
     <div className="space-y-6">
@@ -287,34 +288,44 @@ export default function AdvancedReports() {
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-blue-600">{reports.overview?.totalUsers || 0}</div>
                   <div className="text-gray-600">Total Users</div>
-                  <div className="text-sm text-green-600 mt-1">+12% from last month</div>
+                  <div className={`text-sm mt-1 ${reports.overview?.growth?.users >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {reports.overview?.growth?.users >= 0 ? '+' : ''}{reports.overview?.growth?.users}% from prev. period
+                  </div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">{reports.overview?.totalOrders || 0}</div>
                   <div className="text-gray-600">Total Orders</div>
-                  <div className="text-sm text-green-600 mt-1">+8% from last month</div>
+                  <div className={`text-sm mt-1 ${reports.overview?.growth?.orders >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {reports.overview?.growth?.orders >= 0 ? '+' : ''}{reports.overview?.growth?.orders}% from prev. period
+                  </div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-purple-600">
                     KES {(reports.overview?.totalRevenue || 0).toLocaleString()}
                   </div>
                   <div className="text-gray-600">Total Revenue</div>
-                  <div className="text-sm text-green-600 mt-1">+15% from last month</div>
+                  <div className={`text-sm mt-1 ${reports.overview?.growth?.revenue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {reports.overview?.growth?.revenue >= 0 ? '+' : ''}{reports.overview?.growth?.revenue}% from prev. period
+                  </div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-yellow-600">{reports.overview?.totalProducts || 0}</div>
                   <div className="text-gray-600">Total Products</div>
-                  <div className="text-sm text-green-600 mt-1">+5% from last month</div>
+                  <div className="text-sm text-gray-400 mt-1">All time catalog size</div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-indigo-600">{reports.overview?.activeUsers || 0}</div>
-                  <div className="text-gray-600">Active Users</div>
-                  <div className="text-sm text-green-600 mt-1">+10% from last month</div>
+                  <div className="text-gray-600">Active Users (Period)</div>
+                  <div className={`text-sm mt-1 ${reports.overview?.growth?.activeUsers >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {reports.overview?.growth?.activeUsers >= 0 ? '+' : ''}{reports.overview?.growth?.activeUsers}% from prev. period
+                  </div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-red-600">{reports.overview?.conversionRate || 0}%</div>
-                  <div className="text-gray-600">Conversion Rate</div>
-                  <div className="text-sm text-red-600 mt-1">-2% from last month</div>
+                  <div className="text-gray-600">Conversion Rate (Global)</div>
+                  <div className={`text-sm mt-1 ${reports.overview?.growth?.conversionRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {reports.overview?.growth?.conversionRate >= 0 ? '+' : ''}{reports.overview?.growth?.conversionRate}% from prev. period
+                  </div>
                 </div>
               </div>
 
@@ -410,10 +421,11 @@ export default function AdvancedReports() {
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">
                     {reports.traffic?.summary?.totalUniqueVisitors > 0 
-                      ? ((reports.overview?.totalOrders / reports.traffic?.summary?.totalUniqueVisitors) * 100).toFixed(2) 
+                      ? ((reports.traffic?.summary?.totalOrders / reports.traffic?.summary?.totalUniqueVisitors) * 100).toFixed(2) 
                       : 0}%
                   </div>
                   <div className="text-gray-600">Site Conversion Rate</div>
+                  <div className="text-[10px] text-gray-400 mt-1">Orders / Unique Visitors (Period)</div>
                 </div>
                 <div className="card p-4 text-center">
                   <div className="text-2xl font-bold text-orange-600">{reports.traffic?.topPages?.length || 0}</div>
@@ -633,7 +645,6 @@ export default function AdvancedReports() {
                           <th className="p-3">Visits</th>
                           <th className="p-3">Clicks</th>
                           <th className="p-3">Conversions</th>
-                          <th className="p-3">Orders</th>
                           <th className="p-3">Revenue</th>
                           <th className="p-3">Conv. Rate</th>
                           <th className="p-3">Mktr Conv. Rate</th>
@@ -642,7 +653,7 @@ export default function AdvancedReports() {
                       <tbody>
                         {itemPerformanceLoading ? (
                           <tr>
-                            <td colSpan="8" className="p-6 text-center text-gray-500">Loading product performance data...</td>
+                            <td colSpan="7" className="p-6 text-center text-gray-500">Loading product performance data...</td>
                           </tr>
                         ) : productItems.length > 0 ? (
                           productItems.map((item) => (
@@ -651,7 +662,6 @@ export default function AdvancedReports() {
                               <td className="p-3">{item.visits}</td>
                               <td className="p-3">{item.clicks}</td>
                               <td className="p-3">{item.conversions}</td>
-                              <td className="p-3">{item.orderCount}</td>
                               <td className="p-3">KES {item.revenue.toLocaleString()}</td>
                               <td className="p-3">{item.conversionRate?.toFixed(2) ?? 0}%</td>
                               <td className="p-3">{item.marketerConversionRate?.toFixed(2) ?? 0}%</td>
@@ -659,7 +669,7 @@ export default function AdvancedReports() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="8" className="p-6 text-center text-gray-500">No product performance data available for this period.</td>
+                            <td colSpan="7" className="p-6 text-center text-gray-500">No product performance data available for this period.</td>
                           </tr>
                         )}
                       </tbody>
@@ -684,7 +694,6 @@ export default function AdvancedReports() {
                           <th className="p-3">Visits</th>
                           <th className="p-3">Clicks</th>
                           <th className="p-3">Conversions</th>
-                          <th className="p-3">Orders</th>
                           <th className="p-3">Revenue</th>
                           <th className="p-3">Conv. Rate</th>
                           <th className="p-3">Mktr Conv. Rate</th>
@@ -693,7 +702,7 @@ export default function AdvancedReports() {
                       <tbody>
                         {itemPerformanceLoading ? (
                           <tr>
-                            <td colSpan="8" className="p-6 text-center text-gray-500">Loading fast food performance data...</td>
+                            <td colSpan="7" className="p-6 text-center text-gray-500">Loading fast food performance data...</td>
                           </tr>
                         ) : fastfoodItems.length > 0 ? (
                           fastfoodItems.map((item) => (
@@ -702,7 +711,6 @@ export default function AdvancedReports() {
                               <td className="p-3">{item.visits}</td>
                               <td className="p-3">{item.clicks}</td>
                               <td className="p-3">{item.conversions}</td>
-                              <td className="p-3">{item.orderCount}</td>
                               <td className="p-3">KES {item.revenue.toLocaleString()}</td>
                               <td className="p-3">{item.conversionRate?.toFixed(2) ?? 0}%</td>
                               <td className="p-3">{item.marketerConversionRate?.toFixed(2) ?? 0}%</td>
@@ -710,7 +718,54 @@ export default function AdvancedReports() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="8" className="p-6 text-center text-gray-500">No fast food performance data available for this period.</td>
+                            <td colSpan="7" className="p-6 text-center text-gray-500">No fast food performance data available for this period.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold">Services</h4>
+                      <p className="text-sm text-gray-500">Performance metrics for professional services and bookings.</p>
+                    </div>
+                    <div className="text-sm text-gray-600">{serviceItems.length} services</div>
+                  </div>
+
+                  <div className="card p-4 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="p-3">Item</th>
+                          <th className="p-3">Visits</th>
+                          <th className="p-3">Clicks</th>
+                          <th className="p-3">Conversions</th>
+                          <th className="p-3">Revenue</th>
+                          <th className="p-3">Conv. Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemPerformanceLoading ? (
+                          <tr>
+                            <td colSpan="6" className="p-6 text-center text-gray-500">Loading service performance data...</td>
+                          </tr>
+                        ) : serviceItems.length > 0 ? (
+                          serviceItems.map((item) => (
+                            <tr key={`service-${item.itemId}`} className="border-b hover:bg-gray-50">
+                              <td className="p-3"><div className="font-medium">{item.name}</div></td>
+                              <td className="p-3">{item.visits}</td>
+                              <td className="p-3">{item.clicks}</td>
+                              <td className="p-3">{item.conversions}</td>
+                              <td className="p-3">KES {item.revenue.toLocaleString()}</td>
+                              <td className="p-3">{item.conversionRate?.toFixed(2) ?? 0}%</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="6" className="p-6 text-center text-gray-500">No service performance data available for this period.</td>
                           </tr>
                         )}
                       </tbody>

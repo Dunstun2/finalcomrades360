@@ -520,6 +520,12 @@ const getItemPerformanceAnalytics = async (req, res) => {
     const { startDate, endDate, limit = 100 } = req.query;
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+    
+    // Ensure start date is at the beginning of the day
+    start.setHours(0, 0, 0, 0);
+    
+    // Ensure end date includes the entire day
+    end.setHours(23, 59, 59, 999);
 
     const dateFilter = { createdAt: { [Op.between]: [start, end] } };
 
@@ -527,28 +533,33 @@ const getItemPerformanceAnalytics = async (req, res) => {
       ProductView.findAll({
         attributes: [
           'productId',
+          'fastFoodId',
+          'serviceId',
           [fn('COUNT', col('id')), 'views'],
           [fn('SUM', literal("CASE WHEN marketerId IS NOT NULL THEN 1 ELSE 0 END")), 'marketerViews']
         ],
         where: dateFilter,
-        group: ['productId'],
+        group: ['productId', 'fastFoodId', 'serviceId'],
         raw: true
       }),
       MarketingAnalytics.findAll({
         attributes: [
           'productId',
+          'fastFoodId',
+          'serviceId',
           'actionType',
           [fn('COUNT', col('id')), 'count'],
           [fn('SUM', col('commissionEarned')), 'commissionEarned']
         ],
         where: dateFilter,
-        group: ['productId', 'actionType'],
+        group: ['productId', 'fastFoodId', 'serviceId', 'actionType'],
         raw: true
       }),
       OrderItem.findAll({
         attributes: [
           'productId',
           'fastFoodId',
+          'serviceId',
           [fn('COUNT', col('id')), 'itemCount'],
           [fn('SUM', col('quantity')), 'quantitySold'],
           [fn('SUM', col('total')), 'revenue'],
@@ -559,10 +570,11 @@ const getItemPerformanceAnalytics = async (req, res) => {
           createdAt: { [Op.between]: [start, end] },
           [Op.or]: [
             { productId: { [Op.ne]: null } },
-            { fastFoodId: { [Op.ne]: null } }
+            { fastFoodId: { [Op.ne]: null } },
+            { serviceId: { [Op.ne]: null } }
           ]
         },
-        group: ['productId', 'fastFoodId'],
+        group: ['productId', 'fastFoodId', 'serviceId'],
         raw: true
       })
     ]);
@@ -570,11 +582,12 @@ const getItemPerformanceAnalytics = async (req, res) => {
     const itemsMap = new Map();
 
     const ensureItemEntry = ({ itemType, itemId }) => {
-      const key = `${itemType}:${itemId}`;
+      const normalizedId = Number(itemId);
+      const key = `${itemType}:${normalizedId}`;
       if (!itemsMap.has(key)) {
         itemsMap.set(key, {
           itemType,
-          itemId,
+          itemId: normalizedId,
           name: null,
           visits: 0,
           siteViews: 0,
@@ -593,22 +606,29 @@ const getItemPerformanceAnalytics = async (req, res) => {
     };
 
     viewStats.forEach((row) => {
-      if (!row.productId) return;
-      const entry = ensureItemEntry({ itemType: 'product', itemId: row.productId });
-      entry.siteViews += Number(row.views || 0);
+      const itemType = row.productId ? 'product' : row.fastFoodId ? 'fastfood' : row.serviceId ? 'service' : null;
+      const itemId = row.productId || row.fastFoodId || row.serviceId;
+      if (!itemId || !itemType) return;
+
+      const entry = ensureItemEntry({ itemType, itemId });
+      const views = Number(row.views || 0);
+      entry.siteViews += views;
       entry.marketerViews += Number(row.marketerViews || 0);
-      entry.visits += Number(row.views || 0) + Number(row.marketerViews || 0);
+      entry.visits += views; // Visit = detail page entry
+      entry.clicks += views; // Clicks includes Visits per requirement
     });
 
     marketingStats.forEach((row) => {
-      if (!row.productId) return;
-      const entry = ensureItemEntry({ itemType: 'product', itemId: row.productId });
+      const itemType = row.productId ? 'product' : row.fastFoodId ? 'fastfood' : row.serviceId ? 'service' : null;
+      const itemId = row.productId || row.fastFoodId || row.serviceId;
+      if (!itemId || !itemType) return;
+
+      const entry = ensureItemEntry({ itemType, itemId });
       const count = Number(row.count || 0);
       const commissionEarned = Number(row.commissionEarned || 0);
 
       if (row.actionType === 'view') {
         entry.marketerViews += count;
-        entry.visits += count;
       }
       if (row.actionType === 'click') {
         entry.clicks += count;
@@ -617,44 +637,53 @@ const getItemPerformanceAnalytics = async (req, res) => {
         entry.shares += count;
       }
       if (row.actionType === 'conversion') {
-        entry.conversions += count;
+        // "Conversion" in tracking is "Add to Cart", which now counts as a Click (intent)
+        entry.clicks += count;
         entry.marketerCommissionEarned += commissionEarned;
       }
     });
 
     orderStats.forEach((row) => {
-      const itemType = row.productId ? 'product' : 'fastfood';
-      const itemId = row.productId || row.fastFoodId;
-      if (!itemId) return;
+      const itemType = row.productId ? 'product' : row.fastFoodId ? 'fastfood' : row.serviceId ? 'service' : null;
+      const itemId = row.productId || row.fastFoodId || row.serviceId;
+      if (!itemId || !itemType) return;
       const entry = ensureItemEntry({ itemType, itemId });
+      const orders = Number(row.orderCount || 0);
+      entry.orderCount += orders;
+      entry.conversions += orders; // Conversion = actual sale per new requirement
       entry.revenue += Number(row.revenue || 0);
       entry.quantitySold += Number(row.quantitySold || 0);
-      entry.orderCount += Number(row.orderCount || 0);
       entry.commissionEarned += Number(row.commissionEarned || 0);
     });
 
     const productIds = [];
     const fastFoodIds = [];
+    const serviceIds = [];
     itemsMap.forEach((entry) => {
       if (entry.itemType === 'product') productIds.push(entry.itemId);
       if (entry.itemType === 'fastfood') fastFoodIds.push(entry.itemId);
+      if (entry.itemType === 'service') serviceIds.push(entry.itemId);
     });
 
-    const [productRecords, fastFoodRecords] = await Promise.all([
+    const [productRecords, fastFoodRecords, serviceRecords] = await Promise.all([
       productIds.length > 0 ? Product.findAll({ where: { id: { [Op.in]: productIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : [],
-      fastFoodIds.length > 0 ? FastFood.findAll({ where: { id: { [Op.in]: fastFoodIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : []
+      fastFoodIds.length > 0 ? FastFood.findAll({ where: { id: { [Op.in]: fastFoodIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : [],
+      serviceIds.length > 0 ? Service.findAll({ where: { id: { [Op.in]: serviceIds } }, attributes: ['id', 'name', 'displayPrice'], raw: true }) : []
     ]);
 
     const productById = new Map(productRecords.map((p) => [p.id, p]));
     const fastFoodById = new Map(fastFoodRecords.map((f) => [f.id, f]));
+    const serviceById = new Map(serviceRecords.map((s) => [s.id, s]));
 
     const items = Array.from(itemsMap.values()).map((entry) => {
       const itemName = entry.itemType === 'product'
         ? productById.get(entry.itemId)?.name || `Product #${entry.itemId}`
-        : fastFoodById.get(entry.itemId)?.name || `FastFood #${entry.itemId}`;
+        : entry.itemType === 'fastfood'
+          ? fastFoodById.get(entry.itemId)?.name || `FastFood #${entry.itemId}`
+          : serviceById.get(entry.itemId)?.name || `Service #${entry.itemId}`;
 
-      const totalVisits = entry.siteViews + entry.marketerViews;
-      const conversionRate = totalVisits ? (entry.conversions / totalVisits) * 100 : 0;
+      const totalVisits = entry.siteViews; 
+      const conversionRate = totalVisits ? (entry.orderCount / totalVisits) * 100 : 0;
       const marketerConversionRate = entry.clicks ? (entry.conversions / entry.clicks) * 100 : 0;
 
       return {
@@ -669,8 +698,7 @@ const getItemPerformanceAnalytics = async (req, res) => {
       };
     });
 
-    const sortedItems = items.sort((a, b) => b.revenue - a.revenue).slice(0, Number(limit));
-    const totals = sortedItems.reduce((acc, item) => {
+    const totals = items.reduce((acc, item) => {
       acc.totalItems += 1;
       acc.totalVisits += item.visits;
       acc.totalClicks += item.clicks;
@@ -678,6 +706,12 @@ const getItemPerformanceAnalytics = async (req, res) => {
       acc.totalRevenue += item.revenue;
       return acc;
     }, { totalItems: 0, totalVisits: 0, totalClicks: 0, totalConversions: 0, totalRevenue: 0 });
+
+    const sortedItems = items.sort((a, b) => {
+      if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+      if (b.visits !== a.visits) return b.visits - a.visits;
+      return b.clicks - a.clicks;
+    }).slice(0, Number(limit));
 
     res.json({ success: true, items: sortedItems, totals, dateRange: { start, end } });
   } catch (e) {
@@ -1364,7 +1398,7 @@ const getAllUsers = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      users,
+      users: users,
       pagination: {
         total: count,
         page: pageNum,

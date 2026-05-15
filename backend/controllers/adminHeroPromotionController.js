@@ -56,6 +56,8 @@ const createHeroPromotion = async (req, res) => {
     const {
       sellerId,
       productIds = [],
+      fastFoodIds = [],
+      promoType = 'product',
       durationDays = 7,
       slotsCount = 1,
       startAt,
@@ -65,21 +67,32 @@ const createHeroPromotion = async (req, res) => {
       customImageUrl,
       targetUrl,
       isDefault,
-      isSystem
+      isSystem,
+      trustPoints
     } = req.body || {}
 
     const effectiveIsSystem = !!(isSystem || !sellerId);
+    const isFastFood = promoType === 'fastfood';
+    const ids = isFastFood ? fastFoodIds : productIds;
 
     if (!effectiveIsSystem && !sellerId) {
       return res.status(400).json({ error: 'sellerId required for non-system promotions' })
     }
 
-    if (!customImageUrl && (!Array.isArray(productIds) || productIds.length === 0)) {
-      return res.status(400).json({ error: 'Either customImageUrl or productIds required' })
+    if (!customImageUrl && (!Array.isArray(ids) || ids.length === 0)) {
+      return res.status(400).json({ error: 'Either customImageUrl or item IDs required' })
     }
 
-    // verify products belong to seller and approved
-    if (productIds.length > 0 && sellerId) {
+    // verify items belong to seller and are approved (admin can bypass ownership for system promos)
+    if (isFastFood && fastFoodIds.length > 0 && sellerId) {
+      const fastfoods = await FastFood.findAll({
+        where: { id: { [Op.in]: fastFoodIds }, vendor: sellerId },
+        attributes: ['id']
+      })
+      if (fastfoods.length !== fastFoodIds.length) {
+        return res.status(400).json({ error: 'One or more fast food items do not belong to this vendor' })
+      }
+    } else if (!isFastFood && productIds.length > 0 && sellerId) {
       // Admin can feature any seller product — only verify ownership, not approval status
       const prods = await Product.findAll({
         where: { id: { [Op.in]: productIds }, sellerId },
@@ -91,7 +104,7 @@ const createHeroPromotion = async (req, res) => {
     }
 
     const { perDay, perProduct } = await getRateConfig()
-    const amount = (effectiveIsSystem || free) ? 0 : (Number(durationDays) || 0) * (perDay + (productIds.length * perProduct))
+    const amount = (effectiveIsSystem || free) ? 0 : (Number(durationDays) || 0) * (perDay + (ids.length * perProduct))
 
     const start = startAt ? new Date(startAt) : new Date()
     const days = Number(durationDays) || 7
@@ -100,7 +113,9 @@ const createHeroPromotion = async (req, res) => {
 
     const payload = {
       sellerId: sellerId ? Number(sellerId) : null,
-      productIds: Array.isArray(productIds) ? productIds : [],
+      productIds: isFastFood ? [] : (Array.isArray(productIds) ? productIds : []),
+      fastFoodIds: isFastFood ? (Array.isArray(fastFoodIds) ? fastFoodIds : []) : [],
+      promoType,
       durationDays: days,
       slotsCount: Number(slotsCount) || 1,
       amount,
@@ -114,7 +129,8 @@ const createHeroPromotion = async (req, res) => {
       customImageUrl,
       targetUrl,
       isSystem: effectiveIsSystem,
-      isDefault: !!isDefault
+      isDefault: !!isDefault,
+      trustPoints: Array.isArray(trustPoints) ? trustPoints : []
     }
 
     const item = await HeroPromotion.create(payload)
@@ -152,14 +168,22 @@ const createHeroPromotion = async (req, res) => {
 const editHeroPromotion = async (req, res) => {
   try {
     const id = Number(req.params.id)
-    const { productIds, durationDays, slotsCount, startAt, notes, title, subtitle } = req.body || {}
+    const { productIds, fastFoodIds, durationDays, slotsCount, startAt, notes, title, subtitle, customImageUrl, targetUrl, trustPoints } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
 
-    if (Array.isArray(productIds) && productIds.length) {
-      const products = await Product.findAll({ where: { id: { [Op.in]: productIds }, sellerId: item.sellerId }, attributes: ['id'] })
-      if (products.length !== productIds.length) return res.status(400).json({ error: 'One or more products do not belong to this seller' })
-      item.productIds = productIds
+    if (item.promoType === 'fastfood') {
+      if (Array.isArray(fastFoodIds) && fastFoodIds.length) {
+        item.fastFoodIds = fastFoodIds
+      }
+    } else {
+      if (Array.isArray(productIds) && productIds.length) {
+        if (item.sellerId) {
+          const products = await Product.findAll({ where: { id: { [Op.in]: productIds }, sellerId: item.sellerId }, attributes: ['id'] })
+          if (products.length !== productIds.length) return res.status(400).json({ error: 'One or more products do not belong to this seller' })
+        }
+        item.productIds = productIds
+      }
     }
 
     if (durationDays != null) item.durationDays = Number(durationDays) || item.durationDays
@@ -167,10 +191,15 @@ const editHeroPromotion = async (req, res) => {
     if (notes) item.notes = notes
     if (title !== undefined) item.title = title
     if (subtitle !== undefined) item.subtitle = subtitle
+    if (customImageUrl !== undefined) item.customImageUrl = customImageUrl
+    if (targetUrl !== undefined) item.targetUrl = targetUrl
+    if (trustPoints !== undefined) item.trustPoints = Array.isArray(trustPoints) ? trustPoints : []
 
-    if (productIds || durationDays != null) {
+    if (productIds || fastFoodIds || durationDays != null) {
       const { perDay, perProduct } = await getRateConfig()
-      const ids = Array.isArray(item.productIds) ? item.productIds : []
+      const ids = item.promoType === 'fastfood'
+        ? (Array.isArray(item.fastFoodIds) ? item.fastFoodIds : [])
+        : (Array.isArray(item.productIds) ? item.productIds : [])
       item.amount = (Number(item.durationDays) || 0) * (perDay + (ids.length * perProduct))
     }
 
@@ -292,7 +321,7 @@ const markPaymentReceived = async (req, res) => {
 const approveAndSchedule = async (req, res) => {
   try {
     const id = Number(req.params.id)
-    const { startAt, durationDays, slotsCount, title, subtitle } = req.body || {}
+    const { startAt, durationDays, slotsCount, title, subtitle, trustPoints } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
     if (item.paymentStatus !== 'paid') return res.status(400).json({ error: 'Payment not confirmed' })
@@ -310,6 +339,7 @@ const approveAndSchedule = async (req, res) => {
     item.approvedBy = req.user?.id || req.user?.userId
     if (title) item.title = title
     if (subtitle) item.subtitle = subtitle
+    if (trustPoints) item.trustPoints = Array.isArray(trustPoints) ? trustPoints : []
 
     await item.save()
     res.json({ ok: true, item })

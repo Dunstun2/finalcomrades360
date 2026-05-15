@@ -35,7 +35,7 @@ const LiveMenuHero = ({
                 <img
                     src={backgroundImage}
                     alt="Menu Banner"
-                    className="w-full h-full object-cover scale-105 animate-slow-zoom"
+                    className="w-full h-full object-cover"
                 />
             )}
 

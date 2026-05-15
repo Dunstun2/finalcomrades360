@@ -11,6 +11,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ProtectedRoute from './components/ProtectedRoute';
 import ReferrerBanner from './components/ReferrerBanner';
+import VerificationNotice from './components/VerificationNotice';
 import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
 import api from './services/api';
 import { ToastContainer } from 'react-toastify';
@@ -172,6 +173,7 @@ const EnhancedCategories = lazy(() => import('./pages/dashboard/EnhancedCategori
 const SystemSettings = lazy(() => import('./pages/dashboard/SystemSettings'));
 const SecuritySettings = lazy(() => import('./pages/dashboard/SecuritySettings'));
 const AdvancedReports = lazy(() => import('./pages/dashboard/AdvancedReports'));
+const BusinessAnalytics = lazy(() => import('./pages/dashboard/analytics/BusinessAnalytics'));
 const AdminOrders = lazy(() => import('./pages/dashboard/AdminOrders'));
 const AdminReturnsList = lazy(() => import('./pages/dashboard/AdminReturnsList'));
 const SuperAdminOrders = lazy(() => import('./pages/dashboard/SuperAdminOrders'));
@@ -426,6 +428,8 @@ const AppContent = () => {
           <div className="min-h-screen bg-gray-50 flex flex-col">
             {!hideNavbar && (isMarketingMode ? <MarketingNavbar /> : <Navbar />)}
             
+            <VerificationNotice />
+            
             {hasReferrerBanner && (
               <div className={paddingClass}>
                 <ReferrerBanner referrerName={referrerName} onClear={handleClearReferrer} />
@@ -539,6 +543,7 @@ const AppContent = () => {
                   <Route path="delivery/pickup-stations" element={<PickupStationManagement />} />
                   <Route path="delivery/settings" element={<DeliveryFeeSettings />} />
                   <Route path="delivery/metrics" element={<AdvancedReports />} />
+                  <Route path="analytics/business" element={<BusinessAnalytics />} />
                   <Route path="finance/dashboard" element={<FinanceManager />} />
                   <Route path="finance/commissions" element={<CommissionManagement />} />
                   <Route path="finance/referrals" element={<ReferralAnalytics />} />

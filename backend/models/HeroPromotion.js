@@ -40,6 +40,15 @@ module.exports = (sequelize, DataTypes) => {
     isSystem: { type: DataTypes.BOOLEAN, defaultValue: false },
     isDefault: { type: DataTypes.BOOLEAN, defaultValue: false },
     priority: { type: DataTypes.INTEGER, defaultValue: 0 },
+    trustPoints: {
+      type: DataTypes.TEXT, // JSON array of { icon: string, text: string }
+      allowNull: true,
+      get() {
+        const raw = this.getDataValue('trustPoints')
+        try { return JSON.parse(raw || '[]') } catch { return [] }
+      },
+      set(v) { this.setDataValue('trustPoints', JSON.stringify(v || [])) }
+    },
   }, { 
     timestamps: true,
     hooks: {

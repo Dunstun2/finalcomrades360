@@ -25,6 +25,7 @@ export default function AdminHeroPromotions() {
   const [notes, setNotes] = useState('')
   const [promoTitle, setPromoTitle] = useState('')
   const [promoSubtitle, setPromoSubtitle] = useState('')
+  const [trustPoints, setTrustPoints] = useState([])
   const [actionLoading, setActionLoading] = useState(false)
 
   // Resolve backend file URLs (e.g., /uploads/...) to absolute using API base
@@ -136,6 +137,11 @@ export default function AdminHeroPromotions() {
     setNotes('')
     setPromoTitle(app.title || '')
     setPromoSubtitle(app.subtitle || '')
+    setTrustPoints(app.trustPoints || [
+      { icon: '🚀', text: 'Fast Delivery' },
+      { icon: '✅', text: 'Verified' },
+      { icon: '🎓', text: 'Student Choice' }
+    ])
   }
 
   const openStatusModal = (app) => {
@@ -152,7 +158,8 @@ export default function AdminHeroPromotions() {
       if (modalAction === 'approve') {
         const body = {
           title: promoTitle,
-          subtitle: promoSubtitle
+          subtitle: promoSubtitle,
+          trustPoints: trustPoints
         }
         if (startAt) body.startAt = new Date(startAt)
         await api.post(`/admin/hero-promotions/applications/${selectedApp.id}/approve`, body)
@@ -615,6 +622,53 @@ export default function AdminHeroPromotions() {
                       </div>
                       <p className="text-xs text-gray-500 mt-1">Promotion will end automatically after {selectedApp.durationDays} days.</p>
                     </div>
+
+                    {/* Trust Markers Section */}
+                    <div className="space-y-4 pt-4 border-t border-dashed">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-bold text-gray-700 uppercase tracking-widest">Trust & Speed Markers</div>
+                        <button 
+                          type="button"
+                          className="text-xs font-black text-emerald-600 hover:underline flex items-center gap-1"
+                          onClick={() => setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }])}
+                        >
+                          + Add Marker
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {trustPoints.map((tp, idx) => (
+                          <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
+                            <input 
+                              className="w-10 text-center border-b outline-none focus:border-emerald-500"
+                              value={tp.icon} 
+                              onChange={e => {
+                                const next = [...trustPoints];
+                                next[idx].icon = e.target.value;
+                                setTrustPoints(next);
+                              }}
+                            />
+                            <input 
+                              className="flex-1 text-xs font-medium outline-none border-b focus:border-emerald-500"
+                              placeholder="Marker text..."
+                              value={tp.text} 
+                              onChange={e => {
+                                const next = [...trustPoints];
+                                next[idx].text = e.target.value;
+                                setTrustPoints(next);
+                              }}
+                            />
+                            <button 
+                              type="button"
+                              className="text-gray-400 hover:text-red-500 transition-colors"
+                              onClick={() => setTrustPoints(trustPoints.filter((_, i) => i !== idx))}
+                            >
+                              <FaTimesCircle size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     <button
                       disabled={actionLoading}
                       onClick={handleModalAction}

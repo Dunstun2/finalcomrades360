@@ -5,6 +5,7 @@ import { FaHeart, FaMapMarkerAlt, FaLocationArrow } from 'react-icons/fa';
 import { resolveImageUrl, FALLBACK_IMAGE, getResizedImageUrl } from '../utils/imageUtils';
 import { useImageVersion } from '../hooks/useImageVersion';
 import serviceApi from '../services/serviceApi';
+import api from '../services/api';
 
 export default function ServiceCard({
   service,
@@ -23,6 +24,20 @@ export default function ServiceCard({
   const { toast } = useToast();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const isWishlisted = isInWishlist(service.id, 'service');
+
+  const logAction = async (actionType) => {
+    try {
+      await api.post('/analytics/log-action', {
+        itemId: service.id,
+        itemType: 'service',
+        actionType,
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: authUser?.id
+      });
+    } catch (err) {
+      console.warn(`[Analytics] ${actionType} tracking failed:`, err.message);
+    }
+  };
 
   // Use image versioning for consistent image updates
   let imageUrls = service.images || [];
@@ -87,6 +102,7 @@ export default function ServiceCard({
     if (onView) {
       onView(service);
     } else {
+      logAction('click');
       navigate(`/service/${service.id}`);
     }
   };

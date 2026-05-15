@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, User, Payment, DeliveryTask, Commission, SiteVisit, sequelize } = require('../models');
+const { Order, OrderItem, Product, User, Payment, DeliveryTask, Commission, SiteVisit, ProductView, MarketingAnalytics, sequelize } = require('../models');
 console.error('🚀 ANALYTICS CONTROLLER LOADING...');
 const { Op, fn, col, literal } = require('sequelize');
 
@@ -14,6 +14,8 @@ const getHistoricalTrends = async (req, res) => {
     
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+
+    if (endDate) end.setHours(23, 59, 59, 999);
 
     // Determine date grouping based on interval
     let dateFormat;
@@ -100,7 +102,7 @@ const getRevenueForecast = async (req, res) => {
         [fn('YEAR', col('createdAt')), 'year'],
         [fn('MONTH', col('createdAt')), 'month'],
         [fn('SUM', col('total')), 'revenue'],
-        [fn('COUNT', col('id')), 'orderCount']
+        [fn('COUNT', col('OrderItem.id')), 'orderCount']
       ],
       where: {
         createdAt: { [Op.gte]: sixMonthsAgo },
@@ -261,6 +263,8 @@ const getDeliveryEfficiencyMetrics = async (req, res) => {
     
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+    
+    if (endDate) end.setHours(23, 59, 59, 999);
 
     // Overall delivery stats
     const totalDeliveries = await DeliveryTask.count({
@@ -357,6 +361,8 @@ const getMarketingCampaignROI = async (req, res) => {
     
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+    
+    if (endDate) end.setHours(23, 59, 59, 999);
 
     const isSqlite = sequelize.getDialect() === 'sqlite';
 
@@ -389,7 +395,7 @@ const getMarketingCampaignROI = async (req, res) => {
           createdAt: { [Op.between]: [start, end] }
         },
         attributes: [
-          [fn('COUNT', col('id')), 'orderCount'],
+          [fn('COUNT', col('OrderItem.id')), 'orderCount'],
           [fn('SUM', col('total')), 'totalRevenue']
         ],
         raw: true
@@ -467,28 +473,60 @@ const getMarketingCampaignROI = async (req, res) => {
 const getGeneralOverview = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    if (endDate) end.setHours(23, 59, 59, 999);
+    
+    // Calculate the duration of the current period to get the previous period
+    const duration = end.getTime() - start.getTime();
+    const prevStart = new Date(start.getTime() - duration);
+    const prevEnd = new Date(start.getTime() - 1); // 1ms before current period start
 
     const [
       totalUsers,
       totalOrders,
       totalRevenue,
       totalProducts,
-      activeUsers
+      // Current Period Stats
+      periodOrders,
+      periodRevenue,
+      periodNewUsers,
+      periodActiveSessions,
+      // Previous Period Stats (for growth)
+      prevPeriodOrders,
+      prevPeriodRevenue,
+      prevPeriodNewUsers,
+      prevPeriodActiveSessions
     ] = await Promise.all([
       User.count(),
       Order.count({ where: { status: { [Op.in]: ['completed', 'delivered'] } } }),
       Order.sum('total', { where: { status: { [Op.in]: ['completed', 'delivered'] } } }),
       Product.count(),
-      Order.count({
-        distinct: true,
-        col: 'userId',
-        where: { createdAt: { [Op.between]: [start, end] } }
-      })
+      
+      // Current
+      Order.count({ where: { createdAt: { [Op.between]: [start, end] }, status: { [Op.in]: ['completed', 'delivered'] } } }),
+      Order.sum('total', { where: { createdAt: { [Op.between]: [start, end] }, status: { [Op.in]: ['completed', 'delivered'] } } }),
+      User.count({ where: { createdAt: { [Op.between]: [start, end] } } }),
+      SiteVisit.count({ distinct: true, col: 'sessionId', where: { createdAt: { [Op.between]: [start, end] } } }),
+
+      // Previous
+      Order.count({ where: { createdAt: { [Op.between]: [prevStart, prevEnd] }, status: { [Op.in]: ['completed', 'delivered'] } } }),
+      Order.sum('total', { where: { createdAt: { [Op.between]: [prevStart, prevEnd] }, status: { [Op.in]: ['completed', 'delivered'] } } }),
+      User.count({ where: { createdAt: { [Op.between]: [prevStart, prevEnd] } } }),
+      SiteVisit.count({ distinct: true, col: 'sessionId', where: { createdAt: { [Op.between]: [prevStart, prevEnd] } } })
     ]);
 
+    const calculateGrowth = (current, previous) => {
+      current = Number(current || 0);
+      previous = Number(previous || 0);
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return parseFloat(((current - previous) / previous * 100).toFixed(2));
+    };
+
     const conversionRate = totalUsers > 0 ? (totalOrders / totalUsers) * 100 : 0;
+    const periodConversionRate = periodActiveSessions > 0 ? (periodOrders / periodActiveSessions) * 100 : 0;
+    const prevPeriodConversionRate = prevPeriodActiveSessions > 0 ? (prevPeriodOrders / prevPeriodActiveSessions) * 100 : 0;
 
     res.json({
       success: true,
@@ -497,8 +535,28 @@ const getGeneralOverview = async (req, res) => {
         totalOrders,
         totalRevenue: parseFloat(totalRevenue || 0),
         totalProducts,
-        activeUsers,
-        conversionRate: parseFloat(conversionRate.toFixed(2))
+        activeUsers: periodActiveSessions, // More accurate active users (visitors)
+        conversionRate: parseFloat(conversionRate.toFixed(2)),
+        
+        // Detailed Period Metrics
+        period: {
+          start,
+          end,
+          orders: periodOrders,
+          revenue: parseFloat(periodRevenue || 0),
+          newUsers: periodNewUsers,
+          activeUsers: periodActiveSessions,
+          conversionRate: parseFloat(periodConversionRate.toFixed(2))
+        },
+        
+        // Growth comparison
+        growth: {
+          orders: calculateGrowth(periodOrders, prevPeriodOrders),
+          revenue: calculateGrowth(periodRevenue, prevPeriodRevenue),
+          users: calculateGrowth(periodNewUsers, prevPeriodNewUsers),
+          activeUsers: calculateGrowth(periodActiveSessions, prevPeriodActiveSessions),
+          conversionRate: calculateGrowth(periodConversionRate, prevPeriodConversionRate)
+        }
       }
     });
   } catch (error) {
@@ -626,9 +684,66 @@ const logSiteVisit = async (req, res) => {
       isUnique: !existingVisit
     });
 
+    // Auto-detect item views from path
+    if (path.startsWith('/product/') || path.startsWith('/fastfood/') || path.startsWith('/service/')) {
+      const parts = path.split('/');
+      const itemId = Number(parts[parts.length - 1]);
+      let itemType = 'product';
+      if (path.startsWith('/fastfood/')) itemType = 'fastfood';
+      if (path.startsWith('/service/')) itemType = 'service';
+
+      if (itemId && !isNaN(itemId)) {
+        // Log to ProductView asynchronously
+        ProductView.create({
+          productId: itemType === 'product' ? itemId : null,
+          fastFoodId: itemType === 'fastfood' ? itemId : null,
+          serviceId: itemType === 'service' ? itemId : null,
+          userId: userId || null,
+          ipAddress,
+          userAgent: req.headers['user-agent'],
+          sessionId,
+          deviceType,
+          referralSource: referrer ? (referrer.includes('facebook') ? 'facebook' : referrer.includes('twitter') ? 'twitter' : 'direct') : 'direct'
+        }).catch(err => console.error('Error auto-logging item view:', err.message));
+      }
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error logging site visit:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Log specific item actions (click, share)
+const logItemAction = async (req, res) => {
+  try {
+    const { itemId, itemType, actionType, platform = 'direct', sessionId, userId, metadata = {} } = req.body;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    const deviceType = /Mobile|Android|iPhone/i.test(userAgent) ? 'mobile' : 'desktop';
+
+    await MarketingAnalytics.create({
+      productId: itemType === 'product' ? itemId : null,
+      fastFoodId: itemType === 'fastfood' ? itemId : null,
+      serviceId: itemType === 'service' ? itemId : null,
+      actionType, // 'click', 'share', 'conversion'
+      platform,
+      userId: userId || null,
+      ipAddress,
+      userAgent,
+      deviceType,
+      sessionId,
+      metadata: {
+        ...metadata,
+        sessionId,
+        timestamp: new Date()
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error logging item action:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
@@ -639,6 +754,8 @@ const getTrafficStats = async (req, res) => {
     const { period = 'day', startDate, endDate } = req.query;
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
+    
+    if (endDate) end.setHours(23, 59, 59, 999);
     const isSqlite = sequelize.getDialect() === 'sqlite';
 
     let dateFormat;
@@ -648,62 +765,229 @@ const getTrafficStats = async (req, res) => {
       dateFormat = period === 'month' ? "%Y-%m" : period === 'year' ? "%Y" : "%Y-%m-%d";
     }
 
-    const trafficTrend = await SiteVisit.findAll({
-      attributes: [
-        [isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat), 'date'],
-        [fn('COUNT', col('id')), 'visits'],
-        [fn('COUNT', literal('DISTINCT sessionId')), 'uniqueVisitors']
-      ],
-      where: { createdAt: { [Op.between]: [start, end] } },
-      group: [isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat)],
-      order: [[isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat), 'ASC']],
-      raw: true
-    });
+    const [trafficTrend, topPages, deviceStats, totalOrders, totalUniqueVisitors, totalVisits] = await Promise.all([
+      SiteVisit.findAll({
+        attributes: [
+          [isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat), 'date'],
+          [fn('COUNT', col('id')), 'visits'],
+          [fn('COUNT', literal('DISTINCT sessionId')), 'uniqueVisitors']
+        ],
+        where: { createdAt: { [Op.between]: [start, end] } },
+        group: [isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat)],
+        order: [[isSqlite ? literal(dateFormat) : fn('DATE_FORMAT', col('createdAt'), dateFormat), 'ASC']],
+        raw: true
+      }),
+      SiteVisit.findAll({
+        attributes: [
+          'path',
+          [fn('COUNT', col('id')), 'visits'],
+          [fn('COUNT', literal('DISTINCT sessionId')), 'uniqueVisitors']
+        ],
+        where: { createdAt: { [Op.between]: [start, end] } },
+        group: ['path'],
+        order: [[fn('COUNT', col('id')), 'DESC']],
+        limit: 10,
+        raw: true
+      }),
+      SiteVisit.findAll({
+        attributes: [
+          'deviceType',
+          [fn('COUNT', col('id')), 'count']
+        ],
+        where: { createdAt: { [Op.between]: [start, end] } },
+        group: ['deviceType'],
+        raw: true
+      }),
+      Order.count({
+        where: { createdAt: { [Op.between]: [start, end] }, status: { [Op.in]: ['completed', 'delivered'] } }
+      }),
+      SiteVisit.count({
+        distinct: true,
+        col: 'sessionId',
+        where: { createdAt: { [Op.between]: [start, end] } }
+      }),
+      SiteVisit.count({
+        where: { createdAt: { [Op.between]: [start, end] } }
+      })
+    ]);
 
-    // Top Pages
-    const topPages = await SiteVisit.findAll({
-      attributes: [
-        'path',
-        [fn('COUNT', col('id')), 'visits'],
-        [fn('COUNT', literal('DISTINCT sessionId')), 'uniqueVisitors']
-      ],
-      where: { createdAt: { [Op.between]: [start, end] } },
-      group: ['path'],
-      order: [[fn('COUNT', col('id')), 'DESC']],
-      limit: 10,
-      raw: true
-    });
-
-    // Device distribution
-    const deviceStats = await SiteVisit.findAll({
-      attributes: [
-        'deviceType',
-        [fn('COUNT', col('id')), 'count']
-      ],
-      where: { createdAt: { [Op.between]: [start, end] } },
-      group: ['deviceType'],
-      raw: true
-    });
-
-    // Total Orders for conversion rate
-    const totalOrders = await Order.count({
-      where: { createdAt: { [Op.between]: [start, end] } }
-    });
-    
     res.json({
       success: true,
       trends: trafficTrend,
       topPages,
       deviceStats,
       summary: {
-        totalVisits: trafficTrend.reduce((sum, t) => sum + parseInt(t.visits || 0), 0),
-        totalUniqueVisitors: trafficTrend.reduce((sum, t) => sum + parseInt(t.uniqueVisitors || 0), 0),
+        totalVisits: parseInt(totalVisits || 0),
+        totalUniqueVisitors: parseInt(totalUniqueVisitors || 0),
         totalOrders
       }
     });
   } catch (error) {
     console.error('Error fetching traffic stats:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch traffic stats', error: error.message });
+  }
+};
+
+// Get High-End Business Health Analytics (Shopify/Amazon Style)
+const getBusinessHealthAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    if (endDate) end.setHours(23, 59, 59, 999);
+    const isSqlite = sequelize.getDialect() === 'sqlite';
+
+    // 1. Run core queries in parallel
+    const [
+      financials,
+      categoryDistribution,
+      topVendorsRaw,
+      retentionRaw,
+      operationalRaw,
+      cancellationStats
+    ] = await Promise.all([
+      // Financials
+      Order.findOne({
+        where: { createdAt: { [Op.between]: [start, end] }, status: { [Op.in]: ['completed', 'delivered'] } },
+        attributes: [
+          [fn('SUM', col('total')), 'gmv'],
+          [fn('COUNT', col('Order.id')), 'totalOrders'],
+          [fn('AVG', col('total')), 'aov']
+        ],
+        raw: true
+      }),
+      // Revenue Mix by Category Type
+      OrderItem.findAll({
+        where: { createdAt: { [Op.between]: [start, end] } },
+        include: [{ 
+          model: Order, 
+          where: { status: { [Op.in]: ['completed', 'delivered'] } },
+          attributes: [] // We only need the filter
+        }],
+        attributes: [
+          'itemType',
+          [fn('SUM', col('OrderItem.total')), 'revenue'],
+          [fn('COUNT', col('OrderItem.id')), 'itemCount']
+        ],
+        group: ['itemType'],
+        raw: true
+      }),
+      // Vendor Performance Matrix
+      OrderItem.findAll({
+        where: { createdAt: { [Op.between]: [start, end] } },
+        include: [
+          { 
+            model: Order, 
+            where: { status: { [Op.in]: ['completed', 'delivered'] } },
+            attributes: [] 
+          },
+          { 
+            model: User, 
+            as: 'seller', 
+            attributes: ['id', 'name', 'businessName'] 
+          }
+        ],
+        attributes: [
+          'OrderItem.sellerId',
+          [fn('SUM', col('OrderItem.total')), 'revenue'],
+          [fn('COUNT', col('OrderItem.id')), 'orderCount'],
+          [fn('SUM', col('quantity')), 'unitsSold']
+        ],
+        group: ['OrderItem.sellerId', 'seller.id', 'seller.name', 'seller.businessName'],
+        order: [[literal('revenue'), 'DESC']],
+        limit: 10,
+        raw: false
+      }),
+      // Customer Retention Stats
+      Order.findAll({
+        where: { createdAt: { [Op.between]: [start, end] } },
+        attributes: ['userId'],
+        raw: true
+      }),
+      // Operational Performance
+      DeliveryTask.findAll({
+        where: { 
+          createdAt: { [Op.between]: [start, end] }, 
+          status: { [Op.in]: ['completed', 'delivered'] },
+          completedAt: { [Op.ne]: null },
+          assignedAt: { [Op.ne]: null }
+        },
+        attributes: ['assignedAt', 'completedAt'],
+        raw: true
+      }),
+      // Cancellations
+      Order.count({
+        where: { createdAt: { [Op.between]: [start, end] }, status: 'cancelled' }
+      })
+    ]);
+
+    // 2. Post-process Retention (Identify Returning Customers)
+    const uniqueUserIds = [...new Set(retentionRaw.map(o => o.userId))];
+    let returningCustomersCount = 0;
+    if (uniqueUserIds.length > 0) {
+      const returningBuyers = await Order.findAll({
+        attributes: ['userId', [fn('COUNT', col('Order.id')), 'prevCount']],
+        where: {
+          userId: { [Op.in]: uniqueUserIds },
+          createdAt: { [Op.lt]: start } // Orders before this period
+        },
+        group: ['userId'],
+        raw: true
+      });
+      returningCustomersCount = returningBuyers.length;
+    }
+
+    // 3. Post-process Operational Metrics
+    let totalHours = 0;
+    operationalRaw.forEach(task => {
+      const diff = new Date(task.completedAt) - new Date(task.assignedAt);
+      totalHours += (diff / (1000 * 60 * 60));
+    });
+    const avgFulfillmentHours = operationalRaw.length > 0 ? (totalHours / operationalRaw.length) : 0;
+
+    // 4. Final Aggregation
+    const gmv = parseFloat(financials?.gmv || 0);
+    const orderCount = parseInt(financials?.totalOrders || 0);
+    const aov = orderCount > 0 ? gmv / orderCount : 0;
+    const rcr = uniqueUserIds.length > 0 ? (returningCustomersCount / uniqueUserIds.length) * 100 : 0;
+    const cancellationRate = (orderCount + cancellationStats) > 0 ? (cancellationStats / (orderCount + cancellationStats)) * 100 : 0;
+
+    res.json({
+      success: true,
+      data: {
+        financials: {
+          gmv: Number(gmv.toFixed(2)),
+          orders: orderCount,
+          aov: Number(aov.toFixed(2)),
+          revenueMix: categoryDistribution.map(c => ({
+            type: c.itemType,
+            revenue: parseFloat(c.revenue || 0),
+            share: gmv > 0 ? ((parseFloat(c.revenue || 0) / gmv) * 100).toFixed(1) : 0
+          }))
+        },
+        retention: {
+          totalUniqueBuyers: uniqueUserIds.length,
+          returningBuyers: returningCustomersCount,
+          returningCustomerRate: Number(rcr.toFixed(2))
+        },
+        operations: {
+          avgFulfillmentHours: Number(avgFulfillmentHours.toFixed(2)),
+          cancellationRate: Number(cancellationRate.toFixed(2)),
+          totalCancellations: cancellationStats
+        },
+        vendors: topVendorsRaw.map(v => ({
+          id: v.dataValues.sellerId ?? v.seller?.id,
+          name: v.seller?.businessName || v.seller?.name || 'Unknown',
+          revenue: parseFloat(v.dataValues.revenue || 0),
+          orders: parseInt(v.dataValues.orderCount || 0),
+          unitsSold: parseInt(v.dataValues.unitsSold || 0)
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching business health analytics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch business analytics', error: error.message });
   }
 };
 
@@ -716,5 +1000,7 @@ module.exports = {
   getMarketingCampaignROI,
   getGrowthPosterData,
   logSiteVisit,
-  getTrafficStats
+  logItemAction,
+  getTrafficStats,
+  getBusinessHealthAnalytics
 };

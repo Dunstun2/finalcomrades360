@@ -453,6 +453,20 @@ export default function ProductDetails() {
 
    const [primaryButtonBusy, setPrimaryButtonBusy] = useState(false);
 
+  const logAction = async (actionType) => {
+    try {
+      await api.post('/analytics/log-action', {
+        itemId: id,
+        itemType: 'product',
+        actionType,
+        sessionId: sessionStorage.getItem('site_session_id'),
+        userId: authUser?.id
+      });
+    } catch (err) {
+      console.warn(`[Analytics] ${actionType} tracking failed:`, err.message);
+    }
+  };
+
   const addToCartHandler = async () => {
     if (primaryButtonBusy) return;
     setPrimaryButtonBusy(true);
@@ -472,6 +486,9 @@ export default function ProductDetails() {
           await removeFromCart(id);
         }
       } else {
+        // Log conversion (Add to Cart)
+        logAction('conversion');
+
         if (hasProductVariants && defaultVariantRow) {
           await addToCart(id, 1, {
             type: 'product',
@@ -497,6 +514,7 @@ export default function ProductDetails() {
 
   const buyNow = async () => {
     try {
+      logAction('conversion');
       await addToCart(id, 1, { product });
       navigate('/cart');
     } catch (e) {

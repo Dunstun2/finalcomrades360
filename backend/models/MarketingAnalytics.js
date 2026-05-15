@@ -3,8 +3,10 @@ const { DataTypes } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   const MarketingAnalytics = sequelize.define("MarketingAnalytics", {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  marketerId: { type: DataTypes.INTEGER, allowNull: false },
-  productId: { type: DataTypes.INTEGER, allowNull: false },
+  marketerId: { type: DataTypes.INTEGER, allowNull: true },
+  productId: { type: DataTypes.INTEGER, allowNull: true },
+  fastFoodId: { type: DataTypes.INTEGER, allowNull: true },
+  serviceId: { type: DataTypes.INTEGER, allowNull: true },
   platform: { type: DataTypes.STRING, allowNull: false }, // 'whatsapp', 'facebook', 'twitter', 'instagram', 'telegram', 'tiktok'
   actionType: { type: DataTypes.STRING, allowNull: false }, // 'share', 'click', 'view', 'conversion'
   userId: { type: DataTypes.INTEGER }, // null for anonymous actions
@@ -27,6 +29,8 @@ module.exports = (sequelize, DataTypes) => {
   MarketingAnalytics.associate = (models) => {
     MarketingAnalytics.belongsTo(models.User, { foreignKey: 'marketerId', as: 'Marketer' });
     MarketingAnalytics.belongsTo(models.Product, { foreignKey: 'productId' });
+    MarketingAnalytics.belongsTo(models.FastFood, { foreignKey: 'fastFoodId' });
+    MarketingAnalytics.belongsTo(models.Service, { foreignKey: 'serviceId' });
     MarketingAnalytics.belongsTo(models.User, { foreignKey: 'userId', as: 'Customer' });
   };
 

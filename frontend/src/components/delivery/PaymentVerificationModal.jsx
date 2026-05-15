@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { FaMoneyBillWave, FaCheckCircle, FaSpinner, FaExclamationTriangle, FaMobileAlt, FaWallet, FaBan, FaShieldAlt, FaTimes } from 'react-icons/fa';
+import { FaMoneyBillWave, FaCheckCircle, FaSpinner, FaExclamationTriangle, FaMobileAlt, FaWallet, FaBan, FaShieldAlt, FaTimes, FaSearch, FaReceipt } from 'react-icons/fa';
 import api from '../../services/api';
 
 const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified }) => {
     const [loading, setLoading] = useState(false);
-    const [walletLoading, setWalletLoading] = useState(false);
-    const [phoneNumber, setPhoneNumber] = useState('');
+    const [receiptNumber, setReceiptNumber] = useState('');
     const [paymentStatus, setPaymentStatus] = useState('pending'); // pending, processing, completed, failed
     const [paymentId, setPaymentId] = useState(null);
     const [error, setError] = useState(null);
     const [pollInterval, setPollInterval] = useState(null);
-    const [walletBalance, setWalletBalance] = useState(null);
 
     useEffect(() => {
         if (isOpen && order) {
-            setPhoneNumber(order.customerPhone || '');
+            setReceiptNumber('');
             if (order.paymentConfirmed) {
                 setPaymentStatus('completed');
             } else {
                 setPaymentStatus('pending');
-                fetchWalletBalance();
                 checkExistingPayment();
             }
             setError(null);
@@ -43,19 +40,6 @@ const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified })
             }
         } catch (err) {
             console.error('Failed to check existing payments:', err);
-        }
-    };
-
-    const fetchWalletBalance = async () => {
-        if (!order?.userId) return;
-        try {
-            setWalletLoading(true);
-            const res = await api.get(`/users/${order.userId}/wallet`);
-            setWalletBalance(res.data.balance || 0);
-        } catch (err) {
-            console.error('Failed to fetch wallet balance:', err);
-        } finally {
-            setWalletLoading(false);
         }
     };
 
@@ -84,44 +68,25 @@ const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified })
         }
     }, [paymentId, paymentStatus]);
 
-    const handleInitiateMpesa = async (e) => {
+    const handleVerifyReceipt = async (e) => {
         e?.preventDefault();
-        if (!phoneNumber) return;
+        if (!receiptNumber) return;
 
         try {
             setLoading(true);
             setError(null);
 
-            const res = await api.post('/payments/mpesa/initiate', {
+            const res = await api.post('/payments/verify', {
                 orderId: order.id,
-                phoneNumber: phoneNumber,
-                amount: order.total
+                manual: true,
+                verificationData: { method: 'mpesa_receipt', receiptNumber }
             });
 
             if (res.data.success) {
-                setPaymentId(res.data.payment.id);
-                setPaymentStatus('processing');
-            }
-        } catch (err) {
-            setError(err.response?.data?.message || 'Failed to initiate M-Pesa payment');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handlePayViaWallet = async () => {
-        if (!window.confirm(`Deduct KES ${order.total} from customer's wallet?`)) return;
-
-        try {
-            setLoading(true);
-            setError(null);
-            const res = await api.post('/payments/wallet/pay', { orderId: order.id });
-            if (res.data.success) {
                 setPaymentStatus('completed');
-                setWalletBalance(res.data.order.walletBalance);
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to process wallet payment');
+            setError(err.response?.data?.message || 'Failed to verify M-Pesa receipt');
         } finally {
             setLoading(false);
         }
@@ -214,65 +179,50 @@ const PaymentVerificationModal = ({ isOpen, onClose, order, onPaymentVerified })
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {/* Security Warning */}
-                            <div className="flex items-center gap-3 p-4 bg-red-50 border-l-4 border-red-500 rounded-xl mb-6">
-                                <FaBan className="text-red-500 text-xl flex-shrink-0" />
-                                <p className="text-[11px] text-red-700 font-black leading-tight uppercase">
-                                    No Cash Allowed! <span className="block font-medium normal-case text-red-600">All payments must be processed via the system for tracking and security.</span>
+                            {/* Security Banner */}
+                            <div className="flex items-center gap-3 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-xl mb-6">
+                                <FaShieldAlt className="text-amber-500 text-xl flex-shrink-0" />
+                                <p className="text-[11px] text-amber-800 font-black leading-tight uppercase">
+                                    Verify Payment Status. <span className="block font-medium normal-case text-amber-700">Check M-Pesa receipts or manually confirm payment if evidence is provided.</span>
                                 </p>
                             </div>
 
-                            {/* Wallet Option */}
-                            <div className="group bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-2xl p-4 transition-all duration-200 cursor-pointer relative overflow-hidden" onClick={handlePayViaWallet}>
-                                <FaWallet className="absolute -bottom-4 -right-4 text-blue-200/50 text-8xl rotate-12 transition-transform group-hover:scale-110" />
-                                <div className="relative z-10 flex justify-between items-center">
-                                    <div>
-                                        <h5 className="font-black text-blue-900 text-sm flex items-center gap-2">
-                                            PAY VIA WALLET
-                                        </h5>
-                                        <p className="text-[10px] text-blue-700 font-bold uppercase tracking-wider mt-1">
-                                            Balance: {walletLoading ? 'Checking...' : `KES ${walletBalance?.toLocaleString() || 0}`}
-                                        </p>
-                                    </div>
-                                    <div className="text-blue-600 animate-pulse">
-                                        {loading ? <FaSpinner className="animate-spin" /> : <div className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md">Pay</div>}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* M-Pesa Option */}
+                            {/* Verify M-Pesa Receipt Option */}
                             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 shadow-sm">
                                 <h5 className="font-black text-emerald-900 text-sm flex items-center gap-2 mb-4">
-                                    <FaMobileAlt /> M-PESA STK PUSH
+                                    <FaSearch /> VERIFY M-PESA RECEIPT
                                 </h5>
 
                                 {paymentStatus === 'processing' ? (
                                     <div className="p-6 bg-white rounded-xl border border-emerald-100 shadow-inner text-center">
                                         <FaSpinner className="animate-spin text-emerald-500 text-4xl mx-auto mb-3" />
                                         <p className="text-sm font-black text-emerald-900 uppercase italic">Confirming Payment...</p>
-                                        <p className="text-[10px] text-gray-500 mt-1">Check terminal at {phoneNumber}</p>
+                                        <p className="text-[10px] text-gray-500 mt-1">Verifying receipt {receiptNumber}</p>
                                     </div>
                                 ) : (
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="tel"
-                                            value={phoneNumber}
-                                            onChange={(e) => setPhoneNumber(e.target.value)}
-                                            placeholder="Phonenumber"
-                                            className="flex-1 px-4 py-3 bg-white border-2 border-emerald-100 rounded-xl text-sm font-bold outline-none focus:border-emerald-500 transition-all text-gray-900"
-                                        />
-                                        <button
-                                            onClick={handleInitiateMpesa}
-                                            disabled={loading || !phoneNumber}
-                                            className="bg-emerald-600 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-200 transition-all"
-                                        >
-                                            PUSH
-                                        </button>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={receiptNumber}
+                                                onChange={(e) => setReceiptNumber(e.target.value.toUpperCase())}
+                                                placeholder="Enter M-Pesa Receipt No."
+                                                className="flex-1 px-4 py-3 bg-white border-2 border-emerald-100 rounded-xl text-sm font-bold outline-none focus:border-emerald-500 transition-all text-gray-900 uppercase"
+                                            />
+                                            <button
+                                                onClick={handleVerifyReceipt}
+                                                disabled={loading || !receiptNumber}
+                                                className="bg-emerald-600 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <FaReceipt className="text-emerald-200" />
+                                                CHECK
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                                 {error && (
                                     <div className="mt-3 flex items-center gap-2 text-red-500 animate-shake">
-                                        <FaExclamationTriangle className="text-xs" />
+                                        <FaExclamationTriangle className="text-xs flex-shrink-0" />
                                         <p className="text-[10px] font-bold italic">{error}</p>
                                     </div>
                                 )}

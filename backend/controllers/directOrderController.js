@@ -7,6 +7,7 @@ const { calculateItemCommission } = require('../utils/commissionUtils');
 const { notifyCustomerOrderPlaced, notifyMarketerOrderPlaced, notifySellerOrderPlaced } = require('../utils/notificationHelpers');
 const { sequelize } = require('../database/database');
 const { normalizeKenyanPhone } = require('../middleware/validators');
+const { isFastFoodOpen } = require('../utils/fastFoodUtils');
 
 /**
  * Determines if a string is likely an address based on patterns
@@ -252,7 +253,8 @@ exports.parseDirectOrder = async (req, res) => {
                             name: m.name, 
                             price: m.displayPrice || m.basePrice, 
                             sellerId: isFF ? m.vendor : m.sellerId,
-                            type: isFF ? 'fastfood' : 'product'
+                            type: isFF ? 'fastfood' : 'product',
+                            isOpen: isFF ? isFastFoodOpen(m) : true
                         });
                     }
 
@@ -263,7 +265,14 @@ exports.parseDirectOrder = async (req, res) => {
                         for (const v of variants) {
                             const vName = v.name || v.size || '';
                             if (vName.toLowerCase().includes(searchLower)) {
-                                itemMatches.push({ id: `${m.id}_variant_${v.id || vName}`, name: `${m.name} (${vName})`, price: v.discountPrice || v.displayPrice || m.displayPrice, sellerId: m.vendor, type: 'fastfood' });
+                                itemMatches.push({ 
+                                    id: `${m.id}_variant_${v.id || vName}`, 
+                                    name: `${m.name} (${vName})`, 
+                                    price: v.discountPrice || v.displayPrice || m.displayPrice, 
+                                    sellerId: m.vendor, 
+                                    type: 'fastfood',
+                                    isOpen: isFastFoodOpen(m)
+                                });
                             }
                         }
                         
@@ -272,7 +281,14 @@ exports.parseDirectOrder = async (req, res) => {
                         for (const c of combos) {
                             const cName = c.name || c.title || '';
                             if (cName.toLowerCase().includes(searchLower)) {
-                                itemMatches.push({ id: `${m.id}_combo_${c.id || cName}`, name: `${m.name} (${cName})`, price: c.discountPrice || c.displayPrice || m.displayPrice, sellerId: m.vendor, type: 'fastfood' });
+                                itemMatches.push({ 
+                                    id: `${m.id}_combo_${c.id || cName}`, 
+                                    name: `${m.name} (${cName})`, 
+                                    price: c.discountPrice || c.displayPrice || m.displayPrice, 
+                                    sellerId: m.vendor, 
+                                    type: 'fastfood',
+                                    isOpen: isFastFoodOpen(m)
+                                });
                             }
                         }
                     }
@@ -441,6 +457,7 @@ exports.placeDirectOrder = async (req, res) => {
         let processedItems = [];
         let firstSellerId = null;
         let isFastFoodOrder = false;
+        let totalDeliveryFee = 0;
         let sellerEarningsMap = {}; // sellerId -> amount
 
         for (const itemRequest of finalItems) {
@@ -538,8 +555,11 @@ exports.placeDirectOrder = async (req, res) => {
                 subtotal,
                 sellerBasePrice: sellerBasePrice * itemRequest.quantity,
                 commissionAmount,
-                sellerId
+                sellerId,
+                deliveryFee: parseFloat(dbItem.deliveryFee || 0)
             });
+
+            totalDeliveryFee += parseFloat(dbItem.deliveryFee || 0) * itemRequest.quantity;
 
             // Track seller earnings (merchandise payout)
             sellerEarningsMap[sellerId] = (sellerEarningsMap[sellerId] || 0) + (sellerBasePrice * itemRequest.quantity);
@@ -598,14 +618,23 @@ exports.placeDirectOrder = async (req, res) => {
         }
         
         // 2. Resolve Delivery Fee
-        let deliveryFee = 0;
+        let deliveryFee = totalDeliveryFee;
         if (pickupStationId) {
             const station = await PickupStation.findByPk(pickupStationId);
-            deliveryFee = station ? parseFloat(station.price || 0) : 0;
-        } else {
-            // Fallback to platform default delivery fee
-            const config = await PlatformConfig.findOne({ where: { key: 'default_delivery_fee' } });
-            deliveryFee = config ? parseFloat(config.value) : 0;
+            if (station) {
+                // If it's a pick station, we might override or add to the fee depending on business rules.
+                // For now, we'll use the station price as the total delivery fee if it's set.
+                deliveryFee = parseFloat(station.price || 0);
+            }
+        } else if (deliveryFee === 0) {
+            // If still 0, check for platform route fees for direct delivery (seller_to_customer)
+            const routeFeesConfig = await PlatformConfig.findOne({ where: { key: 'delivery_route_fees' } });
+            if (routeFeesConfig) {
+                const routeFees = typeof routeFeesConfig.value === 'string' ? JSON.parse(routeFeesConfig.value) : routeFeesConfig.value;
+                if (routeFees && routeFees.seller_to_customer && routeFees.seller_to_customer.fee !== undefined) {
+                    deliveryFee = parseFloat(routeFees.seller_to_customer.fee);
+                }
+            }
         }
 
         const total = totalSubtotal + deliveryFee;
@@ -694,6 +723,12 @@ exports.placeDirectOrder = async (req, res) => {
 
         await t.commit();
 
+        // Trigger Auto-Confirmation in background if seller has it enabled
+        setImmediate(() => {
+            const { triggerAutoConfirmation } = require('./orderController');
+            triggerAutoConfirmation(order.id).catch(err => console.error('[DirectOrder] Background AutoConfirm Error:', err));
+        });
+
         // Trigger Auto-Task Creation immediately for the confirmed status
         try {
             await autoCreateDeliveryTask(order, null, 'super_admin_confirmed');
@@ -715,7 +750,7 @@ exports.placeDirectOrder = async (req, res) => {
         setImmediate(async () => {
             try {
                 const customerObj = user ? { id: user.id, name: user.name, phone: user.phone, email: user.email } : { phone: customerPhone, name: customerName };
-                const fullItemsList = processedItems.map(pi => `• ${pi.name} x${pi.quantity}`).join('\n');
+                const fullItemsList = processedItems.map(pi => `* ${pi.name} x${pi.quantity} - KES ${(pi.subtotal).toLocaleString()}`).join('\n');
                 
                 console.log(`[DirectOrder] Notifying customer for ${order.orderNumber}`);
                 await notifyCustomerOrderPlaced(order, customerObj, processedItems.length, fullItemsList, req.user.referralCode || null);

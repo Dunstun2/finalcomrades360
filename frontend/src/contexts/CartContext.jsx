@@ -54,6 +54,7 @@ export function CartProvider({ children }) {
   const pendingAuthRefreshRef = useRef(false); // Ref to track that a merge-refresh is waiting for an in-progress refresh to finish
   const variantConflictResolverRef = useRef(null);
   const fastFoodConflictResolverRef = useRef(null);
+  const [routeFees, setRouteFees] = useState(null);
 
   const getActiveCartType = useCallback(() => {
     const mode = localStorage.getItem('marketing_mode');
@@ -61,14 +62,29 @@ export function CartProvider({ children }) {
     return type;
   }, []);
 
+  useEffect(() => {
+    const fetchRouteFees = async () => {
+      try {
+        const res = await api.get('/platform/config/delivery_route_fees');
+        if (res.data) setRouteFees(res.data);
+      } catch (e) {}
+    };
+    fetchRouteFees();
+  }, []);
+
   const calculateSummary = useCallback((items) => {
     const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
-    const deliveryFee = items.reduce((sum, item) => {
+    let deliveryFee = items.reduce((sum, item) => {
       let unitFee = 0;
       const productData = item.fastFood || item.service || item.product || {};
       unitFee = parseFloat(productData.deliveryFee || 0);
       return sum + (unitFee * (item.quantity || 0));
     }, 0);
+
+    // Fallback to platform route fee if no items have a delivery fee
+    if (deliveryFee === 0 && items.length > 0 && routeFees?.seller_to_customer?.fee !== undefined) {
+        deliveryFee = parseFloat(routeFees.seller_to_customer.fee);
+    }
 
     const totalCommission = items.reduce((sum, item) => {
       if (typeof item.itemCommission === 'number') return sum + item.itemCommission;
@@ -84,7 +100,7 @@ export function CartProvider({ children }) {
       total: subtotal + deliveryFee,
       itemCount: items.length
     };
-  }, []);
+  }, [routeFees]);
 
   const parseMaybeJson = (value, fallback) => {
     if (value === null || value === undefined || value === '') return fallback;

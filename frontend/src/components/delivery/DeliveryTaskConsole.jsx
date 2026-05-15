@@ -398,18 +398,35 @@ const DeliveryTaskConsole = ({
                                 {statusInfo.label}
                             </span>
                         </div>
-                        <p className="text-[10px] sm:text-xs text-gray-400 font-medium">
+                        <p className="hidden sm:block text-[10px] sm:text-xs text-gray-400 font-medium">
                             <span className="bg-gray-100 px-1.5 py-0.5 rounded mr-1.5 uppercase tracking-tighter text-[8px] sm:text-[9px] font-bold">
                                 {legLabel}
                             </span>
                             • {orderItems.length || 0} items
                         </p>
-                        {order.deliveryAddress && (
-                            <p className="mt-1 text-[10px] sm:text-xs text-blue-600 font-semibold flex items-center gap-1 truncate max-w-xs">
-                                <FaMapMarkedAlt className="flex-shrink-0 text-blue-400" />
-                                {order.deliveryAddress}
-                            </p>
-                        )}
+                        {/* Consolidated Info Line - Visible when collapsed */}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+                            {order.deliveryAddress && (
+                                <p className="text-[10px] sm:text-xs text-blue-600 font-semibold flex items-center gap-1 truncate max-w-[200px] md:max-w-xs">
+                                    <FaMapMarkedAlt className="flex-shrink-0 text-blue-400" />
+                                    {order.deliveryAddress}
+                                </p>
+                            )}
+                            
+                            {(order.customerName || order.User?.name) && (
+                                <p className="text-[10px] sm:text-xs text-gray-700 font-bold flex items-center gap-1">
+                                    <FaUser className="text-gray-400 text-[9px]" />
+                                    {order.customerName || order.User?.name}
+                                </p>
+                            )}
+
+                            {(order.customerPhone || order.User?.phone) && (
+                                <p className="text-[10px] sm:text-xs text-indigo-600 font-black flex items-center gap-1">
+                                    <FaPhone className="text-indigo-300 text-[9px]" />
+                                    {order.customerPhone || order.User?.phone}
+                                </p>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -432,25 +449,24 @@ const DeliveryTaskConsole = ({
                         {/* Route Timeline */}
                         <div className="lg:col-span-12">
                             <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Delivery Route Leg</h4>
-                            <div className="relative flex flex-col md:flex-row items-stretch md:items-center gap-4 md:gap-0">
-
+                            <div className="relative flex flex-row items-stretch gap-2 md:gap-0">
                                 {/* Start: Pickup */}
-                                <div className="flex-1 bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative z-10 transition-transform transform hover:scale-[1.01]">
-                                    <div className="flex items-start gap-2 sm:gap-3">
-                                        <div className="p-1.5 sm:p-2 bg-orange-50 text-orange-500 rounded-lg text-xs sm:text-sm">
+                                <div className="flex-1 bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative z-10 transition-transform transform hover:scale-[1.01]">
+                                    <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                                        <div className="p-1.5 sm:p-2 bg-orange-50 text-orange-500 rounded-lg text-[10px] sm:text-sm">
                                             {deliveryType.startsWith('warehouse') ? <FaWarehouse /> : <FaStore />}
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-[9px] font-bold text-orange-400 uppercase tracking-wider mb-0.5">Pickup From</p>
-                                            <p className="text-xs sm:text-sm font-black text-gray-800">{pickupDisplay}</p>
-                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{pickupAddress}</p>
+                                            <p className="text-[8px] sm:text-[9px] font-bold text-orange-400 uppercase tracking-wider mb-0.5">Pickup From</p>
+                                            <p className="text-[10px] sm:text-sm font-black text-gray-800 truncate">{pickupDisplay}</p>
+                                            <p className="text-[9px] sm:text-xs text-gray-500 mt-0.5 truncate">{pickupAddress}</p>
                                             {pickupPhone && (
-                                                <div className="flex gap-2 mt-2">
-                                                  <a href={`tel:${pickupPhone}`} className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-blue-100 border border-blue-200">
-                                                    <FaPhone size={10} /> Call
+                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                  <a href={`tel:${pickupPhone}`} className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 text-[8px] sm:text-[10px] font-bold rounded-lg flex items-center gap-1 hover:bg-blue-100 border border-blue-200">
+                                                    <FaPhone size={8} className="sm:w-2.5 sm:h-2.5" /> Call
                                                   </a>
-                                                  <a href={`https://wa.me/${pickupPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-green-100 border border-green-200">
-                                                    <FaWhatsapp size={10} /> WhatsApp
+                                                  <a href={`https://wa.me/${pickupPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-2 sm:px-3 py-1 bg-green-50 text-green-600 text-[8px] sm:text-[10px] font-bold rounded-lg flex items-center gap-1 hover:bg-green-100 border border-green-200">
+                                                    <FaWhatsapp size={8} className="sm:w-2.5 sm:h-2.5" /> WhatsApp
                                                   </a>
                                                 </div>
                                             )}
@@ -458,34 +474,31 @@ const DeliveryTaskConsole = ({
                                     </div>
                                 </div>
 
-                                {/* Connector */}
-                                <div className="hidden md:flex flex-col items-center px-4">
-                                    <div className="w-12 h-[2px] bg-gradient-to-r from-orange-200 to-green-200"></div>
-                                    <FaArrowRight className="text-gray-200 text-xs mt-[-7px]" />
-                                </div>
-                                <div className="flex md:hidden justify-center py-1">
-                                    <FaArrowDown className="text-gray-200" />
+                                {/* Connector - Always horizontal */}
+                                <div className="flex flex-col items-center justify-center px-1 sm:px-4">
+                                    <div className="w-4 sm:w-12 h-[1px] sm:h-[2px] bg-gradient-to-r from-orange-200 to-green-200"></div>
+                                    <FaArrowRight className="text-gray-200 text-[8px] sm:text-xs mt-[-4px] sm:mt-[-7px]" />
                                 </div>
 
                                 {/* End: Destination */}
-                                <div className="flex-1 bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative z-10 transition-transform transform hover:scale-[1.01]">
-                                    <div className="flex items-start gap-2 sm:gap-3">
-                                        <div className={`p-1.5 sm:p-2 rounded-lg text-xs sm:text-sm ${isTransitional ? 'bg-blue-50 text-blue-500' : 'bg-green-50 text-green-500'}`}>
+                                <div className="flex-1 bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative z-10 transition-transform transform hover:scale-[1.01]">
+                                    <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                                        <div className={`p-1.5 sm:p-2 rounded-lg text-[10px] sm:text-sm ${isTransitional ? 'bg-blue-50 text-blue-500' : 'bg-green-50 text-green-500'}`}>
                                             {deliveryType.endsWith('warehouse') ? <FaWarehouse /> : deliveryType.endsWith('pickup_station') ? <FaStore /> : <FaUser />}
                                         </div>
                                         <div className="min-w-0 flex-1">
-                                            <p className={`text-[9px] font-bold uppercase tracking-wider mb-0.5 ${isTransitional ? 'text-blue-400' : 'text-green-500'}`}>
+                                            <p className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-wider mb-0.5 ${isTransitional ? 'text-blue-400' : 'text-green-500'}`}>
                                                 Deliver To {isTransitional ? '(Final Mile)' : '(Customer)'}
                                             </p>
-                                            <p className="text-xs sm:text-sm font-black text-gray-800">{destinationDisplay}</p>
-                                            <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 italic">{destinationAddress}</p>
+                                            <p className="text-[10px] sm:text-sm font-black text-gray-800 truncate">{destinationDisplay}</p>
+                                            <p className="text-[9px] sm:text-xs text-gray-500 mt-0.5 italic truncate">{destinationAddress}</p>
                                             {destinationPhone && (
-                                                <div className="flex gap-2 mt-2">
-                                                  <a href={`tel:${destinationPhone}`} className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-blue-100 border border-blue-200">
-                                                    <FaPhone size={10} /> Call
+                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                  <a href={`tel:${destinationPhone}`} className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 text-[8px] sm:text-[10px] font-bold rounded-lg flex items-center gap-1 hover:bg-blue-100 border border-blue-200">
+                                                    <FaPhone size={8} className="sm:w-2.5 sm:h-2.5" /> Call
                                                   </a>
-                                                  <a href={`https://wa.me/${destinationPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 hover:bg-green-100 border border-green-200">
-                                                    <FaWhatsapp size={10} /> WhatsApp
+                                                  <a href={`https://wa.me/${destinationPhone.replace(/\+/g, '')}`} target="_blank" rel="noopener noreferrer" className="px-2 sm:px-3 py-1 bg-green-50 text-green-600 text-[8px] sm:text-[10px] font-bold rounded-lg flex items-center gap-1 hover:bg-green-100 border border-green-200">
+                                                    <FaWhatsapp size={8} className="sm:w-2.5 sm:h-2.5" /> WhatsApp
                                                   </a>
                                                 </div>
                                             )}
@@ -577,20 +590,20 @@ const DeliveryTaskConsole = ({
                             </div>
 
                             {/* Totals Breakdown Card */}
-                            <div className="mt-4 bg-white border border-blue-100 rounded-xl sm:rounded-2xl p-3 sm:p-5 shadow-sm">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-                                    <div>
-                                        <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-0.5">Items Total</p>
-                                        <p className="text-sm sm:text-base font-black text-gray-900">{formatPrice(totals.itemsTotal)}</p>
+                            <div className="mt-4 bg-white border border-blue-100 rounded-xl sm:rounded-2xl p-2 sm:p-5 shadow-sm">
+                                <div className="grid grid-cols-3 gap-2 sm:gap-6 items-stretch">
+                                    <div className="flex flex-col justify-center">
+                                        <p className="text-[8px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-0.5">Items Total</p>
+                                        <p className="text-[10px] sm:text-base font-black text-gray-900">{formatPrice(totals.itemsTotal)}</p>
                                     </div>
-                                    <div className="sm:border-l border-gray-100 sm:pl-6">
-                                        <p className="text-[9px] sm:text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-0.5 underline decoration-blue-200 decoration-2">Customer Total</p>
-                                        <p className="text-sm sm:text-lg font-black text-gray-900">{formatPrice(totals.orderTotal)}</p>
+                                    <div className="border-l border-gray-100 pl-2 sm:pl-6 flex flex-col justify-center">
+                                        <p className="text-[8px] sm:text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-0.5 underline decoration-blue-200 decoration-1 sm:decoration-2">Customer Total</p>
+                                        <p className="text-[10px] sm:text-lg font-black text-gray-900">{formatPrice(totals.orderTotal)}</p>
                                     </div>
-                                    <div className="bg-blue-600 rounded-xl p-3 sm:p-4 text-white shadow-lg transform hover:scale-[1.01] transition-transform">
-                                        <p className="text-[9px] sm:text-[10px] text-blue-100 font-bold uppercase tracking-widest mb-0.5">Earnings</p>
-                                        <p className="text-xl sm:text-2xl font-black">{formatPrice(totals.agentEarnings)}</p>
-                                        <p className="text-[8px] sm:text-[9px] text-blue-200 mt-1 italic font-medium opacity-80">Persisted from delivery task</p>
+                                    <div className="bg-blue-600 rounded-lg sm:rounded-xl p-2 sm:p-4 text-white shadow-lg transform hover:scale-[1.01] transition-transform flex flex-col justify-center">
+                                        <p className="text-[8px] sm:text-[10px] text-blue-100 font-bold uppercase tracking-widest mb-0.5">Earnings</p>
+                                        <p className="text-xs sm:text-2xl font-black">{formatPrice(totals.agentEarnings)}</p>
+                                        <p className="hidden sm:block text-[8px] sm:text-[9px] text-blue-200 mt-1 italic font-medium opacity-80">Persisted</p>
                                     </div>
                                 </div>
                             </div>
