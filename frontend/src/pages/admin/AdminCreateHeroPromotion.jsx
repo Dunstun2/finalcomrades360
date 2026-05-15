@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../services/api'
 import { uploadFile } from '../../services/upload'
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils'
-import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator } from 'react-icons/fa'
+import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle } from 'react-icons/fa'
 
 const formatKES = (n) => `KES ${Number(n || 0).toLocaleString()}`
 
