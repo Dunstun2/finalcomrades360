@@ -84,12 +84,13 @@ export default function HandoverCodeWidget({
             }
             if (res.data.confirmed) {
                 setIsConfirmed(true);
+                if (onConfirmed) onConfirmed(res.data);
             }
             setInitialLoadDone(true);
         } catch (err) {
             setInitialLoadDone(true);
         }
-    }, [ids, handoverType]);
+    }, [ids, handoverType, onConfirmed]);
 
     useEffect(() => {
         checkStatus();
@@ -139,6 +140,7 @@ export default function HandoverCodeWidget({
             if (diffMs <= 0) {
                 setAutoTimeLeft('Due now...');
                 clearInterval(interval);
+                checkStatus(); // Fetch status from backend immediately when local countdown ends
             } else {
                 const mins = Math.floor(diffMs / 60000);
                 const secs = Math.floor((diffMs % 60000) / 1000);
@@ -146,7 +148,7 @@ export default function HandoverCodeWidget({
             }
         }, 1000);
         return () => clearInterval(interval);
-    }, [autoConfirmAt, isConfirmed]);
+    }, [autoConfirmAt, isConfirmed, checkStatus]);
     
     // Auto-hide code after 30 seconds
     useEffect(() => {
@@ -187,10 +189,11 @@ export default function HandoverCodeWidget({
     }, [ids, isBulk, taskId, handoverType]);
 
     useEffect(() => {
+        if (!initialLoadDone) return; // Wait for initial status check to complete first!
         if (mode !== 'giver' || !autoGenerate || ids.length === 0) return;
-        if (code || generating || isConfirmed) return;
+        if (code || generating || isConfirmed || hasActiveCode) return;
         handleGenerate();
-    }, [mode, autoGenerate, ids, code, generating, isConfirmed, handleGenerate]);
+    }, [mode, autoGenerate, ids, code, generating, isConfirmed, hasActiveCode, initialLoadDone, handleGenerate]);
 
     const handleConfirm = useCallback(async () => {
         if (inputCode.length !== 5) {

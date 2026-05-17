@@ -16,4 +16,8 @@ router.post('/orders/:orderId/ready-for-pickup', authenticate, stationManagerCon
 router.post('/returns/:returnId/receive', authenticate, stationManagerController.markReturnReceivedAtStation);
 router.post('/returns/:returnId/receive-warehouse', authenticate, stationManagerController.markReturnReceivedAtWarehouse);
 
+// Wallet
+router.get('/wallet', authenticate, stationManagerController.getStationWallet);
+router.post('/wallet/withdraw', authenticate, stationManagerController.requestStationWithdrawal);
+
 module.exports = router;

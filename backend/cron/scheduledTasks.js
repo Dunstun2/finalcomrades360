@@ -226,15 +226,15 @@ const initScheduledTasks = () => {
         }
     });
 
-    // Run every 5 minutes - Auto-expire unaccepted delivery task assignments + Auto-Reassignment broadcast
+    // ─── CRON: Auto-expire unaccepted delivery task assignments + Auto-Reassignment broadcast ───
+    // Runs every 5 minutes — covers tasks stuck in 'assigned' status (never accepted)
     cron.schedule('*/5 * * * *', async () => {
         try {
-            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification } = require('../models');
+            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem } = require('../models');
             const { getIO } = require('../realtime/socket');
 
-            // Get per-type expiry times from config
             const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
-            let fastfoodExpiryMinutes = 2.5;
+            let fastfoodExpiryMinutes = 15;
             let productExpiryMinutes = 30;
             let settings = {};
             if (config) {
@@ -247,24 +247,14 @@ const initScheduledTasks = () => {
                 }
             }
 
-            // Use the smaller threshold to find all candidates — we'll filter per-task below
             const earliestThreshold = new Date(Date.now() - fastfoodExpiryMinutes * 60 * 1000);
-
             const expiredTasks = await DeliveryTask.findAll({
-                where: {
-                    status: 'assigned',
-                    assignedAt: { [Op.lte]: earliestThreshold }
-                },
-                include: [{
-                    model: Order,
-                    as: 'order',
-                    include: [{ model: OrderItem, as: 'OrderItems', attributes: ['id', 'fastFoodId', 'productId'] }]
-                }]
+                where: { status: 'assigned', assignedAt: { [Op.lte]: earliestThreshold } },
+                include: [{ model: Order, as: 'order', include: [{ model: OrderItem, as: 'OrderItems', attributes: ['id', 'fastFoodId', 'productId'] }] }]
             });
 
             if (expiredTasks.length === 0) return;
 
-            // Filter: apply the correct timeout per order type
             const now = Date.now();
             const trulyExpired = expiredTasks.filter(task => {
                 if (!task.order || !task.assignedAt) return false;
@@ -274,36 +264,23 @@ const initScheduledTasks = () => {
             });
 
             if (trulyExpired.length === 0) return;
+            console.log(`⏰ [DeliveryExpiry] Expiring ${trulyExpired.length} unaccepted tasks...`);
 
-            console.log(`⏰ [DeliveryExpiry] Expiring ${trulyExpired.length} unaccepted tasks (fastfood: ${fastfoodExpiryMinutes}min, product: ${productExpiryMinutes}min)...`);
-
-            // --- Find online agents for broadcast ---
-            const onlineAgents = await DeliveryAgentProfile.findAll({
-                where: { isActive: true },
-                attributes: ['id', 'userId', 'location']
-            });
+            const onlineAgents = await DeliveryAgentProfile.findAll({ where: { isActive: true }, attributes: ['id', 'userId'] });
             const onlineAgentUserIds = onlineAgents.map(a => a.userId);
-
             const io = getIO();
 
             for (const task of trulyExpired) {
                 await task.update({ status: 'failed' });
-
                 if (task.order) {
                     const revertStatus = task.order.sellerConfirmed ? 'seller_confirmed' : 'order_placed';
-                    await task.order.update({
-                        deliveryAgentId: null,
-                        status: revertStatus
-                    });
+                    await task.order.update({ deliveryAgentId: null, status: revertStatus });
                     console.log(`↩️  Order #${task.order.orderNumber} reverted to '${revertStatus}' — agent did not accept in time.`);
 
-                    // NEW: Trigger Smart Auto-Dispatch if enabled
                     if (settings.autoDispatchOrders) {
-                        // Exclude the agent who just timed out
                         autoDispatchService.runAutoDispatch(task.order.id, { excludeAgentIds: [task.deliveryAgentId] }).catch(err => console.error('[AutoDispatch] Failed:', err));
                     }
 
-                    // --- AUTO-REASSIGNMENT: Broadcast to all online agents ---
                     if (io && onlineAgentUserIds.length > 0) {
                         const broadcastPayload = {
                             orderId: task.order.id,
@@ -312,25 +289,204 @@ const initScheduledTasks = () => {
                             deliveryType: task.deliveryType,
                             message: `📦 Order #${task.order.orderNumber} needs a delivery agent. Be the first to accept!`
                         };
-
-                        // Notify each online agent via their personal socket room
                         for (const agentUserId of onlineAgentUserIds) {
                             io.to(`user_${agentUserId}`).emit('new_task_available', broadcastPayload);
                         }
-
-                        console.log(`📡 [AutoReassign] Broadcasted order #${task.order.orderNumber} to ${onlineAgentUserIds.length} online agents.`);
-
-                        // Also notify admin room
                         io.to('admin_room').emit('task_auto_expired', {
                             orderId: task.order.id,
                             orderNumber: task.order.orderNumber,
-                            message: `Task for order #${task.order.orderNumber} expired. Broadcasted to ${onlineAgentUserIds.length} online agents.`
+                            message: `Task for order #${task.order.orderNumber} expired. Broadcasted to ${onlineAgentUserIds.length} agents.`
                         });
                     }
                 }
             }
         } catch (error) {
             console.error('❌ Error in delivery task expiry cleanup:', error);
+        }
+    });
+
+    // ─── CRON: Accepted → Collection Enforcer ───
+    // Runs every 2 minutes — covers tasks stuck in 'accepted' status (accepted but agent hasn't collected)
+    cron.schedule('*/2 * * * *', async () => {
+        try {
+            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem, User } = require('../models');
+            const { getIO } = require('../realtime/socket');
+            const { revertPending } = require('../utils/walletHelpers');
+
+            const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
+            let settings = {};
+            if (config) {
+                try { settings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value; } catch (e) {}
+            }
+
+            // Config values with defaults
+            const ffWarnRatio  = parseFloat(settings.fastfoodCollectionWarnRatio  || 0.6);
+            const ffFailRatio  = parseFloat(settings.fastfoodCollectionFailRatio  || 0.8);
+            const ffFallbackWarnMin = parseInt(settings.fastfoodCollectionFallbackWarnMinutes || 8,  10);
+            const ffFallbackFailMin = parseInt(settings.fastfoodCollectionFallbackFailMinutes || 12, 10);
+            const prodWarnMin  = parseInt(settings.productCollectionWarnMinutes || 30, 10);
+            const prodAlertHrs = parseFloat(settings.productCollectionAlertHours  || 2);
+
+            // Find all accepted tasks not yet collected
+            const acceptedTasks = await DeliveryTask.findAll({
+                where: {
+                    status: 'accepted',
+                    acceptedAt: { [Op.ne]: null },
+                    collectedAt: null
+                },
+                include: [
+                    {
+                        model: Order,
+                        as: 'order',
+                        attributes: ['id', 'orderNumber', 'deliveryAddress', 'estimatedDelivery', 'createdAt', 'sellerConfirmed', 'userId', 'deliveryFee'],
+                        include: [{ model: OrderItem, as: 'OrderItems', attributes: ['id', 'fastFoodId'] }]
+                    },
+                    { model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'phone'] }
+                ]
+            });
+
+            if (acceptedTasks.length === 0) return;
+
+            const now = Date.now();
+            const admins = await User.findAll({
+                where: { role: { [Op.in]: ['admin', 'super_admin', 'superadmin'] } },
+                attributes: ['id']
+            });
+            const io = getIO();
+            const onlineAgents = await DeliveryAgentProfile.findAll({ where: { isActive: true }, attributes: ['userId'] });
+            const onlineAgentUserIds = onlineAgents.map(a => a.userId);
+
+            for (const task of acceptedTasks) {
+                if (!task.order || !task.acceptedAt) continue;
+                const isFastfood = (task.order.OrderItems || []).some(i => i.fastFoodId != null);
+                const acceptedMs = new Date(task.acceptedAt).getTime();
+                const elapsedMs = now - acceptedMs;
+
+                if (isFastfood) {
+                    // ── FastFood: dynamic deadline from estimatedDelivery ──
+                    let warnMs, failMs;
+                    const estimatedDelivery = task.order.estimatedDelivery ? new Date(task.order.estimatedDelivery).getTime() : null;
+                    const orderCreated      = task.order.createdAt        ? new Date(task.order.createdAt).getTime()        : null;
+
+                    if (estimatedDelivery && orderCreated && estimatedDelivery > orderCreated) {
+                        const totalWindowMs = estimatedDelivery - orderCreated;
+                        warnMs = totalWindowMs * ffWarnRatio;
+                        failMs = totalWindowMs * ffFailRatio;
+                    } else {
+                        // Fallback: measure from acceptedAt
+                        warnMs = ffFallbackWarnMin * 60 * 1000;
+                        failMs = ffFallbackFailMin * 60 * 1000;
+                    }
+
+                    const timeFromOrderCreation = orderCreated ? (now - orderCreated) : elapsedMs;
+
+                    // ── FAIL: past fail threshold ──
+                    if (timeFromOrderCreation >= failMs) {
+                        console.log(`🚨 [CollectionEnforcer] FastFood task ${task.id} FAILED — agent did not collect in time.`);
+                        await task.update({ status: 'failed', failureReason: 'Agent did not collect within the expected delivery window.' });
+
+                        // Revert order
+                        const revertStatus = task.order.sellerConfirmed ? 'seller_confirmed' : 'order_placed';
+                        await task.order.update({ deliveryAgentId: null, status: revertStatus });
+
+                        // Revert pending wallet credit for this agent
+                        try {
+                            const { DeliveryCharge } = require('../models');
+                            const charges = await DeliveryCharge.findAll({ where: { orderId: task.order.id, payeeUserId: task.deliveryAgentId } });
+                            for (const charge of charges) {
+                                if (charge.agentAmount > 0) await revertPending(charge.payeeUserId, charge.agentAmount, task.order.id);
+                                await charge.update({ fundingStatus: 'reversed', note: 'Collection timeout — agent did not collect FastFood order in time' });
+                            }
+                        } catch (e) { console.error('[CollectionEnforcer] Wallet revert error:', e.message); }
+
+                        // Notify agent
+                        if (task.deliveryAgentId) {
+                            await Notification.create({
+                                userId: task.deliveryAgentId,
+                                title: '❌ Assignment Cancelled',
+                                message: `Order #${task.order.orderNumber} was reassigned because you did not collect it within the delivery window.`,
+                                type: 'warning'
+                            });
+                            if (io) io.to(`user:${task.deliveryAgentId}`).emit('deliveryTaskRemoved', {
+                                orderId: task.order.id, taskId: task.id, reason: 'Collection timeout — order reassigned.'
+                            });
+                        }
+
+                        // Notify admins
+                        for (const admin of admins) {
+                            await Notification.create({ userId: admin.id, title: '🚨 FastFood Collection Timeout', message: `Order #${task.order.orderNumber}: Agent ${task.deliveryAgent?.name || task.deliveryAgentId} did not collect in time. Order re-queued.`, type: 'warning' });
+                        }
+
+                        // Re-broadcast to online agents
+                        if (io && onlineAgentUserIds.length > 0) {
+                            const payload = { orderId: task.order.id, orderNumber: task.order.orderNumber, deliveryAddress: task.order.deliveryAddress, deliveryType: task.deliveryType, message: `📦 Order #${task.order.orderNumber} needs a delivery agent. Be the first to accept!` };
+                            for (const uid of onlineAgentUserIds) io.to(`user_${uid}`).emit('new_task_available', payload);
+                        }
+
+                        // Auto-dispatch if enabled
+                        if (settings.autoDispatchOrders) {
+                            autoDispatchService.runAutoDispatch(task.order.id, { excludeAgentIds: [task.deliveryAgentId] }).catch(() => {});
+                        }
+
+                    // ── WARN: past warn threshold but not yet failed, and not yet warned ──
+                    } else if (timeFromOrderCreation >= warnMs && !task.warningSentAt) {
+                        const minsLeft = Math.max(0, Math.round((failMs - timeFromOrderCreation) / 60000));
+                        console.log(`⚠️  [CollectionEnforcer] FastFood task ${task.id} WARNING — ${minsLeft} min left to collect.`);
+
+                        await task.update({ warningSentAt: new Date() });
+
+                        // Warn agent
+                        if (task.deliveryAgentId) {
+                            await Notification.create({
+                                userId: task.deliveryAgentId,
+                                title: '⚠️ Urgent: Collect Order Now!',
+                                message: `You have approximately ${minsLeft} minute(s) to collect Order #${task.order.orderNumber} or it will be reassigned to another agent.`,
+                                type: 'warning'
+                            });
+                            if (io) io.to(`user:${task.deliveryAgentId}`).emit('delivery_warning', {
+                                taskId: task.id, orderId: task.order.id, orderNumber: task.order.orderNumber,
+                                message: `⚠️ Collect Order #${task.order.orderNumber} within ${minsLeft} minute(s) or it will be reassigned!`,
+                                minutesLeft: minsLeft
+                            });
+                        }
+                    }
+
+                } else {
+                    // ── Product Order: alert-only, no auto-fail ──
+                    const prodWarnMs  = prodWarnMin  * 60 * 1000;
+                    const prodAlertMs = prodAlertHrs * 60 * 60 * 1000;
+
+                    if (elapsedMs >= prodAlertMs) {
+                        // Alert admin (deduplicate per task — check warningSentAt was already used for the first warn)
+                        const alreadyAlerted = task.warningSentAt && (now - new Date(task.warningSentAt).getTime()) < prodAlertMs;
+                        if (!alreadyAlerted) {
+                            console.log(`🔔 [CollectionEnforcer] Product task ${task.id} ADMIN ALERT — agent not collecting after ${prodAlertHrs}h.`);
+                            for (const admin of admins) {
+                                const recent = await Notification.findOne({ where: { userId: admin.id, type: 'collection_delay', createdAt: { [Op.gte]: new Date(now - prodAlertMs) } } });
+                                if (!recent) {
+                                    await Notification.create({ userId: admin.id, title: '🔔 Collection Delay Alert', message: `Agent ${task.deliveryAgent?.name || 'Unknown'} accepted order #${task.order.orderNumber} ${Math.round(elapsedMs / 3600000)}h ago but has not collected yet. Manual follow-up may be needed.`, type: 'collection_delay' });
+                                }
+                            }
+                            if (io) io.to('admin_room').emit('collection_delay_alert', { taskId: task.id, orderId: task.order.id, orderNumber: task.order.orderNumber, agentName: task.deliveryAgent?.name, agentPhone: task.deliveryAgent?.phone, hoursElapsed: Math.round(elapsedMs / 3600000) });
+                        }
+
+                    } else if (elapsedMs >= prodWarnMs && !task.warningSentAt) {
+                        // Remind agent once
+                        console.log(`⏰ [CollectionEnforcer] Product task ${task.id} REMINDER sent to agent.`);
+                        await task.update({ warningSentAt: new Date() });
+                        if (task.deliveryAgentId) {
+                            await Notification.create({ userId: task.deliveryAgentId, title: '📦 Reminder: Collect Order', message: `You accepted Order #${task.order.orderNumber} ${prodWarnMin} minutes ago. Please proceed to collect it from the seller/warehouse.`, type: 'reminder' });
+                            if (io) io.to(`user:${task.deliveryAgentId}`).emit('delivery_warning', {
+                                taskId: task.id, orderId: task.order.id, orderNumber: task.order.orderNumber,
+                                message: `📦 Reminder: Please collect Order #${task.order.orderNumber} — it has been waiting for ${prodWarnMin} minutes.`,
+                                minutesLeft: null
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error in accepted→collection enforcer cron:', error);
         }
     });
 
@@ -387,7 +543,78 @@ const initScheduledTasks = () => {
         }
     });
 
-    // Run every hour - Auto-Cancel Unpaid Prepay Orders
+    // ─── CRON: Seller Confirmation Alert ───
+    // Runs every 30 minutes — alerts admin when a seller has not confirmed an order within the configured threshold
+    cron.schedule('*/30 * * * *', async () => {
+        try {
+            const { Order, PlatformConfig, Notification, User } = require('../models');
+            const { getIO } = require('../realtime/socket');
+
+            const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
+            let sellerConfirmAlertHours = 6;
+            if (config) {
+                try {
+                    const s = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+                    if (s.sellerConfirmAlertHours) sellerConfirmAlertHours = parseFloat(s.sellerConfirmAlertHours);
+                } catch (e) {}
+            }
+
+            const threshold = new Date(Date.now() - sellerConfirmAlertHours * 60 * 60 * 1000);
+
+            const unconfirmedOrders = await Order.findAll({
+                where: {
+                    status: 'order_placed',
+                    sellerConfirmed: false,
+                    createdAt: { [Op.lte]: threshold },
+                    paymentConfirmed: true  // Only alert for paid orders
+                },
+                include: [{ model: User, as: 'seller', attributes: ['id', 'name', 'phone', 'businessName'] }],
+                attributes: ['id', 'orderNumber', 'createdAt', 'sellerId']
+            });
+
+            if (unconfirmedOrders.length === 0) return;
+            console.log(`🔔 [SellerConfirmAlert] ${unconfirmedOrders.length} orders unconfirmed after ${sellerConfirmAlertHours}h.`);
+
+            const admins = await User.findAll({
+                where: { role: { [Op.in]: ['admin', 'super_admin', 'superadmin'] } },
+                attributes: ['id']
+            });
+            const io = getIO();
+
+            for (const order of unconfirmedOrders) {
+                const sellerName = order.seller?.businessName || order.seller?.name || `Seller #${order.sellerId}`;
+                const hoursAgo = Math.round((Date.now() - new Date(order.createdAt).getTime()) / 3600000);
+
+                for (const admin of admins) {
+                    const recent = await Notification.findOne({
+                        where: { userId: admin.id, type: 'seller_confirm_delay', createdAt: { [Op.gte]: new Date(Date.now() - sellerConfirmAlertHours * 60 * 60 * 1000) } }
+                    });
+                    if (recent) continue;
+
+                    await Notification.create({
+                        userId: admin.id,
+                        title: '🕐 Seller Not Confirming Order',
+                        message: `Order #${order.orderNumber} placed ${hoursAgo}h ago has not been confirmed by ${sellerName}. Contact them or confirm manually.`,
+                        type: 'seller_confirm_delay'
+                    });
+                }
+
+                if (io) {
+                    io.to('admin_room').emit('seller_confirm_delay', {
+                        orderId: order.id,
+                        orderNumber: order.orderNumber,
+                        sellerName,
+                        sellerPhone: order.seller?.phone,
+                        hoursAgo
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error in seller confirmation alert cron:', error);
+        }
+    });
+
+
     cron.schedule('0 * * * *', async () => {
         console.log('🕒 Running auto-cancel unpaid orders check...');
         try {

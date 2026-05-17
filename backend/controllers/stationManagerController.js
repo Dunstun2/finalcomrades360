@@ -1,4 +1,4 @@
-const { Order, OrderItem, User, Warehouse, PickupStation, Product, FastFood, ReturnRequest, Service, DeliveryTask, Op } = require('../models');
+const { Order, OrderItem, User, Warehouse, PickupStation, Product, FastFood, ReturnRequest, Service, DeliveryTask, Wallet, Transaction, PlatformConfig, sequelize, Op } = require('../models');
 const { getOrderSellerIds } = require('../utils/orderHelpers');
 
 const STATION_VIEW_STATUSES = [
@@ -567,10 +567,158 @@ const markReturnReceivedAtWarehouse = async (req, res) => {
   }
 };
 
+const getStationWallet = async (req, res) => {
+  try {
+    const stationUser = req.user;
+    let realUserId = null;
+
+    if (stationUser.stationId) {
+      if (stationUser.stationType === 'warehouse') {
+        const warehouse = await Warehouse.findByPk(stationUser.stationId);
+        realUserId = warehouse?.managerId;
+      } else if (stationUser.stationType === 'pickup_station') {
+        const station = await PickupStation.findByPk(stationUser.stationId);
+        realUserId = station?.managerId;
+      }
+    }
+
+    if (!realUserId) {
+      return res.status(404).json({ success: false, message: 'No manager account linked to this station.' });
+    }
+
+    // Get or create wallet
+    let wallet = await Wallet.findOne({ where: { userId: realUserId } });
+    if (!wallet) {
+      wallet = await Wallet.create({ userId: realUserId, balance: 0, pendingBalance: 0, successBalance: 0 });
+    }
+
+    // Get transactions
+    const transactions = await Transaction.findAll({
+      where: { userId: realUserId },
+      order: [['createdAt', 'DESC']],
+      limit: 50
+    });
+
+    res.json({
+      success: true,
+      balance: wallet.balance || 0,
+      pendingBalance: wallet.pendingBalance || 0,
+      successBalance: wallet.successBalance || 0,
+      transactions: transactions.map(tx => ({
+        id: tx.id,
+        amount: tx.amount,
+        type: tx.type,
+        status: tx.status,
+        description: tx.description || tx.note || 'Transaction',
+        createdAt: tx.createdAt,
+        walletType: tx.walletType
+      }))
+    });
+  } catch (error) {
+    console.error('[stationManagerController] getStationWallet error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch wallet.' });
+  }
+};
+
+const requestStationWithdrawal = async (req, res) => {
+  try {
+    const stationUser = req.user;
+    const { amount, paymentMethod, paymentDetails, paymentMeta } = req.body;
+
+    let realUserId = null;
+    if (stationUser.stationId) {
+      if (stationUser.stationType === 'warehouse') {
+        const warehouse = await Warehouse.findByPk(stationUser.stationId);
+        realUserId = warehouse?.managerId;
+      } else if (stationUser.stationType === 'pickup_station') {
+        const station = await PickupStation.findByPk(stationUser.stationId);
+        realUserId = station?.managerId;
+      }
+    }
+
+    if (!realUserId) {
+      return res.status(404).json({ success: false, message: 'No manager account linked to this station.' });
+    }
+
+    // Re-use the unified withdrawal logic from walletController if possible, 
+    // but here we call it manually or simulate it because req.user is different.
+    const { calculateWithdrawalFee } = require('../utils/walletHelpers');
+    
+    const t = await sequelize.transaction();
+    try {
+      const user = await User.findByPk(realUserId, { transaction: t });
+      if (!user) throw new Error('Manager user not found');
+
+      const wallet = await Wallet.findOne({ 
+        where: { userId: realUserId }, 
+        transaction: t, 
+        lock: t.LOCK.UPDATE 
+      });
+
+      if (!wallet || wallet.balance < amount) {
+        throw new Error('Insufficient balance');
+      }
+
+      // Load config for thresholds
+      const configRecord = await PlatformConfig.findOne({ where: { key: 'finance_settings' }, transaction: t });
+      const financeSettings = configRecord ? (typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value) : {};
+      
+      const thresholds = financeSettings.minPayout || {};
+      const minAmount = thresholds.station_manager || 500;
+      if (amount < minAmount) {
+        throw new Error(`Minimum withdrawal for station managers is KES ${minAmount}`);
+      }
+
+      const fee = calculateWithdrawalFee(amount, financeSettings);
+      const netAmount = Math.max(0, amount - fee);
+
+      await wallet.decrement({ balance: amount }, { transaction: t });
+
+      const tx = await Transaction.create({
+        userId: realUserId,
+        amount,
+        type: 'debit',
+        status: 'pending',
+        description: `Station Payout (${paymentMethod || 'mpesa'})`,
+        note: `Station Manager (${stationUser.stationName}) requested payout of KES ${amount}. Fee: KES ${fee}. Net: KES ${netAmount}.`,
+        metadata: JSON.stringify({
+          method: paymentMethod || 'mpesa',
+          details: paymentDetails || user.phone,
+          stationName: stationUser.stationName,
+          stationId: stationUser.stationId,
+          stationType: stationUser.stationType,
+          managerName: user.name,
+          withdrawalFee: fee,
+          netAmountToPay: netAmount,
+          ...(paymentMeta || {})
+        }),
+        fee,
+        walletType: 'station_manager'
+      }, { transaction: t });
+
+      await t.commit();
+      res.json({
+        success: true,
+        message: 'Withdrawal request submitted successfully.',
+        balance: wallet.balance - amount,
+        transactionId: tx.id
+      });
+    } catch (err) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  } catch (error) {
+    console.error('[stationManagerController] requestStationWithdrawal error:', error);
+    res.status(500).json({ success: false, message: 'Failed to process withdrawal.' });
+  }
+};
+
 module.exports = {
   getStationDashboard,
   markOrderReceivedAtWarehouse,
   markOrderReadyAtPickupStation,
   markReturnReceivedAtStation,
-  markReturnReceivedAtWarehouse
+  markReturnReceivedAtWarehouse,
+  getStationWallet,
+  requestStationWithdrawal
 };

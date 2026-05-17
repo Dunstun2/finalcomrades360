@@ -55,11 +55,26 @@ const DeliveryAgentDashboard = () => {
       });
     };
 
+    // Collection deadline warning from backend enforcer cron
+    const handleDeliveryWarning = (data) => {
+      console.warn('⚠️ [CollectionWarning] Received:', data);
+      const minsText = data.minutesLeft != null ? ` You have ${data.minutesLeft} min(s)!` : '';
+      toast({
+        title: '⚠️ Urgent: Collect Your Order!',
+        description: data.message || `Order #${data.orderNumber} must be collected now.${minsText}`,
+        duration: 20000, // 20s — stays visible long enough to act
+        variant: 'destructive',
+      });
+      // Trigger order list refresh so status reflects latest
+      setLastUpdate(Date.now());
+    };
+
     socket.on('orderStatusUpdate', handleSync);
     socket.on('deliveryRequestUpdate', handleSync);
     socket.on('handover:generated', handleSync);
     socket.on('handover:confirmed', handleSync);
     socket.on('new_task_available', handleNewTask);
+    socket.on('delivery_warning', handleDeliveryWarning);
 
     return () => {
       socket.off('orderStatusUpdate', handleSync);
@@ -67,8 +82,10 @@ const DeliveryAgentDashboard = () => {
       socket.off('handover:generated', handleSync);
       socket.off('handover:confirmed', handleSync);
       socket.off('new_task_available', handleNewTask);
+      socket.off('delivery_warning', handleDeliveryWarning);
     };
   }, []);
+
 
   const fetchStatus = async () => {
     try {

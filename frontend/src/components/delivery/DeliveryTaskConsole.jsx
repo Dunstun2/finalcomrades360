@@ -13,7 +13,8 @@ import {
     FaArrowDown,
     FaMotorcycle,
     FaPhone,
-    FaWhatsapp
+    FaWhatsapp,
+    FaBox
 } from 'react-icons/fa';
 import { resolveImageUrl } from '../../utils/imageUtils';
 import { formatPrice } from '../../utils/currency';
@@ -398,11 +399,15 @@ const DeliveryTaskConsole = ({
                                 {statusInfo.label}
                             </span>
                         </div>
-                        <p className="hidden sm:block text-[10px] sm:text-xs text-gray-400 font-medium">
-                            <span className="bg-gray-100 px-1.5 py-0.5 rounded mr-1.5 uppercase tracking-tighter text-[8px] sm:text-[9px] font-bold">
-                                {legLabel}
+                        <p className="text-[10px] sm:text-xs text-slate-500 font-bold mt-1 flex items-center gap-1.5">
+                            <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                                <FaBox size={8} /> Items
                             </span>
-                            • {orderItems.length || 0} items
+                            <span className="truncate max-w-[250px] md:max-w-md inline-block">
+                                {orderItems.length > 0 
+                                    ? orderItems.map(item => item.itemLabel || item.name || item.Product?.name || item.product?.name || item.FastFood?.name || item.fastFood?.name || 'Item').join(', ')
+                                    : 'Loading items...'}
+                            </span>
                         </p>
                         {/* Consolidated Info Line - Visible when collapsed */}
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -607,6 +612,30 @@ const DeliveryTaskConsole = ({
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Proof of Payment Screenshot Viewer */}
+                            {(order.paymentType === 'prepay' && order.paymentProofUrl) && (
+                                <div className="mt-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shadow-sm border border-indigo-200 flex-shrink-0 group relative cursor-pointer hover:border-indigo-400 transition-colors">
+                                        <a href={resolveImageUrl(order.paymentProofUrl)} target="_blank" rel="noopener noreferrer" className="block w-full h-full">
+                                            <img
+                                                src={resolveImageUrl(order.paymentProofUrl)}
+                                                alt="Payment Proof Screenshot"
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                onError={(e) => { e.currentTarget.src = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22150%22%20height%3D%22150%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23f3f4f6%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22sans-serif%22%20font-size%3D%2212%22%20fill%3D%22%239ca3af%22%20text-anchor%3D%22middle%22%20dy%3D%22.3em%22%3EError%20Loading%3C%2Ftext%3E%3C%2Fsvg%3E'; }}
+                                            />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[9px] font-bold uppercase transition-opacity">
+                                                🔍 View
+                                            </div>
+                                        </a>
+                                    </div>
+                                    <div className="flex-1 text-center sm:text-left min-w-0">
+                                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest leading-none mb-1">Prepaid Proof of Payment</p>
+                                        <p className="text-xs font-bold text-gray-700">Prepaid Order Verified</p>
+                                        <p className="text-[10px] text-gray-400 mt-1">This order was prepaid when placed. Click the thumbnail to securely inspect the full screenshot proof of payment.</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Custom Actions (Children) */}

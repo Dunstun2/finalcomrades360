@@ -19,6 +19,9 @@ const CUSTOMER_PAID_ROUTE_TYPES = new Set([
 
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 
+// Import models for fallback if not passed as dependencies
+const models = require('../models');
+
 const calculateSellerMerchandisePayout = (order, orderItems = []) => {
   if (Array.isArray(orderItems) && orderItems.length > 0) {
     return roundMoney(orderItems.reduce((sum, item) => sum + Number(item.total || 0), 0));
@@ -55,7 +58,8 @@ const getRoutePayer = (order, routeType) => {
 };
 
 const upsertDeliveryChargeForTask = async ({
-  DeliveryCharge,
+  DeliveryCharge = models.DeliveryCharge,
+  PlatformConfig = models.PlatformConfig,
   transaction,
   order,
   task,
@@ -69,20 +73,74 @@ const upsertDeliveryChargeForTask = async ({
     transaction
   });
 
+  // 1. Fetch relevant configurations
+  const [stationShareConfig, handlingFeeConfig, directAgentShareConfig] = await Promise.all([
+    PlatformConfig.findOne({ where: { key: 'delivery_fee_station_share' }, transaction }),
+    PlatformConfig.findOne({ where: { key: 'seller_delivery_handling_fee' }, transaction }),
+    PlatformConfig.findOne({ where: { key: 'direct_delivery_agent_share' }, transaction })
+  ]);
+
+  const stationSharePercent = stationShareConfig ? parseFloat(stationShareConfig.value) : 10;
+  const handlingFeePercent = handlingFeeConfig ? parseFloat(handlingFeeConfig.value) : 20;
+  const directAgentSharePercent = directAgentShareConfig ? parseFloat(directAgentShareConfig.value) : 80;
+
   const grossAmount = roundMoney(deliveryFee);
-  const sharePercent = roundMoney(agentSharePercent);
+  let sharePercent = roundMoney(agentSharePercent);
+  
   let agentAmount = 0;
+  let stationAmount = 0;
   let platformAmount = 0;
-  // Patch: For fastfood pickup point, use order.deliveryFee as grossAmount
-  if ((order.adminRoutingStrategy === 'fastfood_pickup_point' || order.routingStrategy === 'fastfood_pickup_point') && Number(order.deliveryFee) > 0) {
-    agentAmount = roundMoney(Number(order.deliveryFee) * (sharePercent / 100));
-    platformAmount = roundMoney(Number(order.deliveryFee) - agentAmount);
+  
+  let stationId = null;
+  let stationType = null;
+
+  // 2. Identify Hub (Warehouse or Pickup Station)
+  if (deliveryType.includes('warehouse')) {
+    stationId = order.destinationWarehouseId || order.warehouseId;
+    stationType = 'warehouse';
+  } else if (deliveryType.includes('pickup_station') || deliveryType.includes('pick_station') || deliveryType === 'fastfood_pickup_point') {
+    stationId = order.destinationPickStationId || order.pickupStationId || order.destinationFastFoodPickupPointId;
+    stationType = 'pickup_station';
+  }
+
+  // 3. Calculate Splits
+  // 3. Calculate Splits
+  const routeFunding = getRoutePayer(order, deliveryType);
+
+  if (routeFunding.payerType === 'customer') {
+    // 3-Way Split for Customer-Paid Legs (Agent, Station, Platform)
+    agentAmount = roundMoney(grossAmount * (sharePercent / 100));
+    
+    if (stationId) {
+      stationAmount = roundMoney(grossAmount * (stationSharePercent / 100));
+    } else {
+      stationAmount = 0;
+    }
+    
+    platformAmount = roundMoney(grossAmount - agentAmount - stationAmount);
+  } else if (routeFunding.payerType === 'seller') {
+    // Platform Share logic for Seller-Paid Legs (First-Mile)
+    // handlingFeePercent now represents the Platform's cut
+    platformAmount = roundMoney(grossAmount * (handlingFeePercent / 100));
+    
+    // Agent still gets their standard share
+    agentAmount = roundMoney(grossAmount * (sharePercent / 100));
+    
+    // Station receives the remainder
+    if (stationId) {
+      stationAmount = roundMoney(Math.max(0, grossAmount - agentAmount - platformAmount));
+    } else {
+      stationAmount = 0;
+      // If no station, platform absorbs the remainder
+      platformAmount = roundMoney(grossAmount - agentAmount);
+    }
   } else {
+    // Platform funded or unknown - Fallback to standard 2-way split
     agentAmount = roundMoney(grossAmount * (sharePercent / 100));
     platformAmount = roundMoney(grossAmount - agentAmount);
   }
+
   const sellerMerchandisePayout = calculateSellerMerchandisePayout(order, order?.OrderItems);
-  const routeFunding = getRoutePayer(order, deliveryType);
   const isCustomerChargeCaptured = routeFunding.payerType === 'customer' && !!order?.paymentConfirmed;
   const existingCharged = roundMoney(existingCharge?.chargedAmount || 0);
   const chargedAmount = roundMoney(isCustomerChargeCaptured ? grossAmount : Math.min(existingCharged, grossAmount));
@@ -101,6 +159,9 @@ const upsertDeliveryChargeForTask = async ({
     agentSharePercent: sharePercent,
     agentAmount,
     platformAmount,
+    stationAmount,
+    stationId,
+    stationType,
     sellerMerchandisePayout,
     fundingSource: routeFunding.fundingSource,
     fundingStatus: isCustomerChargeCaptured ? 'charged' : (outstandingAmount <= 0 ? 'charged' : 'quoted'),
@@ -112,15 +173,23 @@ const upsertDeliveryChargeForTask = async ({
 
   const chargeData = {
     ...payload,
-    deliveryTaskId: task.id // Explicitly set again to be sure
+    deliveryTaskId: task.id
   };
+
+  // Sync back to DeliveryTask to ensure UI (DeliveryTaskConsole) has the persisted earnings
+  if (task && task.update) {
+    await task.update({
+      deliveryFee: grossAmount,
+      agentShare: sharePercent,
+      agentEarnings: agentAmount
+    }, { transaction });
+  }
 
   if (existingCharge) {
     await existingCharge.update(chargeData, { transaction });
     return existingCharge;
   }
 
-  // Double check if it was created in a race condition during this transaction or another
   const doubleCheck = await DeliveryCharge.findOne({
     where: { deliveryTaskId: task.id },
     transaction
@@ -135,9 +204,9 @@ const upsertDeliveryChargeForTask = async ({
 };
 
 const invoiceSellerChargeImmediately = async ({
-  DeliveryCharge,
-  Wallet,
-  Transaction,
+  DeliveryCharge = models.DeliveryCharge,
+  Wallet = models.Wallet,
+  Transaction = models.Transaction,
   transaction,
   task,
   order
@@ -194,7 +263,7 @@ const invoiceSellerChargeImmediately = async ({
   return charge;
 };
 
-const settleDeliveryChargeForTask = async ({ DeliveryCharge, transaction, taskId, markCharged = false }) => {
+const settleDeliveryChargeForTask = async ({ DeliveryCharge = models.DeliveryCharge, transaction, taskId, markCharged = false }) => {
   const charge = await DeliveryCharge.findOne({
     where: { deliveryTaskId: taskId },
     transaction

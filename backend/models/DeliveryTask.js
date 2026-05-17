@@ -143,11 +143,41 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 0,
             comment: 'The platform system share amount collected from this task'
+        },
+        warningSentAt: {
+            type: DataTypes.DATE,
+            allowNull: true,
+            comment: 'When a collection-delay warning was sent to the agent — prevents duplicate warnings'
         }
 
     }, {
         freezeTableName: true,
-        timestamps: true
+        timestamps: true,
+        hooks: {
+            afterUpdate: async (task, options) => {
+                if (['cancelled', 'failed', 'rejected'].includes(task.status)) {
+                    try {
+                        const { DeliveryCharge } = sequelize.models;
+                        if (DeliveryCharge) {
+                            // Find any active/quoted delivery charge for this task and reverse it
+                            const charge = await DeliveryCharge.findOne({
+                                where: { deliveryTaskId: task.id },
+                                transaction: options.transaction
+                            });
+                            if (charge && charge.fundingStatus !== 'reversed') {
+                                console.log(`[DeliveryTask Hook] Automatically reversing charge #${charge.id} due to task #${task.id} entering status ${task.status}`);
+                                await charge.update({
+                                    fundingStatus: 'reversed',
+                                    note: `Reversed automatically: Delivery task ${task.status}. Rejection/Failure Reason: ${task.rejectionReason || task.failureReason || 'N/A'}`
+                                }, { transaction: options.transaction });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[DeliveryTask Hook] Error in auto-reversing delivery charge:', e.message);
+                    }
+                }
+            }
+        }
     });
 
     DeliveryTask.associate = function (models) {

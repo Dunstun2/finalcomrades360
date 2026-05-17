@@ -146,6 +146,7 @@ module.exports = (sequelize, DataTypes) => {
     Order.belongsTo(models.FastFoodPickupPoint, { foreignKey: 'destinationFastFoodPickupPointId', as: 'DestinationFastFoodPickupPoint' });
     // An order has many transactions
     Order.hasMany(models.Transaction, { foreignKey: 'orderId', as: 'transactions' });
+    Order.hasMany(models.DeliveryCharge, { foreignKey: 'orderId', as: 'deliveryCharges' });
 
     Order.belongsTo(models.Batch, {
       foreignKey: 'batchId',

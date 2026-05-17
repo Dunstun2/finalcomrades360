@@ -5,9 +5,9 @@ const bcrypt = require('bcryptjs');
 async function testBulkAssign() {
     try {
         // Find an admin
-        const admin = await User.findOne({ where: { role: 'super_admin' } });
+        const admin = await User.findOne({ where: { role: 'superadmin' } });
         const agent = await User.findOne({ where: { role: 'delivery_agent' } });
-        const orders = await Order.findAll({ limit: 2 });
+        const orders = await Order.findAll({ limit: 5 });
 
         if (!admin || !agent || orders.length < 1) {
             console.log('Not enough data to test');
@@ -27,7 +27,7 @@ async function testBulkAssign() {
             body: {
                 orderIds: orders.map(o => o.id),
                 password: 'testpass',
-                deliveryAgentId: agent.id,
+                deliveryAgentIds: [agent.id],
                 deliveryType: 'warehouse_to_customer'
             }
         };

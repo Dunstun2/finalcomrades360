@@ -16,20 +16,10 @@ import { findVariant, getVariantLabel, isSku } from '../utils/variantUtils';
 import PhoneVerification from '../components/PhoneVerification';
 import MpesaManualInstructions from '../components/payment/MpesaManualInstructions';
 import { getSocket } from '../services/socket';
-
+import { calculateFastFoodSellerIncrementalFee } from '../utils/deliveryFeeHelpers';
 const getFastFoodSellerKey = (item) => {
   const fastFood = item?.fastFood || {};
   return fastFood.vendor || fastFood.vendorId || fastFood.sellerId || fastFood.userId || item.fastFoodId || item.id;
-};
-
-const FASTFOOD_PICKUP_INCREMENT_RATE = 0.15;
-
-const calculateFastFoodSellerIncrementalFee = (baseFee, itemCount) => {
-  const safeBaseFee = Number(baseFee || 0);
-  const safeItemCount = Number(itemCount || 0);
-  if (safeBaseFee <= 0 || safeItemCount <= 0) return 0;
-  const extraItems = Math.max(0, safeItemCount - 1);
-  return safeBaseFee + (safeBaseFee * FASTFOOD_PICKUP_INCREMENT_RATE * extraItems);
 };
 
 const getFastFoodBaseDeliveryFee = (item) => Number(item?.deliveryFee || item?.fastFood?.deliveryFee || 0);

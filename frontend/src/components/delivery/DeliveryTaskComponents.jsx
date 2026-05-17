@@ -314,7 +314,16 @@ export const getOrderDeliveryTask = (order) => {
     if (!order) return null;
     const tasks = order.deliveryTasks || order.DeliveryTasks;
     if (Array.isArray(tasks) && tasks.length > 0) {
-        // Sort by ID descending to get the LATEST task first
+        // 1. Prioritize a completed task
+        const completedTask = tasks.find(t => t.status === 'completed');
+        if (completedTask) return completedTask;
+
+        // 2. Prioritize active tasks in progress
+        const activeStatuses = ['in_progress', 'arrived_at_pickup', 'accepted', 'assigned'];
+        const activeTask = tasks.find(t => activeStatuses.includes(t.status));
+        if (activeTask) return activeTask;
+
+        // 3. Fallback: Sort by ID descending to get the LATEST task first (which might be cancelled/rejected)
         return [...tasks].sort((a, b) => (b.id || 0) - (a.id || 0))[0];
     }
     return null;

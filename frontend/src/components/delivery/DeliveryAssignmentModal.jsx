@@ -6,7 +6,7 @@ import DeliveryChat from './DeliveryChat';
 import AdminPasswordDialog from '../AdminPasswordDialog';
 
 const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = false, selectedOrderIds = [] }) => {
-    const [selectedDriverId, setSelectedDriverId] = useState('');
+    const [selectedDriverIds, setSelectedDriverIds] = useState([]);
     const [deliveryType, setDeliveryType] = useState('warehouse_to_customer');
     const [pickupLocation, setPickupLocation] = useState('');
     const [deliveryLocation, setDeliveryLocation] = useState('');
@@ -363,13 +363,13 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                 // For delivery-request approval, preserve the requesting agent even if the modal
                 // normalizes the route type from a provisional/null value.
                 if (isHubStatus) {
-                    setSelectedDriverId(''); // Always force new agent selection for hub dispatch
+                    setSelectedDriverIds([]); // Always force new agent selection for hub dispatch
                 } else if (preferredDriverId) {
-                    setSelectedDriverId(String(preferredDriverId));
+                    setSelectedDriverIds([String(preferredDriverId)]);
                 } else if (initialRoute !== order.deliveryType || (initialRoute === 'warehouse_to_customer' && order.status === 'at_warehouse' && !order.deliveryAgentId)) {
-                    setSelectedDriverId('');
+                    setSelectedDriverIds([]);
                 } else {
-                    setSelectedDriverId(order.deliveryAgentId || '');
+                    setSelectedDriverIds(order.deliveryAgentId ? [String(order.deliveryAgentId)] : []);
                 }
 
                 const fallbackOpenRoute = order.deliveryType || possibleRoutes[0]?.[0] || 'seller_to_warehouse';
@@ -449,6 +449,12 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                     setDeliveryFee(stationPrice * totalQty);
                     return;
                 }
+            }
+
+            // Priority 3: Use the pre-calculated order delivery fee if available (handles Fast Food incrementals)
+            if (Number(order.deliveryFee) > 0) {
+                setDeliveryFee(Number(order.deliveryFee));
+                return;
             }
 
             // Fallback: Sum product specific delivery fees
@@ -636,7 +642,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     })();
 
     const handleConfirm = () => {
-        if (!selectedDriverId) return;
+        if (selectedDriverIds.length === 0) return;
         if (isAssignmentLocked) {
             alert(`Reassignment is locked until the current agent's ${getAssignmentTimeout()}-minute window expires.`);
             return;
@@ -680,7 +686,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             const { fallbackDestId, fallbackOriginId } = getFallbackHubIds();
             const payload = {
                 password,
-                deliveryAgentId: selectedDriverId,
+                deliveryAgentIds: selectedDriverIds,
                 deliveryType: route,
                 pickupLocation,
                 deliveryLocation,
@@ -1056,15 +1062,10 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                     <div>
                         <label className="block text-sm font-bold text-gray-700 mb-2 font-outfit">Select Close Agent</label>
                         <div className="relative">
-                            <FaUserTie className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <select
-                                value={selectedDriverId}
-                                onChange={(e) => setSelectedDriverId(e.target.value)}
-                                className={`w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all appearance-none text-gray-800 font-medium ${loadingAgents ? 'opacity-50' : ''}`}
-                                disabled={loadingAgents}
-                            >
-                                <option value="">{loadingAgents ? 'Calculating distances...' : 'Choose a delivery agent...'}</option>
-                                {(() => {
+                            <div className={`w-full bg-white border border-gray-200 rounded-xl max-h-48 overflow-y-auto p-2 ${loadingAgents ? 'opacity-50' : ''}`}>
+                                {loadingAgents && <p className="text-sm text-gray-500 p-2">Calculating distances...</p>}
+                                {!loadingAgents && agentMatches.length === 0 && <p className="text-sm text-gray-500 p-2">No agents found.</p>}
+                                {!loadingAgents && (() => {
                                     const nearby = [];
                                     const others = [];
 
@@ -1072,7 +1073,6 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                                         const { agent, distances } = match;
                                         let dist = null;
 
-                                        // Pickup location determines proximity priority
                                         if (deliveryType.startsWith('seller')) {
                                             dist = distances.agentToSeller;
                                         } else if (deliveryType.startsWith('warehouse') || deliveryType.startsWith('pickup_station')) {
@@ -1081,48 +1081,66 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                                             dist = distances.agentToCustomer;
                                         }
 
-                                        if (dist !== null && dist <= 20) { // Within 20km is "nearby"
+                                        if (dist !== null && dist <= 20) {
                                             nearby.push({ ...match, distLabel: `${dist.toFixed(1)} km` });
                                         } else {
                                             others.push({ ...match, distLabel: dist ? `${dist.toFixed(1)} km` : 'Location unknown' });
                                         }
                                     });
 
+                                    const renderAgent = ({ agent, distLabel }) => {
+                                        const disabled = !agent.isActive || !agent.isComplete;
+                                        const isSelected = selectedDriverIds.includes(agent.id);
+                                        const toggleSelection = () => {
+                                            if (disabled) return;
+                                            if (isSelected) {
+                                                setSelectedDriverIds(selectedDriverIds.filter(id => id !== agent.id));
+                                            } else {
+                                                setSelectedDriverIds([...selectedDriverIds, agent.id]);
+                                            }
+                                        };
+
+                                        return (
+                                            <div 
+                                                key={agent.id} 
+                                                onClick={toggleSelection}
+                                                className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50 border border-transparent'}`}
+                                            >
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isSelected}
+                                                    readOnly
+                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-gray-900 truncate">{agent.name}</p>
+                                                    <p className="text-xs text-gray-500 truncate">
+                                                        {distLabel !== 'Location unknown' ? `Distance: ${distLabel}` : 'Location unknown'}
+                                                        {!agent.isActive ? ' — OFFLINE' : !agent.isComplete ? ' — INCOMPLETE' : !agent.isAvailable ? ' — OUTSIDE SHIFT' : ''}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    };
+
                                     return (
-                                        <>
+                                        <div className="space-y-4">
                                             {nearby.length > 0 && (
-                                                <optgroup label="Nearby Agents (Proximity Match)">
-                                                    {nearby.map(({ agent, distLabel }) => (
-                                                        <option 
-                                                            key={agent.id} 
-                                                            value={agent.id}
-                                                            disabled={!agent.isActive || !agent.isComplete}
-                                                            className={!agent.isActive || !agent.isComplete ? 'text-gray-400' : ''}
-                                                        >
-                                                            {agent.name} (Nearby: {distLabel})
-                                                            {!agent.isActive ? ' — OFFLINE' : !agent.isComplete ? ' — INCOMPLETE' : !agent.isAvailable ? ' — OUTSIDE SHIFT' : ''}
-                                                        </option>
-                                                    ))}
-                                                </optgroup>
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-2">Nearby Agents</h4>
+                                                    <div className="space-y-1">{nearby.map(renderAgent)}</div>
+                                                </div>
                                             )}
                                             {others.length > 0 && (
-                                                <optgroup label={nearby.length > 0 ? "Other Registered Agents" : "Available Agents"}>
-                                                    {others.map(({ agent, distLabel }) => (
-                                                        <option 
-                                                            key={agent.id} 
-                                                            value={agent.id}
-                                                            disabled={!agent.isActive || !agent.isComplete}
-                                                            className={!agent.isActive || !agent.isComplete ? 'text-gray-400' : ''}
-                                                        >
-                                                            {agent.name} {distLabel !== 'Location unknown' ? `(${distLabel})` : ''}{!agent.isActive ? ' — OFFLINE' : !agent.isComplete ? ' — INCOMPLETE' : ''}
-                                                        </option>
-                                                    ))}
-                                                </optgroup>
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-2 mt-4">{nearby.length > 0 ? "Other Registered Agents" : "Available Agents"}</h4>
+                                                    <div className="space-y-1">{others.map(renderAgent)}</div>
+                                                </div>
                                             )}
-                                        </>
+                                        </div>
                                     );
                                 })()}
-                            </select>
+                            </div>
                         </div>
                         {agentMatches.length === 0 && !loadingAgents && (
                             <div className="mt-3 p-3 bg-red-50 rounded-xl border border-red-100">
@@ -1175,7 +1193,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
                         </div>
                     ) : (() => {
                         const canSubmit = ['seller_confirmed', 'super_admin_confirmed', 'at_warehouse', 'at_warehouse', 'ready_for_pickup'].includes(order.status);
-                        const isSubmitDisabled = !selectedDriverId || assigning || !canSubmit || isWarehouseReentryRoute(order, normalizeDeliveryType(deliveryType));
+                        const isSubmitDisabled = selectedDriverIds.length === 0 || assigning || !canSubmit || isWarehouseReentryRoute(order, normalizeDeliveryType(deliveryType));
                         
                         return (
                             <button

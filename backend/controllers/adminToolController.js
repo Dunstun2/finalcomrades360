@@ -461,10 +461,14 @@ exports.getUserActivity = async (req, res) => {
 
 exports.reassignDeliveryAgent = async (req, res) => {
   try {
-    const { orderId, newAgentId, reason } = req.body;
+    const { orderId, newAgentId, newAgentIds, reason } = req.body;
+    
+    const agentIds = Array.isArray(newAgentIds) && newAgentIds.length > 0 
+      ? newAgentIds 
+      : (newAgentId ? [newAgentId] : []);
 
-    if (!orderId || !newAgentId) {
-      return res.status(400).json({ message: 'Order ID and New Agent ID are required.' });
+    if (!orderId || agentIds.length === 0) {
+      return res.status(400).json({ message: 'Order ID and at least one New Agent ID are required.' });
     }
 
     const order = await Order.findByPk(orderId, {
@@ -475,19 +479,29 @@ exports.reassignDeliveryAgent = async (req, res) => {
     });
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
-    const newAgent = await User.findByPk(newAgentId);
-    if (!newAgent) return res.status(404).json({ message: 'New delivery agent not found' });
-    
-    // Check if newAgent has the delivery_agent role
-    if (newAgent.role !== 'delivery_agent' && !(newAgent.roles || []).includes('delivery_agent')) {
-      return res.status(400).json({ message: 'Selected user is not a delivery agent.' });
+    const validAgentIds = [];
+    const validAgents = [];
+    for (const id of agentIds) {
+      const agent = await User.findByPk(id);
+      if (agent && (agent.role === 'delivery_agent' || (agent.roles || []).includes('delivery_agent'))) {
+        validAgentIds.push(id);
+        validAgents.push(agent);
+      }
+    }
+
+    if (validAgentIds.length === 0) {
+      return res.status(400).json({ message: 'None of the selected users are delivery agents.' });
     }
 
     const oldAgentId = order.deliveryAgentId;
     const oldStatus = order.status;
 
     // 1. Update Order
-    order.deliveryAgentId = newAgentId;
+    if (validAgentIds.length === 1) {
+      order.deliveryAgentId = validAgentIds[0];
+    } else {
+      order.deliveryAgentId = null;
+    }
     // Reset status to awaiting_delivery_assignment or similar if it was accepted? 
     // Usually, we keep the status but update the task.
     await order.save();
@@ -505,15 +519,19 @@ exports.reassignDeliveryAgent = async (req, res) => {
       }
     );
 
-    // Create new task for the new agent
-    const newTask = await DeliveryTask.create({
-      orderId: order.id,
-      deliveryAgentId: newAgentId,
-      status: 'assigned',
-      assignedAt: new Date(),
-      notes: reason || 'Manual Admin Reassignment',
-      deliveryType: order.deliveryType || 'seller_to_customer'
-    });
+    // Create new tasks for the new agents
+    const createdTasks = [];
+    for (const agentId of validAgentIds) {
+      const newTask = await DeliveryTask.create({
+        orderId: order.id,
+        deliveryAgentId: agentId,
+        status: 'assigned',
+        assignedAt: new Date(),
+        notes: reason || 'Manual Admin Reassignment (Broadcast)',
+        deliveryType: order.deliveryType || 'seller_to_customer'
+      });
+      createdTasks.push(newTask);
+    }
 
     // 3. Log action
     await logAdminAction({
@@ -523,7 +541,7 @@ exports.reassignDeliveryAgent = async (req, res) => {
       targetType: 'Order',
       targetId: order.id,
       targetName: `Order #${order.id}`,
-      details: { oldAgentId, newAgentId, reason: reason || 'Manual Admin Override' },
+      details: { oldAgentId, newAgentIds: validAgentIds, reason: reason || 'Manual Admin Override' },
       ip: req.ip,
       userAgent: req.headers['user-agent']
     });
@@ -531,16 +549,18 @@ exports.reassignDeliveryAgent = async (req, res) => {
     // 4. Notifications
     const { createNotification } = require('../utils/notificationHelpers');
     
-    // Notify new agent
-    await createNotification(
-      newAgentId,
-      'New Delivery Assignment',
-      `You have been manually assigned to Order #${order.orderNumber}. Reason: Admin Reassignment.`,
-      'info'
-    );
+    // Notify new agents
+    for (const agentId of validAgentIds) {
+      await createNotification(
+        agentId,
+        'New Delivery Assignment',
+        `You have been manually assigned to Order #${order.orderNumber}. Reason: Admin Reassignment.`,
+        'info'
+      );
+    }
 
     // Notify old agent if existed
-    if (oldAgentId) {
+    if (oldAgentId && !validAgentIds.includes(oldAgentId)) {
       await createNotification(
         oldAgentId,
         'Order Unassigned',
@@ -553,17 +573,19 @@ exports.reassignDeliveryAgent = async (req, res) => {
     const { getIO } = require('../realtime/socket');
     const io = getIO();
     if (io) {
-      io.to(`user:${newAgentId}`).emit('deliveryTaskAssigned', { orderId: order.id, taskId: newTask.id });
-      if (oldAgentId) {
+      for (const task of createdTasks) {
+         io.to(`user:${task.deliveryAgentId}`).emit('deliveryTaskAssigned', { orderId: order.id, taskId: task.id });
+      }
+      if (oldAgentId && !validAgentIds.includes(oldAgentId)) {
         io.to(`user:${oldAgentId}`).emit('deliveryTaskRemoved', { orderId: order.id });
       }
       io.to('admin').emit('orderUpdate', { orderId: order.id, action: 'reassigned' });
     }
 
     res.json({ 
-      message: `Order #${order.id} reassigned successfully to ${newAgent.name}.`, 
+      message: `Order #${order.id} reassigned successfully to ${validAgentIds.length} agents.`, 
       order,
-      newAgent: { id: newAgent.id, name: newAgent.name }
+      newAgents: validAgents.map(a => ({ id: a.id, name: a.name }))
     });
   } catch (error) {
     console.error('[AdminTools] Reassign Delivery Agent error:', error);

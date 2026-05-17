@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { resolveImageUrl, FALLBACK_IMAGE, getProductMainImage } from '../utils/imageUtils';
 import { ensureArray, normalizeIngredient } from '../utils/parsingUtils';
-import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaArrowLeft, FaRoute, FaUser, FaUserTie, FaPhone, FaWhatsapp } from 'react-icons/fa';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaArrowLeft, FaRoute, FaUser, FaUserTie, FaPhone, FaWhatsapp, FaExclamationCircle } from 'react-icons/fa';
 import DeliveryTrackingMap from '../components/DeliveryTrackingMap';
 
 export default function OrderTracking() {
@@ -201,25 +201,25 @@ export default function OrderTracking() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Current Status</h2>
                 {(() => {
-                    const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
-                      if (!rawStatus) return 'Processing';
-                      const s = rawStatus.toLowerCase().replace(/ /g, '_');
-                      const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
-                      const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
-                      const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
-                      
-                      if (['delivered', 'completed'].includes(s)) return 'Delivered';
-                      if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+                  const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                    if (!rawStatus) return 'Processing';
+                    const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                    const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                    const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
+                    const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                    
+                    if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                    if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
 
-                      if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
-                      if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
+                    if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
+                    if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
 
-                      if (s === 'order_placed') return 'Order Placed';
-                      if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
-                      if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
-                      
-                      return 'Processing';
-                    };
+                    if (s === 'order_placed') return 'Order Placed';
+                    if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                    if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
+                    
+                    return 'Processing';
+                  };
                   const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
                   const displayColor = getStatusColor(displayStatus);
                   const DisplayIcon = getStatusIcon(displayStatus);
@@ -233,6 +233,57 @@ export default function OrderTracking() {
                 })()}
               </div>
 
+              {/* Timeline progress bar */}
+              {(() => {
+                const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                  if (!rawStatus) return 'Processing';
+                  const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                  const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                  const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
+                  const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                  
+                  if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                  if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+
+                  if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
+                  if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
+
+                  if (s === 'order_placed') return 'Order Placed';
+                  if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                  if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
+                  
+                  return 'Processing';
+                };
+                const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
+                const steps = ['Order Placed', 'Preparing', 'In Transit', 'Delivered'];
+                const idx = steps.indexOf(displayStatus);
+                return (
+                  <div className="mt-4 mb-8">
+                    <div className="flex items-center justify-between relative">
+                      <div className="absolute top-3 left-0 right-0 h-1 bg-gray-100 z-0 mx-4" />
+                      <div
+                        className="absolute top-3 left-0 h-1 bg-blue-500 z-0 ml-4 transition-all duration-700"
+                        style={{ width: idx >= 0 ? `${(idx / (steps.length - 1)) * (100 - 8)}%` : '0%' }}
+                      />
+                      {steps.map((step, i) => (
+                        <div key={step} className="flex flex-col items-center gap-1 z-10">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                            i <= idx
+                              ? 'bg-blue-500 border-blue-500 text-white'
+                              : 'bg-white border-gray-200 text-gray-300'
+                          }`}>
+                            {i < idx ? <FaCheckCircle className="h-3 w-3" /> : i + 1}
+                          </div>
+                          <span className={`text-[9px] font-medium leading-tight text-center max-w-[48px] ${i <= idx ? 'text-blue-600' : 'text-gray-300'}`}>
+                            {step}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {tracking.trackingNumber && (
                 <div className="mb-4">
                   <p className="text-sm text-gray-600">Tracking Number</p>
@@ -240,27 +291,27 @@ export default function OrderTracking() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t pt-4">
                 {tracking.estimatedDelivery && (
                   <div>
                     <p className="text-gray-600">Estimated Delivery</p>
-                    <p className="font-medium">{formatDate(tracking.estimatedDelivery)}</p>
+                    <p className="font-bold text-gray-900">{formatDate(tracking.estimatedDelivery)}</p>
                   </div>
                 )}
                 {tracking.actualDelivery && (
                   <div>
                     <p className="text-gray-600">Actual Delivery</p>
-                    <p className="font-medium">{formatDate(tracking.actualDelivery)}</p>
+                    <p className="font-bold text-gray-900">{formatDate(tracking.actualDelivery)}</p>
                   </div>
                 )}
                 {tracking.batch && (
-                  <div className="md:col-span-2 mt-2 p-2 bg-blue-50 rounded border border-blue-100">
+                  <div className="md:col-span-2 mt-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
                     <p className="text-xs font-bold text-blue-800">Fast Food Batch: {tracking.batch.name}</p>
                     <p className="text-[11px] text-blue-600 font-medium">Expected Delivery Time: {tracking.batch.expectedDelivery || 'Not specified'}</p>
                   </div>
                 )}
                 {tracking.deliveryTimePreference && !tracking.batch && (
-                  <div className="md:col-span-2 mt-2 p-2 bg-orange-50 rounded border border-orange-100">
+                  <div className="md:col-span-2 mt-2 p-3 bg-orange-50 rounded-xl border border-orange-100">
                     <p className="text-xs font-bold text-orange-800">Preferred Delivery Time: {tracking.deliveryTimePreference}</p>
                   </div>
                 )}
@@ -268,18 +319,18 @@ export default function OrderTracking() {
 
               {/* Handover Code Input: Show if tracking.handoverCode exists, even before status is 'delivered' */}
               {tracking.handoverCode && (
-                <div className="mt-6">
-                  <h4 className="text-lg font-semibold text-blue-900 mb-2">Enter Handover Code</h4>
+                <div className="mt-6 pt-6 border-t border-dashed">
+                  <h4 className="text-sm font-bold text-gray-900 mb-3">Enter Handover Code</h4>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={handoverCodeInput}
                       onChange={e => setHandoverCodeInput(e.target.value)}
                       placeholder="Enter code provided by agent"
-                      className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"
                     />
                     <button
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition shadow-sm active:scale-95 disabled:opacity-50"
                       onClick={async () => {
                         setHandoverCodeError('');
                         setHandoverCodeSuccess('');
@@ -301,11 +352,11 @@ export default function OrderTracking() {
                       }}
                       disabled={!handoverCodeInput}
                     >
-                      Submit
+                      Confirm
                     </button>
                   </div>
-                  {handoverCodeError && <p className="text-red-600 text-sm mt-2">{handoverCodeError}</p>}
-                  {handoverCodeSuccess && <p className="text-green-600 text-sm mt-2">{handoverCodeSuccess}</p>}
+                  {handoverCodeError && <p className="text-red-600 text-xs mt-2 font-medium">{handoverCodeError}</p>}
+                  {handoverCodeSuccess && <p className="text-green-600 text-xs mt-2 font-medium">{handoverCodeSuccess}</p>}
                 </div>
               )}
             </div>

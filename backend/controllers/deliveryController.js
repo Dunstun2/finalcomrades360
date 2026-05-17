@@ -803,6 +803,37 @@ const acceptDeliveryTask = async (req, res, next) => {
       acceptedAt: new Date()
     });
 
+    // NEW: Broadcast cancellation - find sibling agents first, THEN cancel
+    const siblingTasks = await DeliveryTask.findAll({
+      where: {
+        orderId: task.orderId,
+        id: { [Op.ne]: task.id },
+        status: { [Op.in]: ['assigned', 'requested'] }
+      },
+      attributes: ['id', 'deliveryAgentId']
+    });
+
+    if (siblingTasks.length > 0) {
+      await DeliveryTask.update(
+        {
+          status: 'cancelled',
+          rejectionReason: 'Order accepted by another agent'
+        },
+        {
+          where: {
+            orderId: task.orderId,
+            id: { [Op.ne]: task.id },
+            status: { [Op.in]: ['assigned', 'requested'] }
+          }
+        }
+      );
+    }
+
+    // Update the parent order to reflect the winning agent
+    if (task.order) {
+      await task.order.update({ deliveryAgentId: req.user.id });
+    }
+
     // Lock share if missing (legacy support)
     if (!task.agentShare) {
       const { PlatformConfig } = require('../models');
@@ -825,6 +856,29 @@ const acceptDeliveryTask = async (req, res, next) => {
     }
 
     res.json({ message: 'Task accepted successfully', task });
+
+    // Real-time: notify losing agents immediately AFTER response is sent
+    try {
+      const { getIO } = require('../realtime/socket');
+      const io = getIO();
+      if (io && siblingTasks.length > 0) {
+        for (const sibling of siblingTasks) {
+          if (sibling.deliveryAgentId) {
+            io.to(`user:${sibling.deliveryAgentId}`).emit('deliveryTaskRemoved', {
+              orderId: task.orderId,
+              taskId: sibling.id,
+              reason: 'Order was claimed by another agent.'
+            });
+          }
+        }
+      }
+      // Notify admin
+      if (io) {
+        io.to('admin').emit('deliveryRequestUpdate', { orderId: task.orderId, status: 'accepted' });
+      }
+    } catch (socketErr) {
+      console.error('[acceptDeliveryTask] Socket emit error:', socketErr);
+    }
   } catch (e) {
     console.error('Error in acceptDeliveryTask:', e);
     res.status(500).json({ error: 'Failed to accept task' });

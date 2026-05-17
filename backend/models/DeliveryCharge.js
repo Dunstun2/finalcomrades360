@@ -63,6 +63,19 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 0
     },
+    stationAmount: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0
+    },
+    stationId: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    stationType: {
+      type: DataTypes.ENUM('warehouse', 'pickup_station'),
+      allowNull: true
+    },
     sellerMerchandisePayout: {
       type: DataTypes.FLOAT,
       allowNull: false,

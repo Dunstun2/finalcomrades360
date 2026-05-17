@@ -45,6 +45,11 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.DECIMAL(11, 8),
             allowNull: true,
             comment: 'Longitude of the pickup station'
+        },
+        managerId: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            comment: 'User ID of the station manager'
         }
     }, {
         timestamps: true

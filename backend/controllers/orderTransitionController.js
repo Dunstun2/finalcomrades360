@@ -284,6 +284,7 @@ const autoCreateDeliveryTask = async (order, fromStatus, toStatus) => {
     try {
       await upsertDeliveryChargeForTask({
         DeliveryCharge,
+        PlatformConfig,
         order,
         task,
         deliveryFee: taskDeliveryFee,

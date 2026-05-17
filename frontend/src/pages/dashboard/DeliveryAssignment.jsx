@@ -119,7 +119,7 @@ const DeliveryAssignment = () => {
 
             const calculateTimeLeft = () => {
                 const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || false;
-                const timeoutMinutes = isFastfood ? 2.5 : 30;
+                const timeoutMinutes = isFastfood ? 15 : 30;
 
                 const assignedAt = new Date(activeTask.assignedAt);
                 const expiryTime = new Date(assignedAt.getTime() + timeoutMinutes * 60 * 1000);

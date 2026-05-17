@@ -253,7 +253,59 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
 
         if (!transaction) await t.commit();
         
-        console.log(`[handoverService] Handover ${codeId} confirmed successfully.`);
+        console.log(`[handoverService] Handover ${codeId} confirmed successfully. Emitting real-time updates...`);
+
+        // Real-time notification logic (emitted inside service for both controller and cron)
+        try {
+            const { getIO } = require('../realtime/socket');
+            const io = getIO();
+            if (io && order) {
+                const HANDOVER_LABELS = {
+                    seller_to_agent:       'Seller → Agent Pickup',
+                    agent_to_warehouse:    'Agent → Warehouse Drop-off',
+                    warehouse_to_agent:    'Warehouse → Agent Pickup',
+                    agent_to_station:      'Agent → Pickup Station Drop-off',
+                    agent_to_customer:     'Agent → Customer Delivery',
+                    station_to_customer:   'Pickup Station → Customer Pickup',
+                    seller_to_warehouse:   'Seller (Internal) → Warehouse Drop-off',
+                    pickup_station_to_warehouse: 'Pickup Station → Warehouse Hub',
+                    station_to_agent:      'Pickup Station → Delivery Agent',
+                };
+
+                const payload = {
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    handoverType,
+                    label: HANDOVER_LABELS[handoverType] || handoverType,
+                    newOrderStatus: order.status,
+                    confirmedAt: new Date()
+                };
+
+                io.to(`user:${handover.initiatorId}`).emit('handover:confirmed', payload);
+                io.to(`user:${confirmerId}`).emit('handover:confirmed', payload);
+                io.to('admin').emit('handover:confirmed', { ...payload, confirmerId });
+                
+                // Push status update to all relevant parties
+                const statusUpdate = {
+                    orderId: order.id,
+                    status: order.status,
+                    orderNumber: order.orderNumber,
+                    warehouseArrivalDate: order.warehouseArrivalDate,
+                    deliveryAgentId: order.deliveryAgentId
+                };
+                io.to(`user:${order.userId}`).emit('orderStatusUpdate', statusUpdate);
+                io.to('admin').emit('orderStatusUpdate', statusUpdate);
+
+                // CRITICAL: Also notify the current delivery agent if they are the one confirmed
+                if (order.deliveryAgentId) {
+                    io.to(`user:${order.deliveryAgentId}`).emit('orderStatusUpdate', statusUpdate);
+                    console.log(`[Handover] Emitted orderStatusUpdate to agent ${order.deliveryAgentId} room: user:${order.deliveryAgentId}`);
+                }
+            }
+        } catch (socketErr) {
+            console.warn('[Handover] Socket notification failed in confirmHandoverProcessor:', socketErr.message);
+        }
+
         return { success: true, message: 'Handover confirmed' };
 
     } catch (error) {

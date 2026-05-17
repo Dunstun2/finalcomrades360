@@ -321,7 +321,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
     }
 
     const isFastfood = fullOrder?.OrderItems?.some(i => i.fastFoodId != null) || false;
-    const timeoutMsg = isFastfood ? "2.5 minutes" : "30 minutes";
+    const timeoutMsg = isFastfood ? "15 minutes" : "30 minutes";
     const dashboardUrl = `${process.env.FRONTEND_URL || 'https://comrades360.shop'}/dashboard/delivery`;
 
     const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nPickup Point: {pickupLocation}\nDrop-off: {deliveryLocation}\nCustomer Phone: {customerPhone}\n\n⚠️ PLEASE ACCEPT WITHIN ${timeoutMsg} TO AVOID AUTOMATIC REASSIGNMENT.\n\nManage Task:\n{dashboardUrl}`;

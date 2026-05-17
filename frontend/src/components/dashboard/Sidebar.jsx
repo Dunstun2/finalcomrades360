@@ -122,7 +122,8 @@ const adminMenuItems = [
       { name: 'Referrals', path: '/dashboard/finance/referrals', icon: <FaAward className="mr-2" /> },
       { name: 'Financial Reports', path: '/dashboard/finance/reports', icon: <FaChartLine className="mr-2" /> },
       { name: 'System Revenue', path: '/dashboard/finance/revenue', icon: <FaMoneyBillWave className="mr-2" /> },
-      { name: 'Pending Payouts', path: '/dashboard/finance/payouts', icon: <FaMoneyBill className="mr-2" /> }
+      { name: 'Pending Payouts', path: '/dashboard/finance/payouts', icon: <FaMoneyBill className="mr-2" /> },
+      { name: 'Logistics Invoices', path: '/dashboard/finance/logistics-invoices', icon: <FaFileAlt className="mr-2" /> }
     ]
   },
   {

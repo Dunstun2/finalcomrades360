@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import DeliveryTrackingMap from '../components/DeliveryTrackingMap';
 import { getProductMainImage, resolveImageUrl, FALLBACK_IMAGE } from '../utils/imageUtils';
-import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft, FaRoute, FaUser, FaBox, FaPhone, FaWhatsapp } from 'react-icons/fa';
+import { FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaSearch, FaArrowLeft, FaRoute, FaUser, FaBox, FaPhone, FaWhatsapp, FaExclamationCircle } from 'react-icons/fa';
 
 const getCustomerFriendlyStatus = (rawStatus, trackingObj = null) => {
   if (!rawStatus) return 'Processing';

@@ -75,7 +75,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
             onMouseEnter={() => setIsAutoPlaying(false)}
             onMouseLeave={() => setIsAutoPlaying(true)}
         >
-            <div className="relative w-full h-60 sm:h-64 md:h-[400px] lg:h-[440px] transition-all duration-700 ease-in-out overflow-hidden">
+            <div className="relative w-full h-56 sm:h-64 md:h-[350px] lg:h-[380px] transition-all duration-700 ease-in-out overflow-hidden">
                 
                 {/* Premium Background with Gradient & Pattern */}
                 <div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}>
@@ -92,7 +92,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                 <div className="relative z-10 w-full h-full flex flex-row items-center">
                     
                     {/* Left Side: Content */}
-                    <div className="w-[55%] sm:w-[60%] h-full px-3 sm:px-8 md:px-16 flex flex-col justify-start pt-6 sm:justify-center animate-fade-in-left">
+                    <div className="w-[55%] sm:w-[60%] h-full px-3 sm:px-8 md:px-16 flex flex-col justify-start pt-3 sm:justify-center animate-fade-in-left">
                         
                         {/* Top Deal Badge */}
                         <div className="mb-0.5 sm:mb-2">
@@ -103,11 +103,11 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
 
                         {/* Title Block */}
                         <div className="relative">
-                            <h1 className="text-white text-lg sm:text-4xl md:text-7xl font-black leading-[0.85] tracking-tighter drop-shadow-2xl uppercase">
+                            <h1 className="text-white text-lg sm:text-3xl md:text-6xl font-black leading-tight tracking-tighter drop-shadow-2xl uppercase">
                                 {currentItem.title || (firstProduct ? firstProduct.name : 'Flash Sale')}
                             </h1>
                             
-                            <p className="mt-0.5 sm:mt-2 text-white/90 text-[9px] sm:text-lg md:text-3xl font-bold italic leading-tight max-w-xl line-clamp-1">
+                            <p className="mt-0.5 sm:mt-1 text-white/90 text-[9px] sm:text-sm md:text-xl font-bold italic leading-tight max-w-xl line-clamp-1">
                                 {currentItem.subtitle || (firstProduct ? `Best price on ${firstProduct.name}!` : 'Campus favorites.')}
                             </p>
 
@@ -117,7 +117,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                 { icon: '✅', text: 'Verified' },
                                 { icon: '🎓', text: 'Student Choice' }
                             ]).length > 0 && (
-                                <div className="mt-2 sm:mt-6 flex items-center flex-wrap gap-2 sm:gap-6 text-white/90 bg-black/10 w-fit px-2 sm:px-4 py-1 sm:py-2 rounded-lg backdrop-blur-sm border border-white/5">
+                                <div className="mt-1.5 sm:mt-3 flex items-center flex-wrap gap-2 sm:gap-6 text-white/90 bg-black/10 w-fit px-2 sm:px-4 py-0.5 sm:py-1.5 rounded-lg backdrop-blur-sm border border-white/5">
                                     {(currentItem.trustPoints || [
                                         { icon: '🚀', text: 'Fast Delivery' },
                                         { icon: '✅', text: 'Verified' },
@@ -137,12 +137,12 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
 
 
 
-                        <div className="mt-3 sm:mt-8 flex flex-col gap-3 sm:gap-6">
+                        <div className="mt-2 sm:mt-4 flex flex-col gap-2 sm:gap-4">
                             {(firstProduct || currentItem.productId) && (
                                 <div className="flex flex-wrap items-center gap-2 sm:gap-8">
                                     <button
                                         onClick={(e) => handleAddToCartClick(e, firstProduct?.id || currentItem.productId)}
-                                        className="px-4 py-2 sm:px-12 sm:py-5 bg-white text-black rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xl md:text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 group/btn border-b-2 sm:border-b-4 border-gray-200"
+                                        className="px-4 py-2 sm:px-10 sm:py-4 bg-white text-black rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-lg md:text-xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 group/btn border-b-2 sm:border-b-4 border-gray-200"
                                     >
                                         <span>BUY NOW</span>
                                         <FaShoppingCart size={12} className="sm:w-6 sm:h-6 group-hover/btn:translate-x-1 transition-transform" />
@@ -156,7 +156,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                             )}
 
                             {/* Enhanced Social Proof Indicator */}
-                            <div className="flex items-center gap-1.5 sm:gap-4 bg-black/20 w-fit p-1 sm:p-2.5 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-2xl">
+                            <div className="flex items-center gap-1.5 sm:gap-3 bg-black/20 w-fit p-1 sm:p-2 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-2xl">
                                 <div className="flex -space-x-1.5 sm:-space-x-3">
                                     {(() => {
                                         const imgs = [];

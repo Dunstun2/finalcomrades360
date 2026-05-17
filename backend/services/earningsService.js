@@ -1,4 +1,4 @@
-const { DeliveryTask, Order, DeliveryAgentProfile, Wallet, Transaction, DeliveryCharge, sequelize, User } = require('../models');
+const { DeliveryTask, Order, DeliveryAgentProfile, Wallet, Transaction, DeliveryCharge, PlatformConfig, Warehouse, PickupStation, sequelize, User } = require('../models');
 const { creditPending, moveToSuccess } = require('../utils/walletHelpers');
 const { upsertDeliveryChargeForTask, settleDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
 
@@ -74,8 +74,9 @@ const creditAgentForTask = async (taskId, transaction = null) => {
         }
 
         // Update DeliveryCharge records
-        await upsertDeliveryChargeForTask({
+        const charge = await upsertDeliveryChargeForTask({
             DeliveryCharge,
+            PlatformConfig,
             transaction: t,
             order,
             task,
@@ -84,6 +85,37 @@ const creditAgentForTask = async (taskId, transaction = null) => {
             deliveryType: task.deliveryType,
             deliveryAgentId: agentId
         });
+
+        // 6. STATION/WAREHOUSE MANAGER CREDIT
+        if (charge && charge.stationAmount > 0 && charge.stationId) {
+            let managerId = null;
+            let stationName = 'Station';
+
+            if (charge.stationType === 'warehouse') {
+                const warehouse = await Warehouse.findByPk(charge.stationId, { transaction: t });
+                managerId = warehouse?.managerId;
+                stationName = warehouse?.name || 'Warehouse';
+            } else if (charge.stationType === 'pickup_station') {
+                const station = await PickupStation.findByPk(charge.stationId, { transaction: t });
+                managerId = station?.managerId;
+                stationName = station?.name || 'Pickup Station';
+            }
+
+            if (managerId) {
+                console.log(`[earningsService] Crediting manager ${managerId} of ${stationName} for task ${taskId}. Amount: ${charge.stationAmount}`);
+                await moveToSuccess(
+                    managerId,
+                    charge.stationAmount,
+                    order.orderNumber,
+                    `Station Handling Fee for Order #${order.orderNumber} at ${stationName}`,
+                    order.id,
+                    t,
+                    'station_manager'
+                );
+            } else {
+                console.warn(`[earningsService] No managerId found for station ${charge.stationId} (${charge.stationType}). Skipping station credit.`);
+            }
+        }
 
         await settleDeliveryChargeForTask({
             DeliveryCharge,
@@ -95,7 +127,7 @@ const creditAgentForTask = async (taskId, transaction = null) => {
         if (!transaction) await t.commit();
         return true;
     } catch (error) {
-        console.error(`[earningsService] Error crediting agent for task ${taskId}:`, error);
+        console.error(`[earningsService] Error crediting agent/manager for task ${taskId}:`, error);
         if (!transaction) await t.rollback();
         throw error;
     }

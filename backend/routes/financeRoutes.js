@@ -14,7 +14,8 @@ const {
     collectSystemRevenue,
     getDeliveryChargeLedger,
     getDeliveryChargeSummary,
-    getSellerSalesHistory
+    getSellerSalesHistory,
+    settleLogisticsCharge
 } = require('../controllers/financeController');
 const { 
     getPlatformWalletDetails, 
@@ -62,6 +63,7 @@ router.post('/toggle-automatic-payout', auth, checkRole('admin', 'superadmin', '
 router.get('/delivery-task-history', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager', 'logistics_manager'), getDeliveryTaskHistory);
 router.get('/delivery-charge-ledger', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager', 'logistics_manager'), getDeliveryChargeLedger);
 router.get('/delivery-charge-summary', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager', 'logistics_manager'), getDeliveryChargeSummary);
+router.post('/logistics-invoices/:chargeId/settle', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), settleLogisticsCharge);
 
 // Seller Sales History — for unified verification ledger
 router.get('/seller-sales-history', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getSellerSalesHistory);

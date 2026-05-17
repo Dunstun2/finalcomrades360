@@ -149,10 +149,11 @@ const autoDispatchService = {
                 return null;
             }
 
-            const bestMatch = matches[0].agent;
-            console.log(`🎯 [AutoDispatch] Selected Agent: ${bestMatch.name} (Score: ${matches[0].score})`);
+            // Broadcast to up to 5 top matches
+            const topMatches = matches.slice(0, 5).map(m => m.agent);
+            console.log(`🎯 [AutoDispatch] Broadcasting to ${topMatches.length} Agents: ${topMatches.map(a => a.name).join(', ')}`);
 
-            // 6. Assignment Logic (Mirroring orderController.js)
+            // 6. Assignment Logic
             const { getProvisionalDeliveryType } = require('../controllers/deliveryController');
             const dType = getProvisionalDeliveryType(order);
             const finalFee = parseFloat(order.deliveryFee) || 0;
@@ -163,114 +164,93 @@ const autoDispatchService = {
 
             const agentEarnings = finalFee * (currentShare / 100);
 
-            // Create or update task
-            const existingTask = await DeliveryTask.findOne({
-                where: { orderId: order.id, status: { [Op.notIn]: ['completed', 'failed', 'cancelled', 'rejected'] } },
+            // Cancel ALL existing pending (assigned/requested) tasks for this order
+            const existingPendingTasks = await DeliveryTask.findAll({
+                where: { orderId: order.id, status: { [Op.in]: ['assigned', 'requested'] } },
                 transaction: t
             });
 
-            let assignedTask = null;
-            if (existingTask) {
-                // Revert previous agent's pending if changing agent
-                if (existingTask.deliveryAgentId && existingTask.deliveryAgentId !== bestMatch.id) {
-                    const oldShare = parseFloat(existingTask.agentShare) || 70;
-                    const oldEarnings = (parseFloat(existingTask.deliveryFee) || 0) * (oldShare / 100);
-                    await revertPending(existingTask.deliveryAgentId, oldEarnings, order.id, t);
+            for (const pendingTask of existingPendingTasks) {
+                if (pendingTask.deliveryAgentId) {
+                    const oldShare = parseFloat(pendingTask.agentShare) || 70;
+                    const oldEarnings = (parseFloat(pendingTask.deliveryFee) || 0) * (oldShare / 100);
+                    if (oldEarnings > 0) {
+                        await revertPending(pendingTask.deliveryAgentId, oldEarnings, order.id, t);
+                    }
                 }
+                await pendingTask.update({ status: 'cancelled', rejectionReason: 'Order auto-reassigned by Smart Dispatcher.' }, { transaction: t });
+            }
 
-                await existingTask.update({
-                    deliveryAgentId: bestMatch.id,
-                    deliveryType: dType,
-                    deliveryFee: finalFee,
-                    agentShare: currentShare,
-                    status: 'assigned',
-                    assignedAt: new Date(),
-                    notes: `Auto-assigned by Smart Dispatcher. Score: ${matches[0].score}`
-                }, { transaction: t });
-                assignedTask = existingTask;
-            } else {
-                assignedTask = await DeliveryTask.create({
+            const createdTasks = [];
+
+            // Create new tasks and credit pending for each agent
+            for (const agent of topMatches) {
+                const newTask = await DeliveryTask.create({
                     orderId: order.id,
-                    deliveryAgentId: bestMatch.id,
+                    deliveryAgentId: agent.id,
                     deliveryType: dType,
                     deliveryFee: finalFee,
                     agentShare: currentShare,
                     status: 'assigned',
                     assignedAt: new Date(),
-                    notes: `Auto-assigned by Smart Dispatcher. Score: ${matches[0].score}`
+                    notes: `Auto-assigned by Smart Dispatcher.`
                 }, { transaction: t });
-            }
+                createdTasks.push(newTask);
 
-            // 7. Financial records
-            await upsertDeliveryChargeForTask({
-                DeliveryCharge,
-                transaction: t,
-                order,
-                task: assignedTask,
-                deliveryFee: finalFee,
-                agentSharePercent: currentShare,
-                deliveryType: dType,
-                deliveryAgentId: bestMatch.id
-            });
-
-            await invoiceSellerChargeImmediately({
-                DeliveryCharge,
-                Wallet,
-                Transaction,
-                transaction: t,
-                task: assignedTask,
-                order
-            });
-
-            // Credit pending earnings to agent
-            if (agentEarnings > 0) {
-                await creditPending(
-                    bestMatch.id,
-                    agentEarnings,
-                    `Auto-assigned Delivery for Order #${order.orderNumber}`,
-                    order.id,
-                    t
-                );
-            }
-
-            // Clear other requested tasks
-            await DeliveryTask.update(
-                { status: 'rejected', rejectionReason: 'Another agent was auto-assigned.' },
-                { 
-                    where: { 
-                        orderId: order.id, 
-                        status: 'requested',
-                        id: { [Op.ne]: assignedTask.id }
-                    }, 
-                    transaction: t 
+                if (agentEarnings > 0) {
+                    await creditPending(
+                        agent.id,
+                        agentEarnings,
+                        `Auto-assigned Delivery for Order #${order.orderNumber}`,
+                        order.id,
+                        t,
+                        'delivery_agent'
+                    );
                 }
-            );
+            }
+
+            if (createdTasks.length > 0) {
+                const primaryTask = createdTasks[0];
+                await upsertDeliveryChargeForTask({
+                    DeliveryCharge, transaction: t, order, task: primaryTask, deliveryFee: finalFee, agentSharePercent: currentShare, deliveryType: dType, deliveryAgentId: primaryTask.deliveryAgentId
+                });
+                await invoiceSellerChargeImmediately({
+                    DeliveryCharge, Wallet, Transaction, transaction: t, task: primaryTask, order
+                });
+            }
 
             await t.commit();
 
             // 8. Notifications (Outside transaction)
-            await createNotification(
-                bestMatch.id,
-                'New Auto-Assignment 📦',
-                `You have been auto-assigned Order #${order.orderNumber} based on your proximity and rating. Please accept quickly!`,
-                'info'
-            );
-            await notifyDeliveryAgentAssignment(bestMatch.id, order, order.orderNumber, dType);
-
-            // Real-time socket
             const { getIO } = require('../realtime/socket');
             const io = getIO();
+
+            for (const agent of topMatches) {
+                await createNotification(
+                    agent.id,
+                    'New Auto-Assignment 📦',
+                    `You have been auto-assigned Order #${order.orderNumber} based on your proximity and rating. Please accept quickly!`,
+                    'info'
+                ).catch(e => console.error(e));
+                
+                notifyDeliveryAgentAssignment(agent, order, order.orderNumber, dType)
+                    .catch(err => console.error(`Notify Agent ${agent.id} Error:`, err));
+
+                if (io) {
+                    io.to(`user:${agent.id}`).emit('new_task_available', {
+                        orderId: order.id,
+                        orderNumber: order.orderNumber,
+                        deliveryType: dType,
+                        autoAssigned: true
+                    });
+                }
+            }
+
             if (io) {
-                io.to(`user:${bestMatch.id}`).emit('new_task_available', {
-                    orderId: order.id,
-                    orderNumber: order.orderNumber,
-                    deliveryType: dType,
-                    autoAssigned: true
-                });
                 io.to('admin').emit('deliveryRequestUpdate', { orderId: order.id, status: 'auto_assigned' });
             }
 
-            return assignedTask;
+            return createdTasks[0];
 
         } catch (error) {
             if (t) await t.rollback();

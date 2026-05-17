@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import useRealtimeSync from '../../hooks/useRealtimeSync';
 import { toast } from 'react-toastify';
+import { FaSave, FaSyncAlt } from 'react-icons/fa';
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState({
@@ -66,7 +67,18 @@ export default function SystemSettings() {
     },
     security: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
     notifications: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
-    system_env: { server: { port: 5001, nodeEnv: 'production', baseUrl: 'https://comrades360.shop', apiUrl: '/api' }, app: { frontendUrl: 'https://comrades360.shop', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } }
+    system_env: { server: { port: 5001, nodeEnv: 'production', baseUrl: 'https://comrades360.shop', apiUrl: '/api' }, app: { frontendUrl: 'https://comrades360.shop', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } },
+    delivery_fee_agent_share: 70,
+    delivery_fee_station_share: 10,
+    seller_delivery_handling_fee: 20,
+    direct_delivery_agent_share: 80,
+    delivery_route_fees: {
+      seller_to_warehouse: { fee: 50, label: 'Seller to Warehouse' },
+      warehouse_to_seller: { fee: 50, label: 'Warehouse to Seller' },
+      seller_to_pickup_station: { fee: 40, label: 'Seller to Pickup Station' },
+      pickup_station_to_seller: { fee: 40, label: 'Pickup Station to Seller' },
+      warehouse_to_pickup_station: { fee: 30, label: 'Warehouse to Pickup Station' }
+    }
   });
 
   const [whatsappStatus, setWhatsappStatus] = useState({ isReady: false, status: 'initializing', qr: null });
@@ -90,6 +102,33 @@ export default function SystemSettings() {
   };
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleSaveAllSplits = async () => {
+    // Validation
+    const s1 = (settings.delivery_fee_agent_share || 0) + (settings.delivery_fee_station_share || 0);
+    const s2 = (settings.delivery_fee_agent_share || 0) + (settings.seller_delivery_handling_fee || 0);
+    const s3 = (settings.direct_delivery_agent_share || 0);
+
+    if (s1 > 100 || s2 > 100 || s3 > 100) {
+      toast.error('Percentages cannot exceed 100% in any scenario.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await Promise.all([
+        api.post('/admin/config/delivery_fee_agent_share', { value: settings.delivery_fee_agent_share }),
+        api.post('/admin/config/delivery_fee_station_share', { value: settings.delivery_fee_station_share }),
+        api.post('/admin/config/seller_delivery_handling_fee', { value: settings.seller_delivery_handling_fee }),
+        api.post('/admin/config/direct_delivery_agent_share', { value: settings.direct_delivery_agent_share })
+      ]);
+      toast.success('All logistics splits updated successfully');
+    } catch (err) {
+      toast.error('Failed to save splits');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRestartWhatsApp = async () => {
     if (!window.confirm('Reconnect WhatsApp service? This will attempt to restore a stuck connection without logging you out.')) return;
@@ -143,7 +182,12 @@ export default function SystemSettings() {
         'maintenance_settings',
         'security_settings',
         'notification_settings',
-        'system_env'
+        'system_env',
+        'delivery_fee_agent_share',
+        'delivery_fee_station_share',
+        'seller_delivery_handling_fee',
+        'direct_delivery_agent_share',
+        'delivery_route_fees'
       ];
 
       const results = await Promise.all(
@@ -165,8 +209,12 @@ export default function SystemSettings() {
             
             const incomingData = typeof res.data.data === 'string' ? JSON.parse(res.data.data) : res.data.data;
             
+            const PRIMITIVE_KEYS = ['delivery_fee_agent_share', 'delivery_fee_station_share', 'seller_delivery_handling_fee', 'direct_delivery_agent_share'];
+            
             // Special deep merge for whatsapp_config.templates and finance_settings.minPayout
-            if (stateKey === 'whatsapp_config' && incomingData.templates) {
+            if (PRIMITIVE_KEYS.includes(stateKey)) {
+              next[stateKey] = Number(incomingData);
+            } else if (stateKey === 'whatsapp_config' && incomingData.templates) {
               next[stateKey] = { ...prev[stateKey], ...incomingData, templates: { ...prev[stateKey].templates, ...incomingData.templates } };
             } else if (stateKey === 'finance_settings') {
               next[stateKey] = { 
@@ -175,8 +223,10 @@ export default function SystemSettings() {
                 minPayout: { ...(prev[stateKey].minPayout || {}), ...(incomingData.minPayout || {}) },
                 withdrawalTiers: incomingData.withdrawalTiers || prev[stateKey].withdrawalTiers || []
               };
-            } else {
+            } else if (typeof incomingData === 'object' && incomingData !== null && !Array.isArray(incomingData)) {
               next[stateKey] = { ...prev[stateKey], ...incomingData };
+            } else {
+              next[stateKey] = incomingData;
             }
           }
         });
@@ -213,10 +263,15 @@ export default function SystemSettings() {
         seo_settings: 'seo_settings',
         maintenance_settings: 'maintenance_settings',
         security: 'security_settings',
-        notifications: 'notification_settings'
+        notifications: 'notification_settings',
+        delivery_fee_agent_share: 'delivery_fee_agent_share',
+        delivery_fee_station_share: 'delivery_fee_station_share',
+        seller_delivery_handling_fee: 'seller_delivery_handling_fee',
+        direct_delivery_agent_share: 'direct_delivery_agent_share',
+        delivery_route_fees: 'delivery_route_fees'
       };
 
-      const dbKey = keyMap[section];
+      const dbKey = keyMap[section] || section;
       await api.post(`/admin/config/${dbKey}`, { value: data });
       
       // Real-time synchronization for maintenance settings
@@ -971,6 +1026,136 @@ export default function SystemSettings() {
                    <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest">Tip: Use Smart Mode for faster campus fulfillment.</p>
                 </div>
                 <SaveButton onClick={() => updateSettings('logistic_settings', settings.logistic_settings)} loading={loading} />
+              </section>
+
+              <hr className="border-gray-100" />
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">💰 Delivery Payout Splits</h3>
+                <p className="text-sm text-gray-500 mb-6 font-medium">Define how delivery fees are shared between the Agent, Station, and Platform for each logistics scenario.</p>
+                
+                <div className="space-y-6">
+                  {/* Scenario 1 */}
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200/50">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <span className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[8px]">1</span>
+                      Standard Hub Delivery (Customer Paid)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                      <FormInput label="Agent Share %" value={settings.delivery_fee_agent_share} type="number" onChange={(v) => setSettings(p => ({...p, delivery_fee_agent_share: v}))} />
+                      <FormInput label="Station Share %" value={settings.delivery_fee_station_share} type="number" onChange={(v) => setSettings(p => ({...p, delivery_fee_station_share: v}))} />
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 h-[52px] flex flex-col justify-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Platform Share (Rem.)</p>
+                        <p className="text-sm font-black text-slate-900">{Math.max(0, 100 - Number(settings.delivery_fee_agent_share || 0) - Number(settings.delivery_fee_station_share || 0))}%</p>
+                      </div>
+                      <div className={`h-[52px] flex items-center justify-center rounded-xl font-black text-[10px] uppercase tracking-widest ${Math.abs(Number(settings.delivery_fee_agent_share || 0) + Number(settings.delivery_fee_station_share || 0) - 100) <= 0.01 ? 'text-blue-600 bg-blue-50/50' : 'text-red-600 bg-red-50'}`}>
+                         {Number(settings.delivery_fee_agent_share || 0) + Number(settings.delivery_fee_station_share || 0) > 100 ? '⚠️ OVER 100%' : 'TOTAL: 100%'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scenario 2 */}
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200/50">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <span className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[8px]">2</span>
+                      First-Mile to Hub (Seller Paid)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                      <div className="p-3 bg-white/50 rounded-xl border border-slate-200 h-[52px] flex flex-col justify-center opacity-70">
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Agent Share (Global)</p>
+                         <p className="text-sm font-black text-slate-900">{String(settings.delivery_fee_agent_share)}%</p>
+                      </div>
+                      <FormInput label="Platform Share %" value={settings.seller_delivery_handling_fee} type="number" onChange={(v) => setSettings(p => ({...p, seller_delivery_handling_fee: v}))} />
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 h-[52px] flex flex-col justify-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Station Share (Rem.)</p>
+                        <p className="text-sm font-black text-slate-900">{Math.max(0, 100 - Number(settings.delivery_fee_agent_share || 0) - Number(settings.seller_delivery_handling_fee || 0))}%</p>
+                      </div>
+                      <div className={`h-[52px] flex items-center justify-center rounded-xl font-black text-[10px] uppercase tracking-widest ${Number(settings.delivery_fee_agent_share || 0) + Number(settings.seller_delivery_handling_fee || 0) <= 100 ? 'text-blue-600 bg-blue-50/50' : 'text-red-600 bg-red-50'}`}>
+                         {Number(settings.delivery_fee_agent_share || 0) + Number(settings.seller_delivery_handling_fee || 0) > 100 ? '⚠️ OVER 100%' : 'TOTAL: 100%'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scenario 3 */}
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200/50">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <span className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[8px]">3</span>
+                      Direct Delivery (Seller to Customer)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                      <FormInput label="Agent Share %" value={settings.direct_delivery_agent_share} type="number" onChange={(v) => setSettings(p => ({...p, direct_delivery_agent_share: v}))} />
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 h-[52px] flex flex-col justify-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">Platform Share (Rem.)</p>
+                        <p className="text-sm font-black text-slate-900">{Math.max(0, 100 - Number(settings.direct_delivery_agent_share || 0))}%</p>
+                      </div>
+                      <div className="md:col-span-2 h-[52px] flex items-center justify-center rounded-xl font-black text-[10px] uppercase tracking-widest text-blue-600 bg-blue-50/50">
+                         TOTAL: 100%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleSaveAllSplits}
+                  disabled={loading}
+                  className="mt-8 w-full md:w-auto px-10 py-4 bg-slate-900 text-white rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                       <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                       Syncing Splits...
+                    </span>
+                  ) : (
+                    <>💾 Save All Logistics Splits</>
+                  )}
+                </button>
+              </section>
+
+              <hr className="border-gray-100" />
+
+              <section>
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">📍 Route Pricing Manager</h3>
+                <p className="text-sm text-gray-500 mb-6 font-medium">Set fixed base fees for internal logistics transfers between Sellers and Hubs.</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-orange-50/20 p-6 rounded-3xl border border-orange-100/50">
+                  {Object.entries(settings.delivery_route_fees || {})
+                    .filter(([key]) => !['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point', 'last_mile'].includes(key))
+                    .map(([key, config]) => (
+                    <div key={key} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm transition-all hover:shadow-md">
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{config.label || key.replace(/_/g, ' ')}</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">KES</span>
+                        <input 
+                          type="number"
+                          value={config.fee}
+                          onChange={(e) => setSettings(p => ({
+                            ...p, 
+                            delivery_route_fees: {
+                              ...p.delivery_route_fees,
+                              [key]: { ...config, fee: parseFloat(e.target.value) || 0 }
+                            }
+                          }))}
+                          className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-800 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-6 flex items-center gap-3 bg-white p-4 rounded-2xl border border-gray-100">
+                  <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-sm">💡</div>
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    <strong>Pro Tip:</strong> These fees determine the <span className="text-orange-600 font-bold">Base Payout</span> for delivery agents handling internal legs. Sellers are typically invoiced for "First-Mile" legs using these prices.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={() => updateSettings('delivery_route_fees', settings.delivery_route_fees)}
+                  disabled={loading}
+                  className="mt-6 px-8 py-3 bg-orange-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-orange-700 transition-all flex items-center gap-2 shadow-lg shadow-orange-100 disabled:opacity-50"
+                >
+                  <FaSave /> Save Route Pricing
+                </button>
               </section>
 
               <hr className="border-gray-100" />

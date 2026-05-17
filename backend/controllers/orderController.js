@@ -795,6 +795,9 @@ const createOrderFromCart = async (req, res) => {
     let totalOrderCommission = 0;
     const sellerEarnings = {}; // Track earnings per seller for wallet credits
 
+    const fastFoodQuantities = {};
+    const fastFoodBaseFees = {};
+
     for (const cartItem of cartItems) {
       const product = cartItem.product;
       const rawSellerId = product.sellerId || product.vendor || product.userId;
@@ -818,7 +821,6 @@ const createOrderFromCart = async (req, res) => {
       const itemBaseTotal = basePrice * cartItem.quantity;
       orderBaseSubtotal += itemBaseTotal;
 
-      // Delivery fee logic
       let itemDeliveryFee = Number(cartItem.deliveryFee);
       if (!Number.isFinite(itemDeliveryFee)) {
         if (cartItem.type === 'fastfood') {
@@ -826,6 +828,14 @@ const createOrderFromCart = async (req, res) => {
         } else {
           const baseFee = Number(product?.deliveryFee || cartItem.deliveryFee || 0);
           itemDeliveryFee = Number(cartItem.quantity || 0) > 0 ? baseFee * Number(cartItem.quantity || 0) : baseFee;
+        }
+      }
+
+      if (cartItem.type === 'fastfood') {
+        const vendorKey = rawSellerId || cartItem.fastFoodId || 'unknown';
+        fastFoodQuantities[vendorKey] = (fastFoodQuantities[vendorKey] || 0) + cartItem.quantity;
+        if (fastFoodBaseFees[vendorKey] === undefined) {
+          fastFoodBaseFees[vendorKey] = itemDeliveryFee;
         }
       }
 
@@ -847,7 +857,9 @@ const createOrderFromCart = async (req, res) => {
           console.log(`🚚 Backend: Auto-routing to Fast Food Pickup Point. Fee: ${fastFoodPickupPointFee}`);
         }
       } else {
-        orderDeliveryFee += itemDeliveryFee;
+        if (cartItem.type !== 'fastfood') {
+          orderDeliveryFee += itemDeliveryFee;
+        }
       }
 
       // Track seller earnings (using basePrice)
@@ -943,6 +955,17 @@ const createOrderFromCart = async (req, res) => {
         } catch (alertErr) {
           console.warn('Failed to initiate stock alert:', alertErr.message);
         }
+      }
+    }
+
+    // Apply fast food home delivery incremental fees
+    if (adminRoutingStrategy !== 'fastfood_pickup_point') {
+      for (const vendorKey in fastFoodQuantities) {
+        const qty = fastFoodQuantities[vendorKey];
+        const baseFee = fastFoodBaseFees[vendorKey] || 0;
+        const incrementalFee = baseFee + (baseFee * 0.15 * Math.max(0, qty - 1));
+        orderDeliveryFee += incrementalFee;
+        console.log(`🚚 Backend: Applied Fast Food Incremental Fee: ${incrementalFee} for vendor: ${vendorKey} (Base: ${baseFee}, Qty: ${qty})`);
       }
     }
 
@@ -1963,7 +1986,15 @@ const assignDeliveryAgent = async (req, res) => {
 
   const t = await sequelize.transaction();
   try {
-    const { password, deliveryAgentId, deliveryType, pickupLocation, deliveryLocation, notes, deliveryFee, warehouseId, pickupStationId } = req.body;
+    const { password, deliveryAgentId, deliveryAgentIds, deliveryType, pickupLocation, deliveryLocation, notes, deliveryFee, warehouseId, pickupStationId } = req.body;
+    const agentIds = Array.isArray(deliveryAgentIds) && deliveryAgentIds.length > 0 
+      ? deliveryAgentIds 
+      : (deliveryAgentId ? [deliveryAgentId] : []);
+
+    if (agentIds.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'At least one delivery agent is required' });
+    }
 
     const order = await Order.findByPk(orderId, { transaction: t });
     if (!order) {
@@ -1981,18 +2012,26 @@ const assignDeliveryAgent = async (req, res) => {
 
 
     // Enforcement: Check agent profile completeness before assignment
-    const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: deliveryAgentId }, transaction: t });
-    if (!agentProfile || !agentProfile.isActive) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Cannot assign: Agent is currently OFFLINE or has no profile.' });
+    const validAgentIds = [];
+    let lastMissingFields = [];
+    for (const id of agentIds) {
+      const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: id }, transaction: t });
+      if (!agentProfile || !agentProfile.isActive) continue;
+      
+      const agentUser = await User.findByPk(id, { transaction: t });
+      const { isComplete, missing } = checkProfileCompleteness(agentProfile, agentUser || {});
+      if (isComplete) {
+        validAgentIds.push(id);
+      } else {
+        lastMissingFields = missing;
+      }
     }
-    const agentUser = await User.findByPk(deliveryAgentId, { transaction: t });
-    const { isComplete, missing } = checkProfileCompleteness(agentProfile, agentUser || {});
-    if (!isComplete) {
+
+    if (validAgentIds.length === 0) {
       await t.rollback();
-      return res.status(400).json({
-        error: 'Cannot assign: Agent profile is incomplete.',
-        missingFields: missing
+      return res.status(400).json({ 
+        error: 'Cannot assign: None of the selected agents are ONLINE or have a complete profile.',
+        missingFields: lastMissingFields
       });
     }
 
@@ -2107,9 +2146,14 @@ const assignDeliveryAgent = async (req, res) => {
     }
 
     const updates = {
-      deliveryAgentId: deliveryAgentId,
       deliveryType: dType,
     };
+    if (validAgentIds.length === 1) {
+      updates.deliveryAgentId = validAgentIds[0];
+    } else {
+      // Broadcast mode: Order remains unassigned until someone accepts
+      updates.deliveryAgentId = null;
+    }
 
     if (warehouseId) updates.warehouseId = warehouseId;
     if (pickupStationId) updates.pickupStationId = pickupStationId;
@@ -2197,117 +2241,56 @@ const assignDeliveryAgent = async (req, res) => {
       return order.deliveryAddress;
     })();
 
-    // Clear out any other pending "requested" tasks for this order
-    // as soon as an explicit assignment is made to a specific agent.
-    await DeliveryTask.update(
-      { status: 'rejected', rejectionReason: 'Another agent was assigned to this delivery leg.' },
-      { 
-        where: { 
-          orderId: order.id, 
-          status: 'requested',
-          deliveryAgentId: { [Op.ne]: deliveryAgentId }
-        }, 
-        transaction: t 
-      }
-    );
-
-    const existingTask = await DeliveryTask.findOne({
-      where: { orderId: order.id, status: { [Op.notIn]: ['completed', 'failed', 'cancelled', 'rejected'] } },
+    // Cancel ALL existing pending (assigned/requested) tasks for this order
+    const existingPendingTasks = await DeliveryTask.findAll({
+      where: { orderId: order.id, status: { [Op.in]: ['assigned', 'requested'] } },
       transaction: t
     });
 
+    for (const pendingTask of existingPendingTasks) {
+       if (pendingTask.deliveryAgentId) {
+          const oldShare = parseFloat(pendingTask.agentShare) || 70;
+          const oldEarnings = (parseFloat(pendingTask.deliveryFee) || 0) * (oldShare / 100);
+          if (oldEarnings > 0) {
+             await revertPending(pendingTask.deliveryAgentId, oldEarnings, order.id, t);
+          }
+       }
+       await pendingTask.update({ status: 'cancelled', rejectionReason: 'Order re-assigned by admin.' }, { transaction: t });
+    }
 
     // Calculate earnings from the task-level fee selected during assignment.
     const agentEarnings = finalFee * (currentShare / 100);
-    let needsCredit = true;
-    let assignedTask = null;
+    const createdTasks = [];
 
-    if (existingTask) {
-      // Revert previous agent's pending if changing agent OR if fee changed for same agent
-      if (existingTask.deliveryAgentId) {
-        const oldShare = parseFloat(existingTask.agentShare) || 70;
-        const oldEarnings = (parseFloat(existingTask.deliveryFee) || 0) * (oldShare / 100);
+    // Create new tasks and credit pending for each agent
+    for (const agentId of validAgentIds) {
+       const newTask = await DeliveryTask.create({
+          orderId: order.id,
+          deliveryAgentId: agentId,
+          deliveryType: dType,
+          pickupLocation: derivedPickup,
+          deliveryLocation: derivedDelivery,
+          deliveryFee: finalFee,
+          agentShare: currentShare,
+          status: 'assigned',
+          assignedAt: new Date()
+       }, { transaction: t });
+       createdTasks.push(newTask);
 
-        if (existingTask.deliveryAgentId !== deliveryAgentId || Math.abs(oldEarnings - agentEarnings) > 0.01) {
-          await revertPending(existingTask.deliveryAgentId, oldEarnings, order.id, t);
-        } else {
-          needsCredit = false; // No change in agent or amount
-        }
-      }
-
-      await existingTask.update({
-        deliveryAgentId,
-        deliveryType: dType,
-        pickupLocation: derivedPickup,
-        deliveryLocation: derivedDelivery,
-        deliveryFee: finalFee,
-        agentShare: currentShare,
-        status: 'assigned',
-        assignedAt: new Date()
-      }, { transaction: t });
-      assignedTask = existingTask;
-
-    } else {
-      assignedTask = await DeliveryTask.create({
-        orderId: order.id,
-        deliveryAgentId,
-        deliveryType: dType,
-        pickupLocation: derivedPickup,
-        deliveryLocation: derivedDelivery,
-        deliveryFee: finalFee,
-        agentShare: currentShare,
-        status: 'assigned',
-        assignedAt: new Date()
-      }, { transaction: t });
+       if (agentEarnings > 0) {
+          await creditPending(agentId, agentEarnings, `Delivery Earning for Order #${order.orderNumber} (${dType})`, order.id, t, 'delivery_agent');
+       }
     }
 
-    if (assignedTask) {
-      await upsertDeliveryChargeForTask({
-        DeliveryCharge,
-        transaction: t,
-        order,
-        task: assignedTask,
-        deliveryFee: finalFee,
-        agentSharePercent: currentShare,
-        deliveryType: dType,
-        deliveryAgentId
-      });
-
-      await invoiceSellerChargeImmediately({
-        DeliveryCharge,
-        Wallet,
-        Transaction,
-        transaction: t,
-        task: assignedTask,
-        order
-      });
-
-      await DeliveryTask.update(
-        {
-          status: 'rejected',
-          rejectionReason: 'Auto-closed: order assigned to another agent.'
-        },
-        {
-          where: {
-            orderId: order.id,
-            id: { [Op.ne]: assignedTask.id },
-            status: 'requested'
-          },
-          transaction: t
-        }
-      );
-    }
-
-    // New: Credit pending earnings to agent's wallet
-    if (agentEarnings > 0 && needsCredit) {
-      await creditPending(
-        deliveryAgentId,
-        agentEarnings,
-        `Delivery Earning for Order #${order.orderNumber} (${dType})`,
-        order.id,
-        t,
-        'delivery_agent'
-      );
+    if (createdTasks.length > 0) {
+       // Attach the charge against the seller/order using the first task (they all have identical fees/shares)
+       const primaryTask = createdTasks[0];
+       await upsertDeliveryChargeForTask({
+          DeliveryCharge, transaction: t, order, task: primaryTask, deliveryFee: finalFee, agentSharePercent: currentShare, deliveryType: dType, deliveryAgentId: primaryTask.deliveryAgentId
+       });
+       await invoiceSellerChargeImmediately({
+          DeliveryCharge, Wallet, Transaction, transaction: t, task: primaryTask, order
+       });
     }
 
     // Add tracking update
@@ -2315,7 +2298,7 @@ const assignDeliveryAgent = async (req, res) => {
     try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
     trackingUpdates.push({
       status: 'assigned',
-      message: `Delivery agent assigned: ${deliveryAgentId}`,
+      message: `Delivery agents broadcasted: ${validAgentIds.join(', ')}`,
       timestamp: new Date().toISOString(),
       updatedBy: req.user.id
     });
@@ -2340,12 +2323,16 @@ const assignDeliveryAgent = async (req, res) => {
       ]
     });
 
-    // Notify agent
+    // Notify agents
     const { notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
     const { getIO } = require('../realtime/socket');
-    const agent = await User.findByPk(deliveryAgentId);
-    if (agent && updatedOrder) {
-      await notifyDeliveryAgentAssignment(agent, updatedOrder, updatedOrder.orderNumber, dType);
+    
+    for (const agentId of validAgentIds) {
+      const agent = await User.findByPk(agentId);
+      if (agent && updatedOrder) {
+        notifyDeliveryAgentAssignment(agent, updatedOrder, updatedOrder.orderNumber, dType)
+          .catch(err => console.error(`Notify Agent ${agentId} Error:`, err));
+      }
     }
 
     // Real-time Update for Seller and Customer
@@ -3087,7 +3074,12 @@ const bulkUpdateOrderStatus = async (req, res) => {
 const bulkAssignDeliveryAgent = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { orderIds, password, deliveryAgentId, deliveryType, notes, deliveryFee, warehouseId, pickupStationId, pickupLocation, deliveryLocation } = req.body;
+    const { orderIds, password, deliveryAgentId, deliveryAgentIds, deliveryType, notes, deliveryFee, warehouseId, pickupStationId, pickupLocation, deliveryLocation } = req.body;
+
+    let finalAgentId = deliveryAgentId;
+    if (!finalAgentId && Array.isArray(deliveryAgentIds) && deliveryAgentIds.length > 0) {
+      finalAgentId = deliveryAgentIds[0];
+    }
 
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       if (t) await t.rollback();
@@ -3120,10 +3112,10 @@ const bulkAssignDeliveryAgent = async (req, res) => {
 
     const results = [];
     const { notifyDeliveryAgentAssignment } = require('../utils/notificationHelpers');
-    const agent = await User.findByPk(deliveryAgentId, { transaction: t });
+    const agent = await User.findByPk(finalAgentId, { transaction: t });
 
     // Enforcement: Bulk Check agent profile completeness
-    const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: deliveryAgentId }, transaction: t });
+    const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: finalAgentId }, transaction: t });
     if (!agentProfile || !agentProfile.isActive) {
       if (t) await t.rollback();
       return res.status(400).json({ error: 'Cannot assign: Agent is currently OFFLINE or has no profile.' });
@@ -3195,7 +3187,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
 
       // Update order
       const updates = {
-        deliveryAgentId: deliveryAgentId,
+        deliveryAgentId: finalAgentId,
         deliveryType: dType,
       };
 
@@ -3270,7 +3262,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       })();
 
       const taskData = {
-        deliveryAgentId,
+        deliveryAgentId: finalAgentId,
         deliveryType: dType,
         pickupLocation: derivedPickup,
         deliveryLocation: derivedDelivery,
@@ -3298,7 +3290,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
           const oldShare = parseFloat(existingTask.agentShare) || 70;
           const oldEarnings = (parseFloat(existingTask.deliveryFee) || 0) * (oldShare / 100);
 
-          if (existingTask.deliveryAgentId !== deliveryAgentId || Math.abs(oldEarnings - earnings) > 0.01) {
+          if (existingTask.deliveryAgentId !== finalAgentId || Math.abs(oldEarnings - earnings) > 0.01) {
             await revertPending(existingTask.deliveryAgentId, oldEarnings, order.id, t);
           } else {
             needsCredit = false; // No change in agent or amount
@@ -3319,7 +3311,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
           deliveryFee: finalFee,
           agentSharePercent: currentShare,
           deliveryType: dType,
-          deliveryAgentId
+          deliveryAgentId: finalAgentId
         });
 
         await invoiceSellerChargeImmediately({
@@ -3350,7 +3342,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       // New: Credit pending earnings to agent's wallet
       if (earnings > 0 && needsCredit) {
         await creditPending(
-          deliveryAgentId,
+          finalAgentId,
           earnings,
           `Delivery Earning for Order #${order.orderNumber} (${dType})`,
           order.id,
@@ -3364,7 +3356,7 @@ const bulkAssignDeliveryAgent = async (req, res) => {
       try { trackingUpdates = order.trackingUpdates ? JSON.parse(order.trackingUpdates) : []; } catch (_) { }
       trackingUpdates.push({
         status: 'assigned',
-        message: `Bulk delivery agent assigned: ${deliveryAgentId}`,
+        message: `Bulk delivery agent assigned: ${finalAgentId}`,
         timestamp: new Date().toISOString(),
         updatedBy: req.user.id
       });
@@ -4497,7 +4489,8 @@ const getOrderDetails = async (req, res) => {
           include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name', 'email', 'phone', 'businessPhone', 'businessName'] }]
         },
         { model: Batch, as: 'batch' },
-        { model: User, as: 'marketer', attributes: ['id', 'name', 'phone', 'email'], required: false }
+        { model: User, as: 'marketer', attributes: ['id', 'name', 'phone', 'email'], required: false },
+        { model: DeliveryCharge, as: 'deliveryCharges' }
     ];
 
     if (orderId && String(orderId).includes('group')) {

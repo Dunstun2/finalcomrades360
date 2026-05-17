@@ -164,6 +164,13 @@ const generateBulkHandoverCode = async (req, res) => {
         const code = generateCode();
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+        // Auto-confirmation logic for customer-facing handovers (3 minute fallback)
+        let autoConfirmAt = null;
+        if (['agent_to_customer', 'station_to_customer'].includes(handoverType)) {
+            autoConfirmAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+            console.log(`[Handover] Bulk Setting autoConfirmAt for ${handoverType} to ${autoConfirmAt}`);
+        }
+
         // Create HandoverCode records for all orders
         const records = await Promise.all(orderIds.map(oId => 
             HandoverCode.create({
@@ -172,7 +179,8 @@ const generateBulkHandoverCode = async (req, res) => {
                 handoverType,
                 initiatorId,
                 status: 'pending',
-                expiresAt
+                expiresAt,
+                autoConfirmAt
             })
         ));
 
@@ -184,6 +192,7 @@ const generateBulkHandoverCode = async (req, res) => {
             handoverType,
             label: HANDOVER_LABELS[handoverType],
             expiresAt,
+            autoConfirmAt,
             count: records.length
         });
     } catch (e) {
@@ -287,12 +296,11 @@ const confirmHandoverCode = async (req, res) => {
         }
 
         // Prevent self-confirmation (initiator cannot confirm their own code)
-        if (handoverCode.initiatorId === confirmerId) {
+        if (String(handoverCode.initiatorId) === String(confirmerId)) {
             await t.rollback();
             return res.status(403).json({ error: 'You cannot confirm your own handover code.' });
         }
 
-        // Refactored logic: Use handoverService for atomicity and reusability
         const handoverId = handoverCode.id;
         await t.commit(); // Close current transaction as processor handles its own or takes one
 
@@ -474,8 +482,9 @@ const getHandoverStatus = async (req, res) => {
             confirmed: false,
             handoverId: handoverCode.id,
             actualHandoverType: handoverCode.handoverType, 
-            code: (handoverCode.initiatorId === userId) ? handoverCode.code : undefined,
+            code: (String(handoverCode.initiatorId) === String(userId)) ? handoverCode.code : undefined,
             expiresAt: handoverCode.expiresAt,
+            autoConfirmAt: handoverCode.autoConfirmAt,
             label: HANDOVER_LABELS[handoverCode.handoverType] || HANDOVER_LABELS[handoverType]
         });
     } catch (e) {

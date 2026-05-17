@@ -15,7 +15,7 @@ import api from '../../services/api';
 const formatPrice = (amount) =>
     new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount || 0);
 
-const WithdrawalModal = ({ isOpen, onClose, balance, role, onSuccess }) => {
+const WithdrawalModal = ({ isOpen, onClose, balance, role, onSuccess, endpoint: customEndpoint }) => {
     const [amount, setAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('mpesa');
     const [mpesaNumber, setMpesaNumber] = useState('');
@@ -96,8 +96,8 @@ const WithdrawalModal = ({ isOpen, onClose, balance, role, onSuccess }) => {
 
         setSubmitting(true);
         try {
-            // Standardized unified endpoint
-            const endpoint = '/wallet/withdraw';
+            // Standardized unified endpoint or custom override
+            const endpoint = customEndpoint || '/wallet/withdraw';
 
             const payload = {
                 amount: numAmount,

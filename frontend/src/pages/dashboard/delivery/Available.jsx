@@ -7,6 +7,7 @@ import { resolveImageUrl } from '../../../utils/imageUtils';
 import Dialog from '../../../components/Dialog';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
 import { useAuth } from '../../../contexts/AuthContext';
+import { getSocket } from '../../../services/socket';
 
 const DeliveryAgentAvailable = () => {
   const { user } = useAuth();
@@ -170,6 +171,18 @@ const DeliveryAgentAvailable = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Instantly remove task when another agent claims it
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const handleTaskRemoved = (data) => {
+      console.log('🚫 [Available] Task removed (claimed by another agent):', data);
+      setAvailableOrders(prev => prev.filter(o => o.id !== data.orderId));
+    };
+    socket.on('deliveryTaskRemoved', handleTaskRemoved);
+    return () => socket.off('deliveryTaskRemoved', handleTaskRemoved);
+  }, []);
 
   const [requestedOrders, setRequestedOrders] = useState([]);
   const [requestingIds, setRequestingIds] = useState([]); // Track loading state per order

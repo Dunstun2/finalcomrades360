@@ -80,6 +80,11 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.DECIMAL(11, 8),
             allowNull: true,
             comment: 'Longitude of the warehouse'
+        },
+        managerId: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            comment: 'User ID of the warehouse manager'
         }
     }, {
         tableName: 'Warehouse',

@@ -13,7 +13,7 @@ const LiveMenuHero = ({
 
     if (!hasPromoData) {
         return (
-            <div className="relative py-8 md:py-16 w-full flex flex-col items-center justify-center text-center px-4 bg-orange-50/30 rounded-3xl mb-8 border border-orange-100">
+            <div className="relative py-4 md:py-8 w-full flex flex-col items-center justify-center text-center px-4 bg-orange-50/30 rounded-3xl mb-8 border border-orange-100">
                 <div className="w-full max-w-xl relative group">
                     <FaSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
                     <input
@@ -29,7 +29,7 @@ const LiveMenuHero = ({
     }
 
     return (
-        <div className="relative h-[45vh] md:h-[55vh] w-full overflow-hidden rounded-b-[3rem] shadow-2xl mb-8 group">
+        <div className="relative h-[35vh] md:h-[45vh] w-full overflow-hidden rounded-b-[3rem] shadow-2xl mb-8 group">
             <div className="absolute inset-0 bg-black/50 z-10 transition-opacity group-hover:bg-black/40" />
             {backgroundImage && (
                 <img
@@ -40,7 +40,7 @@ const LiveMenuHero = ({
             )}
 
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center px-4">
-                <div className="backdrop-blur-md bg-white/10 px-6 py-2 rounded-full border border-white/20 mb-6 animate-fade-in-up">
+                <div className="backdrop-blur-md bg-white/10 px-6 py-1.5 rounded-full border border-white/20 mb-4 animate-fade-in-up">
                     <span className="text-white text-sm font-bold tracking-[0.2em] uppercase">The Ultimate Campus Dining</span>
                 </div>
                 {title && (
@@ -49,7 +49,7 @@ const LiveMenuHero = ({
                     </h1>
                 )}
                 {subtitle && (
-                    <p className="text-lg md:text-xl text-white/90 max-w-2xl mb-8 font-medium animate-fade-in-up delay-200 drop-shadow-md">
+                    <p className="text-lg md:text-xl text-white/90 max-w-2xl mb-6 font-medium animate-fade-in-up delay-200 drop-shadow-md">
                         {subtitle}
                     </p>
                 )}

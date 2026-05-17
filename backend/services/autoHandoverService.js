@@ -45,7 +45,7 @@ const runAutoHandoverWorker = async () => {
         } catch (error) {
             console.error('[autoHandoverService] Error in background worker:', error);
         }
-    }, 60000); // 1 minute interval
+    }, 5000); // 5 second interval
 };
 
 module.exports = {

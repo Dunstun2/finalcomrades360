@@ -796,6 +796,38 @@ const getDeliveryChargeSummary = async (req, res) => {
     }
 };
 
+const settleLogisticsCharge = async (req, res) => {
+    try {
+        const { chargeId } = req.params;
+        const { note } = req.body;
+
+        const charge = await DeliveryCharge.findByPk(chargeId, {
+            include: [{ model: Order, as: 'order' }]
+        });
+
+        if (!charge) {
+            return res.status(404).json({ error: 'Logistics charge not found' });
+        }
+
+        if (charge.fundingStatus === 'settled') {
+            return res.status(400).json({ error: 'Charge is already settled' });
+        }
+
+        await charge.update({
+            fundingStatus: 'settled',
+            chargedAmount: charge.grossAmount,
+            outstandingAmount: 0,
+            settledAt: new Date(),
+            note: note ? `${charge.note || ''} | Manual Settlement: ${note}` : charge.note
+        });
+
+        res.json({ message: 'Logistics charge settled successfully', charge });
+    } catch (error) {
+        console.error('Error settling logistics charge:', error);
+        res.status(500).json({ error: 'Failed to settle logistics charge', detail: error.message });
+    }
+};
+
 /**
  * GET /api/finance/seller-sales-history
  * Returns a history of sales (orders) for a specific seller with financial breakdown.
@@ -889,5 +921,6 @@ module.exports = {
     collectSystemRevenue,
     getDeliveryChargeLedger,
     getDeliveryChargeSummary,
-    getSellerSalesHistory
+    getSellerSalesHistory,
+    settleLogisticsCharge
 };

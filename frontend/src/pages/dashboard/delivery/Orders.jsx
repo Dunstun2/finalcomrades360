@@ -26,6 +26,7 @@ import PaymentVerificationModal from '../../../components/delivery/PaymentVerifi
 import DeliveryChat from '../../../components/delivery/DeliveryChat';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
 import HandoverCodeWidget from '../../../components/delivery/HandoverCodeWidget';
+import { getSocket } from '../../../services/socket';
 
 const getLatestTask = (order) => {
   if (!order.deliveryTasks || order.deliveryTasks.length === 0) return null;
@@ -144,6 +145,23 @@ const DeliveryAgentOrders = () => {
       loadMyDeliveries(false, activeTabRef.current);
     }
   }, [lastUpdate]);
+
+  // Listen for real-time cancellation of this agent's task (another agent accepted first)
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleTaskRemoved = (data) => {
+      console.log('🚫 [DeliveryAgent] Task removed (claimed by another agent):', data);
+      // Instantly remove the order whose task was cancelled from UI state
+      setOrders(prev => prev.filter(o => o.id !== data.orderId));
+    };
+
+    socket.on('deliveryTaskRemoved', handleTaskRemoved);
+    return () => {
+      socket.off('deliveryTaskRemoved', handleTaskRemoved);
+    };
+  }, []);
 
   // Removed aggressive 30s polling; relying entirely on real-time sockets context (lastUpdate).
 

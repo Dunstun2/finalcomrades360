@@ -120,7 +120,7 @@ const DeliveryLogistics = () => {
                 const taskFee = Number(task?.deliveryFee) || 0;
 
                 // Effective fee priority matches computeOrderTotals in Orders.jsx
-                const effectiveDeliveryFee = taskFee > 0 ? taskFee : (itemDeliveryTotal || Number(order.deliveryFee) || 0);
+                const effectiveDeliveryFee = taskFee > 0 ? taskFee : (Number(order.deliveryFee) || itemDeliveryTotal || 0);
 
                 // Use locked share if available
                 const lockedShare = parseFloat(task?.agentShare);

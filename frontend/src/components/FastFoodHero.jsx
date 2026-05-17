@@ -11,7 +11,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
 
     if (loading) {
         return (
-            <div className="w-full h-60 sm:h-64 md:h-[400px] lg:h-[440px] bg-gradient-to-br from-orange-100 to-orange-200 animate-pulse rounded-2xl sm:rounded-3xl mb-8" />
+            <div className="w-full h-56 sm:h-64 md:h-[350px] lg:h-[380px] bg-gradient-to-br from-orange-100 to-orange-200 animate-pulse rounded-2xl sm:rounded-3xl mb-8" />
         );
     }
 
@@ -50,10 +50,10 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
         return (
             <div className="relative w-full overflow-hidden group rounded-2xl sm:rounded-3xl shadow-2xl mb-8">
                 {/* Fixed height matching HeroSlider */}
-                <div className="flex flex-row w-full h-60 sm:h-64 md:h-[400px] lg:h-[440px]">
+                <div className="flex flex-row w-full h-56 sm:h-64 md:h-[350px] lg:h-[380px]">
 
                     {/* ── LEFT: Content ── */}
-                    <div className="relative w-[55%] sm:w-3/5 h-full flex flex-col justify-between px-3 sm:px-7 md:px-12 py-3 sm:py-5 md:py-9 overflow-hidden bg-gradient-to-br from-[#6d28d9] via-[#b57be0] to-[#7c3aed]">
+                    <div className="relative w-[55%] sm:w-3/5 h-full flex flex-col justify-between px-3 sm:px-7 md:px-12 py-2 sm:py-4 md:py-6 overflow-hidden bg-gradient-to-br from-[#6d28d9] via-[#b57be0] to-[#7c3aed]">
                         {/* Pattern overlay */}
                         <div
                             className="absolute inset-0 pointer-events-none mix-blend-overlay"
@@ -95,7 +95,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                             {/* Main title */}
                             <h2
                                 onClick={handleViewDetails}
-                                className="text-white text-base sm:text-2xl md:text-4xl font-extrabold leading-tight tracking-tight cursor-pointer hover:text-amber-100 transition-colors"
+                                className="text-white text-base sm:text-xl md:text-3xl font-extrabold leading-snug tracking-tight cursor-pointer hover:text-amber-100 transition-colors"
                                 style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
                             >
                                 {item?.name || settings.title}
@@ -115,7 +115,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                                 { icon: '✅', text: 'Verified' },
                                 { icon: '🎓', text: 'Student Choice' }
                             ]).length > 0 && (
-                                <div className="mt-2 sm:mt-4 flex items-center flex-wrap gap-2 sm:gap-4 text-white/90 bg-white/10 w-fit px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg backdrop-blur-sm border border-white/10">
+                                <div className="mt-1.5 sm:mt-2.5 flex items-center flex-wrap gap-2 sm:gap-4 text-white/90 bg-white/10 w-fit px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg backdrop-blur-sm border border-white/10">
                                     {(settings.trustPoints || [
                                         { icon: '🚀', text: 'Fast Delivery' },
                                         { icon: '✅', text: 'Verified' },
@@ -133,7 +133,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                             )}
 
                             {/* Social Proof Indicator */}
-                            <div className="mt-3 sm:mt-5 flex items-center gap-1.5 sm:gap-4 bg-black/20 w-fit p-1 sm:p-2.5 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-2xl">
+                            <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-4 bg-black/20 w-fit p-1 sm:p-2.5 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-2xl">
                                 <div className="flex -space-x-1.5 sm:-space-x-3">
                                     {(() => {
                                         const imgs = [];
@@ -162,41 +162,6 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                             </div>
                         </div>
 
-                        {/* BOTTOM: Price + rating + button */}
-                        <div className="relative z-10 flex flex-row items-end gap-2 sm:gap-4 mt-auto">
-                            {item && (
-                                <>
-                                    {/* Price block */}
-                                    {/* Price block removed */}
-
-                                    {/* Rating badge */}
-                                    {item?.rating && (
-                                        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-black/20 text-white rounded-full text-xs font-bold">
-                                            <FaStar className="text-yellow-300" />
-                                            <span>{item.rating}</span>
-                                        </div>
-                                    )}
-
-                                    {/* Order Now button (desktop left panel) */}
-                                    <button
-                                        onClick={handleViewDetails}
-                                        className="hidden sm:inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-white text-[#111827] rounded-md font-bold text-sm shadow-md hover:opacity-95 transition ml-auto"
-                                    >
-                                        Order Now
-                                    </button>
-                                </>
-                            )}
-
-                            {/* No-item: explore CTA */}
-                            {!item && settings.title && (
-                                <button
-                                    onClick={handleViewDetails}
-                                    className="inline-flex items-center gap-2 px-4 py-2 bg-white text-[#111827] rounded-md font-bold text-xs sm:text-sm shadow-md hover:opacity-95 transition"
-                                >
-                                    Explore Menu
-                                </button>
-                            )}
-                        </div>
                     </div>
 
                     {/* ── RIGHT: Image + Price + Buy Now ── */}
@@ -218,8 +183,18 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
 
                         {/* Price + Buy Now pinned below image */}
                         {item && (
-                            <div className="w-full flex flex-col items-center gap-1 sm:gap-1.5 py-1.5 sm:py-2.5 px-2 sm:px-3 bg-[#9b59cc]/90 backdrop-blur-sm">
-                                {/* Price row removed */}
+                            <div className="w-full flex flex-col items-center gap-1 sm:gap-1.5 py-1 sm:py-2 px-2 sm:px-3 bg-[#9b59cc]/90 backdrop-blur-sm">
+                                {/* Price row */}
+                                <div className="flex items-center gap-2">
+                                    <span className="text-white text-xs sm:text-lg font-black">
+                                        {formatPrice(finalPrice)}
+                                    </span>
+                                    {hasDiscount && (
+                                        <span className="text-white/50 text-[10px] sm:text-xs line-through">
+                                            {formatPrice(originalPrice)}
+                                        </span>
+                                    )}
+                                </div>
 
                                 {/* Buy Now button */}
                                 <button

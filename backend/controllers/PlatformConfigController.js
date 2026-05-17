@@ -8,6 +8,10 @@ const PUBLIC_KEYS = [
     'finance_settings',
     'logistic_settings',
     'delivery_route_fees',
+    'delivery_fee_agent_share',
+    'delivery_fee_station_share',
+    'seller_delivery_handling_fee',
+    'direct_delivery_agent_share',
     'batch_system_enabled',
     'fast_food_hero',
     'content_page_about',
@@ -78,7 +82,30 @@ exports.getConfig = async (req, res) => {
                     { min: 10001, max: 1000000, fee: 150 }
                 ]
             },
-            logistic_settings: { warehouseHours: { open: '08:00', close: '20:00' }, autoCancelUnpaidHours: 24, deliveryFeeBuffer: 0, autoApproveRequests: false, autoDispatchOrders: false },
+            logistic_settings: {
+                warehouseHours: { open: '08:00', close: '20:00' },
+                autoCancelUnpaidHours: 24,
+                deliveryFeeBuffer: 0,
+                autoApproveRequests: false,
+                autoDispatchOrders: false,
+                // Unaccepted task expiry
+                fastfoodTaskExpiryMinutes: 15,
+                productTaskExpiryMinutes: 30,
+                // FastFood: dynamic collection enforcement (ratio of remaining window before estimatedDelivery)
+                fastfoodCollectionWarnRatio: 0.6,       // warn when 60% of total window has elapsed
+                fastfoodCollectionFailRatio: 0.8,       // fail when 80% of total window has elapsed
+                fastfoodCollectionFallbackWarnMinutes: 8,  // fallback if no estimatedDelivery set
+                fastfoodCollectionFallbackFailMinutes: 12,
+                // Product: fixed thresholds (no hard fail)
+                productCollectionWarnMinutes: 30,       // remind agent at 30min after accept
+                productCollectionAlertHours: 2,         // alert admin at 2hrs after accept
+                // Seller confirmation alert
+                sellerConfirmAlertHours: 6,
+                // Leg stuck alerts (agent not progressing)
+                legStuckAlertHours: 24,
+                // Stuck in-transit threshold (existing, renamed)
+                stuckDeliveryHours: 3
+            },
             delivery_route_fees: {
                 seller_to_warehouse: { fee: 50, note: 'Seller to Warehouse Hub' },
                 warehouse_to_pickup_station: { fee: 30, note: 'Between Hubs' },
@@ -89,6 +116,9 @@ exports.getConfig = async (req, res) => {
                 fastfood_pickup_point: { fee: 50, note: 'Fastfood Hub Delivery' },
                 last_mile: { fee: 100, note: 'Last Mile Delivery' }
             },
+            delivery_fee_station_share: 10,
+            seller_delivery_handling_fee: 20,
+            direct_delivery_agent_share: 80,
             security_settings: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
             notification_settings: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
             seo_settings: { title: 'Comrades360', description: 'Student Marketplace', keywords: 'university, marketplace', socialLinks: { facebook: '', instagram: '', twitter: '' } },

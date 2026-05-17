@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { FaBox, FaSync, FaSignOutAlt, FaExclamationCircle, FaUndoAlt, FaCheckCircle, FaArrowRight, FaSearch } from 'react-icons/fa';
+import { FaBox, FaSync, FaSignOutAlt, FaExclamationCircle, FaUndoAlt, FaCheckCircle, FaArrowRight, FaSearch, FaWallet } from 'react-icons/fa';
 import DeliveryTaskConsole from '../../components/delivery/DeliveryTaskConsole';
 import HandoverCodeWidget from '../../components/delivery/HandoverCodeWidget';
 import { getOrderDeliveryTask } from '../../components/delivery/DeliveryTaskComponents';
@@ -262,6 +262,12 @@ const StationManagerDashboard = () => {
               </p>
             </div>
             <div className="flex gap-2 self-start md:self-auto">
+              <button
+                onClick={() => window.location.href = '/station/wallet'}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+              >
+                <FaWallet /> Wallet
+              </button>
               <button
                 onClick={() => window.location.href = '/station/manual'}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl bg-orange-50 text-orange-600 hover:bg-orange-100 transition-colors"

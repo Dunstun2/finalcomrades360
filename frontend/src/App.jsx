@@ -129,6 +129,7 @@ const ProductManagement = lazy(() => import('./pages/dashboard/ProductManagement
 const DashboardProducts = lazy(() => import('./pages/dashboard/Products'));
 const StationManagerDashboard = lazy(() => import('./pages/station/StationManagerDashboard'));
 const StationLogin = lazy(() => import('./pages/station/StationLogin'));
+const StationWallet = lazy(() => import('./pages/station/StationWallet'));
 const ProductList = lazy(() => import('./pages/dashboard/products/ProductList'));
 const ComradesProducts = lazy(() => import('./pages/dashboard/comrades/ComradesProducts'));
 const ComradesProductList = lazy(() => import('./pages/dashboard/comrades/ComradesProductList'));
@@ -214,6 +215,7 @@ const DirectOrders = lazy(() => import('./pages/dashboard/DirectOrders'));
 const MarketingNotifications = lazy(() => import('./pages/dashboard/MarketingNotifications'));
 const AdminTools = lazy(() => import('./pages/dashboard/AdminTools'));
 const DashboardManual = lazy(() => import('./components/dashboard/DashboardManual'));
+const LogisticsInvoices = lazy(() => import('./pages/dashboard/LogisticsInvoices'));
 
 // Delivery Agent Sub-components
 const DeliveryAgentOrders = lazy(() => import('./pages/dashboard/delivery/Orders'));
@@ -550,6 +552,7 @@ const AppContent = () => {
                   <Route path="finance/reports" element={<AdvancedReports />} />
                   <Route path="finance/revenue" element={<SystemRevenue />} />
                   <Route path="finance/payouts" element={<PendingPayouts />} />
+                  <Route path="finance/logistics-invoices" element={<LogisticsInvoices />} />
                   <Route path="marketing/hero-promotions" element={<AdminHeroPromotions />} />
                   <Route path="marketing/thank-you" element={<MarketingNotifications />} />
                   <Route path="marketing/hero-promotions/create" element={<AdminCreateHeroPromotion />} />
@@ -663,6 +666,11 @@ const AppContent = () => {
                     <DashboardManual role="station" />
                   </ProtectedRoute>
                 } />
+                <Route path="/station/wallet" element={
+                  <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
+                    <StationWallet />
+                  </ProtectedRoute>
+                } />
 
                 {/* Customer Routes */}
                 <Route path="/customer/*" element={<Customer />}>
@@ -701,7 +709,7 @@ const AppContent = () => {
                     </DashboardGuard>
                   </ProtectedRoute>
                 }>
-                  <Route index element={<Navigate to="available" replace />} />
+                  <Route index element={<Navigate to="orders" replace />} />
                   <Route path="orders" element={<DeliveryAgentOrders />} />
                   <Route path="available" element={<DeliveryAgentAvailable />} />
                   <Route path="logistics" element={<DeliveryLogistics />} />

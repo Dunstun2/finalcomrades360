@@ -72,6 +72,7 @@ const getDeliveryWallet = async (req, res) => {
                 // Add order details if available
                 if (tx.order) {
                     txData.orderNumber = tx.order.orderNumber;
+                    txData.order = tx.order;
 
                     // Identify the relevant task for this transaction
                     // (Recent task matching the order status or specific type if possible)
