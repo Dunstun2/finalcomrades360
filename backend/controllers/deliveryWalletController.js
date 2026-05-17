@@ -1,4 +1,4 @@
-const { Wallet, Transaction, PlatformConfig, Order, OrderItem, DeliveryTask, User } = require('../models');
+const { Wallet, Transaction, PlatformConfig, Order, OrderItem, DeliveryTask, User, Product, FastFood, Service } = require('../models');
 
 const getDeliveryWallet = async (req, res) => {
     try {
@@ -29,7 +29,12 @@ const getDeliveryWallet = async (req, res) => {
                         {
                             model: OrderItem,
                             as: 'OrderItems',
-                            attributes: ['id', 'name', 'quantity', 'price', 'total', 'itemType', 'deliveryFee']
+                            attributes: ['id', 'productId', 'fastFoodId', 'serviceId', 'name', 'quantity', 'price', 'total', 'itemType', 'deliveryFee'],
+                            include: [
+                                { model: Product, attributes: ['id', 'name', 'coverImage', 'galleryImages', 'images'], required: false },
+                                { model: FastFood, attributes: ['id', 'name', 'mainImage'], required: false },
+                                { model: Service, attributes: ['id', 'title'], required: false }
+                            ]
                         },
                         {
                             model: DeliveryTask,
@@ -97,10 +102,20 @@ const getDeliveryWallet = async (req, res) => {
                         const itemDeliveryFee = parseFloat(item.deliveryFee) || 0;
 
                         return {
+                            id: item.id,
+                            productId: item.productId,
+                            fastFoodId: item.fastFoodId,
+                            serviceId: item.serviceId,
                             name: item.name,
                             quantity: item.quantity,
+                            price: parseFloat(item.price) || 0,
+                            total: parseFloat(item.total) || 0,
+                            itemType: item.itemType,
                             deliveryFee: itemDeliveryFee,
-                            agentShare: 0
+                            agentShare: 0,
+                            Product: item.Product,
+                            FastFood: item.FastFood,
+                            Service: item.Service
                         };
                     });
 

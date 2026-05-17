@@ -324,7 +324,8 @@ const DeliveryTaskConsole = ({
 
         if (f) {
             const ffGallery = parseMediaList(f.galleryImages || f.images);
-            return f.coverImage || f.mainImage || ffGallery[0] || null;
+            // mainImage is the primary FastFood image field; coverImage is alias
+            return f.coverImage || f.mainImage || f.image || ffGallery[0] || null;
         }
 
         if (p) {
@@ -333,6 +334,7 @@ const DeliveryTaskConsole = ({
             return (
                 p.coverImage ||
                 p.mainImage ||
+                p.image ||
                 (typeof productImages[0] === 'string' ? productImages[0] : productImages[0]?.url) ||
                 (typeof productGallery[0] === 'string' ? productGallery[0] : productGallery[0]?.url) ||
                 null
@@ -341,7 +343,7 @@ const DeliveryTaskConsole = ({
 
         if (s) {
             const serviceGallery = parseMediaList(s.galleryImages || s.images);
-            return s.coverImage || s.mainImage || serviceGallery[0] || null;
+            return s.coverImage || s.mainImage || s.image || (typeof serviceGallery[0] === 'string' ? serviceGallery[0] : serviceGallery[0]?.imageUrl) || null;
         }
         
         return null;
@@ -554,7 +556,10 @@ const DeliveryTaskConsole = ({
                                     const isPickStation = order.deliveryMethod === 'pick_station';
                                     const DeliveryIcon = isPickStation ? FaStore : FaMotorcycle;
                                     const itemUnitPrice = Number(item.price) || (Number(item.total) && Number(item.quantity) ? Number(item.total) / Number(item.quantity) : 0);
-                                    const itemValue = itemUnitPrice * (Number(item.quantity) || 1);
+                                    // Use item.total directly if available (price * quantity persisted at order time)
+                                    const itemValue = Number(item.total) > 0 
+                                        ? Number(item.total) 
+                                        : (itemUnitPrice * (Number(item.quantity) || 1));
 
                                     return (
                                         <div key={item.id} className="flex flex-row items-center space-x-3 p-2 sm:p-3 bg-white border border-gray-100 rounded-xl sm:rounded-2xl shadow-sm transition-hover hover:border-blue-200">
