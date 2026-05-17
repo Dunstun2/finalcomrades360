@@ -61,6 +61,10 @@ async function fixProductionSchema() {
             allowNull: true
         });
 
+        // 5. Fix DeliveryTask table
+        console.log('\n--- Checking DeliveryTask Table ---');
+        await addColumnSafely('DeliveryTask', 'warningSentAt', { type: DataTypes.DATE, allowNull: true });
+
         console.log('\n✨ All schema checks completed!');
     } catch (error) {
         console.error('\n💥 Critical failure during schema fix:', error.message);
