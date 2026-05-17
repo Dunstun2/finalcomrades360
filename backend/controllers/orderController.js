@@ -797,6 +797,7 @@ const createOrderFromCart = async (req, res) => {
 
     const fastFoodQuantities = {};
     const fastFoodBaseFees = {};
+    let totalFastFoodQty = 0;
 
     for (const cartItem of cartItems) {
       const product = cartItem.product;
@@ -832,6 +833,7 @@ const createOrderFromCart = async (req, res) => {
       }
 
       if (cartItem.type === 'fastfood') {
+        totalFastFoodQty += cartItem.quantity;
         const vendorKey = rawSellerId || cartItem.fastFoodId || 'unknown';
         fastFoodQuantities[vendorKey] = (fastFoodQuantities[vendorKey] || 0) + cartItem.quantity;
         if (fastFoodBaseFees[vendorKey] === undefined) {
@@ -1006,7 +1008,10 @@ const createOrderFromCart = async (req, res) => {
     
     // Apply pickup point fee if applicable (Fast Food)
     if (adminRoutingStrategy === 'fastfood_pickup_point' && fastFoodPickupPointFee !== null) {
-      orderDeliveryFee = fastFoodPickupPointFee;
+      const x = totalFastFoodQty;
+      const incrementalFee = fastFoodPickupPointFee + (fastFoodPickupPointFee * 0.15 * Math.max(0, x - 1));
+      orderDeliveryFee = incrementalFee;
+      console.log(`🚚 Backend: Applied Fast Food Pickup Point Incremental Fee: ${incrementalFee} (Base: ${fastFoodPickupPointFee}, Total Qty x: ${x})`);
     } else if (deliveryMethod === 'pick_station' && (orderDeliveryFee === 0)) {
       // Regular orders: If fee is still 0, try to fetch from PickupStation model
       try {
