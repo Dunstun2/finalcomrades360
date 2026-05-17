@@ -1,4 +1,5 @@
-const { sequelize } = require('./backend/database/database');
+const path = require('path');
+const { sequelize } = require(path.resolve(__dirname, '..', 'database', 'database'));
 const { DataTypes } = require('sequelize');
 
 async function fixProductionSchema() {

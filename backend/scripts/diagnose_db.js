@@ -1,5 +1,6 @@
-const { sequelize } = require('./backend/database/database');
-const models = require('./backend/models');
+const path = require('path');
+const { sequelize } = require(path.resolve(__dirname, '..', 'database', 'database'));
+const models = require(path.resolve(__dirname, '..', 'models'));
 
 async function checkSchemaDiscrepancies() {
     console.log('🔍 Starting Database Schema Diagnostic...');
