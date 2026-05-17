@@ -397,6 +397,22 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, order, isBulk, selectedOrderIds ? selectedOrderIds.join(',') : '']);
 
+    // Dedicated effect for initializing Bulk Dispatch mode
+    useEffect(() => {
+        if (isOpen && isBulk && selectedOrderIds && selectedOrderIds.length > 0) {
+            // Use the first order's ID as a proxy to calculate generic distances
+            // (Since bulk orders are usually batched by proximity or same warehouse)
+            fetchAgentDistances(selectedOrderIds[0]);
+            fetchRouteFees();
+            api.get('/warehouses').then(res => setWarehouses(res.data?.warehouses || [])).catch(() => { });
+            api.get('/pickup-stations').then(res => setPickupStations(res.data?.stations || [])).catch(() => { });
+            
+            // Set default delivery type for bulk if not set
+            setDeliveryType('warehouse_to_customer');
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, isBulk, selectedOrderIds ? selectedOrderIds.join(',') : '']);
+
     const fetchBulkOrdersDetails = async () => {
         setLoadingBulk(true);
         try {
