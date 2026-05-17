@@ -66,6 +66,12 @@ async function fixProductionSchema() {
         console.log('\n--- Checking DeliveryTask Table ---');
         await addColumnSafely('DeliveryTask', 'warningSentAt', { type: DataTypes.DATE, allowNull: true });
 
+        // 6. Fix Warehouse and PickupStations (managerId)
+        console.log('\n--- Checking Hub Tables ---');
+        await addColumnSafely('Warehouse', 'managerId', { type: DataTypes.INTEGER, allowNull: true });
+        await addColumnSafely('PickupStations', 'managerId', { type: DataTypes.INTEGER, allowNull: true });
+        await addColumnSafely('PickupStation', 'managerId', { type: DataTypes.INTEGER, allowNull: true }); // Depending on exact table name
+
         console.log('\n✨ All schema checks completed!');
     } catch (error) {
         console.error('\n💥 Critical failure during schema fix:', error.message);
