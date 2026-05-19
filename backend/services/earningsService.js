@@ -21,8 +21,12 @@ const creditAgentForTask = async (taskId, transaction = null) => {
             return false;
         }
 
-        // Check if already credited
-        if (task.agentEarnings > 0 && task.status === 'completed') {
+        // Check if already credited via DeliveryCharge status
+        const existingCharge = await DeliveryCharge.findOne({
+            where: { deliveryTaskId: taskId },
+            transaction: t
+        });
+        if (existingCharge && existingCharge.fundingStatus === 'settled') {
             console.log(`[earningsService] Task ${taskId} already settled.`);
             if (!transaction) await t.rollback();
             return true;

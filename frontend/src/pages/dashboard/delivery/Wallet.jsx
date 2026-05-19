@@ -305,9 +305,14 @@ const DeliveryWallet = () => {
                         } : null;
 
                         // Identify the specific task from the order's tasks that matches this transaction
-                        const taskObj = tx.order?.deliveryTasks?.find(t =>
-                            tx.description.includes(t.deliveryType) ||
-                            Math.abs(t.agentEarnings - tx.amount) < 0.01
+                        const taskObj = tx.order?.deliveryTasks?.find(t => {
+                            const agentMatches = t.deliveryAgentId === tx.userId;
+                            const typeMatches = tx.description.includes(t.deliveryType) || Math.abs(t.agentEarnings - tx.amount) < 0.01;
+                            const txIsCancelled = tx.status === 'cancelled';
+                            const taskIsCancelled = ['cancelled', 'failed', 'rejected'].includes(t.status);
+                            return agentMatches && typeMatches && (txIsCancelled === taskIsCancelled);
+                        }) || tx.order?.deliveryTasks?.find(t => 
+                            t.deliveryAgentId === tx.userId && (tx.description.includes(t.deliveryType) || Math.abs(t.agentEarnings - tx.amount) < 0.01)
                         ) || (tx.order?.deliveryTasks && [...tx.order.deliveryTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]);
 
                         return (

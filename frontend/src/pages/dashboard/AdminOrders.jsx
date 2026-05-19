@@ -32,6 +32,10 @@ export default function AdminOrders() {
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [orderToAssign, setOrderToAssign] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [orderToEdit, setOrderToEdit] = useState(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState(null);
   const [isBulkAssign, setIsBulkAssign] = useState(false);
   const [drivers, setDrivers] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
@@ -417,6 +421,22 @@ export default function AdminOrders() {
     };
   }, []); // NO dependencies — the polling logic stays stable
 
+  // Listen to global real-time updates for order placements and changes
+  useEffect(() => {
+    const handleRealtimeSync = (e) => {
+      const { scope } = e.detail;
+      if (scope === 'orders') {
+        console.log('🔄 [AdminOrders] Realtime Orders Update received, reloading list...');
+        loadOrders(false);
+      }
+    };
+
+    window.addEventListener('realtime:data-updated', handleRealtimeSync);
+    return () => {
+      window.removeEventListener('realtime:data-updated', handleRealtimeSync);
+    };
+  }, [workflowFilter, statusFilter, dateFilter, debouncedSearch, page]);
+
   useEffect(() => {
     if (isAssignModalOpen && drivers.length === 0) {
       loadDrivers(false);
@@ -443,7 +463,7 @@ export default function AdminOrders() {
 
       const calculateTimeLeft = () => {
         const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || false;
-        const timeoutMinutes = isFastfood ? 2.5 : 30;
+        const timeoutMinutes = isFastfood ? 15 : 30;
 
         const assignedAt = new Date(activeTask.assignedAt);
         const expiryTime = new Date(assignedAt.getTime() + timeoutMinutes * 60 * 1000);
@@ -696,6 +716,46 @@ export default function AdminOrders() {
       setBulkLoading(false);
     }
   };
+
+  const handleCancelOrderUI = (order) => {
+    setOrderToCancel(order);
+    setIsCancelModalOpen(true);
+  };
+
+  async function handleSaveOrderCancel(reason) {
+    try {
+      setBulkLoading(true);
+      await api.post(`/orders/${orderToCancel.id}/cancel`, { reason });
+      await loadOrders(false);
+      setIsCancelModalOpen(false);
+      setOrderToCancel(null);
+      alert('Order cancelled successfully');
+    } catch (error) {
+      alert('Failed to cancel order: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  const handleEditOrderUI = (order) => {
+    setOrderToEdit(order);
+    setIsEditModalOpen(true);
+  };
+
+  async function handleSaveOrderEdit(payload) {
+    try {
+      setBulkLoading(true);
+      await api.patch(`/orders/${orderToEdit.id}/edit`, payload);
+      await loadOrders(false);
+      setIsEditModalOpen(false);
+      setOrderToEdit(null);
+      alert('Order updated successfully');
+    } catch (error) {
+      alert('Failed to update order: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBulkLoading(false);
+    }
+  }
 
 
   const handleBulkAssignDriverUI = () => {
@@ -1414,6 +1474,9 @@ export default function AdminOrders() {
                   const isParentRow = isGroup && idx === 0;
                   const isChildRow = isGroup && idx > 0;
                   const StatusIcon = order.status === 'mixed' ? FaFilter : getStatusInfo(order.status).icon;
+                  const activeTask = getOrderDeliveryTask(order);
+                  const isAgentAccepted = activeTask && ['accepted', 'in_progress'].includes(activeTask.status);
+                  const hasFastFood = order.OrderItems?.some(item => item.itemType === 'fastfood' || item.fastFoodId);
                   const isSelected = isParentRow
                     ? order.subOrders.every(so => selectedOrders.includes(so.id))
                     : selectedOrders.includes(order.id);
@@ -1534,6 +1597,28 @@ export default function AdminOrders() {
                                 <FaEye className="h-4 w-4" />
                               )}
                             </button>
+
+                            {/* Edit Button */}
+                            {!['collected', 'in_transit', 'shipped', 'delivered', 'completed', 'cancelled'].includes(order.status) && (
+                              <button
+                                onClick={() => handleEditOrderUI(order)}
+                                className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors"
+                                title="Edit Order"
+                              >
+                                <FaEdit className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Cancel Button */}
+                            {!['collected', 'in_transit', 'shipped', 'transit', 'ready_for_pickup', 'delivered', 'completed', 'cancelled'].includes(order.status) && !isAgentAccepted && !((hasFastFood || order.orderCategory === 'fastfood') && ['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(order.status)) && (
+                              <button
+                                onClick={() => handleCancelOrderUI(order)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                                title="Cancel Order"
+                              >
+                                <FaTimes className="h-4 w-4" />
+                              </button>
+                            )}
 
                             {!['delivered', 'completed', 'cancelled'].includes(order.status) && (() => {
                               const activeTask = getOrderDeliveryTask(order);
@@ -2634,6 +2719,172 @@ export default function AdminOrders() {
           </div>
         )
       }
+
+      {/* Edit Order Modal */}
+      <EditOrderModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        order={orderToEdit}
+        onSave={handleSaveOrderEdit}
+      />
+
+      {/* Cancel Order Modal */}
+      <CancelOrderModal
+        isOpen={isCancelModalOpen}
+        onClose={() => setIsCancelModalOpen(false)}
+        order={orderToCancel}
+        onConfirm={handleSaveOrderCancel}
+      />
     </div >
+  );
+}
+
+function EditOrderModal({ isOpen, onClose, order, onSave }) {
+  const [deliveryAddress, setDeliveryAddress] = useState(order?.deliveryAddress || '');
+  const [customerName, setCustomerName] = useState(order?.customerName || '');
+  const [customerPhone, setCustomerPhone] = useState(order?.customerPhone || '');
+  const [deliveryInstructions, setDeliveryInstructions] = useState(order?.deliveryInstructions || '');
+  const [items, setItems] = useState(order?.OrderItems || []);
+
+  useEffect(() => {
+    if (order) {
+      setDeliveryAddress(order.deliveryAddress || '');
+      setCustomerName(order.customerName || '');
+      setCustomerPhone(order.customerPhone || '');
+      setDeliveryInstructions(order.deliveryInstructions || '');
+      setItems(order.OrderItems || []);
+    }
+  }, [order]);
+
+  const handleQuantityChange = (itemId, quantity) => {
+    setItems(prev => prev.map(item => item.id === itemId ? { ...item, quantity, action: 'update' } : item));
+  };
+
+  const handleRemoveItem = (itemId) => {
+    setItems(prev => prev.map(item => item.id === itemId ? { ...item, action: 'remove' } : item));
+  };
+
+  const handleSave = () => {
+    const payload = {
+      deliveryAddress,
+      customerName,
+      customerPhone,
+      deliveryInstructions,
+      items: items.map(item => ({
+        itemId: item.id,
+        productId: item.productId,
+        type: item.itemType,
+        quantity: item.quantity,
+        action: item.action || 'update'
+      }))
+    };
+    onSave(payload);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-200 overflow-hidden transform transition-all">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-gray-900">Edit Order #{order?.orderNumber}</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <FaTimes size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-700">Customer Name</label>
+              <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-700">Phone</label>
+              <input type="text" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-700">Delivery Address</label>
+              <textarea value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} className="w-full border rounded-lg p-2 text-sm" rows={2} />
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-700">Items</label>
+              <div className="border rounded-lg divide-y max-h-40 overflow-y-auto">
+                {items.filter(item => item.action !== 'remove').map(item => (
+                  <div key={item.id} className="p-2 flex justify-between items-center text-sm">
+                    <span>{item.name || item.itemLabel || 'Item'}</span>
+                    <div className="flex items-center gap-2">
+                      <input type="number" value={item.quantity} min={1} onChange={e => handleQuantityChange(item.id, parseInt(e.target.value))} className="w-16 border rounded p-1 text-center" />
+                      <button onClick={() => handleRemoveItem(item.id)} className="text-red-600 hover:text-red-800">
+                        <FaTimes />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-6 flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">Cancel</button>
+            <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700">Save Changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CancelOrderModal({ isOpen, onClose, order, onConfirm }) {
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setReason('');
+    }
+  }, [isOpen]);
+
+  const handleConfirm = () => {
+    if (!reason.trim()) {
+      alert('Please provide a reason for cancellation.');
+      return;
+    }
+    onConfirm(reason);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 overflow-hidden transform transition-all">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-gray-900">Cancel Order #{order?.orderNumber}</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <FaTimes size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-700">Reason for Cancellation</label>
+              <textarea 
+                value={reason} 
+                onChange={e => setReason(e.target.value)} 
+                className="w-full border rounded-lg p-2 text-sm" 
+                rows={3}
+                placeholder="Enter reason here..."
+              />
+            </div>
+          </div>
+          
+          <div className="mt-6 flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">Close</button>
+            <button onClick={handleConfirm} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700">Confirm Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

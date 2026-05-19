@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import api from '../../services/api'
 import { getSocket } from '../../services/socket'
 import { recursiveParse, ensureArray, normalizeIngredient } from '../../utils/parsingUtils'
@@ -131,45 +131,41 @@ export default function SellerOrders() {
 
   const isFetchingRef = useRef(false);
 
-  useEffect(() => {
-    let alive = true
+  const loadOrders = useCallback(async (showLoading = true) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    try {
+      if (showLoading) setLoading(true)
+      const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Orders Timeout')), ms));
 
-    const loadOrders = async (showLoading = true) => {
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
-      try {
-        if (showLoading) setLoading(true)
-        const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Orders Timeout')), ms));
+      // Map activeTab to status parameter
+      let statuses = '';
+      if (activeTab === 'pending') statuses = [...new Set(PENDING_STATUSES)].join(',');
+      else if (activeTab === 'delivered') statuses = [...new Set(DELIVERED_STATUSES)].join(',');
+      else if (activeTab === 'finalized') statuses = [...new Set(FINALIZED_STATUSES)].join(',');
+      else if (activeTab === 'returns') statuses = [...new Set(RETURN_STATUSES)].join(',');
 
-        // Map activeTab to status parameter
-        let statuses = '';
-        if (activeTab === 'pending') statuses = [...new Set(PENDING_STATUSES)].join(',');
-        else if (activeTab === 'delivered') statuses = [...new Set(DELIVERED_STATUSES)].join(',');
-        else if (activeTab === 'finalized') statuses = [...new Set(FINALIZED_STATUSES)].join(',');
-        else if (activeTab === 'returns') statuses = [...new Set(RETURN_STATUSES)].join(',');
+      const url = `/seller/orders?status=${statuses}&page=${currentPage}&pageSize=${pageSize}`;
+      const res = await Promise.race([api.get(url), timeout(30000)]);
 
-        const url = `/seller/orders?status=${statuses}&page=${currentPage}&pageSize=${pageSize}`;
-        const res = await Promise.race([api.get(url), timeout(30000)]);
+      const dataObj = res.data;
+      const list = Array.isArray(dataObj.data) ? dataObj.data : (dataObj.data?.data || []);
+      const metaData = dataObj.meta || { total: list.length, page: 1, totalPages: 1 };
 
-        if (alive) {
-          const dataObj = res.data;
-          const list = Array.isArray(dataObj.data) ? dataObj.data : (dataObj.data?.data || []);
-          const metaData = dataObj.meta || { total: list.length, page: 1, totalPages: 1 };
-
-          setRows(list);
-          setMeta(metaData);
-        }
-      } catch (e) {
-        console.error('Failed to load orders:', e)
-        if (showLoading && alive) {
-          toast({ title: 'Load Error', description: 'The server is taking too long to respond.', variant: 'destructive' });
-        }
-      } finally {
-        if (alive && showLoading) setLoading(false)
-        isFetchingRef.current = false;
+      setRows(list);
+      setMeta(metaData);
+    } catch (e) {
+      console.error('Failed to load orders:', e)
+      if (showLoading) {
+        toast({ title: 'Load Error', description: 'The server is taking too long to respond.', variant: 'destructive' });
       }
+    } finally {
+      setLoading(false)
+      isFetchingRef.current = false;
     }
+  }, [activeTab, currentPage, PENDING_STATUSES, DELIVERED_STATUSES, FINALIZED_STATUSES, RETURN_STATUSES]);
 
+  useEffect(() => {
     loadOrders(true)
 
     // Polling every 30 seconds as fallback
@@ -178,11 +174,10 @@ export default function SellerOrders() {
     }, 30000);
 
     return () => {
-      alive = false;
       clearInterval(interval);
       isFetchingRef.current = false;
     }
-  }, [activeTab, currentPage])
+  }, [loadOrders])
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -234,7 +229,7 @@ export default function SellerOrders() {
       socket.off('orderMessage', handleOrderMessage)
       socket.off('handover:generated', handleHandoverGenerated)
     }
-  }, [selectedOrder, activeTab])
+  }, [selectedOrder, activeTab, loadOrders])
 
   const handleHandoverGenerated = (data) => {
     // data: { orderId, orderNumber, handoverType, label ... }
@@ -650,6 +645,35 @@ export default function SellerOrders() {
                                     <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1">Special Instructions</p>
                                     <p className="text-xs font-medium text-orange-800 italic leading-relaxed">"{o.deliveryInstructions}"</p>
                                   </div>
+                                </div>
+                              )}
+
+                              {o.deliveryAgentId && !o.sellerHandoverConfirmed && !['delivered', 'completed', 'failed', 'cancelled', 'in_transit'].includes(o.status) && (
+                                <div className="mb-6 p-5 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 space-y-4 shadow-inner">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-indigo-100 rounded-xl text-indigo-700 text-sm flex-shrink-0 animate-pulse">
+                                      🛵
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-black text-indigo-900 uppercase tracking-wider">Handover & Release Code</p>
+                                      <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider mt-0.5">
+                                        Agent Assigned: <span className="text-indigo-800 font-extrabold">{o.DeliveryAgent?.name || o.deliveryAgent?.name || `Agent #${o.deliveryAgentId}`}</span>
+                                      </p>
+                                      <p className="text-[10px] text-indigo-500 font-medium mt-1">Please generate the code below and give it to the delivery agent to confirm collection.</p>
+                                    </div>
+                                  </div>
+                                  <HandoverCodeWidget
+                                    orderId={o.id}
+                                    handoverType="seller_to_agent"
+                                    mode="giver"
+                                    onConfirmed={() => {
+                                      if (typeof loadOrders === 'function') {
+                                        loadOrders(false);
+                                      } else {
+                                        window.location.reload();
+                                      }
+                                    }}
+                                  />
                                 </div>
                               )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api from '../../services/api';
 
 // Map each handoverType to a human label and icon
@@ -47,6 +47,11 @@ export default function HandoverCodeWidget({
     }, [orderId, orderIds]);
     const isBulk = ids.length > 1;
 
+    // Keep a stable ref for onConfirmed so checkStatus never changes identity
+    // just because the parent re-rendered with a new inline callback.
+    const onConfirmedRef = useRef(onConfirmed);
+    useEffect(() => { onConfirmedRef.current = onConfirmed; }, [onConfirmed]);
+
     // GIVER state
     const [code, setCode] = useState('');
     const [expiresAt, setExpiresAt] = useState(null);
@@ -69,7 +74,10 @@ export default function HandoverCodeWidget({
     const [actualType, setActualType] = useState(null);
 
     // On mount: check status of the FIRST order in the set (proxy for the group)
-    const checkStatus = useCallback(async () => {
+    // NOTE: onConfirmed is intentionally read via ref so that this callback (and
+    // the effect below) stay stable across parent re-renders — preventing a
+    // GET /handover/status storm caused by inline callback recreation.
+    const checkStatus = useCallback(async (isInitial = false) => {
         if (ids.length === 0) return;
         try {
             const res = await api.get(`/handover/status/${ids[0]}/${handoverType}`);
@@ -84,19 +92,24 @@ export default function HandoverCodeWidget({
             }
             if (res.data.confirmed) {
                 setIsConfirmed(true);
-                if (onConfirmed) onConfirmed(res.data);
+                // Only fire the callback if this isn't the initial load, 
+                // to prevent repeated alerts if the widget mounts with an already-confirmed task
+                if (!isInitial && onConfirmedRef.current) {
+                    onConfirmedRef.current(res.data);
+                }
             }
             setInitialLoadDone(true);
         } catch (err) {
             setInitialLoadDone(true);
         }
-    }, [ids, handoverType, onConfirmed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ids, handoverType]); // <-- onConfirmed deliberately omitted via ref
 
     useEffect(() => {
-        checkStatus();
+        checkStatus(true);
     }, [checkStatus]);
 
-    // Poll for confirmation
+    // Poll for confirmation (giver only) — throttled to 15s to stay within rate limits
     useEffect(() => {
         if (mode !== 'giver' || !code || isConfirmed || ids.length === 0) return;
         const interval = setInterval(async () => {
@@ -106,12 +119,12 @@ export default function HandoverCodeWidget({
                     setIsConfirmed(true);
                     setSuccess('✅ Bulk handover confirmed!');
                     clearInterval(interval);
-                    if (onConfirmed) onConfirmed(res.data);
+                    if (onConfirmedRef.current) onConfirmedRef.current(res.data);
                 }
             } catch (err) {}
-        }, 5000);
+        }, 15_000); // Was 5 000 — reduced frequency to avoid 429 rate limits
         return () => clearInterval(interval);
-    }, [mode, code, isConfirmed, ids, handoverType, onConfirmed]);
+    }, [mode, code, isConfirmed, ids, handoverType]);
 
     // Countdown timer for the giver (code expiration)
     useEffect(() => {
@@ -140,7 +153,7 @@ export default function HandoverCodeWidget({
             if (diffMs <= 0) {
                 setAutoTimeLeft('Due now...');
                 clearInterval(interval);
-                checkStatus(); // Fetch status from backend immediately when local countdown ends
+                checkStatus(false); // Fetch status from backend immediately when local countdown ends
             } else {
                 const mins = Math.floor(diffMs / 60000);
                 const secs = Math.floor((diffMs % 60000) / 1000);

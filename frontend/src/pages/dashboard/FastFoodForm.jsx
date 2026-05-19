@@ -638,6 +638,38 @@ const FastFoodForm = ({
     loadFoodSubcategories();
   }, [allCategories, loadFoodSubcategories]);
 
+  // Auto-populate delivery fee when vendor is selected (for Admin listing)
+  useEffect(() => {
+    const fetchSellerDeliveryFee = async () => {
+      const vendorId = formData.vendor || forcedVendorId;
+      if (!vendorId || mode !== 'create') return;
+
+      try {
+        // Fetch fast food items for this vendor to find the delivery fee
+        const response = await api.get(`/fastfood?vendor=${vendorId}&limit=1`);
+        const items = response.data?.data || response.data || [];
+        if (items.length > 0) {
+          const existingItem = items[0];
+          if (existingItem.deliveryFee !== undefined) {
+            setFormData(prev => ({
+              ...prev,
+              deliveryFee: existingItem.deliveryFee,
+              deliveryFeeType: existingItem.deliveryFeeType || 'fixed'
+            }));
+            toast({
+              title: "Delivery Fee Auto-populated",
+              description: `Using the delivery fee of ${existingItem.deliveryFee} set for this seller.`,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch seller delivery fee:', error);
+      }
+    };
+
+    fetchSellerDeliveryFee();
+  }, [formData.vendor, forcedVendorId, mode, toast]);
+
 
   const hasResetNewForm = useRef(false);
   useEffect(() => {

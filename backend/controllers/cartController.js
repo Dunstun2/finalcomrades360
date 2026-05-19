@@ -50,7 +50,7 @@ const getFastFoodSellerKey = (item) => {
   return fastFood?.vendor || fastFood?.vendorId || fastFood?.sellerId || fastFood?.userId || fastFood?.id || null;
 };
 
-const FASTFOOD_DELIVERY_INCREMENT_RATE = 0.15;
+const FASTFOOD_DELIVERY_INCREMENT_RATE = 0.55;
 
 const calculateFastFoodSellerIncrementalFee = (baseFee, itemCount) => {
   const safeBaseFee = Number(baseFee || 0);

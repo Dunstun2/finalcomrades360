@@ -30,7 +30,27 @@ const calculateSellerMerchandisePayout = (order, orderItems = []) => {
   return roundMoney(Math.max(0, Number(order?.total || 0) - Number(order?.deliveryFee || 0)));
 };
 
+const isFastFoodOrder = (order) => {
+  if (!order) return false;
+  if (['direct_delivery', 'fastfood_pickup_point'].includes(order.adminRoutingStrategy)) {
+    return true;
+  }
+  if (Array.isArray(order.OrderItems) && order.OrderItems.some(item => !!item.fastFoodId || item.itemType === 'fastfood')) {
+    return true;
+  }
+  return false;
+};
+
 const getRoutePayer = (order, routeType) => {
+  if (isFastFoodOrder(order)) {
+    return {
+      payerType: 'customer',
+      payerUserId: order?.userId || null,
+      fundingSource: 'order_delivery_fee',
+      note: 'Customer-funded Fast Food delivery leg.'
+    };
+  }
+
   if (SELLER_PAID_ROUTE_TYPES.has(routeType)) {
     return {
       payerType: 'seller',

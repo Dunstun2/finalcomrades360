@@ -408,7 +408,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
             api.get('/pickup-stations').then(res => setPickupStations(res.data?.stations || [])).catch(() => { });
             
             // Set default delivery type for bulk if not set
-            setDeliveryType('warehouse_to_customer');
+            // setDeliveryType('warehouse_to_customer');
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, isBulk, selectedOrderIds ? selectedOrderIds.join(',') : '']);
@@ -647,7 +647,7 @@ const DeliveryAssignmentModal = ({ order, isOpen, onClose, onAssign, isBulk = fa
     const getAssignmentTimeout = () => {
         if (!order) return 30;
         const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || false;
-        return isFastfood ? 2.5 : 30;
+        return isFastfood ? 15 : 30;
     };
 
     const isAssignmentLocked = (() => {

@@ -40,7 +40,7 @@ const calculateFastFoodPickupPointTotal = (items = [], baseFee = 0) => {
   const fastFoodItems = items.filter((item) => item.itemType === 'fastfood' || item.type === 'fastfood');
   const x = fastFoodItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   if (x === 0) return 0;
-  return baseFee + (baseFee * 0.15 * Math.max(0, x - 1));
+  return baseFee + (baseFee * 0.55 * Math.max(0, x - 1));
 };
 
 const calculateFastFoodHomeDeliveryTotal = (items = []) => {

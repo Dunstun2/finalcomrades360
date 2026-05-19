@@ -750,6 +750,27 @@ async function notifySellerOrderPlaced(order, seller, sellerAmount, itemsList) {
     }, seller, null);
 }
 
+/**
+ * Notify seller that an order has been edited
+ */
+async function notifySellerOrderEdited(order, seller, itemsList) {
+    if (!seller || !order) return;
+
+    const orderNumber = order.orderNumber;
+
+    const defaultTemplate = `⚠️ Order Updated!\n\nHello {name}, order #{orderNumber} has been updated by an admin or marketer.\n\nPlease check the updated items or details in your dashboard.\n\nItems: {itemsList}\n\nDashboard: {dashboardUrl}`;
+
+    await sendCustomerNotificationAcrossChannels('sellerOrderEdited', {
+        name: seller.businessName || seller.name || 'Seller',
+        orderNumber,
+        itemsList,
+        dashboardUrl: `${siteUrl}/dashboard-login?redirect=/seller/orders`,
+        title: 'Order Updated ⚠️',
+        type: 'warning',
+        defaultTemplate
+    }, seller, null);
+}
+
 module.exports = {
     createNotification,
     notifyDeliveryAgentAssignment,
@@ -768,6 +789,7 @@ module.exports = {
     notifyCustomerOrderThankYou,
     notifySellerOrderPlaced,
     notifyCustomerAgentAccepted,
+    notifySellerOrderEdited,
     logNotify,
     sendCustomerNotificationAcrossChannels
 };

@@ -299,8 +299,11 @@ const DeliveryTaskConsole = ({
         return order.user?.phone;
     })();
 
-    const isTransitional = !deliveryType.endsWith('customer');
-    const isFinalCustomerLeg = deliveryType.endsWith('_to_customer');
+    const hasFastFood = (orderItems || []).some(item => !!item.fastFoodId || item.itemType === 'fastfood' || item.FastFood || item.fastFood) ||
+                        ['direct_delivery', 'fastfood_pickup_point'].includes(order.adminRoutingStrategy);
+
+    const isTransitional = !hasFastFood && !deliveryType.endsWith('customer');
+    const isFinalCustomerLeg = hasFastFood || deliveryType.endsWith('_to_customer');
 
     // 3. Financial Helpers
     const getOrderItemImage = (item) => {

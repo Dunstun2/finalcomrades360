@@ -1,5 +1,5 @@
 const express = require('express');
-const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, bulkSellerConfirm, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
+const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, bulkSellerConfirm, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, editOrder, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
 const { auth, optionalAuth, adminOnly, requirePermission } = require('../middleware/auth');
 const { transitionOrderStatus, getValidTransitions } = require('../controllers/orderTransitionController');
 const { parseDirectOrder, placeDirectOrder, listDirectOrders } = require('../controllers/directOrderController');
@@ -33,6 +33,9 @@ router.post('/:orderId/cancel', auth, cancelOrder);
 
 // Customer address update for orders
 router.patch('/:orderId/address', auth, updateOrderAddress);
+
+// Edit order (Admin, Marketer)
+router.patch('/:orderId/edit', auth, editOrder);
 
 // Public tracking (no auth required) – by tracking number or order number
 router.get('/public-track/:trackingNumber', publicTrackOrder);

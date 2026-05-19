@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { FaMapMarkedAlt, FaClock, FaCheckCircle, FaDollarSign, FaSpinner, FaChevronDown, FaChevronUp, FaBox, FaStore, FaTruck, FaClipboardCheck, FaSearch } from 'react-icons/fa';
 import api from '../../../services/api';
 import { formatPrice } from '../../../utils/currency';
@@ -11,6 +11,7 @@ import { getSocket } from '../../../services/socket';
 
 const DeliveryAgentAvailable = () => {
   const { user } = useAuth();
+  const { lastUpdate } = useOutletContext() || {};
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -137,7 +138,14 @@ const DeliveryAgentAvailable = () => {
       ]);
     };
     initFetch();
-  }, []); // Only fetch on mount, agentShare is fetched inside fetchConfig
+  }, []);
+
+  useEffect(() => {
+    if (lastUpdate && lastUpdate !== null) {
+      fetchAvailableOrders(false, false);
+      fetchStats();
+    }
+  }, [lastUpdate]);
 
   useEffect(() => {
     const interval = setInterval(() => {

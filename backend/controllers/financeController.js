@@ -137,6 +137,12 @@ const getSystemIncome = async (req, res) => {
 // GET /api/finance/pending-payouts
 const getPendingPayouts = async (req, res) => {
     try {
+        const { role } = req.query;
+        const includeWhere = {};
+        if (role && role !== 'all') {
+            includeWhere.role = role;
+        }
+
         const transactions = await Transaction.findAll({
             where: {
                 [Op.or]: [
@@ -144,7 +150,12 @@ const getPendingPayouts = async (req, res) => {
                     { type: 'debit', status: 'pending' }
                 ]
             },
-            include: [{ model: User, as: 'user', attributes: ['id', 'name', 'role', 'phone'] }],
+            include: [{ 
+                model: User, 
+                as: 'user', 
+                attributes: ['id', 'name', 'role', 'phone'],
+                where: Object.keys(includeWhere).length > 0 ? includeWhere : undefined
+            }],
             order: [['createdAt', 'DESC']]
         });
 
@@ -907,6 +918,50 @@ const getSellerSalesHistory = async (req, res) => {
     }
 };
 
+// GET /api/finance/withdrawal-history
+const getWithdrawalHistory = async (req, res) => {
+    try {
+        const { role } = req.query;
+        const includeWhere = {};
+        if (role && role !== 'all') {
+            includeWhere.role = role;
+        }
+
+        const transactions = await Transaction.findAll({
+            where: {
+                type: 'debit',
+                status: { [Op.in]: ['completed', 'failed'] }
+            },
+            include: [{ 
+                model: User, 
+                as: 'user', 
+                attributes: ['id', 'name', 'role', 'phone'],
+                where: Object.keys(includeWhere).length > 0 ? includeWhere : undefined
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+
+        // Map user to User for frontend compatibility
+        const mappedTransactions = transactions.map(tx => {
+            const data = tx.toJSON ? tx.toJSON() : tx;
+            if (data.user) {
+                data.User = data.user;
+            }
+            return data;
+        });
+
+        res.json(mappedTransactions);
+    } catch (error) {
+        console.error('Error fetching withdrawal history:', error);
+        res.status(500).json({ error: 'Failed to fetch withdrawal history' });
+        // Also log to error.log
+        const fs = require('fs');
+        const path = require('path');
+        const errorDetail = `\n--- [getWithdrawalHistory Error] ${new Date().toISOString()} ---\n${error.stack}\n`;
+        fs.appendFileSync(path.join(__dirname, '../error.log'), errorDetail);
+    }
+};
+
 module.exports = {
     getDeliveryConfig,
     updateDeliveryConfig,
@@ -922,5 +977,6 @@ module.exports = {
     getDeliveryChargeLedger,
     getDeliveryChargeSummary,
     getSellerSalesHistory,
-    settleLogisticsCharge
+    settleLogisticsCharge,
+    getWithdrawalHistory
 };

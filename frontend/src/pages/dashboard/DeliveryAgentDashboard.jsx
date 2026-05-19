@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, Outlet } from 'react-router-dom';
 import {
   FaBoxOpen, FaMotorcycle, FaMapMarkedAlt, FaCheckCircle,
@@ -10,6 +10,56 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getSocket, joinUserRoom } from '../../services/socket';
 import { useToast } from '../../components/ui/use-toast';
 import BottomNavbar from '../../components/layout/BottomNavbar';
+
+// ─── LocationTracker ──────────────────────────────────────────────────────────
+// IMPORTANT: Defined OUTSIDE DeliveryAgentDashboard so React never sees a new
+// component type on re-renders. Defining it inside the parent causes React to
+// unmount+remount on every parent state change, which restarts watchPosition
+// and fires an immediate GPS PATCH — producing a cascade of 429 errors.
+const GPS_THROTTLE_MS = 15_000; // minimum gap between location PATCH requests
+
+const LocationTracker = ({ isOnline }) => {
+  const lastSyncRef = useRef(0);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    if (!('geolocation' in navigator) || window._geoDenied) return;
+
+    const syncLocation = async (position) => {
+      const now = Date.now();
+      // Throttle: skip if we synced less than GPS_THROTTLE_MS ago
+      if (now - lastSyncRef.current < GPS_THROTTLE_MS) return;
+      lastSyncRef.current = now;
+      try {
+        const { latitude: lat, longitude: lng } = position.coords;
+        await api.patch('/delivery/profile/location', { lat, lng });
+      } catch (err) {
+        if (err.response?.status === 404) {
+          console.warn('[GPS] Profile record not yet created.');
+        } else if (err.response?.status !== 429) {
+          // Suppress 429 noise — it's expected during bursts
+          console.warn('[GPS] Sync failed:', err.message);
+        }
+      }
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      syncLocation,
+      (err) => {
+        if (err.code === 1) {
+          window._geoDenied = true;
+          console.warn('[GPS] Permission denied. Location syncing disabled.');
+        }
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [isOnline]);
+
+  return null;
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 const DeliveryAgentDashboard = () => {
   const { user } = useAuth();
@@ -55,6 +105,29 @@ const DeliveryAgentDashboard = () => {
       });
     };
 
+    // Triggered when an admin assigns/reassigns a task to this agent
+    const handleTaskAssigned = (data) => {
+      console.log('🚚 Task assigned to this agent:', data);
+      setLastUpdate(Date.now());
+      toast({
+        title: '🚚 New Assignment!',
+        description: data.message || `You have been assigned a new delivery task! Check your Active Tasks page.`,
+        duration: 8000,
+      });
+    };
+
+    // Triggered when a task is removed or reassigned away from this agent
+    const handleTaskRemoved = (data) => {
+      console.log('🚫 Task removed from this agent:', data);
+      setLastUpdate(Date.now());
+      toast({
+        title: '🚫 Assignment Removed',
+        description: data.message || `A task was removed or re-assigned.`,
+        duration: 8000,
+        variant: 'destructive',
+      });
+    };
+
     // Collection deadline warning from backend enforcer cron
     const handleDeliveryWarning = (data) => {
       console.warn('⚠️ [CollectionWarning] Received:', data);
@@ -75,6 +148,8 @@ const DeliveryAgentDashboard = () => {
     socket.on('handover:confirmed', handleSync);
     socket.on('new_task_available', handleNewTask);
     socket.on('delivery_warning', handleDeliveryWarning);
+    socket.on('deliveryTaskAssigned', handleTaskAssigned);
+    socket.on('deliveryTaskRemoved', handleTaskRemoved);
 
     return () => {
       socket.off('orderStatusUpdate', handleSync);
@@ -83,6 +158,8 @@ const DeliveryAgentDashboard = () => {
       socket.off('handover:confirmed', handleSync);
       socket.off('new_task_available', handleNewTask);
       socket.off('delivery_warning', handleDeliveryWarning);
+      socket.off('deliveryTaskAssigned', handleTaskAssigned);
+      socket.off('deliveryTaskRemoved', handleTaskRemoved);
     };
   }, []);
 
@@ -115,55 +192,6 @@ const DeliveryAgentDashboard = () => {
       console.error('Failed to update status', e);
       alert('Failed to update online status. Please check your connection.');
     }
-  };
-
-  // Background Location Tracker Component
-  const LocationTracker = ({ isOnline }) => {
-    useEffect(() => {
-      if (!isOnline) return;
-
-      let watchId;
-      const syncLocation = async (position) => {
-        if (!isOnline) return; // double check
-        try {
-          const { latitude: lat, longitude: lng } = position.coords;
-          await api.patch('/delivery/profile/location', { lat, lng });
-          // console.debug('[GPS] Location synced:', lat, lng);
-        } catch (err) {
-          // Silent failure for periodic GPS sync to avoid console spam
-          if (err.response?.status === 404) {
-            console.warn('[GPS] Sync failed: Profile record not yet created. Backend should auto-create on next attempt.');
-          } else {
-            console.warn('[GPS] Sync failed:', err.message);
-          }
-        }
-      };
-
-      if ("geolocation" in navigator && !window._geoDenied) {
-        watchId = navigator.geolocation.watchPosition(
-          syncLocation,
-          (err) => {
-            if (err.code === 1) { // PERMISSION_DENIED
-              window._geoDenied = true;
-              console.warn('[GPS] Geolocation permission denied by user. Location syncing disabled.');
-            } else {
-              console.error('[GPS] Geolocation Error:', err.message);
-            }
-          },
-          {
-            enableHighAccuracy: false, // Better for battery/reliability here
-            timeout: 10000,
-            maximumAge: 30000
-          }
-        );
-      }
-
-      return () => {
-        if (watchId) navigator.geolocation.clearWatch(watchId);
-      };
-    }, [isOnline]);
-
-    return null;
   };
 
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'super_admin' || user?.roles?.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));

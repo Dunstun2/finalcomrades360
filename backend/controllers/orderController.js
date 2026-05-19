@@ -823,13 +823,11 @@ const createOrderFromCart = async (req, res) => {
       orderBaseSubtotal += itemBaseTotal;
 
       let itemDeliveryFee = Number(cartItem.deliveryFee);
-      if (!Number.isFinite(itemDeliveryFee)) {
-        if (cartItem.type === 'fastfood') {
-          itemDeliveryFee = Number(product?.deliveryFee || 0);
-        } else {
-          const baseFee = Number(product?.deliveryFee || cartItem.deliveryFee || 0);
-          itemDeliveryFee = Number(cartItem.quantity || 0) > 0 ? baseFee * Number(cartItem.quantity || 0) : baseFee;
-        }
+      if (cartItem.type === 'fastfood') {
+        itemDeliveryFee = Number(product?.deliveryFee || 0);
+      } else if (!Number.isFinite(itemDeliveryFee)) {
+        const baseFee = Number(product?.deliveryFee || cartItem.deliveryFee || 0);
+        itemDeliveryFee = Number(cartItem.quantity || 0) > 0 ? baseFee * Number(cartItem.quantity || 0) : baseFee;
       }
 
       if (cartItem.type === 'fastfood') {
@@ -965,7 +963,7 @@ const createOrderFromCart = async (req, res) => {
       for (const vendorKey in fastFoodQuantities) {
         const qty = fastFoodQuantities[vendorKey];
         const baseFee = fastFoodBaseFees[vendorKey] || 0;
-        const incrementalFee = baseFee + (baseFee * 0.15 * Math.max(0, qty - 1));
+        const incrementalFee = baseFee + (baseFee * 0.55 * Math.max(0, qty - 1));
         orderDeliveryFee += incrementalFee;
         console.log(`🚚 Backend: Applied Fast Food Incremental Fee: ${incrementalFee} for vendor: ${vendorKey} (Base: ${baseFee}, Qty: ${qty})`);
       }
@@ -1009,7 +1007,7 @@ const createOrderFromCart = async (req, res) => {
     // Apply pickup point fee if applicable (Fast Food)
     if (adminRoutingStrategy === 'fastfood_pickup_point' && fastFoodPickupPointFee !== null) {
       const x = totalFastFoodQty;
-      const incrementalFee = fastFoodPickupPointFee + (fastFoodPickupPointFee * 0.15 * Math.max(0, x - 1));
+      const incrementalFee = fastFoodPickupPointFee + (fastFoodPickupPointFee * 0.55 * Math.max(0, x - 1));
       orderDeliveryFee = incrementalFee;
       console.log(`🚚 Backend: Applied Fast Food Pickup Point Incremental Fee: ${incrementalFee} (Base: ${fastFoodPickupPointFee}, Total Qty x: ${x})`);
     } else if (deliveryMethod === 'pick_station' && (orderDeliveryFee === 0)) {
@@ -1715,7 +1713,7 @@ const listAllOrders = async (req, res) => {
       const [orderItems, deliveryTasks] = await Promise.all([
         OrderItem.findAll({
           where: { orderId: { [Op.in]: orderIds } },
-          attributes: ['id', 'orderId', 'total', 'commissionAmount', 'quantity', 'price', 'basePrice', 'itemType']
+          attributes: ['id', 'orderId', 'total', 'commissionAmount', 'quantity', 'price', 'basePrice', 'itemType', 'fastFoodId', 'productId']
         }),
         DeliveryTask.findAll({
           where: { orderId: { [Op.in]: orderIds } },
@@ -2094,7 +2092,7 @@ const assignDeliveryAgent = async (req, res) => {
 
     const fastFoodRoutingStrategy = order.adminRoutingStrategy || 'direct_delivery';
     const fastFoodExpectedDeliveryType = fastFoodRoutingStrategy === 'fastfood_pickup_point'
-      ? 'fastfood_pickup_point'
+      ? FASTFOOD_PICKUP_POINT_DELIVERY_TYPE
       : FASTFOOD_DIRECT_DELIVERY_TYPE;
 
     if (routePolicy.isFastFoodOnlyOrder && fastFoodRoutingStrategy === 'direct_delivery' && FASTFOOD_DIRECT_DISALLOWED_STATUSES.has(order.status)) {
@@ -2107,7 +2105,7 @@ const assignDeliveryAgent = async (req, res) => {
     if (routePolicy.isFastFoodOnlyOrder && deliveryType && deliveryType !== fastFoodExpectedDeliveryType) {
       await t.rollback();
       return res.status(400).json({
-        error: `Fast-food orders with strategy ${fastFoodRoutingStrategy} only support ${fastFoodExpectedDeliveryType} (not seller_to_pickup_station).`
+        error: `Fast-food orders with strategy ${fastFoodRoutingStrategy} only support ${fastFoodExpectedDeliveryType}.`
       });
     }
 
@@ -4267,9 +4265,11 @@ const cancelOrder = async (req, res) => {
 
     // Authorization & Validation
     for (const order of orders) {
-      if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      const isAssociatedMarketer = req.user.role === 'marketer' && order.marketerId === req.user.id;
+      
+      if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && !isAssociatedMarketer) {
         await t.rollback();
-        return res.status(403).json({ error: 'Forbidden: You do not own this order' });
+        return res.status(403).json({ error: 'Forbidden: You do not own or have association with this order' });
       }
 
       const terminalStatuses = ['delivered', 'completed', 'cancelled', 'failed', 'returned'];
@@ -4449,6 +4449,134 @@ const updateOrderAddress = async (req, res) => {
   } catch (error) {
     console.error('Error updating order address:', error);
     res.status(500).json({ error: 'Failed to update address' });
+  }
+};
+
+const editOrder = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { orderId } = req.params;
+    const { deliveryAddress, customerName, customerPhone, deliveryInstructions, items } = req.body;
+    
+    const order = await Order.findByPk(orderId, {
+      include: [{ model: OrderItem, as: 'OrderItems' }]
+    });
+    
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Authorization: Admin or Associated Marketer
+    const isAssociatedMarketer = req.user.role === 'marketer' && order.marketerId === req.user.id;
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'super_admin';
+    
+    if (!isPrivileged && !isAssociatedMarketer) {
+      await t.rollback();
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to edit this order' });
+    }
+
+    // Restriction: Before collected by delivery agent
+    const restrictedStatuses = ['collected', 'in_transit', 'shipped', 'delivered', 'completed', 'cancelled'];
+    if (restrictedStatuses.includes(order.status)) {
+      await t.rollback();
+      return res.status(400).json({ error: `Cannot edit order when status is ${order.status}` });
+    }
+
+    // Update non-financial details
+    const updateData = {};
+    if (deliveryAddress !== undefined) updateData.deliveryAddress = deliveryAddress;
+    if (customerName !== undefined) updateData.customerName = customerName;
+    if (customerPhone !== undefined) updateData.customerPhone = customerPhone;
+    if (deliveryInstructions !== undefined) updateData.deliveryInstructions = deliveryInstructions;
+    
+    if (Object.keys(updateData).length > 0) {
+      await order.update(updateData, { transaction: t });
+    }
+
+    // Handle items and quantities if provided
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        if (item.action === 'remove' && item.itemId) {
+          await OrderItem.destroy({ where: { id: item.itemId, orderId }, transaction: t });
+        } else if (item.action === 'update' && item.itemId) {
+          const orderItem = await OrderItem.findByPk(item.itemId, { transaction: t });
+          if (orderItem) {
+            const newTotal = orderItem.price * item.quantity;
+            await orderItem.update({ quantity: item.quantity, total: newTotal }, { transaction: t });
+          }
+        } else if (item.action === 'add' && item.productId) {
+          let product;
+          if (item.type === 'fastfood') {
+            product = await FastFood.findByPk(item.productId, { transaction: t });
+          } else {
+            product = await Product.findByPk(item.productId, { transaction: t });
+          }
+
+          if (product) {
+            const price = product.discountPrice || product.displayPrice || product.price || 0;
+            const total = price * item.quantity;
+            await OrderItem.create({
+              orderId,
+              productId: item.type !== 'fastfood' ? item.productId : null,
+              fastFoodId: item.type === 'fastfood' ? item.productId : null,
+              quantity: item.quantity,
+              price,
+              total,
+              itemType: item.type || 'product'
+            }, { transaction: t });
+          }
+        }
+      }
+      
+      // Recalculate Order Total
+      const updatedItems = await OrderItem.findAll({ where: { orderId }, transaction: t });
+      const subtotal = updatedItems.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+      
+      // Keep delivery fee as is for now, or recalculate if needed.
+      // We'll keep it as is unless we want to implement the complex formula here too.
+      const total = subtotal + (parseFloat(order.deliveryFee) || 0);
+      
+      await order.update({ total, subtotal }, { transaction: t });
+    }
+
+    await t.commit();
+    
+    // Notify Seller
+    try {
+      const { User, Product, FastFood } = require('../models');
+      const updatedItems = await OrderItem.findAll({
+        where: { orderId },
+        include: [
+          { model: Product, as: 'Product', required: false },
+          { model: FastFood, as: 'FastFood', required: false }
+        ]
+      });
+      
+      const itemsList = updatedItems.map(i => {
+        const name = i.Product?.name || i.FastFood?.name || 'Item';
+        return `${name} x${i.quantity}`;
+      }).join(', ');
+
+      let sellerId = order.sellerId;
+      if (!sellerId && updatedItems.length > 0) {
+        sellerId = updatedItems[0].sellerId;
+      }
+
+      if (sellerId) {
+        const seller = await User.findByPk(sellerId);
+        const { notifySellerOrderEdited } = require('../utils/notificationHelpers');
+        await notifySellerOrderEdited(order, seller, itemsList);
+      }
+    } catch (notifyErr) {
+      console.warn('[editOrder] Notification failed:', notifyErr.message);
+    }
+    
+    res.json({ success: true, message: 'Order edited successfully' });
+  } catch (error) {
+    if (t) await t.rollback();
+    console.error('Error editing order:', error);
+    res.status(500).json({ error: 'Failed to edit order' });
   }
 };
 
@@ -4880,6 +5008,7 @@ module.exports = {
   unassignDeliveryAgent,
   cancelOrder,
   updateOrderAddress,
+  editOrder,
   addTrackingUpdate,
   getOrderTracking,
   publicTrackOrder,

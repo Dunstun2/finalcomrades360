@@ -248,12 +248,22 @@ const autoCreateDeliveryTask = async (order, fromStatus, toStatus) => {
     const routeDetails = await deriveTaskRouteDetails(order, toStatus);
     const dType = routeDetails.deliveryType;
 
+    // Check if it is a fast food order
+    const hasFastFood = order.adminRoutingStrategy === 'direct_delivery' ||
+                        order.adminRoutingStrategy === 'fastfood_pickup_point' ||
+                        (await OrderItem.findOne({
+                          where: { orderId: order.id, fastFoodId: { [Op.ne]: null } }
+                        }));
+
     // Determine the delivery fee for this specific leg
     let taskDeliveryFee = 0;
     const terminalRoutes = ['seller_to_customer', 'warehouse_to_customer', 'pickup_station_to_customer', 'fastfood_pickup_point', 'last_mile'];
 
+    if (hasFastFood && (parseFloat(order.deliveryFee) > 0)) {
+      taskDeliveryFee = parseFloat(order.deliveryFee);
+    }
     // 1. For terminal legs, prioritize the customer-facing delivery fee from the order
-    if (terminalRoutes.includes(dType) && (parseFloat(order.deliveryFee) > 0)) {
+    else if (terminalRoutes.includes(dType) && (parseFloat(order.deliveryFee) > 0)) {
       taskDeliveryFee = parseFloat(order.deliveryFee);
     } 
     // 2. Check for specific logistics route fees in PlatformConfig (Internal legs or fallback for terminal)

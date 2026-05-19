@@ -15,7 +15,8 @@ const {
     getDeliveryChargeLedger,
     getDeliveryChargeSummary,
     getSellerSalesHistory,
-    settleLogisticsCharge
+    settleLogisticsCharge,
+    getWithdrawalHistory
 } = require('../controllers/financeController');
 const { 
     getPlatformWalletDetails, 
@@ -44,6 +45,7 @@ router.get('/system-income', auth, checkRole('admin', 'superadmin', 'super_admin
 
 // Payouts only for admins
 router.get('/pending-payouts', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getPendingPayouts);
+router.get('/withdrawal-history', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), getWithdrawalHistory);
 router.post('/verify-earnings', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), verifyEarnings);
 router.post('/process-payout', auth, checkRole('admin', 'superadmin', 'super_admin', 'finance_manager'), verifyEarnings);
 

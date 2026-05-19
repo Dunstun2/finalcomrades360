@@ -683,7 +683,7 @@ export default function DeliveryAgents() {
       </>
       ) : (
         <div className="animate-fadeIn">
-            <RoleEarningVerification role="delivery_agent" hideHeader />
+            <RoleEarningVerification role="delivery_agent" hideHeader subTab="audit" />
         </div>
       )}
 

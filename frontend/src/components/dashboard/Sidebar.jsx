@@ -122,10 +122,12 @@ const adminMenuItems = [
       { name: 'Referrals', path: '/dashboard/finance/referrals', icon: <FaAward className="mr-2" /> },
       { name: 'Financial Reports', path: '/dashboard/finance/reports', icon: <FaChartLine className="mr-2" /> },
       { name: 'System Revenue', path: '/dashboard/finance/revenue', icon: <FaMoneyBillWave className="mr-2" /> },
-      { name: 'Pending Payouts', path: '/dashboard/finance/payouts', icon: <FaMoneyBill className="mr-2" /> },
+      { name: 'Global Earning Verification', path: '/dashboard/finance/payouts?tab=audit', icon: <FaShieldAlt className="mr-2" /> },
+      { name: 'Global Withdrawal Disbursements', path: '/dashboard/finance/payouts', icon: <FaMoneyBill className="mr-2" /> },
       { name: 'Logistics Invoices', path: '/dashboard/finance/logistics-invoices', icon: <FaFileAlt className="mr-2" /> }
     ]
   },
+
   {
     name: 'Marketing & Promotions',
     path: '/dashboard/marketing',
@@ -381,9 +383,14 @@ const Sidebar = ({ onClose }) => {
       <ul className="flex flex-col space-y-1 px-3 pt-4 pb-24 items-stretch">
         {menuItems.map((item) => {
           const isExactActive = location.pathname === item.path;
-          const isChildActive = item.children && item.children.some(child => 
-            location.pathname === child.path || (child.path !== '/' && location.pathname.startsWith(child.path + '/'))
-          );
+          const isChildActive = item.children && item.children.some(child => {
+            if (!child.path) return false; // grouping items have no path
+            const childPathname = child.path.split('?')[0];
+            const childSearch = child.path.includes('?') ? child.path.slice(child.path.indexOf('?')) : null;
+            const pathnameMatch = location.pathname === childPathname || (!childSearch && childPathname !== '/' && location.pathname.startsWith(childPathname + '/'));
+            const searchMatch = childSearch ? location.search === childSearch : true;
+            return pathnameMatch && searchMatch;
+          });
           const isAnyActive = isExactActive || isChildActive;
 
           return (
@@ -419,7 +426,13 @@ const Sidebar = ({ onClose }) => {
                       {item.children
                         .filter((child) => !child.roles || child.roles.some((role) => userRoles.includes(role)))
                         .map((child) => {
-                          const isChildExactActive = location.pathname === child.path;
+                          const childPathname = child.path ? child.path.split('?')[0] : '';
+                          const childSearch = child.path && child.path.includes('?') ? child.path.slice(child.path.indexOf('?')) : null;
+                          const isChildExactActive = child.path
+                            ? childSearch
+                              ? location.pathname === childPathname && location.search === childSearch
+                              : location.pathname === childPathname && !location.search.includes('tab=audit')
+                            : false;
                           const hasSubChildren = child.children && child.children.length > 0;
 
                           if (hasSubChildren) {

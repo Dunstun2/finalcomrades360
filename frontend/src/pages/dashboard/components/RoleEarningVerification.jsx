@@ -29,7 +29,7 @@ const StatusBadge = ({ status }) => {
     );
 };
 
-export default function RoleEarningVerification({ role = 'all', hideHeader = false, initialTab = null }) {
+export default function RoleEarningVerification({ role = 'all', hideHeader = false, initialTab = null, subTab: subTabProp = null }) {
     const searchParams = new URLSearchParams(window.location.search);
     const urlTab = searchParams.get('tab');
     
@@ -56,7 +56,15 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
     const [searchTerm, setSearchTerm] = useState('');
     const [autoVerifyEnabled, setAutoVerifyEnabled] = useState(false);
     const [loadingAutoVerify, setLoadingAutoVerify] = useState(false);
-    const [subTab, setSubTab] = useState(initialTab || urlTab || 'audit'); // 'audit' (earnings) or 'payouts' (withdrawals)
+    
+    const derivedSubTab = subTabProp || initialTab || (urlTab === 'audit' ? 'audit' : 'payouts');
+    const [subTab, setSubTab] = useState(derivedSubTab);
+
+    useEffect(() => {
+        setSubTab(derivedSubTab);
+        setSelectedPartner(null);
+    }, [derivedSubTab]);
+
     const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
     const roleLabels = {
@@ -77,7 +85,8 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
 
     const fetchAutoVerifyStatus = async () => {
         try {
-            const res = await api.get('/finance/automatic-payout-status?type=earning');
+            const payoutType = role === 'delivery_agent' ? 'delivery' : 'earning';
+            const res = await api.get(`/finance/automatic-payout-status?type=${payoutType}`);
             setAutoVerifyEnabled(res.data.enabled);
         } catch (error) {
             console.error('Error fetching auto-verify status:', error);
@@ -87,9 +96,10 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
     const toggleAutoVerify = async () => {
         try {
             setLoadingAutoVerify(true);
+            const payoutType = role === 'delivery_agent' ? 'delivery' : 'earning';
             const res = await api.post('/finance/toggle-automatic-payout', { 
                 enabled: !autoVerifyEnabled,
-                type: 'earning'
+                type: payoutType
             });
             setAutoVerifyEnabled(res.data.enabled);
             toast.success(res.data.message || 'Automatic verification updated');
@@ -110,9 +120,11 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
             const res = await api.get(endpoint, { params: { role } });
             
             if (subTab === 'payouts') {
-                // Group pending payouts by user for the sidebar
                 const userMap = new Map();
                 res.data.filter(tx => tx.type === 'debit').forEach(tx => {
+                    if (role && role !== 'all' && tx.User?.role !== role) {
+                        return;
+                    }
                     const userId = tx.userId;
                     if (!userMap.has(userId)) {
                         userMap.set(userId, {
@@ -204,9 +216,11 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
         try {
             setLoadingHistory(true);
             let endpoint = '';
-            let params = { page: historyPage, limit: 50 };
+            let params = { page: historyPage, limit: 50, role };
 
-            if (role === 'delivery_agent') {
+            if (subTab === 'payouts') {
+                endpoint = '/finance/withdrawal-history';
+            } else if (role === 'delivery_agent') {
                 endpoint = '/finance/delivery-task-history';
             } else if (role === 'marketer') {
                 endpoint = '/commissions';
@@ -220,7 +234,11 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
 
             const res = await api.get(endpoint, { params });
             
-            if (role === 'marketer') {
+            if (subTab === 'payouts') {
+                setHistory(res.data || []);
+                setHistoryTotal(res.data.length || 0);
+                setHistoryTotalPages(1);
+            } else if (role === 'marketer') {
                 setHistory(res.data.commissions || []);
                 setHistoryTotal(res.data.total || 0);
                 setHistoryTotalPages(Math.ceil((res.data.total || 0) / 50));
@@ -262,6 +280,14 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
     const filteredHistory = history.filter(h => {
         if (!historySearch) return true;
         const q = historySearch.toLowerCase();
+        if (subTab === 'payouts') {
+            return (
+                h.User?.name?.toLowerCase().includes(q) ||
+                h.User?.phone?.includes(q) ||
+                h.id?.toString().includes(q) ||
+                h.status?.toLowerCase().includes(q)
+            );
+        }
         if (role === 'marketer') {
             return (
                 h.marketer?.name?.toLowerCase().includes(q) ||
@@ -293,22 +319,7 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
                             {partners.length} {subTab === 'payouts' ? 'PENDING' : 'CLEARED'}
                         </span>
                     </div>
-                    
-                    {/* Sub-Tab Selector (Earnings vs Payouts) */}
-                    <div className="flex bg-gray-100 p-1 rounded-xl">
-                        <button
-                            onClick={() => { setSubTab('audit'); setSelectedPartner(null); }}
-                            className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${subTab === 'audit' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'}`}
-                        >
-                            Earnings
-                        </button>
-                        <button
-                            onClick={() => { setSubTab('payouts'); setSelectedPartner(null); }}
-                            className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${subTab === 'payouts' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400'}`}
-                        >
-                            Withdrawals
-                        </button>
-                    </div>
+
 
                     <div className="relative">
                         <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={12} />
@@ -517,9 +528,9 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
             {/* Toolbar */}
             <div className="p-4 border-b flex flex-col md:flex-row gap-3 items-start md:items-center justify-between bg-gray-50/50">
                 <h2 className="font-bold text-gray-800 flex items-center gap-2">
-                    <FaHistory className="text-blue-500" />
-                    {roleLabels[role]} Transaction History
-                    <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-black ml-1 uppercase">
+                    <FaHistory className={subTab === 'payouts' ? 'text-emerald-500' : 'text-blue-500'} />
+                    {subTab === 'payouts' ? 'Global Withdrawal History' : `${roleLabels[role]} Transaction History`}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ml-1 uppercase ${subTab === 'payouts' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
                         {historyTotal} RECORDS
                     </span>
                 </h2>
@@ -553,7 +564,16 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
                     <table className="w-full text-left text-sm border-collapse">
                         <thead>
                             <tr className="bg-gray-50 border-b border-gray-100">
-                                {role === 'delivery_agent' ? (
+                                {subTab === 'payouts' ? (
+                                    <>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">User Details</th>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Transaction Ref</th>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Fee</th>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Net Paid</th>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Status</th>
+                                        <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Date</th>
+                                    </>
+                                ) : role === 'delivery_agent' ? (
                                     <>
                                         <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Order</th>
                                         <th className="p-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Agent</th>
@@ -591,8 +611,33 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             {filteredHistory.map(row => (
-                                <tr key={row.id} className="hover:bg-blue-50/20 transition-colors">
-                                    {role === 'delivery_agent' ? (
+                                <tr key={row.id} className="hover:bg-emerald-50/10 transition-colors">
+                                    {subTab === 'payouts' ? (
+                                        <>
+                                            <td className="p-4">
+                                                <div className="font-bold text-gray-900 text-xs">{row.User?.name || '—'}</div>
+                                                <div className="text-[9px] text-gray-400 uppercase">{row.User?.role || '—'} • {row.User?.phone || '—'}</div>
+                                            </td>
+                                            <td className="p-4 font-mono font-bold text-gray-700 text-xs">
+                                                {(() => {
+                                                    try {
+                                                        const meta = row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : {};
+                                                        return meta.paymentReference || row.referenceNumber || `TX-${row.id}`;
+                                                    } catch (e) {
+                                                        return row.referenceNumber || `TX-${row.id}`;
+                                                    }
+                                                })()}
+                                            </td>
+                                            <td className="p-4 text-right font-bold text-gray-500">{formatPrice(row.fee || 0)}</td>
+                                            <td className="p-4 text-right font-black text-emerald-600">{formatPrice(row.amount - (row.fee || 0))}</td>
+                                            <td className="p-4 text-center">
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${row.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'}`}>
+                                                    {row.status.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-center text-[10px] text-gray-400 font-bold uppercase">{new Date(row.createdAt).toLocaleDateString()}</td>
+                                        </>
+                                    ) : role === 'delivery_agent' ? (
                                         <>
                                             <td className="p-4 font-bold text-gray-900">#{row.orderNumber}</td>
                                             <td className="p-4">
@@ -693,23 +738,52 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                         <div>
                             <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
-                                <FaShieldAlt className="text-blue-600" />
-                                {roleLabels[role]} Earning Verification
+                                {subTab === 'payouts' ? (
+                                    <>
+                                        <FaMoneyBillWave className="text-emerald-600" />
+                                        Withdrawal Request Disbursements
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaShieldAlt className="text-blue-600" />
+                                        {roleLabels[role]} Earning Verification
+                                    </>
+                                )}
                             </h1>
-                            <p className="text-sm text-gray-500 font-medium">Standardized financial auditing and settlement portal.</p>
+                            <p className="text-sm text-gray-500 font-medium">
+                                {subTab === 'payouts' 
+                                    ? 'Process payouts and review historical disbursement records securely.' 
+                                    : 'Standardized financial auditing and settlement portal.'}
+                            </p>
                         </div>
                         <div className="flex items-center bg-gray-100 p-1 rounded-xl">
                             <button
                                 onClick={() => setActiveMainTab('audit')}
-                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'audit' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'audit' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                             >
-                                <FaCoins size={12} /> Earning Audit
+                                {subTab === 'payouts' ? (
+                                    <>
+                                        <FaMoneyBillWave size={12} /> Withdrawal Disbursements
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaCoins size={12} /> Earning Audit
+                                    </>
+                                )}
                             </button>
                             <button
                                 onClick={() => setActiveMainTab('history')}
-                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'history' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                             >
-                                <FaHistory size={12} /> Task History & Revenue
+                                {subTab === 'payouts' ? (
+                                    <>
+                                        <FaHistory size={12} /> Withdrawal History
+                                    </>
+                                ) : (
+                                    <>
+                                        <FaHistory size={12} /> Task History & Revenue
+                                    </>
+                                )}
                             </button>
                         </div>
                         
@@ -762,34 +836,52 @@ export default function RoleEarningVerification({ role = 'all', hideHeader = fal
                     <div className="flex items-center gap-1 bg-gray-100/50 p-1 rounded-xl w-fit border border-gray-100">
                         <button
                             onClick={() => setActiveMainTab('audit')}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'audit' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'audit' ? 'bg-white text-emerald-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
                         >
-                            <FaCoins size={10} /> Earning Audit
+                            {subTab === 'payouts' ? (
+                                <>
+                                    <FaMoneyBillWave size={10} /> Withdrawal Disbursements
+                                </>
+                            ) : (
+                                <>
+                                    <FaCoins size={10} /> Earning Audit
+                                </>
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveMainTab('history')}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'history' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
+                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-2 ${activeMainTab === 'history' ? 'bg-white text-emerald-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
                         >
-                            <FaHistory size={10} /> Task History & Revenue
+                            {subTab === 'payouts' ? (
+                                <>
+                                    <FaHistory size={10} /> Withdrawal History
+                                </>
+                            ) : (
+                                <>
+                                    <FaHistory size={10} /> Task History & Revenue
+                                </>
+                            )}
                         </button>
                     </div>
 
                     {/* Auto-Verify Toggle (Compact version for embedded views) */}
-                    <div className="flex items-center gap-3 bg-white border border-gray-100 px-3 py-1.5 rounded-xl shadow-sm">
-                        <div className="flex flex-col text-right">
-                            <span className="text-[9px] font-black text-gray-900 uppercase leading-none mb-0.5">Auto-Verify</span>
-                            <span className={`text-[7px] font-bold uppercase ${autoVerifyEnabled ? 'text-emerald-500' : 'text-amber-500'}`}>
-                                {autoVerifyEnabled ? 'Active' : 'Manual'}
-                            </span>
+                    {subTab !== 'payouts' && (
+                        <div className="flex items-center gap-3 bg-white border border-gray-100 px-3 py-1.5 rounded-xl shadow-sm">
+                            <div className="flex flex-col text-right">
+                                <span className="text-[9px] font-black text-gray-900 uppercase leading-none mb-0.5">Auto-Verify</span>
+                                <span className={`text-[7px] font-bold uppercase ${autoVerifyEnabled ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                    {autoVerifyEnabled ? 'Active' : 'Manual'}
+                                </span>
+                            </div>
+                            <button
+                                onClick={toggleAutoVerify}
+                                disabled={loadingAutoVerify}
+                                className={`w-10 h-5 rounded-full transition-all relative ${autoVerifyEnabled ? 'bg-emerald-500' : 'bg-gray-200'} ${loadingAutoVerify ? 'opacity-50' : ''}`}
+                            >
+                                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${autoVerifyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                            </button>
                         </div>
-                        <button
-                            onClick={toggleAutoVerify}
-                            disabled={loadingAutoVerify}
-                            className={`w-10 h-5 rounded-full transition-all relative ${autoVerifyEnabled ? 'bg-emerald-500' : 'bg-gray-200'} ${loadingAutoVerify ? 'opacity-50' : ''}`}
-                        >
-                            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${autoVerifyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                        </button>
-                    </div>
+                    )}
                 </div>
             )}
 

@@ -9,6 +9,6 @@
 export const calculateFastFoodSellerIncrementalFee = (baseFee, itemCount) => {
   if (itemCount <= 0) return 0;
   if (itemCount === 1) return baseFee;
-  // Logic: Base + (Base * 0.15 * (Qty - 1))
-  return baseFee + (baseFee * 0.15 * (itemCount - 1));
+  // Logic: Base + (Base * 0.55 * (Qty - 1))
+  return baseFee + (baseFee * 0.55 * (itemCount - 1));
 };

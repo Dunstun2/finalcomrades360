@@ -459,6 +459,8 @@ exports.placeDirectOrder = async (req, res) => {
         let isFastFoodOrder = false;
         let totalDeliveryFee = 0;
         let sellerEarningsMap = {}; // sellerId -> amount
+        const fastFoodQuantities = {};
+        const fastFoodBaseFees = {};
 
         for (const itemRequest of finalItems) {
             let actualItemId = itemRequest.itemId;
@@ -559,7 +561,16 @@ exports.placeDirectOrder = async (req, res) => {
                 deliveryFee: parseFloat(dbItem.deliveryFee || 0)
             });
 
-            totalDeliveryFee += parseFloat(dbItem.deliveryFee || 0) * itemRequest.quantity;
+            const itemDeliveryFee = parseFloat(dbItem.deliveryFee || 0);
+            if (itemRequest.type === 'fastfood') {
+                const vendorKey = sellerId || 'unknown';
+                fastFoodQuantities[vendorKey] = (fastFoodQuantities[vendorKey] || 0) + itemRequest.quantity;
+                if (fastFoodBaseFees[vendorKey] === undefined) {
+                    fastFoodBaseFees[vendorKey] = itemDeliveryFee;
+                }
+            } else {
+                totalDeliveryFee += itemDeliveryFee * itemRequest.quantity;
+            }
 
             // Track seller earnings (merchandise payout)
             sellerEarningsMap[sellerId] = (sellerEarningsMap[sellerId] || 0) + (sellerBasePrice * itemRequest.quantity);
@@ -581,6 +592,15 @@ exports.placeDirectOrder = async (req, res) => {
                     await dbItem.increment('soldCount', { by: itemRequest.quantity, transaction: t });
                 }
             }
+        }
+
+        // Apply fast food incremental fees
+        for (const vendorKey in fastFoodQuantities) {
+            const qty = fastFoodQuantities[vendorKey];
+            const baseFee = fastFoodBaseFees[vendorKey] || 0;
+            const incrementalFee = baseFee + (baseFee * 0.55 * Math.max(0, qty - 1));
+            totalDeliveryFee += incrementalFee;
+            console.log(`🚚 DirectOrder: Applied Fast Food Incremental Fee: ${incrementalFee} for vendor: ${vendorKey} (Base: ${baseFee}, Qty: ${qty})`);
         }
 
         const sellerId = firstSellerId;
@@ -690,7 +710,8 @@ exports.placeDirectOrder = async (req, res) => {
                 price: pi.unitPrice,
                 total: pi.subtotal,
                 commissionAmount: pi.commissionAmount,
-                sellerId: pi.sellerId
+                sellerId: pi.sellerId,
+                itemType: pi.type
             }, { transaction: t });
 
             totalCommission += pi.commissionAmount;
