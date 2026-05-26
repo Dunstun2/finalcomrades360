@@ -182,6 +182,10 @@ module.exports = (sequelize) => {
             allowNull: true,
             comment: 'Timestamp when the fast food item was soft deleted'
         },
+        deletionReason: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
         // NEW FIELD: Track changes for approved items
         changes: {
             type: DataTypes.JSON,

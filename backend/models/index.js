@@ -28,8 +28,8 @@ const SocialMediaAccount = require('./SocialMediaAccount')(sequelize, Sequelize.
 const Service = require('./Service')(sequelize, Sequelize.DataTypes);
 const ServiceImage = require('./ServiceImage')(sequelize, Sequelize.DataTypes);
 const ProductDeletionRequest = require('./ProductDeletionRequest')(sequelize, Sequelize.DataTypes);
-const DeletedProduct = require('./DeletedProduct')(sequelize, Sequelize.DataTypes);
-const DeletedFastFood = require('./DeletedFastFood')(sequelize, Sequelize.DataTypes);
+
+
 const ProductInquiry = require('./ProductInquiry')(sequelize, Sequelize.DataTypes);
 const ProductInquiryReply = require('./ProductInquiryReply')(sequelize, Sequelize.DataTypes);
 const ProductView = require('./ProductView')(sequelize, Sequelize.DataTypes);
@@ -78,8 +78,8 @@ const models = {
   Category,
   Subcategory,
   ProductDeletionRequest,
-  DeletedProduct,
-  DeletedFastFood,
+
+
   ProductInquiry,
   RoleApplication,
   Order,
@@ -155,8 +155,8 @@ module.exports = {
   Category,
   Subcategory,
   ProductDeletionRequest,
-  DeletedProduct,
-  DeletedFastFood,
+
+
   ProductInquiry,
   ProductInquiryReply,
   RoleApplication,

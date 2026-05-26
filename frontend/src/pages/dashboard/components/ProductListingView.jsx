@@ -374,8 +374,8 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
       const config = { data: { password, reason } };
       await productApi.delete(productId, config);
 
-      // Optimistic Update: Remove from all possible state arrays immediately
-      const filterOut = (prev) => prev.filter(item => (item.id || item._id) !== productId);
+      // Optimistic Update: Remove from all possible state arrays immediately (use String comparison for safety)
+      const filterOut = (prev) => prev.filter(item => String(item.id || item._id) !== String(productId));
 
       setRawProducts(filterOut);
       setPendingProducts(filterOut);
@@ -386,8 +386,8 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
 
       toast({ title: "Deleted", description: "Item removed successfully" });
 
-      // Comprehensive refresh in background to ensure data consistency
-      handleRefresh();
+      // Silently refresh in the background without clearing the UI state
+      fetchProductsOnly(1, false);
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.message || "Failed to delete", variant: "destructive" });
       throw e;

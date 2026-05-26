@@ -879,7 +879,7 @@ function Checkout() {
         return;
       } else {
         // Step 2: Prepare order data (for cash on delivery or completed prepay)
-        if (batchSystemEnabled && isFastFoodScope) {
+        if (user && batchSystemEnabled && isFastFoodScope) {
           const activeCartType = localStorage.getItem('marketing_mode') === 'true' ? 'marketing' : 'personal';
           if (selectedOrderBatchId) {
             await api.patch('/cart/fastfood/batch', {

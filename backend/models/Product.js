@@ -431,6 +431,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true,
       defaultValue: null
+    },
+    deletionReason: {
+      type: DataTypes.TEXT,
+      allowNull: true
     }
   }, {
     sequelize,

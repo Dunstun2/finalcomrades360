@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { Product, ProductReview, User, Category, Subcategory, ProductDeletionRequest, DeletedProduct, sequelize } = require('../models');
+const { Product, ProductReview, User, Category, Subcategory, ProductDeletionRequest, sequelize } = require('../models');
 const relatedProductsModule = require('../modules/relatedProducts');
 const { validateAndNormalizeImages, validateImageFile, generateUniqueFilename, cleanupOrphanedImages, ensureImagesExist, optimizeImage } = require('../utils/imageValidation');
 const cacheService = require('../scripts/services/cacheService');
@@ -2132,64 +2132,14 @@ const deleteProduct = async (req, res) => {
       }
     }
 
-    // Move product to recycle bin instead of hard delete
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-
-    console.log('Creating deleted product record for product:', product.id);
-    console.log('Product data:', JSON.stringify(product, null, 2));
-
-    try {
-      // Safely handle potentially null/undefined values
-      const deletedProductData = {
-        originalId: product.id,
-        sellerId: product.sellerId,
-        name: product.name || '',
-        shortDescription: product.shortDescription || '',
-        fullDescription: product.fullDescription || '',
-        brand: product.brand || '',
-        unitOfMeasure: product.unitOfMeasure || '',
-        model: product.model || '',
-        basePrice: parseFloat(product.basePrice) || 0,
-        displayPrice: product.displayPrice ? parseFloat(product.displayPrice) : null,
-        stock: parseInt(product.stock) || 0,
-        categoryId: product.categoryId,
-        subcategoryId: product.subcategoryId,
-        images: JSON.stringify(product.galleryImages ? [product.coverImage, ...product.galleryImages] : [product.coverImage]),
-        keyFeatures: JSON.stringify(Array.isArray(product.keyFeatures) ? product.keyFeatures : []),
-        specifications: JSON.stringify(product.specifications || {}),
-        attributes: JSON.stringify(product.attributes || {}),
-        variants: JSON.stringify(Array.isArray(product.variants) ? product.variants : []),
-        logistics: JSON.stringify(product.logistics || {}),
-        deliveryMethod: product.deliveryMethod || 'Pickup',
-        warranty: product.warranty || '',
-        returnPolicy: product.returnPolicy || '',
-        weight: product.weight || null,
-        length: product.length || null,
-        width: product.width || null,
-        height: product.height || null,
-        keywords: product.keywords || '',
-        shareableLink: product.shareableLink || '',
-        approved: Boolean(product.approved),
-        reviewStatus: product.reviewStatus || 'pending',
-        reviewNotes: product.reviewNotes || '',
-        visibilityStatus: product.visibilityStatus || 'visible',
-        relatedProducts: JSON.stringify(Array.isArray(product.relatedProducts) ? product.relatedProducts : []),
-        deletionReason: req.body.deletionReason || 'Deleted by user',
-        deletedAt: new Date(),
-        autoDeleteAt: thirtyDaysFromNow
-      };
-
-      console.log('Deleted product data to insert:', JSON.stringify(deletedProductData, null, 2));
-
-      const createdRecord = await DeletedProduct.create(deletedProductData);
-      console.log('Deleted product record created successfully with ID:', createdRecord.id);
-    } catch (createError) {
-      console.error('Error creating deleted product record:', createError);
-      console.error('Error details:', createError.message);
-      console.error('Error stack:', createError.stack);
-      throw createError;
-    }
+    // Soft delete the original product to preserve related records during the recycle bin period
+    await product.update({
+      deletedAt: new Date(),
+      deletionReason: req.body.deletionReason || 'Deleted by user',
+      status: 'archived',
+      visibilityStatus: 'hidden',
+      isActive: false
+    });
 
     // Invalidate product-related cache when product is deleted
     try {
@@ -2198,14 +2148,6 @@ const deleteProduct = async (req, res) => {
     } catch (cacheError) {
       console.warn('[deleteProduct] Cache invalidation failed:', cacheError.message);
     }
-
-    // Soft delete the original product to preserve related records during the recycle bin period
-    await product.update({
-      deletedAt: new Date(),
-      status: 'archived',
-      visibilityStatus: 'hidden',
-      isActive: false
-    });
 
     res.status(200).json({
       message: 'Product deleted successfully.',
@@ -2432,8 +2374,8 @@ const getDeletedProducts = async (req, res) => {
     const isAdmin = userRole === 'superadmin' || userRole === 'admin';
     console.log('Fetching deleted products. Admin mode:', isAdmin);
 
-    const where = isAdmin ? {} : { sellerId };
-    const deletedProducts = await DeletedProduct.findAll({
+    const where = isAdmin ? { deletedAt: { [Op.not]: null } } : { sellerId, deletedAt: { [Op.not]: null } };
+    const deletedProducts = await Product.findAll({
       where,
       include: [{
         model: User,
@@ -2446,24 +2388,7 @@ const getDeletedProducts = async (req, res) => {
 
     console.log('Found deleted products:', deletedProducts.length);
 
-    // Parse JSON fields for frontend
-    const parsedProducts = deletedProducts.map(product => {
-      const plain = product.get({ plain: true });
-      try {
-        plain.images = JSON.parse(plain.images || '[]');
-        plain.keyFeatures = JSON.parse(plain.keyFeatures || '[]');
-        plain.specifications = JSON.parse(plain.specifications || '{}');
-        plain.attributes = JSON.parse(plain.attributes || '{}');
-        plain.variants = JSON.parse(plain.variants || '[]');
-        plain.logistics = JSON.parse(plain.logistics || '{}');
-        plain.relatedProducts = JSON.parse(plain.relatedProducts || '[]');
-      } catch (parseError) {
-        console.error('Error parsing JSON fields for product:', plain.id, parseError);
-      }
-      return plain;
-    });
-
-    res.status(200).json(parsedProducts);
+    res.status(200).json(deletedProducts);
   } catch (error) {
     console.error('Error fetching deleted products:', error);
     res.status(500).json({
@@ -2480,7 +2405,7 @@ const restoreProduct = async (req, res) => {
     const { password } = req.body;
 
     if (!password) {
-      return res.status(400).json({ message: 'Password is required for restoration' });
+      return res.status(400).json({ message: 'Password is required for restoring a product' });
     }
 
     // Verify password
@@ -2496,7 +2421,12 @@ const restoreProduct = async (req, res) => {
     }
 
     // Find the deleted product
-    const deletedProduct = await DeletedProduct.findByPk(id);
+    const deletedProduct = await Product.findOne({
+      where: {
+        id: id,
+        deletedAt: { [Op.not]: null }
+      }
+    });
     if (!deletedProduct) {
       return res.status(404).json({ message: 'Deleted product not found' });
     }
@@ -2513,69 +2443,37 @@ const restoreProduct = async (req, res) => {
       where: {
         sellerId,
         categoryId: deletedProduct.categoryId,
-        name: deletedProduct.name
+        name: deletedProduct.name,
+        deletedAt: null
       }
     });
 
     if (existingProduct) {
-      return res.status(409).json({
-        message: 'A product with this name already exists in the same category. Please rename the product before restoring.'
+      return res.status(400).json({
+        message: 'Cannot restore: A product with this name already exists in the same category'
       });
     }
 
-    // Restore the soft-deleted product instead of creating a new one
-    const softDeletedProduct = await Product.findOne({ where: { id: deletedProduct.originalId } });
-    let restoredProduct = null;
-    if (softDeletedProduct) {
-      restoredProduct = await softDeletedProduct.update({
-        deletedAt: null,
-        status: 'draft',
-        approved: false,
-        reviewStatus: 'pending'
-      });
-    } else {
-      // Fallback if the original product was somehow lost
-      restoredProduct = await Product.create({
-        name: deletedProduct.name,
-        shortDescription: deletedProduct.shortDescription,
-        fullDescription: deletedProduct.fullDescription,
-        brand: deletedProduct.brand,
-        unitOfMeasure: deletedProduct.unitOfMeasure,
-        model: deletedProduct.model,
-        basePrice: deletedProduct.basePrice,
-        displayPrice: deletedProduct.displayPrice,
-        stock: deletedProduct.stock,
-        categoryId: deletedProduct.categoryId,
-        subcategoryId: deletedProduct.subcategoryId,
-        images: deletedProduct.images,
-        keyFeatures: deletedProduct.keyFeatures,
-        specifications: deletedProduct.specifications,
-        attributes: deletedProduct.attributes,
-        variants: deletedProduct.variants,
-        logistics: deletedProduct.logistics,
-        deliveryMethod: deletedProduct.deliveryMethod,
-        warranty: deletedProduct.warranty,
-        returnPolicy: deletedProduct.returnPolicy,
-        weight: deletedProduct.weight,
-        length: deletedProduct.length,
-        width: deletedProduct.width,
-        height: deletedProduct.height,
-        keywords: deletedProduct.keywords,
-        shareableLink: deletedProduct.shareableLink,
-        sellerId: deletedProduct.sellerId,
-        approved: false, // Reset approval status
-        reviewStatus: 'pending', // Reset to pending
-        visibilityStatus: deletedProduct.visibilityStatus,
-        relatedProducts: deletedProduct.relatedProducts
-      });
-    }
+    // Restore the product
+    await deletedProduct.update({
+      deletedAt: null,
+      deletionReason: null,
+      status: 'pending', // restored products go back to pending review
+      visibilityStatus: 'visible',
+      isActive: true
+    });
 
-    // Remove from recycle bin
-    await deletedProduct.destroy();
+    // Invalidate product-related cache
+    try {
+      await cacheService.delPattern('products:*');
+      console.log('[restoreProduct] Invalidated product cache after restoration');
+    } catch (cacheError) {
+      console.warn('[restoreProduct] Cache invalidation failed:', cacheError.message);
+    }
 
     res.status(200).json({
       message: 'Product restored successfully',
-      product: restoredProduct
+      product: deletedProduct
     });
   } catch (error) {
     console.error('Error restoring product:', error);
@@ -2609,7 +2507,12 @@ const permanentlyDeleteProduct = async (req, res) => {
     }
 
     // Find the deleted product
-    const deletedProduct = await DeletedProduct.findByPk(id);
+    const deletedProduct = await Product.findOne({
+      where: {
+        id: id,
+        deletedAt: { [Op.not]: null }
+      }
+    });
     if (!deletedProduct) {
       return res.status(404).json({ message: 'Deleted product not found' });
     }
@@ -2621,49 +2524,47 @@ const permanentlyDeleteProduct = async (req, res) => {
       return res.status(403).json({ message: 'You can only permanently delete your own products' });
     }
 
-    // Permanently delete original soft-deleted product
-    const originalProduct = await Product.findOne({ where: { id: deletedProduct.originalId } });
-    if (originalProduct) {
-      try {
-        const db = require('../models');
-        // Delete referencing rows that block product deletion
-        if (db.CartItem) await db.CartItem.destroy({ where: { productId: originalProduct.id } });
-        if (db.Wishlist) await db.Wishlist.destroy({ where: { productId: originalProduct.id } });
-        if (db.ProductVariant) await db.ProductVariant.destroy({ where: { productId: originalProduct.id } });
-        if (db.ProductView) await db.ProductView.destroy({ where: { productId: originalProduct.id } });
-        if (db.ProductInquiry) await db.ProductInquiry.destroy({ where: { productId: originalProduct.id } });
-        if (db.ProductReview) await db.ProductReview.destroy({ where: { productId: originalProduct.id } });
-        if (db.Commission) await db.Commission.destroy({ where: { productId: originalProduct.id } });
-        if (db.StockAuditLog) await db.StockAuditLog.destroy({ where: { productId: originalProduct.id } });
-        if (db.StockReservation) await db.StockReservation.destroy({ where: { productId: originalProduct.id } });
-        if (db.WarehouseStock) await db.WarehouseStock.destroy({ where: { productId: originalProduct.id } });
-        if (db.ProductDeletionRequest) await db.ProductDeletionRequest.destroy({ where: { productId: originalProduct.id } });
+    try {
+      const db = require('../models');
+      // Delete referencing rows that block product deletion
+      if (db.CartItem) await db.CartItem.destroy({ where: { productId: deletedProduct.id } });
+      if (db.Wishlist) await db.Wishlist.destroy({ where: { productId: deletedProduct.id } });
+      if (db.ProductVariant) await db.ProductVariant.destroy({ where: { productId: deletedProduct.id } });
+      if (db.ProductView) await db.ProductView.destroy({ where: { productId: deletedProduct.id } });
+      if (db.ProductInquiry) await db.ProductInquiry.destroy({ where: { productId: deletedProduct.id } });
+      if (db.ProductReview) await db.ProductReview.destroy({ where: { productId: deletedProduct.id } });
+      if (db.Commission) await db.Commission.destroy({ where: { productId: deletedProduct.id } });
+      if (db.StockAuditLog) await db.StockAuditLog.destroy({ where: { productId: deletedProduct.id } });
+      if (db.StockReservation) await db.StockReservation.destroy({ where: { productId: deletedProduct.id } });
+      if (db.WarehouseStock) await db.WarehouseStock.destroy({ where: { productId: deletedProduct.id } });
+      if (db.ProductDeletionRequest) await db.ProductDeletionRequest.destroy({ where: { productId: deletedProduct.id } });
 
-        // Preserve order history by severing the strict foreign key link
-        if (db.OrderItem) await db.OrderItem.update({ productId: null }, { where: { productId: originalProduct.id } });
-      } catch (cleanupError) {
-        console.warn('Error cleaning up related records for permanent deletion of product', originalProduct.id, cleanupError);
-      }
-      await originalProduct.destroy();
+      // Preserve order history by severing the strict foreign key link
+      if (db.OrderItem) await db.OrderItem.update({ productId: null }, { where: { productId: deletedProduct.id } });
+    } catch (cleanupError) {
+      console.warn('Error cleaning up related records for permanent deletion of product', deletedProduct.id, cleanupError);
     }
 
-    // Permanently delete from recycle bin
+    // Delete related files
     const filesToDelete = [];
     try {
-      if (deletedProduct.images) {
-        const images = typeof deletedProduct.images === 'string' ? JSON.parse(deletedProduct.images) : deletedProduct.images;
-        if (Array.isArray(images)) filesToDelete.push(...images);
+      if (deletedProduct.coverImage) filesToDelete.push(deletedProduct.coverImage);
+      if (deletedProduct.galleryImages && Array.isArray(deletedProduct.galleryImages)) {
+        filesToDelete.push(...deletedProduct.galleryImages);
       }
-      if (deletedProduct.logistics) {
-        const logistics = typeof deletedProduct.logistics === 'string' ? JSON.parse(deletedProduct.logistics) : deletedProduct.logistics;
-        if (logistics.videoPath) filesToDelete.push(logistics.videoPath);
+      if (deletedProduct.images && Array.isArray(deletedProduct.images)) {
+        filesToDelete.push(...deletedProduct.images);
+      }
+      if (deletedProduct.logistics && deletedProduct.logistics.videoPath) {
+        filesToDelete.push(deletedProduct.logistics.videoPath);
       }
     } catch (e) {
-      console.warn('Error parsing deletedProduct images for cleanup', e);
+      console.warn('Error extracting images for cleanup', e);
     }
 
+    // Actually destroy the product record from the DB
     await deletedProduct.destroy();
-    
+
     // Clean up files
     if (filesToDelete.length > 0) {
       deleteFiles(filesToDelete);
@@ -2680,59 +2581,6 @@ const permanentlyDeleteProduct = async (req, res) => {
     });
   }
 };
-
-// Admin function to migrate permanently deleted products back to recycle bin
-const migrateDeletedProduct = async (req, res) => {
-  try {
-    const { originalId, sellerId, productData, deletionDate } = req.body;
-
-    // Only admins can perform migration
-    const userRoleStr = String(req.user?.role || '').toLowerCase();
-    if (!['admin', 'superadmin', 'super_admin', 'super-admin'].includes(userRoleStr)) {
-      return res.status(403).json({ message: 'Only admins can perform product migration' });
-    }
-
-    // Check if product already exists in recycle bin
-    const existingDeleted = await DeletedProduct.findOne({
-      where: { originalId }
-    });
-
-    if (existingDeleted) {
-      return res.status(409).json({ message: 'Product already exists in recycle bin' });
-    }
-
-    // Check if product still exists in main table
-    const existingProduct = await Product.findByPk(originalId);
-    if (existingProduct) {
-      return res.status(409).json({ message: 'Product still exists in main products table' });
-    }
-
-    // Create deleted product record
-    const deletedDate = deletionDate ? new Date(deletionDate) : new Date();
-    const autoDeleteDate = new Date(deletedDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    const deletedProduct = await DeletedProduct.create({
-      originalId,
-      sellerId,
-      ...productData,
-      deletionReason: 'Migrated from permanent deletion',
-      deletedAt: deletedDate,
-      autoDeleteAt: autoDeleteDate
-    });
-
-    res.status(201).json({
-      message: 'Product successfully migrated to recycle bin',
-      deletedProduct
-    });
-  } catch (error) {
-    console.error('Error migrating deleted product:', error);
-    res.status(500).json({
-      message: 'Server error while migrating product',
-      error: error.message
-    });
-  }
-};
-
 
 module.exports = {
   createProduct,
@@ -2752,7 +2600,6 @@ module.exports = {
   getDeletedProducts,
   restoreProduct,
   permanentlyDeleteProduct,
-  migrateDeletedProduct,
   getHomepageProducts
 };
 

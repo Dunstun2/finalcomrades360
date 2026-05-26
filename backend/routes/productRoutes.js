@@ -1,5 +1,5 @@
 const express = require('express');
-const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, migrateDeletedProduct, getHomepageProducts } = require('../controllers/productController');
+const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, getHomepageProducts } = require('../controllers/productController');
 const { auth, checkRole, optionalAuth, checkSellerProfile } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { uploadProductMedia } = require('../config/multer');
@@ -116,7 +116,7 @@ router.put('/:id/suspend', auth, checkRole('super_admin', 'superadmin', 'admin')
 // @route   POST /api/products/migrate-deleted
 // @desc    Migrate a permanently deleted product back to recycle bin (Admin only)
 // @access  Private (Admin)
-router.post('/migrate-deleted', auth, checkRole('super_admin', 'superadmin', 'admin'), migrateDeletedProduct);
+
 
 
 // @route   GET /api/products/:id
