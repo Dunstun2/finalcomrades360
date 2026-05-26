@@ -76,6 +76,9 @@ const moveToSuccess = async (userId, amount, orderNumber, description, orderId =
         } else {
             txWhere.description = { [Op.like]: `%#${orderNumber}%` };
         }
+        if (walletType) {
+            txWhere.walletType = walletType;
+        }
 
         const tx = await Transaction.findOne({
             where: txWhere,

@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { Product, User, Category, Subcategory, ProductDeletionRequest, DeletedProduct, sequelize } = require('../models');
+const { Product, ProductReview, User, Category, Subcategory, ProductDeletionRequest, DeletedProduct, sequelize } = require('../models');
 const relatedProductsModule = require('../modules/relatedProducts');
 const { validateAndNormalizeImages, validateImageFile, generateUniqueFilename, cleanupOrphanedImages, ensureImagesExist, optimizeImage } = require('../utils/imageValidation');
 const cacheService = require('../scripts/services/cacheService');
@@ -660,7 +660,7 @@ const getAllProducts = async (req, res) => {
     // For public listing, hide products marked as hidden, suspended, or inactive
     // Super admin created products are automatically included and visible
     const whereClause = isSuperAdmin
-      ? {}
+      ? {} // Admins see all products (including soft-deleted if needed)
       : {
         approved: { [Op.or]: [true, 1] },
         visibilityStatus: 'visible',
@@ -668,6 +668,8 @@ const getAllProducts = async (req, res) => {
         isActive: { [Op.or]: [true, 1] },
         status: 'active',
         stock: { [Op.gt]: 0 } // Hide out of stock items
+        ,
+        deletedAt: null // Exclude soft-deleted products for regular/public users
       };
 
     if (isMarketingQuery) {
@@ -888,6 +890,7 @@ const getRecentlyApprovedProducts = async (req, res) => {
         isActive: true,
         status: 'active',
         stock: { [Op.gt]: 0 }, // Hide out of stock items
+        deletedAt: null, // Exclude soft-deleted products
         updatedAt: { [Op.gte]: thirtyDaysAgo }
       },
       include: [
@@ -1240,6 +1243,27 @@ const getProductById = async (req, res) => {
       }
     };
 
+    // Load approved product reviews for public display
+    let serializedReviews = [];
+    try {
+      const approvedReviews = await ProductReview.findAll({
+        where: { productId: pid, status: 'approved' },
+        include: [{ model: User, attributes: ['id', 'username', 'profileImage'] }],
+        order: [['createdAt', 'DESC']]
+      });
+      serializedReviews = approvedReviews.map((review) => {
+        const data = review.get({ plain: true });
+        return {
+          ...data,
+          userName: review.User?.username || data.userName || null,
+          userEmail: review.User?.email || data.userEmail || null,
+          profileImage: review.User?.profileImage || null
+        };
+      });
+    } catch (reviewError) {
+      console.error('[getProductById] Failed to load product reviews:', reviewError);
+    }
+
     // Format the response to include all necessary fields
     console.log('[getProductById] Formatting product data...');
 
@@ -1326,6 +1350,7 @@ const getProductById = async (req, res) => {
       attributes: tags?.attributes || physicalFeatures || {},
       variants: tags?.variants || (Array.isArray(plain.variants) ? plain.variants : []),
       tags: tags || {},
+      reviews: serializedReviews,
       category,
       subcategory,
       categoryId,
@@ -2174,8 +2199,13 @@ const deleteProduct = async (req, res) => {
       console.warn('[deleteProduct] Cache invalidation failed:', cacheError.message);
     }
 
-    // Now delete the original product
-    await product.destroy();
+    // Soft delete the original product to preserve related records during the recycle bin period
+    await product.update({
+      deletedAt: new Date(),
+      status: 'archived',
+      visibilityStatus: 'hidden',
+      isActive: false
+    });
 
     res.status(200).json({
       message: 'Product deleted successfully.',
@@ -2210,6 +2240,13 @@ const toggleVisibility = async (req, res) => {
     await product.update({
       visibilityStatus: newVisibilityStatus
     });
+
+    try {
+      await cacheService.delPattern('products:*');
+      console.log('[toggleVisibility] Invalidated product cache after update');
+    } catch (cacheError) {
+      console.warn('[toggleVisibility] Cache invalidation failed:', cacheError.message);
+    }
 
     res.status(200).json({
       message: `Product ${newVisibilityStatus === 'hidden' ? 'hidden' : 'unhidden'} successfully`,
@@ -2286,6 +2323,13 @@ const suspendProduct = async (req, res) => {
       suspensionAdditionalNotes: additionalNotes ? additionalNotes.trim() : null,
       visibilityStatus: 'hidden' // Hide the product while suspended
     });
+
+    try {
+      await cacheService.delPattern('products:*');
+      console.log('[suspendProduct] Invalidated product cache after update');
+    } catch (cacheError) {
+      console.warn('[suspendProduct] Cache invalidation failed:', cacheError.message);
+    }
 
     // TODO: Send notification to seller about suspension
     // This would typically involve creating a notification record and/or sending an email
@@ -2384,7 +2428,8 @@ const getDeletedProducts = async (req, res) => {
     const sellerId = req.user.id;
     console.log('Fetching deleted products for seller:', sellerId);
 
-    const isAdmin = ['super_admin', 'superadmin', 'admin'].includes(req.user.role);
+    const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isAdmin = userRole === 'superadmin' || userRole === 'admin';
     console.log('Fetching deleted products. Admin mode:', isAdmin);
 
     const where = isAdmin ? {} : { sellerId };
@@ -2456,7 +2501,8 @@ const restoreProduct = async (req, res) => {
       return res.status(404).json({ message: 'Deleted product not found' });
     }
 
-    const isAdmin = ['super_admin', 'superadmin', 'admin'].includes(req.user.role);
+    const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isAdmin = userRole === 'superadmin' || userRole === 'admin';
 
     if (!isAdmin && deletedProduct.sellerId !== sellerId) {
       return res.status(403).json({ message: 'You can only restore your own products' });
@@ -2477,40 +2523,52 @@ const restoreProduct = async (req, res) => {
       });
     }
 
-    // Restore the product
-    const restoredProduct = await Product.create({
-      name: deletedProduct.name,
-      shortDescription: deletedProduct.shortDescription,
-      fullDescription: deletedProduct.fullDescription,
-      brand: deletedProduct.brand,
-      unitOfMeasure: deletedProduct.unitOfMeasure,
-      model: deletedProduct.model,
-      basePrice: deletedProduct.basePrice,
-      displayPrice: deletedProduct.displayPrice,
-      stock: deletedProduct.stock,
-      categoryId: deletedProduct.categoryId,
-      subcategoryId: deletedProduct.subcategoryId,
-      images: deletedProduct.images,
-      keyFeatures: deletedProduct.keyFeatures,
-      specifications: deletedProduct.specifications,
-      attributes: deletedProduct.attributes,
-      variants: deletedProduct.variants,
-      logistics: deletedProduct.logistics,
-      deliveryMethod: deletedProduct.deliveryMethod,
-      warranty: deletedProduct.warranty,
-      returnPolicy: deletedProduct.returnPolicy,
-      weight: deletedProduct.weight,
-      length: deletedProduct.length,
-      width: deletedProduct.width,
-      height: deletedProduct.height,
-      keywords: deletedProduct.keywords,
-      shareableLink: deletedProduct.shareableLink,
-      sellerId: deletedProduct.sellerId,
-      approved: false, // Reset approval status
-      reviewStatus: 'pending', // Reset to pending
-      visibilityStatus: deletedProduct.visibilityStatus,
-      relatedProducts: deletedProduct.relatedProducts
-    });
+    // Restore the soft-deleted product instead of creating a new one
+    const softDeletedProduct = await Product.findOne({ where: { id: deletedProduct.originalId } });
+    let restoredProduct = null;
+    if (softDeletedProduct) {
+      restoredProduct = await softDeletedProduct.update({
+        deletedAt: null,
+        status: 'draft',
+        approved: false,
+        reviewStatus: 'pending'
+      });
+    } else {
+      // Fallback if the original product was somehow lost
+      restoredProduct = await Product.create({
+        name: deletedProduct.name,
+        shortDescription: deletedProduct.shortDescription,
+        fullDescription: deletedProduct.fullDescription,
+        brand: deletedProduct.brand,
+        unitOfMeasure: deletedProduct.unitOfMeasure,
+        model: deletedProduct.model,
+        basePrice: deletedProduct.basePrice,
+        displayPrice: deletedProduct.displayPrice,
+        stock: deletedProduct.stock,
+        categoryId: deletedProduct.categoryId,
+        subcategoryId: deletedProduct.subcategoryId,
+        images: deletedProduct.images,
+        keyFeatures: deletedProduct.keyFeatures,
+        specifications: deletedProduct.specifications,
+        attributes: deletedProduct.attributes,
+        variants: deletedProduct.variants,
+        logistics: deletedProduct.logistics,
+        deliveryMethod: deletedProduct.deliveryMethod,
+        warranty: deletedProduct.warranty,
+        returnPolicy: deletedProduct.returnPolicy,
+        weight: deletedProduct.weight,
+        length: deletedProduct.length,
+        width: deletedProduct.width,
+        height: deletedProduct.height,
+        keywords: deletedProduct.keywords,
+        shareableLink: deletedProduct.shareableLink,
+        sellerId: deletedProduct.sellerId,
+        approved: false, // Reset approval status
+        reviewStatus: 'pending', // Reset to pending
+        visibilityStatus: deletedProduct.visibilityStatus,
+        relatedProducts: deletedProduct.relatedProducts
+      });
+    }
 
     // Remove from recycle bin
     await deletedProduct.destroy();
@@ -2556,10 +2614,37 @@ const permanentlyDeleteProduct = async (req, res) => {
       return res.status(404).json({ message: 'Deleted product not found' });
     }
 
-    const isAdmin = ['super_admin', 'superadmin', 'admin'].includes(req.user.role);
+    const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isAdmin = userRole === 'superadmin' || userRole === 'admin';
 
     if (!isAdmin && deletedProduct.sellerId !== sellerId) {
       return res.status(403).json({ message: 'You can only permanently delete your own products' });
+    }
+
+    // Permanently delete original soft-deleted product
+    const originalProduct = await Product.findOne({ where: { id: deletedProduct.originalId } });
+    if (originalProduct) {
+      try {
+        const db = require('../models');
+        // Delete referencing rows that block product deletion
+        if (db.CartItem) await db.CartItem.destroy({ where: { productId: originalProduct.id } });
+        if (db.Wishlist) await db.Wishlist.destroy({ where: { productId: originalProduct.id } });
+        if (db.ProductVariant) await db.ProductVariant.destroy({ where: { productId: originalProduct.id } });
+        if (db.ProductView) await db.ProductView.destroy({ where: { productId: originalProduct.id } });
+        if (db.ProductInquiry) await db.ProductInquiry.destroy({ where: { productId: originalProduct.id } });
+        if (db.ProductReview) await db.ProductReview.destroy({ where: { productId: originalProduct.id } });
+        if (db.Commission) await db.Commission.destroy({ where: { productId: originalProduct.id } });
+        if (db.StockAuditLog) await db.StockAuditLog.destroy({ where: { productId: originalProduct.id } });
+        if (db.StockReservation) await db.StockReservation.destroy({ where: { productId: originalProduct.id } });
+        if (db.WarehouseStock) await db.WarehouseStock.destroy({ where: { productId: originalProduct.id } });
+        if (db.ProductDeletionRequest) await db.ProductDeletionRequest.destroy({ where: { productId: originalProduct.id } });
+
+        // Preserve order history by severing the strict foreign key link
+        if (db.OrderItem) await db.OrderItem.update({ productId: null }, { where: { productId: originalProduct.id } });
+      } catch (cleanupError) {
+        console.warn('Error cleaning up related records for permanent deletion of product', originalProduct.id, cleanupError);
+      }
+      await originalProduct.destroy();
     }
 
     // Permanently delete from recycle bin

@@ -15,7 +15,8 @@ exports.createBatch = async (req, res) => {
             endTime,
             expectedDelivery,
             status: 'Scheduled',
-            isAutomated: req.body.isAutomated || false
+            isAutomated: req.body.isAutomated || false,
+            isActive: req.body.isActive !== undefined ? req.body.isActive : true
         });
 
         res.status(201).json({
@@ -106,7 +107,7 @@ exports.getActiveBatches = async (req, res) => {
                 // Handle midnight rollover (e.g., 23:00 to 01:00)
                 isMatch = currentTimeStr >= start || currentTimeStr <= end;
             }
-            return isMatch;
+            return isMatch && batch.isActive !== false;
         });
 
         res.status(200).json({
@@ -136,6 +137,7 @@ exports.updateBatch = async (req, res) => {
         if (expectedDelivery) batch.expectedDelivery = expectedDelivery;
         if (status) batch.status = status;
         if (req.body.isAutomated !== undefined) batch.isAutomated = req.body.isAutomated;
+        if (req.body.isActive !== undefined) batch.isActive = req.body.isActive;
 
         await batch.save();
 
@@ -201,6 +203,30 @@ exports.toggleAutomation = async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 };
+
+// Toggle batch active status
+exports.toggleActive = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const batch = await Batch.findByPk(id);
+        if (!batch) {
+            return res.status(404).json({ error: 'Batch not found' });
+        }
+
+        batch.isActive = !batch.isActive;
+        await batch.save();
+
+        res.status(200).json({
+            success: true,
+            message: `Batch visibility ${batch.isActive ? 'enabled' : 'disabled'} successfully`,
+            batch
+        });
+    } catch (error) {
+        console.error('Error toggling batch visibility:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
 
 // Delete a batch
 exports.deleteBatch = async (req, res) => {

@@ -4,6 +4,14 @@ const { auth, checkRole, optionalAuth, checkSellerProfile } = require('../middle
 const { validate, schemas } = require('../middleware/validation');
 const { uploadProductMedia } = require('../config/multer');
 const { compressUploadedImages } = require('../utils/imageCompression');
+const {
+  createReview,
+  getPublicReviews,
+  getVendorReviews,
+  getAllReviews,
+  updateReviewStatus,
+  deleteReview
+} = require('../controllers/ProductReviewController');
 
 // Define upload fields for products
 const uploadFields = [
@@ -125,5 +133,20 @@ router.put('/:id', auth, checkSellerProfile, uploadProductMedia.fields(uploadFie
 // @desc    Delete a product (only unapproved products by owner or admin)
 // @access  Private (Product owner for unapproved products, or Super Admin/Admin)
 router.delete('/:id', auth, deleteProduct);
+
+// --- REVIEWS ---
+// Public: Get approved reviews for a product
+router.get('/reviews/item/:productId', getPublicReviews);
+
+// Protected: Submit a review for a product
+router.post('/reviews', auth, createReview);
+
+// Vendor: Get reviews for a seller's products
+router.get('/reviews/vendor/:vendorId', auth, getVendorReviews);
+
+// Admin: Manage product reviews
+router.get('/reviews/admin/all', auth, checkRole('super_admin', 'superadmin', 'admin'), getAllReviews);
+router.put('/reviews/admin/:id', auth, checkRole('super_admin', 'superadmin', 'admin'), updateReviewStatus);
+router.delete('/reviews/admin/:id', auth, checkRole('super_admin', 'superadmin', 'admin'), deleteReview);
 
 module.exports = router;

@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const {
   addToCart,
   getCart,
@@ -51,7 +51,7 @@ router.put('/update', validate({
 
 // Apply one shared batch to all fastfood items in cart (order-level batch selection)
 router.patch('/fastfood/batch', validate({
-  batchId: require('joi').number().integer().positive().required(),
+  batchId: require('joi').number().integer().positive().allow(null).optional(),
   cartType: require('joi').string().valid('personal', 'marketing').default('personal')
 }), setFastFoodOrderBatch);
 

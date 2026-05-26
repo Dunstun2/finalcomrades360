@@ -74,6 +74,7 @@ const SharedLinks = lazy(pages['./pages/marketing/SharedLinks.jsx']);
 const Affiliates = lazy(pages['./pages/marketing/Affiliates.jsx']);
 const Commissions = lazy(pages['./pages/marketing/Commissions.jsx']);
 const MarketerWallet = lazy(pages['./pages/marketing/MarketerWallet.jsx']);
+const MarketerPromoCodes = lazy(() => import('./pages/marketing/MarketerPromoCodes'));
 // Lazy load account related components
 const Account = lazy(pages['./pages/Account.jsx']);
 const AccountVerification = lazy(pages['./pages/AccountVerification.jsx']);
@@ -213,6 +214,7 @@ const AdminOnBehalfCreation = lazy(() => import('./pages/dashboard/AdminOnBehalf
 const RoleTools = lazy(() => import('./pages/dashboard/RoleTools'));
 const DirectOrders = lazy(() => import('./pages/dashboard/DirectOrders'));
 const MarketingNotifications = lazy(() => import('./pages/dashboard/MarketingNotifications'));
+const PromoCodes = lazy(() => import('./pages/marketing/PromoCodes'));
 const AdminTools = lazy(() => import('./pages/dashboard/AdminTools'));
 const DashboardManual = lazy(() => import('./components/dashboard/DashboardManual'));
 const LogisticsInvoices = lazy(() => import('./pages/dashboard/LogisticsInvoices'));
@@ -555,6 +557,7 @@ const AppContent = () => {
                   <Route path="finance/logistics-invoices" element={<LogisticsInvoices />} />
                   <Route path="marketing/hero-promotions" element={<AdminHeroPromotions />} />
                   <Route path="marketing/thank-you" element={<MarketingNotifications />} />
+                  <Route path="marketing/promo-codes" element={<PromoCodes />} />
                   <Route path="marketing/hero-promotions/create" element={<AdminCreateHeroPromotion />} />
                   <Route path="marketing/fastfood-promotions" element={<AdminFastFoodPromotions />} />
                   <Route path="settings/platform" element={<SystemSettings />} />
@@ -592,6 +595,7 @@ const AppContent = () => {
                   <Route path="commissions" element={<Commissions />} />
                   <Route path="wallet" element={<MarketerWallet />} />
                   <Route path="direct-orders" element={<DirectOrders />} />
+                  <Route path="promo-codes" element={<MarketerPromoCodes />} />
                   <Route path="manual" element={<DashboardManual role="marketer" />} />
                 </Route>
 

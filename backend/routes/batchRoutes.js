@@ -15,6 +15,7 @@ router.get('/', batchController.getAllBatches);
 router.put('/:id', batchController.updateBatch);
 router.patch('/:id/status', batchController.updateBatchStatus);
 router.patch('/:id/toggle-automation', batchController.toggleAutomation);
+router.patch('/:id/toggle-active', batchController.toggleActive);
 router.delete('/:id', batchController.deleteBatch);
 
 module.exports = router;

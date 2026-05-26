@@ -34,6 +34,11 @@ const confirmHandoverProcessor = async (codeId, confirmerId, notes = null, trans
 
         const { handoverType, orderId, taskId: linkedTaskId } = handover;
         const order = handover.order;
+        if (order && order.status === 'delivered') {
+            console.log(`[handoverService] Order ${orderId} is already delivered. Skipping handover confirmation.`);
+            if (!transaction) await t.rollback();
+            return { success: false, message: 'This order has already been delivered and completed.' };
+        }
         let task = handover.task;
 
         // FALLBACK: If no task is explicitly linked to the handover code, try to find an active task for this order and agent (the confirmer)

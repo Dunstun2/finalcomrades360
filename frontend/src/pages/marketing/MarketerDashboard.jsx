@@ -7,7 +7,7 @@ import {
   FaCheckCircle, FaExclamationTriangle, FaTimes, FaHistory, FaArrowRight, FaQrcode,
   FaUser, FaBox, FaClock, FaMapMarkerAlt, FaUsers, FaPhone, FaEnvelope, FaGlobe, FaLock, FaShareAlt,
   FaWhatsapp, FaFacebook, FaTwitter, FaCopy, FaDownload, FaBars, FaCheck, FaShieldAlt, FaHome,
-  FaTools, FaBookOpen, FaDollarSign, FaChartBar
+  FaTools, FaBookOpen, FaDollarSign, FaChartBar, FaTags
 } from 'react-icons/fa';
 import { FaTiktok } from 'react-icons/fa6';
 import { useAuth } from '../../contexts/AuthContext';
@@ -31,6 +31,7 @@ import html2canvas from 'html2canvas';
 const MarketerWallet = lazy(() => import('./MarketerWallet'));
 const DirectOrders = lazy(() => import('../dashboard/DirectOrders'));
 const DashboardManual = lazy(() => import('../../components/dashboard/DashboardManual'));
+const MarketerPromoCodes = lazy(() => import('./MarketerPromoCodes'));
 
 const MarketerDashboard = () => {
   const location = useLocation();
@@ -81,15 +82,30 @@ const MarketerDashboard = () => {
     const tabParam = params.get('tab');
     if (tabParam) return tabParam;
 
+    // Support sub-routes from pathname mapping
+    const pathParts = window.location.pathname.split('/');
+    const lastPart = pathParts[pathParts.length - 1];
+    if (lastPart && lastPart !== 'marketing' && lastPart !== '') {
+      return lastPart;
+    }
+
     // Default to overview tab
     return 'overview';
   });
-  // Sync tab with URL parameter changes
+  // Sync tab with URL parameter changes and pathname changes
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tabParam = params.get('tab');
-    if (tabParam && tabParam !== activeTab) {
-      setActiveTab(tabParam);
+    if (tabParam) {
+      if (tabParam !== activeTab) {
+        setActiveTab(tabParam);
+      }
+    } else {
+      const pathParts = location.pathname.split('/');
+      const lastPart = pathParts[pathParts.length - 1];
+      if (lastPart && lastPart !== 'marketing' && lastPart !== '' && lastPart !== activeTab) {
+        setActiveTab(lastPart);
+      }
     }
     
     // Support opening sidebar via URL (e.g. from global bottom nav 'More' button)
@@ -100,7 +116,7 @@ const MarketerDashboard = () => {
       newParams.delete('openSidebar');
       navigate(`${location.pathname}?${newParams.toString()}`, { replace: true });
     }
-  }, [location.search, activeTab, navigate]);
+  }, [location.search, location.pathname, activeTab, navigate]);
 
   
   // Listen for global toggle-marketing-sidebar event
@@ -406,6 +422,97 @@ const MarketerDashboard = () => {
   };
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showCancelRequestModal, setShowCancelRequestModal] = useState(false);
+  const [cancelReasonText, setCancelReasonText] = useState('');
+  const [editFormData, setEditFormData] = useState({
+    customerName: '',
+    customerPhone: '',
+    deliveryAddress: ''
+  });
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [isSubmittingCancelRequest, setIsSubmittingCancelRequest] = useState(false);
+
+  const handleOpenEditModal = (order) => {
+    setEditFormData({
+      customerName: order.customerName || order.user?.name || '',
+      customerPhone: order.customerPhone || order.user?.phone || '',
+      deliveryAddress: order.marketingDeliveryAddress || order.deliveryAddress || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedOrder) return;
+    setIsSubmittingEdit(true);
+    try {
+      const response = await api.patch(`/orders/${selectedOrder.id}/edit`, {
+        customerName: editFormData.customerName,
+        customerPhone: editFormData.customerPhone,
+        deliveryAddress: editFormData.deliveryAddress
+      });
+      if (response.data) {
+        toast({ title: 'Success', description: 'Order details updated successfully.' });
+        const updatedOrders = marketerOrders.map(o => {
+          if (o.id === selectedOrder.id) {
+            return {
+              ...o,
+              customerName: editFormData.customerName,
+              customerPhone: editFormData.customerPhone,
+              deliveryAddress: editFormData.deliveryAddress,
+              marketingDeliveryAddress: editFormData.deliveryAddress
+            };
+          }
+          return o;
+        });
+        setMarketerOrders(updatedOrders);
+        setSelectedOrder(prev => ({
+          ...prev,
+          customerName: editFormData.customerName,
+          customerPhone: editFormData.customerPhone,
+          deliveryAddress: editFormData.deliveryAddress,
+          marketingDeliveryAddress: editFormData.deliveryAddress
+        }));
+        setShowEditModal(false);
+      }
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Error', description: err.response?.data?.error || 'Failed to update order.', variant: 'destructive' });
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  const handleCancelRequestSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedOrder) return;
+    setIsSubmittingCancelRequest(true);
+    try {
+      const response = await api.post(`/orders/${selectedOrder.id}/cancel`, {
+        reason: cancelReasonText,
+        requestOnly: true
+      });
+      if (response.data) {
+        toast({ title: 'Success', description: 'Cancellation request submitted.' });
+        const updatedOrders = marketerOrders.map(o => {
+          if (o.id === selectedOrder.id) {
+            return { ...o, cancelRequested: true, cancelReason: cancelReasonText };
+          }
+          return o;
+        });
+        setMarketerOrders(updatedOrders);
+        setSelectedOrder(prev => ({ ...prev, cancelRequested: true, cancelReason: cancelReasonText }));
+        setShowCancelRequestModal(false);
+        setCancelReasonText('');
+      }
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Error', description: err.response?.data?.error || 'Failed to request cancellation.', variant: 'destructive' });
+    } finally {
+      setIsSubmittingCancelRequest(false);
+    }
+  };
 
   // My Customers State
   const [myCustomers, setMyCustomers] = useState([]);
@@ -750,6 +857,7 @@ const MarketerDashboard = () => {
     { id: 'earnings', name: 'Earnings & Payouts', icon: <FaMoneyBillWave className="w-4 h-4" /> },
     { id: 'wallet', name: 'Marketer Wallet', icon: <FaWallet className="w-4 h-4" /> },
     { id: 'products', name: 'Browse Products', icon: <FaShoppingCart className="w-4 h-4" /> },
+    { id: 'promo-codes', name: 'Available Promo Codes', icon: <FaTags className="w-4 h-4" /> },
     { id: 'configure', name: 'Configure', icon: <FaCog className="w-4 h-4" /> },
     { id: 'new-order', name: 'New Order', icon: <FaShoppingCart className="w-4 h-4" /> },
     { id: 'orders', name: 'Orders', icon: <FaBox className="w-4 h-4" /> },
@@ -1590,7 +1698,14 @@ const MarketerDashboard = () => {
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-xl">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Order Details</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xl font-bold text-gray-900">Order Details</h3>
+                  {selectedOrder.cancelRequested && (
+                    <span className="px-2 py-0.5 text-xs font-black bg-red-100 text-red-800 rounded animate-pulse">
+                      Cancellation Requested
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500">#{selectedOrder.orderNumber}</p>
               </div>
               <button
@@ -1664,6 +1779,12 @@ const MarketerDashboard = () => {
                           {selectedOrder.status?.replace(/_/g, ' ')}
                         </span>
                       </div>
+                      {selectedOrder.cancelRequested && (
+                        <div className="col-span-2 bg-red-50 p-3 rounded-lg border border-red-100">
+                          <p className="text-xs font-bold text-red-800 uppercase">Cancellation Requested</p>
+                          <p className="text-xs text-red-600 mt-1">Reason: {selectedOrder.cancelReason || 'Not specified'}</p>
+                        </div>
+                      )}
                       <div>
                         <p className="text-xs text-gray-500 uppercase font-medium">Payment</p>
                         <span className={`mt-1 inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${selectedOrder.paymentConfirmed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -1761,7 +1882,27 @@ const MarketerDashboard = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-xl flex justify-end">
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-xl flex justify-between items-center">
+              <div className="flex gap-2">
+                {!['delivered', 'completed', 'cancelled', 'failed', 'returned'].includes(selectedOrder.status) && (
+                  <>
+                    <button
+                      onClick={() => handleOpenEditModal(selectedOrder)}
+                      className="px-4 py-2 bg-amber-500 text-white text-sm font-bold rounded-lg hover:bg-amber-600 transition-all shadow-md active:scale-95"
+                    >
+                      Edit Info
+                    </button>
+                    {!selectedOrder.cancelRequested && (
+                      <button
+                        onClick={() => setShowCancelRequestModal(true)}
+                        className="px-4 py-2 bg-red-500 text-white text-sm font-bold rounded-lg hover:bg-red-600 transition-all shadow-md active:scale-95"
+                      >
+                        Request Cancel
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
               <button
                 onClick={() => setShowOrderModal(false)}
                 className="px-6 py-2 bg-gray-900 text-white text-sm font-bold rounded-lg hover:bg-black transition-all shadow-md active:scale-95"
@@ -1769,6 +1910,100 @@ const MarketerDashboard = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Order Modal */}
+      {showEditModal && selectedOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[160] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Edit Order Details</h3>
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Customer Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.customerName}
+                  onChange={(e) => setEditFormData({ ...editFormData, customerName: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Customer Phone</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.customerPhone}
+                  onChange={(e) => setEditFormData({ ...editFormData, customerPhone: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Delivery Address</label>
+                <textarea
+                  required
+                  value={editFormData.deliveryAddress}
+                  onChange={(e) => setEditFormData({ ...editFormData, deliveryAddress: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEdit}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                >
+                  {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Request Modal */}
+      {showCancelRequestModal && selectedOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[160] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Request Cancellation</h3>
+            <p className="text-sm text-gray-500 mb-4">Please provide a reason for requesting the cancellation of this order.</p>
+            <form onSubmit={handleCancelRequestSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Reason</label>
+                <textarea
+                  required
+                  value={cancelReasonText}
+                  onChange={(e) => setCancelReasonText(e.target.value)}
+                  placeholder="e.g. Customer changed mind, wrong item selected"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelRequestModal(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingCancelRequest}
+                  className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 disabled:bg-gray-400"
+                >
+                  {isSubmittingCancelRequest ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1810,6 +2045,12 @@ const MarketerDashboard = () => {
         );
       case 'products':
         return renderProducts();
+      case 'promo-codes':
+        return (
+          <Suspense fallback={<div>Loading Promo Codes...</div>}>
+            <MarketerPromoCodes />
+          </Suspense>
+        );
       case 'configure':
         return renderConfigure();
       case 'orders':

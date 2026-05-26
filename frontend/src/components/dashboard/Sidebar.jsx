@@ -10,6 +10,7 @@ import {
   FaMoneyBillWave,
   FaUserTie,
   FaCog,
+  FaTags,
   FaChartBar,
   FaTicketAlt,
   FaUser,
@@ -134,13 +135,15 @@ const adminMenuItems = [
     icon: <FaBullhorn className="mr-3" />,
     roles: ['admin', 'superadmin', 'super_admin', 'marketer'],
     children: [
-      { name: 'Marketers', path: '/dashboard/users/marketers', icon: <FaBullhorn className="mr-2" /> },
-      { name: 'Marketer Earning Verification', path: '/dashboard/users/marketers/earning-verification', icon: <FaMoneyBillWave className="mr-2" /> },
-      { name: 'Product Promo Requests', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" /> },
-      { name: 'FastFood Promo Requests', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" /> },
-      { name: 'Daily Thank You Messages', path: '/dashboard/marketing/thank-you', icon: <FaComments className="mr-2" /> },
-      { name: 'Create Promotion', path: '/dashboard/marketing/hero-promotions/create', icon: <FaPlus className="mr-2" /> },
-      { name: 'FastFood Banner Config', path: '/dashboard/fastfood/hero-settings', icon: <FaUtensils className="mr-2" /> }
+      { name: 'Marketers', path: '/dashboard/users/marketers', icon: <FaBullhorn className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Marketer Earning Verification', path: '/dashboard/users/marketers/earning-verification', icon: <FaMoneyBillWave className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Product Promo Requests', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'FastFood Promo Requests', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Promo Codes', path: '/dashboard/marketing/promo-codes', icon: <FaTags className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Available Promo Codes', path: '/marketing/promo-codes', icon: <FaTags className="mr-2" />, roles: ['marketer'] },
+      { name: 'Daily Thank You Messages', path: '/dashboard/marketing/thank-you', icon: <FaComments className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Create Promotion', path: '/dashboard/marketing/hero-promotions/create', icon: <FaPlus className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'FastFood Banner Config', path: '/dashboard/fastfood/hero-settings', icon: <FaUtensils className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
     ]
   },
   {

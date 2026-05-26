@@ -302,7 +302,7 @@ export default function Cart() {
                   if (Array.isArray(value)) return value;
                   if (typeof value !== 'string') return [];
                   try {
-                    const parsed = JSON.parse(value);
+                    const parsed = JSON.parse(value.replace(/'/g, '"'));
                     return Array.isArray(parsed) ? parsed : [];
                   } catch (_) {
                     return [];
@@ -310,9 +310,12 @@ export default function Cart() {
                 };
                 const productImages = parseImageArray(product?.images);
                 const fastfoodGallery = parseImageArray(product?.galleryImages);
-                const imagePath = isFastFood
-                  ? (product?.coverImage || product?.mainImage || fastfoodGallery[0] || product?.image)
-                  : (product?.coverImage || product?.mainImage || productImages[0] || product?.image);
+                
+                const extractImg = (imgArr) => imgArr[0]?.url || imgArr[0]?.imageUrl || imgArr[0];
+                
+                const imagePath = item.itemImage || (isFastFood
+                  ? (product?.coverImage || product?.mainImage || extractImg(fastfoodGallery) || product?.image)
+                  : (product?.coverImage || product?.mainImage || extractImg(productImages) || product?.image));
 
                 const uniqueKey = `${item.itemType}-${id}-${item.variantId || 'novar'}-${item.comboId || 'nocombo'}`;
 

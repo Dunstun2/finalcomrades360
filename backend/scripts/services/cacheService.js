@@ -150,12 +150,13 @@ class CacheService {
           await delAsync(...keys);
         }
       } else {
-        // Fallback - iterate and delete matching keys
-        for (const key of this.fallback.keys()) {
-          if (key.match(pattern.replace('*', '.*'))) {
-            this.fallback.delete(key);
+        // Fallback - iterate and delete matching keys using RegExp
+          const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+          for (const key of this.fallback.keys()) {
+            if (regex.test(key)) {
+              this.fallback.delete(key);
+            }
           }
-        }
       }
       return true;
     } catch (error) {

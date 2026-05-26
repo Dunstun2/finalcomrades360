@@ -33,6 +33,11 @@ module.exports = (sequelize) => {
         isAutomated: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
+        },
+        isActive: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true,
+            comment: 'Whether this batch is visible on the customer side'
         }
     }, {
         tableName: 'Batches',

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute, FaUndo, FaUserMinus, FaUtensils, FaFileAlt, FaChevronRight } from 'react-icons/fa';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaLock, FaUserPlus, FaEye, FaTimes, FaEdit, FaSearch, FaFilter, FaDownload, FaUser, FaCalendarAlt, FaMoneyBillWave, FaComments, FaPlus, FaMinus, FaInbox, FaWarehouse, FaStore, FaRoute, FaUndo, FaUserMinus, FaUtensils, FaFileAlt, FaChevronRight, FaLayerGroup, FaCopy } from 'react-icons/fa';
 import api from '../../services/api';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../../utils/imageUtils';
 import { formatPrice } from '../../utils/currency';
@@ -59,6 +59,11 @@ export default function AdminOrders() {
   const [routingPickStations, setRoutingPickStations] = useState([]);
   const [routingFastFoodPickupPoints, setRoutingFastFoodPickupPoints] = useState([]);
   const [routingLoading, setRoutingLoading] = useState(false);
+  // Advanced filter state
+  const [batchFilter, setBatchFilter] = useState('all');
+  const [agentFilter, setAgentFilter] = useState('all');
+  const [orderTypeFilter, setOrderTypeFilter] = useState('all');
+  const [availableBatches, setAvailableBatches] = useState([]);
   
   // Debounce search term
   useEffect(() => {
@@ -68,6 +73,33 @@ export default function AdminOrders() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
   const pageSize = 20;
+
+  // Fetch active batches for the filter dropdown
+  useEffect(() => {
+    const fetchBatches = async () => {
+      try {
+        const res = await api.get('/batches');
+        const batchList = Array.isArray(res.data?.batches) ? res.data.batches : (Array.isArray(res.data) ? res.data : []);
+        setAvailableBatches(batchList);
+      } catch (err) {
+        console.warn('[AdminOrders] Could not load batches for filter:', err.message);
+      }
+    };
+    fetchBatches();
+  }, []);
+
+  // Derive unique delivery agents from loaded orders
+  const availableAgents = React.useMemo(() => {
+    const agentMap = new Map();
+    orders.forEach(order => {
+      const task = getOrderDeliveryTask(order);
+      const agent = order.deliveryAgent || task?.deliveryAgent;
+      if (agent?.id && agent?.name) {
+        agentMap.set(agent.id, { id: agent.id, name: agent.name });
+      }
+    });
+    return Array.from(agentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders]);
 
   // Stability refs
   const selectedOrderRef = useRef(selectedOrder);
@@ -571,7 +603,40 @@ export default function AdminOrders() {
       }
     }
 
-    return matchesSearch && matchesStatus && matchesDate;
+    // Batch filter
+    let matchesBatch = true;
+    if (batchFilter !== 'all') {
+      if (batchFilter === 'none') {
+        matchesBatch = !order.batch && !order.batchId;
+      } else {
+        matchesBatch = String(order.batch?.id || order.batchId || '') === String(batchFilter);
+      }
+    }
+
+    // Agent filter
+    let matchesAgent = true;
+    if (agentFilter !== 'all') {
+      const task = getOrderDeliveryTask(order);
+      const agent = order.deliveryAgent || task?.deliveryAgent;
+      if (agentFilter === 'none') {
+        matchesAgent = !agent;
+      } else {
+        matchesAgent = String(agent?.id || '') === String(agentFilter);
+      }
+    }
+
+    // Order Type filter
+    let matchesType = true;
+    if (orderTypeFilter !== 'all') {
+      const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || order.orderCategory === 'fastfood' || isFastFoodOnlyOrder(order);
+      if (orderTypeFilter === 'fastfood') {
+        matchesType = isFastfood;
+      } else if (orderTypeFilter === 'product') {
+        matchesType = !isFastfood;
+      }
+    }
+
+    return matchesSearch && matchesStatus && matchesDate && matchesBatch && matchesAgent && matchesType;
   });
 
   // Grouping logic for multi-seller orders
@@ -727,6 +792,9 @@ export default function AdminOrders() {
       setBulkLoading(true);
       await api.post(`/orders/${orderToCancel.id}/cancel`, { reason });
       await loadOrders(false);
+      if (selectedOrder && selectedOrder.id === orderToCancel.id) {
+        setSelectedOrder(prev => ({ ...prev, status: 'cancelled', cancelRequested: false }));
+      }
       setIsCancelModalOpen(false);
       setOrderToCancel(null);
       alert('Order cancelled successfully');
@@ -738,8 +806,60 @@ export default function AdminOrders() {
   }
 
   const handleEditOrderUI = (order) => {
-    setOrderToEdit(order);
-    setIsEditModalOpen(true);
+    if (!order) return;
+    
+    const blockText = order.originalTextBlock || (() => {
+      const lines = [];
+      
+      // Items
+      const items = Array.isArray(order.OrderItems) ? order.OrderItems : [];
+      items.forEach(item => {
+        lines.push(`${item.name}(${item.quantity})`);
+      });
+      
+      // Phone
+      if (order.customerPhone) {
+        lines.push(order.customerPhone);
+      }
+      
+      // Email
+      if (order.customerEmail) {
+        lines.push(order.customerEmail);
+      }
+      
+      // Address or Pickup Point
+      if (order.pickupStationId && order.PickupStation?.name) {
+        lines.push(`Pickup: ${order.PickupStation.name}`);
+      } else if (order.deliveryAddress) {
+        lines.push(order.deliveryAddress);
+      }
+      
+      return lines.join('\n');
+    })();
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(blockText)
+      .then(() => {
+        // Save to localStorage so DirectOrders.jsx can load it automatically
+        localStorage.setItem('direct_order_prefill_block', blockText);
+        
+        // Determine order type (fastfood vs product)
+        const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || order.orderCategory === 'fastfood';
+        localStorage.setItem('direct_order_prefill_type', isFastfood ? 'fastfood' : 'product');
+
+        alert("Order successfully converted to block form and copied to clipboard!\n\nRedirecting you to the Direct Orders page to place/modify it...");
+        
+        // Navigate to direct orders page
+        window.location.href = '/dashboard/direct-orders';
+      })
+      .catch(err => {
+        console.error('Clipboard copy failed:', err);
+        // Fallback: still store and redirect if possible
+        localStorage.setItem('direct_order_prefill_block', blockText);
+        const isFastfood = order.OrderItems?.some(i => i.fastFoodId != null || String(i.itemType || '').toLowerCase() === 'fastfood') || order.orderCategory === 'fastfood';
+        localStorage.setItem('direct_order_prefill_type', isFastfood ? 'fastfood' : 'product');
+        window.location.href = '/dashboard/direct-orders';
+      });
   };
 
   async function handleSaveOrderEdit(payload) {
@@ -747,6 +867,15 @@ export default function AdminOrders() {
       setBulkLoading(true);
       await api.patch(`/orders/${orderToEdit.id}/edit`, payload);
       await loadOrders(false);
+      if (selectedOrder && selectedOrder.id === orderToEdit.id) {
+        setSelectedOrder(prev => ({
+          ...prev,
+          customerName: payload.customerName,
+          customerPhone: payload.customerPhone,
+          deliveryAddress: payload.deliveryAddress,
+          deliveryInstructions: payload.deliveryInstructions
+        }));
+      }
       setIsEditModalOpen(false);
       setOrderToEdit(null);
       alert('Order updated successfully');
@@ -757,6 +886,125 @@ export default function AdminOrders() {
     }
   }
 
+  const handleRejectCancelRequest = async (orderId) => {
+    if (!window.confirm('Are you sure you want to reject this cancellation request?')) return;
+    try {
+      setBulkLoading(true);
+      await api.post(`/orders/${orderId}/reject-cancel-request`);
+      await loadOrders(false);
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder(prev => ({ ...prev, cancelRequested: false }));
+      }
+      alert('Cancellation request rejected successfully');
+    } catch (error) {
+      alert('Failed to reject cancellation request: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const convertOrderToBlock = (order) => {
+    if (!order) return null;
+
+    const hasItems = Array.isArray(order.OrderItems) && order.OrderItems.length > 0;
+    if (!hasItems && order.originalTextBlock) {
+      return order.originalTextBlock;
+    }
+
+    const lines = [];
+    const items = hasItems ? order.OrderItems : [];
+    let computedItemsTotal = 0;
+
+    items.forEach(item => {
+      const itemName = item.itemLabel || item.name || item.product?.name || item.Product?.name || item.FastFood?.name || item.fastFood?.name || item.productName || item.itemName || 'Item';
+      const quantity = Number(item.quantity || item.qty || item.quantityOrdered || 1);
+      const unitPrice = Number(
+        item.price ||
+        item.unitPrice ||
+        item.priceEach ||
+        item.total / quantity ||
+        item.amount / quantity ||
+        item.Product?.price ||
+        item.Product?.basePrice ||
+        item.product?.price ||
+        item.product?.basePrice ||
+        item.FastFood?.price ||
+        item.FastFood?.basePrice ||
+        item.fastFood?.price ||
+        item.fastFood?.basePrice ||
+        0
+      );
+      const itemTotal = Number(item.total || item.totalPrice || item.amount || unitPrice * quantity || 0);
+      computedItemsTotal += itemTotal;
+
+      const itemLine = quantity > 1
+        ? `${itemName} (${quantity}) - ${formatPrice(itemTotal)}`
+        : `${itemName} - ${formatPrice(itemTotal)}`;
+
+      lines.push(itemLine);
+    });
+
+    if (order.customerPhone) {
+      lines.push(order.customerPhone);
+    }
+
+    if (order.customerEmail) {
+      lines.push(order.customerEmail);
+    }
+
+    if (order.pickupStationId && order.PickupStation?.name) {
+      lines.push(`Pickup: ${order.PickupStation.name}`);
+    } else if (order.deliveryAddress) {
+      lines.push(order.deliveryAddress);
+    }
+
+    const deliveryFee = Number(order.deliveryFee || 0);
+    const totalAmount = Number(order.total || computedItemsTotal + deliveryFee);
+    if (deliveryFee > 0) {
+      lines.push(`Delivery Fee: ${formatPrice(deliveryFee)}`);
+    }
+    lines.push(`Total: ${formatPrice(totalAmount)}`);
+
+    return lines.join('\n');
+  };
+
+  const handleReplaceOrRedirectToDirectOrder = (order) => {
+    if (!order) return;
+    
+    const blockText = convertOrderToBlock(order);
+    
+    navigator.clipboard.writeText(blockText)
+      .then(() => {
+        alert("Order converted to block format and copied to clipboard!");
+      })
+      .catch(err => {
+        console.error('Clipboard copy failed:', err);
+        alert('Failed to copy to clipboard, but order was converted to block format.');
+      });
+  };
+
+  const handleBulkConvertToBlocks = () => {
+    if (selectedOrders.length === 0) return;
+    
+    const selectedOrderObjects = orders.filter(o => selectedOrders.includes(o.id));
+    const blockTexts = selectedOrderObjects.map(convertOrderToBlock).filter(Boolean);
+    
+    if (blockTexts.length === 0) {
+      alert('Could not convert any orders to block format');
+      return;
+    }
+    
+    const combinedText = blockTexts.join('\n\n---\n\n');
+    
+    navigator.clipboard.writeText(combinedText)
+      .then(() => {
+        alert(`${blockTexts.length} orders successfully converted to block format and copied to clipboard!`);
+      })
+      .catch(err => {
+        console.error('Clipboard copy failed:', err);
+        alert(`${blockTexts.length} orders converted to block format, but clipboard copy failed.`);
+      });
+  };
 
   const handleBulkAssignDriverUI = () => {
     if (selectedOrders.length === 0) return;
@@ -1162,8 +1410,8 @@ export default function AdminOrders() {
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-lg shadow border space-y-4">
+        {/* Search Row */}
         <div className="flex flex-wrap gap-4 items-center">
-          {/* Search */}
           <div className="flex-1 min-w-[200px]">
             <div className="relative">
               <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -1176,13 +1424,55 @@ export default function AdminOrders() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Unified Filter Bar */}
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-wider self-center pr-1">
+            <FaFilter className="h-3 w-3" /> Filters
+          </div>
+
+          {/* Batch Filter */}
+          {availableBatches.length > 0 && (
+            <div className="min-w-[140px]">
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1"><FaLayerGroup className="inline h-2.5 w-2.5 mr-0.5" /> Batch</label>
+              <select
+                value={batchFilter}
+                onChange={(e) => setBatchFilter(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="all">All Batches</option>
+                <option value="none">No Batch</option>
+                {availableBatches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}{b.expectedDelivery ? ` (${b.expectedDelivery})` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Agent Filter */}
+          <div className="min-w-[150px]">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1"><FaUser className="inline h-2.5 w-2.5 mr-0.5" /> Agent</label>
+            <select
+              value={agentFilter}
+              onChange={(e) => setAgentFilter(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="all">All Agents</option>
+              <option value="none">Unassigned</option>
+              {availableAgents.map(agent => (
+                <option key={agent.id} value={agent.id}>{agent.name}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Status Filter */}
           <div className="min-w-[150px]">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1"><FaClock className="inline h-2.5 w-2.5 mr-0.5" /> Status</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
             >
               <option value="all">All Statuses</option>
               {Object.entries(orderStatuses).map(([key, info]) => (
@@ -1191,19 +1481,91 @@ export default function AdminOrders() {
             </select>
           </div>
 
-          {/* Date Filter */}
-          <div className="min-w-[150px]">
+          {/* Date/Time Filter */}
+          <div className="min-w-[140px]">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1"><FaCalendarAlt className="inline h-2.5 w-2.5 mr-0.5" /> Time</label>
             <select
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
             >
               {dateOptions.map(option => (
                 <option key={option.key} value={option.key}>{option.label}</option>
               ))}
             </select>
           </div>
+
+          {/* Order Type Filter */}
+          <div className="min-w-[140px]">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1"><FaUtensils className="inline h-2.5 w-2.5 mr-0.5" /> Order Type</label>
+            <select
+              value={orderTypeFilter}
+              onChange={(e) => setOrderTypeFilter(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="all">All Types</option>
+              <option value="fastfood">Fast Food</option>
+              <option value="product">Products</option>
+            </select>
+          </div>
+
+          {/* Reset All Filters */}
+          {(batchFilter !== 'all' || agentFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all' || orderTypeFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setBatchFilter('all');
+                setAgentFilter('all');
+                setStatusFilter('all');
+                setDateFilter('all');
+                setOrderTypeFilter('all');
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors self-end"
+            >
+              <FaTimes className="h-3 w-3" /> Clear All
+            </button>
+          )}
         </div>
+
+        {/* Active Filter Pills */}
+        {(batchFilter !== 'all' || agentFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all' || orderTypeFilter !== 'all') && (
+          <div className="flex flex-wrap gap-2">
+            {batchFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-[10px] font-bold uppercase">
+                <FaLayerGroup className="h-2.5 w-2.5" />
+                {batchFilter === 'none' ? 'No Batch' : availableBatches.find(b => String(b.id) === String(batchFilter))?.name || batchFilter}
+                <button onClick={() => setBatchFilter('all')} className="ml-0.5 hover:text-purple-900"><FaTimes className="h-2.5 w-2.5" /></button>
+              </span>
+            )}
+            {agentFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[10px] font-bold uppercase">
+                <FaUser className="h-2.5 w-2.5" />
+                {agentFilter === 'none' ? 'Unassigned' : availableAgents.find(a => String(a.id) === String(agentFilter))?.name || agentFilter}
+                <button onClick={() => setAgentFilter('all')} className="ml-0.5 hover:text-blue-900"><FaTimes className="h-2.5 w-2.5" /></button>
+              </span>
+            )}
+            {statusFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-[10px] font-bold uppercase">
+                <FaClock className="h-2.5 w-2.5" />
+                {orderStatuses[statusFilter]?.label || statusFilter}
+                <button onClick={() => setStatusFilter('all')} className="ml-0.5 hover:text-green-900"><FaTimes className="h-2.5 w-2.5" /></button>
+              </span>
+            )}
+            {dateFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-[10px] font-bold uppercase">
+                <FaCalendarAlt className="h-2.5 w-2.5" />
+                {dateOptions.find(d => d.key === dateFilter)?.label || dateFilter}
+                <button onClick={() => setDateFilter('all')} className="ml-0.5 hover:text-orange-900"><FaTimes className="h-2.5 w-2.5" /></button>
+              </span>
+            )}
+            {orderTypeFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-full text-[10px] font-bold uppercase">
+                <FaUtensils className="h-2.5 w-2.5" />
+                {orderTypeFilter === 'fastfood' ? 'Fast Food' : 'Products'}
+                <button onClick={() => setOrderTypeFilter('all')} className="ml-0.5 hover:text-yellow-900"><FaTimes className="h-2.5 w-2.5" /></button>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Results Counter & Global Search Info */}
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1372,12 +1734,19 @@ export default function AdminOrders() {
 
 
                 {/* GLOBAL ACTIONS */}
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="flex items-center gap-2 ml-auto flex-wrap">
                   {!isHomogeneous && (
                     <p className="text-[10px] font-black text-red-400 bg-red-50 px-3 py-2 rounded-lg border border-red-100 max-w-[200px] leading-tight flex items-center gap-2">
                       <FaLock /> Filter by Stage to execute logistics steps.
                     </p>
                   )}
+                  <button
+                    onClick={handleBulkConvertToBlocks}
+                    className="px-3 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-black hover:bg-indigo-100 flex items-center gap-2 transition-all active:scale-95"
+                    title="Convert selected orders to block format"
+                  >
+                    <FaCopy className="h-3 w-3" /> Convert to Blocks ({selectedOrders.length})
+                  </button>
                   <button
                     onClick={() => alert(`Generating ${selectedOrders.length} Manifests...`)}
                     className="px-3 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-xs font-black hover:bg-gray-50 flex items-center gap-2 transition-all active:scale-95"
@@ -1551,6 +1920,11 @@ export default function AdminOrders() {
                             <StatusIcon className="mr-1 h-3 w-3" />
                             {order.status === 'mixed' ? 'Mixed Status' : getStatusInfo(order.status).label}
                           </div>
+                          {order.cancelRequested && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded bg-red-100 text-red-800 text-[9px] font-black uppercase tracking-tighter animate-pulse">
+                              Cancel Requested
+                            </span>
+                          )}
                           {!isParentRow && <AssignmentIndicator order={order} />}
                           {!isParentRow && order.deliveryType && <DeliveryTypeBadge deliveryType={order.deliveryType} />}
                           {!isParentRow && getOrderDeliveryTask(order) && <DeliveryTaskBadge task={getOrderDeliveryTask(order)} />}
@@ -1598,8 +1972,17 @@ export default function AdminOrders() {
                               )}
                             </button>
 
+                            {/* Duplicate as Direct Order Button */}
+                            <button
+                              onClick={() => handleReplaceOrRedirectToDirectOrder(order)}
+                              className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                              title="Duplicate as Direct Order"
+                            >
+                              <FaFileAlt className="h-4 w-4" />
+                            </button>
+
                             {/* Edit Button */}
-                            {!['collected', 'in_transit', 'shipped', 'delivered', 'completed', 'cancelled'].includes(order.status) && (
+                            {!['delivered', 'completed', 'cancelled', 'failed', 'returned'].includes(order.status) && (
                               <button
                                 onClick={() => handleEditOrderUI(order)}
                                 className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors"
@@ -1610,7 +1993,7 @@ export default function AdminOrders() {
                             )}
 
                             {/* Cancel Button */}
-                            {!['collected', 'in_transit', 'shipped', 'transit', 'ready_for_pickup', 'delivered', 'completed', 'cancelled'].includes(order.status) && !isAgentAccepted && !((hasFastFood || order.orderCategory === 'fastfood') && ['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(order.status)) && (
+                            {!['cancelled', 'completed'].includes(order.status) && (
                               <button
                                 onClick={() => handleCancelOrderUI(order)}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-full transition-colors"
@@ -1775,16 +2158,75 @@ export default function AdminOrders() {
           <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
             <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium">Order Details - #{selectedOrder.orderNumber}</h3>
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <FaTimes className="h-6 w-6" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-medium">Order Details - #{selectedOrder.orderNumber}</h3>
+                  {selectedOrder.cancelRequested && (
+                    <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full font-bold animate-pulse">
+                      CANCELLATION REQUESTED
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleReplaceOrRedirectToDirectOrder(selectedOrder)}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <FaCopy /> Copy Block
+                  </button>
+                  {!['delivered', 'completed', 'cancelled', 'failed', 'returned'].includes(selectedOrder.status) && (
+                    <button
+                      onClick={() => handleEditOrderUI(selectedOrder)}
+                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      <FaEdit /> Edit Info
+                    </button>
+                  )}
+                  {!['cancelled', 'completed'].includes(selectedOrder.status) && (
+                    <button
+                      onClick={() => handleCancelOrderUI(selectedOrder)}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      <FaTimes /> Cancel Order
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedOrder(null)}
+                    className="text-gray-400 hover:text-gray-600 ml-2"
+                  >
+                    <FaTimes className="h-6 w-6" />
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Cancellation Request Alert */}
+                {selectedOrder.cancelRequested && (
+                  <div className="md:col-span-2 bg-red-50 border-2 border-red-200 p-4 rounded-xl shadow-sm mb-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 animate-in fade-in duration-200">
+                    <div>
+                      <h4 className="font-black text-red-900 text-xs uppercase tracking-widest mb-1">
+                        Cancellation Request Pending
+                      </h4>
+                      <p className="text-sm text-red-800 font-medium">
+                        <strong>Reason:</strong> {selectedOrder.cancelReason || 'No reason specified'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleCancelOrderUI(selectedOrder)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm"
+                      >
+                        Approve &amp; Cancel
+                      </button>
+                      <button
+                        onClick={() => handleRejectCancelRequest(selectedOrder.id)}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm"
+                      >
+                        Reject Request
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Customer Info */}
                 <div>
                   <h4 className="font-medium text-gray-900 mb-2 flex items-center">

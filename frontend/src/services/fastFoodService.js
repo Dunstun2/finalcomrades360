@@ -297,6 +297,11 @@ class FastFoodService {
     return response.data;
   }
 
+  async toggleBatchActive(id) {
+    const response = await api.patch(`/batches/${id}/toggle-active`);
+    return response.data;
+  }
+
   async deleteBatch(id) {
     const response = await api.delete(`/batches/${id}`);
     return response.data;

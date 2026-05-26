@@ -9,18 +9,15 @@ const getPotentialRecipients = async (req, res) => {
     try {
         const { type = 'all' } = req.query; // 'all', 'product', 'fastfood'
         
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
+        const now = new Date();
+        const searchStart = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000); // Look back 3 days (72 hours)
 
         const whereClause = {
-            status: 'delivered',
+            status: { [Op.in]: ['delivered', 'completed'] },
             [Op.or]: [
                 {
                     actualDelivery: {
-                        [Op.between]: [startOfDay, endOfDay]
+                        [Op.between]: [searchStart, now]
                     }
                 },
                 {
@@ -28,7 +25,7 @@ const getPotentialRecipients = async (req, res) => {
                         { actualDelivery: null },
                         {
                             updatedAt: {
-                                [Op.between]: [startOfDay, endOfDay]
+                                [Op.between]: [searchStart, now]
                             }
                         }
                     ]
@@ -94,7 +91,7 @@ const sendBulkThankYouMessages = async (req, res) => {
         const orders = await Order.findAll({
             where: {
                 id: { [Op.in]: orderIds },
-                status: 'delivered'
+                status: { [Op.in]: ['delivered', 'completed'] }
             },
             include: [{ model: User, as: 'user' }]
         });

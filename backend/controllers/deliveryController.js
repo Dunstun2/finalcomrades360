@@ -10,7 +10,7 @@ const {
   notifyCustomerReadyForPickupStation, 
   notifyCustomerAgentArrived, 
   notifyCustomerOutForDelivery,
-  notifyCustomerAgentAccepted
+  notifyCustomerOrderCollected
 } = require('../utils/notificationHelpers');
 const { creditPending, moveToSuccess, revertPending } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout, settleDeliveryChargeForTask, upsertDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
@@ -120,6 +120,24 @@ const _approveDeliveryRequestInternal = async (task, { deliveryType, deliveryFee
       deliveryType: (deliveryType || task.deliveryType),
       deliveryFee: (deliveryFee !== undefined ? deliveryFee : task.order.deliveryFee)
     }, { transaction });
+  }
+
+  // Credit pending earnings to approved agent's wallet
+  if (task.deliveryAgentId) {
+    const finalFee = parseFloat(deliveryFee !== undefined ? deliveryFee : task.deliveryFee) || 0;
+    const share = parseFloat(task.agentShare) || 70;
+    const earnings = finalFee * (share / 100);
+
+    if (earnings > 0) {
+      await creditPending(
+        task.deliveryAgentId,
+        earnings,
+        `Delivery Earning for Order #${task.order?.orderNumber || ''} (${deliveryType || task.deliveryType})`,
+        task.orderId,
+        transaction,
+        'delivery_agent'
+      );
+    }
   }
 
   // Notify Agent (Notification logic is usually outside transaction if possible, but here we can return a flag or just do it)
@@ -772,36 +790,46 @@ const updateMyOrderStatus = async (req, res, next) => {
 
 // POST /api/delivery/tasks/:taskId/accept
 const acceptDeliveryTask = async (req, res, next) => {
+  const { taskId } = req.params;
+  const t = await sequelize.transaction();
   try {
-    const { taskId } = req.params;
     const task = await DeliveryTask.findByPk(taskId, {
-      include: [{ model: Order, as: 'order' }]
+      include: [{ model: Order, as: 'order' }],
+      transaction: t,
+      lock: t.LOCK.UPDATE
     });
 
-    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (!task) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Task not found' });
+    }
     if (task.deliveryAgentId !== req.user.id) {
+      await t.rollback();
       return res.status(403).json({ error: 'This task is not assigned to you' });
     }
 
     // Check if agent is Online and has a complete profile
-    const profile = await DeliveryAgentProfile.findOne({ where: { userId: req.user.id } });
+    const profile = await DeliveryAgentProfile.findOne({ where: { userId: req.user.id }, transaction: t });
     if (!profile || !profile.isActive) {
+      await t.rollback();
       return res.status(403).json({ error: 'You must be ONLINE to accept tasks.' });
     }
 
     const { isComplete } = checkProfileCompleteness(profile, req.user);
     if (!isComplete) {
+      await t.rollback();
       return res.status(403).json({ error: 'Profile incomplete. Please update your account details.' });
     }
 
     if (task.status !== 'assigned') {
+      await t.rollback();
       return res.status(400).json({ error: 'Task cannot be accepted in current status' });
     }
 
     await task.update({
       status: 'accepted',
       acceptedAt: new Date()
-    });
+    }, { transaction: t });
 
     // NEW: Broadcast cancellation - find sibling agents first, THEN cancel
     const siblingTasks = await DeliveryTask.findAll({
@@ -810,10 +838,22 @@ const acceptDeliveryTask = async (req, res, next) => {
         id: { [Op.ne]: task.id },
         status: { [Op.in]: ['assigned', 'requested'] }
       },
-      attributes: ['id', 'deliveryAgentId']
+      attributes: ['id', 'deliveryAgentId', 'deliveryFee', 'agentShare'],
+      transaction: t
     });
 
     if (siblingTasks.length > 0) {
+      // Revert pending wallet credits for sibling agents
+      for (const sib of siblingTasks) {
+        if (sib.deliveryAgentId) {
+          const sibShare = parseFloat(sib.agentShare) || 70;
+          const sibEarnings = (parseFloat(sib.deliveryFee) || 0) * (sibShare / 100);
+          if (sibEarnings > 0) {
+            await revertPending(sib.deliveryAgentId, sibEarnings, task.orderId, t);
+          }
+        }
+      }
+
       await DeliveryTask.update(
         {
           status: 'cancelled',
@@ -824,22 +864,23 @@ const acceptDeliveryTask = async (req, res, next) => {
             orderId: task.orderId,
             id: { [Op.ne]: task.id },
             status: { [Op.in]: ['assigned', 'requested'] }
-          }
+          },
+          transaction: t
         }
       );
     }
 
     // Update the parent order to reflect the winning agent
     if (task.order) {
-      await task.order.update({ deliveryAgentId: req.user.id });
+      await task.order.update({ deliveryAgentId: req.user.id }, { transaction: t });
     }
 
     // Lock share if missing (legacy support)
     if (!task.agentShare) {
       const { PlatformConfig } = require('../models');
-      const config = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' } });
-      const sharePercent = config ? parseFloat(config.value) : 70;
-      await task.update({ agentShare: sharePercent });
+      const shareConfig = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' }, transaction: t });
+      const sharePercent = shareConfig ? parseFloat(shareConfig.value) : 70;
+      await task.update({ agentShare: sharePercent }, { transaction: t });
     }
 
     // Notify customer
@@ -848,12 +889,14 @@ const acceptDeliveryTask = async (req, res, next) => {
       const statusesToProcess = ['super_admin_confirmed', 'seller_confirmed', 'ready_for_pickup', 'order_placed'];
       
       if (statusesToProcess.includes(currentStatus)) {
-        await task.order.update({ status: 'processing' });
-        await notifyCustomerAgentAccepted(task.order, req.user);
+        await task.order.update({ status: 'processing' }, { transaction: t });
+        // Customer notification is now sent at collection time (combined notification)
       } else {
         console.log(`[acceptDeliveryTask] Skipping status update to 'processing' for order ${task.order.orderNumber}. Current status: ${currentStatus}`);
       }
     }
+
+    await t.commit();
 
     res.json({ message: 'Task accepted successfully', task });
 
@@ -880,8 +923,8 @@ const acceptDeliveryTask = async (req, res, next) => {
       console.error('[acceptDeliveryTask] Socket emit error:', socketErr);
     }
   } catch (e) {
-    console.error('Error in acceptDeliveryTask:', e);
-    res.status(500).json({ error: 'Failed to accept task' });
+    await t.rollback();
+    next(e);
   }
 };
 
@@ -889,10 +932,25 @@ const acceptDeliveryTask = async (req, res, next) => {
 const rejectDeliveryTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { reason } = req.body;
+    const { reason, password } = req.body;
 
     if (!reason) {
       return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required to reject/cancel task assignment' });
+    }
+
+    const bcrypt = require('bcryptjs');
+    const user = await User.findByPk(req.user.id);
+    if (!user || !user.password) {
+      return res.status(401).json({ error: 'User account invalid or missing credentials' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Incorrect password. Cancellation aborted.' });
     }
 
     const task = await DeliveryTask.findByPk(taskId, {
@@ -1440,8 +1498,8 @@ const updateTaskStatus = async (req, res) => {
     if (proofOfDelivery) updates.proofOfDelivery = proofOfDelivery;
     if (currentLocation) updates.currentLocation = typeof currentLocation === 'string' ? currentLocation : JSON.stringify(currentLocation);
 
-    if (status === 'completed' && (task.status === 'completed' || task.completedAt)) {
-      return res.status(400).json({ error: 'This delivery task has already been settled.' });
+    if (['completed', 'failed', 'cancelled'].includes(task.status) || task.completedAt) {
+      return res.status(400).json({ error: 'This delivery task is already completed, cancelled, or failed.' });
     }
 
     if (status === 'in_progress' && !task.startedAt) {
@@ -2231,14 +2289,8 @@ const confirmCollection = async (req, res) => {
         updatedByRole: req.user?.role || 'delivery_agent'
       });
 
-      // Notify customer
-      await notifyCustomerDeliveryUpdate(
-        task.order.userId,
-        task.order.orderNumber,
-        'collected',
-        `Your order has been collected and is ${newOrderStatus === 'in_transit' ? 'in transit' : 'in transit to warehouse'}.`,
-        task.order
-      );
+      // Combined notification: agent name + phone + tracking link (no status text)
+      await notifyCustomerOrderCollected(task.order, req.user);
 
       // Notify parties via Socket.IO
       try {
@@ -2632,6 +2684,79 @@ const toggleAgentActiveStatus = async (req, res) => {
   }
 };
 
+/**
+ * Bulk alert customers that their orders are ready for collection
+ * POST /api/delivery/tasks/bulk-alert-collection
+ */
+const bulkAlertCollection = async (req, res) => {
+  try {
+    const { orderIds } = req.body;
+    if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({ error: 'orderIds array is required' });
+    }
+
+    const tasks = await DeliveryTask.findAll({
+      where: {
+        orderId: { [Op.in]: orderIds },
+        deliveryAgentId: req.user.id,
+        status: 'in_progress'
+      },
+      include: [
+        {
+          model: Order,
+          as: 'order',
+          include: [
+            { model: User, as: 'user' }
+          ]
+        }
+      ]
+    });
+
+    if (tasks.length === 0) {
+      return res.status(404).json({ error: 'No active in-progress tasks found for the selected orders' });
+    }
+
+    const { notifyCustomerReadyForCollection } = require('../utils/notificationHelpers');
+    const { getIO } = require('../realtime/socket');
+    const io = getIO();
+
+    let successCount = 0;
+    const alertedTaskIds = [];
+    const now = new Date();
+
+    for (const task of tasks) {
+      if (task.order) {
+        // Send notification
+        await notifyCustomerReadyForCollection(task.order, req.user);
+
+        // Stamp the task so the agent UI can show a "Notified" badge
+        await task.update({ collectionAlertedAt: now });
+        alertedTaskIds.push(task.id);
+
+        // Real-time update via Socket.IO
+        if (io) {
+          io.to(`user:${task.order.userId}`).emit('orderReadyCollection', {
+            orderId: task.order.id,
+            orderNumber: task.order.orderNumber,
+            agentName: req.user.name,
+            agentPhone: req.user.phone
+          });
+        }
+        successCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Alerted ${successCount} customers that their orders are ready for collection.`,
+      alertedTaskIds
+    });
+  } catch (error) {
+    console.error('Error in bulkAlertCollection:', error);
+    res.status(500).json({ error: 'Failed to alert customers' });
+  }
+};
+
 module.exports = {
   getProvisionalDeliveryType,
   listMyAssignedOrders,
@@ -2660,5 +2785,6 @@ module.exports = {
   adminGetGlobalMapData,
   getAdminAgentDetail,
   getAdminAgentHistory,
-  toggleAgentActiveStatus
+  toggleAgentActiveStatus,
+  bulkAlertCollection
 };

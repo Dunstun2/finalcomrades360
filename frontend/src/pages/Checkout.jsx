@@ -104,6 +104,10 @@ function Checkout() {
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const [isLookupUsed, setIsLookupUsed] = useState(false);
   const [searchedCustomer, setSearchedCustomer] = useState(null);
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [applyingPromo, setApplyingPromo] = useState(false);
+  const [promoError, setPromoError] = useState('');
   const checkoutGroupId = useMemo(() => `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
   const fileBase = useMemo(() => (api.defaults.baseURL || '').replace(/\/?api\/?$/, ''), []);
   const cartScope = useMemo(() => {
@@ -134,14 +138,55 @@ function Checkout() {
     const subtotal = scopedItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
     const deliveryFee = calculateGroupedDeliveryFee(scopedItems, routeFees);
     const totalCommission = scopedItems.reduce((sum, item) => sum + Number(item.itemCommission || 0), 0);
+    
+    const preDiscountTotal = subtotal + deliveryFee;
+    let discountAmount = 0;
+    if (appliedPromo) {
+      let discountableSubtotal = 0;
+      let promoProductIds = appliedPromo.applicableProductIds || [];
+      if (typeof promoProductIds === 'string') {
+        try { promoProductIds = JSON.parse(promoProductIds); } catch(e) { promoProductIds = []; }
+      }
+
+      if (Array.isArray(promoProductIds) && promoProductIds.length > 0) {
+        scopedItems.forEach(item => {
+          const actualProductId = item.productId || item.fastFoodId || item.product?.id || item.fastFood?.id;
+          const typePrefixId = `${item.itemType || item.type}_${actualProductId}`;
+          const itemIdStr = String(actualProductId);
+          if (promoProductIds.some(promoId => promoId === itemIdStr || promoId === typePrefixId || promoId.startsWith(typePrefixId + ':') || promoId.startsWith(itemIdStr + ':'))) {
+            discountableSubtotal += Number(item.total || 0);
+          }
+        });
+      } else {
+        discountableSubtotal = subtotal; // If no specific items, apply to all items
+      }
+      
+      // Calculate discount on the discountable subtotal only (not including delivery fees)
+      discountAmount = (discountableSubtotal * appliedPromo.discountPercentage) / 100;
+      if (appliedPromo.maxDiscountAmount && discountAmount > appliedPromo.maxDiscountAmount) {
+        discountAmount = appliedPromo.maxDiscountAmount;
+      }
+    }
+
     return {
       itemCount: scopedItems.length,
       subtotal,
       deliveryFee,
       totalCommission,
-      total: subtotal + deliveryFee
+      discountAmount,
+      total: preDiscountTotal - discountAmount
     };
-  }, [scopedItems, routeFees]);
+  }, [scopedItems, routeFees, appliedPromo]);
+
+  // Automatically remove promo code if it doesn't apply to any items
+  useEffect(() => {
+    if (appliedPromo && scopedSummary.discountAmount === 0) {
+      setPromoError('This promo code is not applicable to any items in your cart.');
+      setAppliedPromo(null);
+      setPromoCodeInput('');
+    }
+  }, [appliedPromo, scopedSummary.discountAmount]);
+
   const [formData, setFormData] = useState({
     deliveryMethod: 'home_delivery',
     pickStation: '',
@@ -258,7 +303,31 @@ function Checkout() {
       setLoadingBatches(true);
       try {
         const res = await fastFoodService.getActiveBatches();
-        const batches = res?.success && Array.isArray(res.batches) ? res.batches : [];
+        let batches = res?.success && Array.isArray(res.batches) ? res.batches : [];
+
+        // Filter batches that fall within the current time
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+        batches = batches.filter(batch => {
+          if (!batch.startTime || !batch.endTime) return true;
+          
+          const parseTime = (timeStr) => {
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return (hours || 0) * 60 + (minutes || 0);
+          };
+
+          const startMinutes = parseTime(batch.startTime);
+          const endMinutes = parseTime(batch.endTime);
+
+          if (startMinutes <= endMinutes) {
+            return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+          } else {
+            // Handles cases where batch time crosses midnight (e.g. 22:00 - 02:00)
+            return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+          }
+        });
+
         setActiveBatches(batches);
 
         const cartBatchIds = [...new Set(
@@ -385,7 +454,7 @@ function Checkout() {
 
   // Real-time payment updates via Socket.io
   useEffect(() => {
-    if (!user) return;
+    // Allow guest users to access checkout without authentication
     
     const socket = getSocket();
     
@@ -607,14 +676,90 @@ function Checkout() {
   };
 
 
+  const handleApplyPromo = async () => {
+    if (!promoCodeInput) return;
+    setApplyingPromo(true);
+    setPromoError('');
+    try {
+      const res = await api.post('/promo-codes/apply', { 
+        code: promoCodeInput, 
+        orderType: cartScope,
+        customerPhone: formData.customerPhone
+      });
+      if (res.data.success) {
+        setAppliedPromo(res.data.data);
+        // Removed success alert for smoother UX
+      }
+    } catch (err) {
+      setAppliedPromo(null);
+      setPromoError(err.response?.data?.message || 'Invalid promo code');
+    } finally {
+      setApplyingPromo(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchAutoApplyPromo = async () => {
+      try {
+        const { data } = await api.get(`/promo-codes/auto-apply?orderType=${cartScope}`);
+        if (data?.success && data?.data) {
+          setPromoCodeInput(data.data.code);
+        }
+      } catch (error) {
+        console.error('Failed to fetch auto-apply promo code:', error);
+      }
+    };
+    fetchAutoApplyPromo();
+  }, [cartScope]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     // Step 1: Frontend Validation
     console.log('🛒 Step 1: Starting frontend validation...');
 
-    if (batchSystemEnabled && isFastFoodScope) {
-      console.log('📦 Batch system enabled but selection is hidden/optional');
+    if (batchSystemEnabled && isFastFoodScope && activeBatches.length > 0) {
+      if (!selectedOrderBatchId && !formData.deliveryTimePreference) {
+        alert('📦 Batch or Time Required\n\nPlease select an active batch OR specify your preferred delivery time.');
+        return;
+      }
+      
+      if (!selectedOrderBatchId && formData.deliveryTimePreference) {
+        // Validate that the specified time is >= the earliest active batch endTime
+        const [prefHours, prefMinutes] = formData.deliveryTimePreference.split(':').map(Number);
+        const prefDate = new Date();
+        prefDate.setHours(prefHours, prefMinutes, 0, 0);
+
+        let earliestBatchDate = null;
+        let earliestBatchLabel = null;
+
+        for (const batch of activeBatches) {
+          if (batch.endTime) {
+            const [bHours, bMinutes] = batch.endTime.split(':').map(Number);
+            const bDate = new Date();
+            bDate.setHours(bHours, bMinutes, 0, 0);
+            if (!earliestBatchDate || bDate < earliestBatchDate) {
+              earliestBatchDate = bDate;
+              earliestBatchLabel = batch.endTime;
+            }
+          }
+        }
+
+        if (earliestBatchDate && prefDate < earliestBatchDate) {
+          alert(`🕒 Invalid Delivery Time\n\nYour custom delivery time must be from the earliest batch's end time (${earliestBatchLabel}) and beyond.`);
+          return;
+        }
+      }
+    } else if (formData.deliveryTimePreference) {
+      // General validation for future time when no batches are active
+      const [prefHours, prefMinutes] = formData.deliveryTimePreference.split(':').map(Number);
+      const prefDate = new Date();
+      prefDate.setHours(prefHours, prefMinutes, 0, 0);
+      const now = new Date();
+      if (prefDate < now) {
+        alert('⚠️ Invalid Time\n\nPlease select a future time for delivery.');
+        return;
+      }
     }
 
     const isMarketingMode = localStorage.getItem('marketing_mode') === 'true';
@@ -734,12 +879,19 @@ function Checkout() {
         return;
       } else {
         // Step 2: Prepare order data (for cash on delivery or completed prepay)
-        if (batchSystemEnabled && isFastFoodScope && selectedOrderBatchId) {
+        if (batchSystemEnabled && isFastFoodScope) {
           const activeCartType = localStorage.getItem('marketing_mode') === 'true' ? 'marketing' : 'personal';
-          await api.patch('/cart/fastfood/batch', {
-            batchId: Number(selectedOrderBatchId),
-            cartType: activeCartType
-          });
+          if (selectedOrderBatchId) {
+            await api.patch('/cart/fastfood/batch', {
+              batchId: Number(selectedOrderBatchId),
+              cartType: activeCartType
+            });
+          } else {
+            await api.patch('/cart/fastfood/batch', {
+              batchId: null,
+              cartType: activeCartType
+            });
+          }
         }
 
         const subtotal = scopedSummary.subtotal || 0;
@@ -771,6 +923,7 @@ function Checkout() {
           paymentSubType: formData.paymentSubMethod, // specific payment method
           paymentId: paymentId, // Attach payment ID for prepay
           primaryReferralCode: formData.referralCode.trim() || null, // Include referral code if provided (order-specific)
+          promoCode: appliedPromo?.code || null, // Include applied promo code
           deliveryTimePreference: formData.deliveryTimePreference || null, // New field
           items: scopedItems.map((item, idx) => {
             // Determine item-level delivery fee
@@ -816,7 +969,7 @@ function Checkout() {
               price: item.price,
               total: item.total,
               deliveryFee: itemDeliveryFee, // Pass item-level fee to backend
-              batchId: (isFastFoodScope && batchSystemEnabled && selectedOrderBatchId) ? Number(selectedOrderBatchId) : (item.batchId || null),
+              batchId: (isFastFoodScope && batchSystemEnabled) ? (selectedOrderBatchId ? Number(selectedOrderBatchId) : null) : (item.batchId || null),
               variantId: item.variantId || item.variant_id || null,
               comboId: item.comboId || item.combo_id || null
             };
@@ -967,18 +1120,36 @@ function Checkout() {
                     }
                   }
 
+                  const getSafeImageUrl = (it) => {
+                    if (it.itemImage) return it.itemImage;
+                    const prod = it.product || it.fastFood || it.service || {};
+                    
+                    if (prod.coverImage) return prod.coverImage;
+                    if (prod.mainImage) return prod.mainImage;
+                    if (prod.image) return prod.image;
+                    
+                    const parseImageArray = (value) => {
+                      if (Array.isArray(value)) return value;
+                      if (typeof value !== 'string') return [];
+                      try {
+                        const parsed = JSON.parse(value.replace(/'/g, '"'));
+                        return Array.isArray(parsed) ? parsed : [];
+                      } catch (_) {
+                        return [];
+                      }
+                    };
+
+                    const imgs = parseImageArray(prod.images || prod.galleryImages);
+                    if (imgs.length > 0) return imgs[0]?.url || imgs[0]?.imageUrl || imgs[0];
+
+                    return null;
+                  };
+
                   return (
                     <div key={item.id} className="flex items-center space-x-3 sm:space-x-4 border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
                       <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
                         <img
-                          src={
-                            resolveImageUrl(
-                              item.itemImage || (item.itemType === 'fastfood' || item.type === 'fastfood'
-                                ? (item.fastFood?.mainImage || item.product?.mainImage)
-                                : (item.product?.coverImage || item.product?.images?.[0] || item.service?.images?.[0]?.url || item.service?.coverImage)),
-                              fileBase
-                            )
-                          }
+                          src={resolveImageUrl(getSafeImageUrl(item), fileBase)}
                           alt={item.itemName || item.product?.name || item.fastFood?.name || item.name}
                           className="w-full h-full object-cover"
                           onError={(e) => { e.currentTarget.src = '/placeholder.jpg'; }}
@@ -1017,6 +1188,7 @@ function Checkout() {
                 })}
               </div>
 
+
               {/* Order Totals */}
               <div className="border-t pt-4 space-y-3">
                 <div className="flex justify-between text-sm">
@@ -1043,24 +1215,31 @@ function Checkout() {
                   </span>
                 </div>
 
+                {appliedPromo && scopedSummary.discountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-green-600 font-bold">
+                    <span>Discount ({appliedPromo.discountPercentage}%)</span>
+                    <span>-{formatPrice(scopedSummary.discountAmount)}</span>
+                  </div>
+                )}
+
                 <div className="border-t border-gray-100 pt-3">
                   <div className="flex justify-between text-xl font-bold text-blue-900 leading-none">
                     <span>Total</span>
                     <span>{formatPrice(
-                      formData.deliveryMethod === 'home_delivery'
-                        ? (scopedSummary.total || 0)
+                      (formData.deliveryMethod === 'home_delivery'
+                        ? (scopedSummary.subtotal + scopedSummary.deliveryFee)
                         : formData.deliveryMethod === 'pick_station'
-                          ? (scopedSummary.subtotal || 0) + (isFastFoodScope
-                            ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
-                            : (selectedStation?.price || 0) * totalQuantity)
-                          : (scopedSummary.subtotal || 0)
+                          ? (scopedSummary.subtotal + (isFastFoodScope
+                              ? calculateFastFoodPickupPointTotal(scopedItems, selectedStation?.price || 0)
+                              : (selectedStation?.price || 0) * totalQuantity))
+                          : scopedSummary.subtotal) - (appliedPromo ? scopedSummary.discountAmount : 0)
                     )}</span>
                   </div>
                   </div>
                 </div>
 
-                {/* Batch selection hidden as per user request */}
-                {false && isFastFoodScope && batchSystemEnabled && (
+                {/* Batch selection visibility fixed */}
+                {isFastFoodScope && batchSystemEnabled && (activeBatches.length > 0 || loadingBatches) && (
                   <div className="mt-6 pt-6 border-t border-gray-100 transition-all animate-in fade-in slide-in-from-top-2">
                     <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-2">
                       Select Order Batch *
@@ -1133,20 +1312,12 @@ function Checkout() {
                           onChange={(e) => {
                             const newTime = e.target.value;
                             if (newTime) {
-                              const now = new Date();
-                              const [hours, minutes] = newTime.split(':').map(Number);
-                              const selectedDate = new Date();
-                              selectedDate.setHours(hours, minutes, 0, 0);
-
-                              if (selectedDate < now) {
-                                alert('⚠️ Invalid Time\n\nPlease select a future time for delivery.');
-                                return;
-                              }
+                              // Clear batch selection if user types a custom time
+                              setSelectedOrderBatchId(null);
                             }
                             handleInputChange(e);
                           }}
-                          disabled={activeBatches.length > 0}
-                          className={`w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${activeBatches.length > 0 ? 'bg-gray-100 cursor-not-allowed opacity-75' : 'bg-white'}`}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
                         />
                       </div>
                       {activeBatches.length === 0 && (
@@ -1161,7 +1332,7 @@ function Checkout() {
                     </div>
                     <p className="text-[9px] text-gray-500 mt-2 italic leading-tight">
                       {activeBatches.length > 0 
-                        ? `* This time is automatically set by your selected batch (${selectedOrderBatch?.expectedDelivery || 'the specified time'}) and cannot be changed.`
+                        ? `* You must select either an active batch above OR specify a custom time here (must be beyond the earliest batch).`
                         : `* We'll do our best to deliver around this time. Please choose a future time.`
                       }
                     </p>
@@ -1760,6 +1931,47 @@ function Checkout() {
                     )}
                   </div>
                 )}
+
+                {/* Promo Code UI */}
+                <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6 mt-6 transition-all animate-in fade-in slide-in-from-top-2">
+                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Promo Code</h3>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      className="flex-1 w-full px-3 py-2 border rounded text-sm uppercase focus:ring-2 focus:ring-orange-500 outline-none"
+                      placeholder="Enter promo code"
+                      value={promoCodeInput}
+                      onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                      disabled={appliedPromo || applyingPromo}
+                    />
+                    {!appliedPromo ? (
+                      <button
+                        type="button"
+                        onClick={handleApplyPromo}
+                        disabled={!promoCodeInput || applyingPromo}
+                        className="px-6 py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {applyingPromo ? 'Applying...' : 'Apply'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedPromo(null);
+                          setPromoCodeInput('');
+                        }}
+                        className="px-6 py-2 bg-red-600 text-white rounded text-sm font-bold hover:bg-red-700"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {promoError && (
+                    <p className="text-xs text-red-500 mt-2 font-medium">
+                      {promoError}
+                    </p>
+                  )}
+                </div>
 
                 {/* Special Instructions for Fast Food */}
                 {isFastFoodScope && (

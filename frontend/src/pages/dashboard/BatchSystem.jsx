@@ -13,7 +13,9 @@ import {
     FaEdit,
     FaTimes,
     FaToggleOn,
-    FaToggleOff
+    FaToggleOff,
+    FaEye,
+    FaEyeSlash
 } from 'react-icons/fa';
 import { fastFoodService } from '../../services/fastFoodService';
 
@@ -197,6 +199,18 @@ const BatchSystem = () => {
         }
     };
 
+    const handleToggleActive = async (batch) => {
+        try {
+            const res = await fastFoodService.toggleBatchActive(batch.id);
+            if (res.success) {
+                setBatches(batches.map(b => b.id === batch.id ? res.batch : b));
+            }
+        } catch (err) {
+            console.error('Error toggling visibility:', err);
+            alert('Failed to toggle visibility');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50">
             <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
@@ -353,6 +367,14 @@ const BatchSystem = () => {
                                             >
                                                 {batch.isAutomated ? <FaToggleOn size={12} /> : <FaToggleOff size={12} />}
                                                 <span className="text-[8px] font-black uppercase tracking-tighter">Auto</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleToggleActive(batch)}
+                                                className={`p-2 rounded-lg shadow-sm transition-all transform hover:scale-110 flex items-center gap-1 ${batch.isActive !== false ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-400 hover:bg-gray-200'}`}
+                                                title={batch.isActive !== false ? 'Hide from Customers' : 'Show to Customers'}
+                                            >
+                                                {batch.isActive !== false ? <FaEye size={12} /> : <FaEyeSlash size={12} />}
+                                                <span className="text-[8px] font-black uppercase tracking-tighter">{batch.isActive !== false ? 'Visible' : 'Hidden'}</span>
                                             </button>
                                             <button
                                                 onClick={() => handleDeleteBatch(batch.id)}

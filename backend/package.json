@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "nodemon --delay 1.5 server.js",
     "dev:legacy": "nodemon server.js",
     "seed": "node seed-database.js",
     "backfill:marketing-orders": "node scripts/backfill_marketing_order_customers.js",

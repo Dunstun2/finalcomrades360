@@ -37,6 +37,10 @@ const auth = async (req, res, next) => {
                 req.query.token;
 
   if (!token) {
+    // Allow unauthenticated guests to access checkout pages
+    if (req.path && (req.path.startsWith('/checkout') || req.originalUrl.includes('/checkout'))) {
+      return next();
+    }
     console.warn(`[AuthMiddleware] No token provided for ${req.method} ${req.originalUrl}`);
     return res.status(401).json({ message: 'No token, authorization denied' });
   }
@@ -263,11 +267,11 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // Role-based access control
-const checkRole = (roles = []) => {
+const checkRole = (...roles) => {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'Authentication required' });
 
-    const requiredRoles = Array.isArray(roles) ? roles : [roles];
+    const requiredRoles = (roles.length === 1 && Array.isArray(roles[0])) ? roles[0] : roles;
     const userRole = String(req.user.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(r => String(r).toLowerCase().replace(/[^a-z0-9]/g, '')) : [userRole];
     const normalizedRequired = requiredRoles.map(r => String(r).toLowerCase().replace(/[^a-z0-9]/g, ''));

@@ -1,5 +1,5 @@
 const express = require('express');
-const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, bulkSellerConfirm, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, updateOrderAddress, editOrder, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
+const { createOrderFromCart, myOrders, getSuperAdminProductOrders, listAllOrders, updateOrderStatus, bulkUpdateOrderStatus, bulkAssignDeliveryAgent, bulkMarkReadyAtPickupStation, bulkSellerConfirm, markReadyAtPickupStation, assignDeliveryAgent, unassignDeliveryAgent, cancelOrder, rejectCancelRequest, updateOrderAddress, editOrder, addTrackingUpdate, getOrderTracking, publicTrackOrder, getOrderDetails, sellerConfirmOrder, superAdminConfirmOrder, sendOrderMessage, getOrderCommunication, sellerUpdateStatus, sellerHandoverOrder, getOrderPayments, acquireOrderActionLock, releaseOrderActionLock, getOrderAnalysis, getOrdersByBatch } = require('../controllers/orderController');
 const { auth, optionalAuth, adminOnly, requirePermission } = require('../middleware/auth');
 const { transitionOrderStatus, getValidTransitions } = require('../controllers/orderTransitionController');
 const { parseDirectOrder, placeDirectOrder, listDirectOrders } = require('../controllers/directOrderController');
@@ -30,6 +30,7 @@ router.get('/super-admin-products', auth, requirePermission('orders.view'), getS
 
 // Customer order cancellation
 router.post('/:orderId/cancel', auth, cancelOrder);
+router.post('/:orderId/reject-cancel-request', auth, rejectCancelRequest);
 
 // Customer address update for orders
 router.patch('/:orderId/address', auth, updateOrderAddress);

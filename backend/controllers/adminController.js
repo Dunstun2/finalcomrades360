@@ -28,6 +28,13 @@ const bcrypt = require('bcryptjs');
 const { normalizeKenyanPhone, validateKenyanPhone } = require('../middleware/validators');
 const { moveToSuccess } = require('../utils/walletHelpers');
 
+const parseDateOnlyUtc = (dateString, endOfDay = false) => {
+  if (!dateString) return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+};
+
 // =====================
 // Advanced Inventory Management
 // =====================
@@ -421,8 +428,8 @@ const getTopPerformingProducts = async (req, res) => {
   try {
     const { limit = 10, startDate, endDate } = req.query;
 
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
 
     // Aggregate sales from OrderItems within the date range
     const topItems = await OrderItem.findAll({
@@ -518,14 +525,8 @@ const getProductPerformanceMetrics = async (req, res) => {
 const getItemPerformanceAnalytics = async (req, res) => {
   try {
     const { startDate, endDate, limit = 100 } = req.query;
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    
-    // Ensure start date is at the beginning of the day
-    start.setHours(0, 0, 0, 0);
-    
-    // Ensure end date includes the entire day
-    end.setHours(23, 59, 59, 999);
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
 
     const dateFilter = { createdAt: { [Op.between]: [start, end] } };
 

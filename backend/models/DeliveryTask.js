@@ -148,6 +148,11 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.DATE,
             allowNull: true,
             comment: 'When a collection-delay warning was sent to the agent — prevents duplicate warnings'
+        },
+        collectionAlertedAt: {
+            type: DataTypes.DATE,
+            allowNull: true,
+            comment: 'When the customer was notified that the order is ready for collection'
         }
 
     }, {

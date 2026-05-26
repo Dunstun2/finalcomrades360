@@ -1,6 +1,13 @@
-const { Order, OrderItem, Product, User, Payment, DeliveryTask, Commission, SiteVisit, ProductView, MarketingAnalytics, sequelize } = require('../models');
+const { Order, OrderItem, Product, User, Payment, DeliveryTask, Commission, SiteVisit, ProductView, MarketingAnalytics, ReturnRequest, sequelize } = require('../models');
 console.error('🚀 ANALYTICS CONTROLLER LOADING...');
 const { Op, fn, col, literal } = require('sequelize');
+
+const parseDateOnlyUtc = (dateString, endOfDay = false) => {
+  if (!dateString) return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+};
 
 /**
  * Analytics Controller
@@ -12,10 +19,8 @@ const getHistoricalTrends = async (req, res) => {
   try {
     const { startDate, endDate, interval = 'day' } = req.query;
     
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-
-    if (endDate) end.setHours(23, 59, 59, 999);
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
 
     // Determine date grouping based on interval
     let dateFormat;
@@ -261,10 +266,8 @@ const getDeliveryEfficiencyMetrics = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    
-    if (endDate) end.setHours(23, 59, 59, 999);
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
 
     // Overall delivery stats
     const totalDeliveries = await DeliveryTask.count({
@@ -359,10 +362,8 @@ const getMarketingCampaignROI = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    
-    if (endDate) end.setHours(23, 59, 59, 999);
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
 
     const isSqlite = sequelize.getDialect() === 'sqlite';
 
@@ -473,11 +474,9 @@ const getMarketingCampaignROI = async (req, res) => {
 const getGeneralOverview = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    if (endDate) end.setHours(23, 59, 59, 999);
-    
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
     // Calculate the duration of the current period to get the previous period
     const duration = end.getTime() - start.getTime();
     const prevStart = new Date(start.getTime() - duration);
@@ -571,19 +570,20 @@ const getGrowthPosterData = async (req, res) => {
     const { period = 'day', date } = req.query;
     
     let start, end;
-    const selectedDate = date ? new Date(date) : new Date();
+    const selectedDate = date ? parseDateOnlyUtc(date, false) : new Date();
 
     if (period === 'day') {
-      start = new Date(selectedDate);
-      start.setHours(0, 0, 0, 0);
-      end = new Date(selectedDate);
-      end.setHours(23, 59, 59, 999);
+      start = parseDateOnlyUtc(date, false) || new Date(selectedDate);
+      end = parseDateOnlyUtc(date, true) || new Date(selectedDate);
     } else if (period === 'month') {
-      start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-      end = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      const year = selectedDate.getUTCFullYear();
+      const month = selectedDate.getUTCMonth();
+      start = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+      end = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59, 999));
     } else if (period === 'year') {
-      start = new Date(selectedDate.getFullYear(), 0, 1);
-      end = new Date(selectedDate.getFullYear(), 11, 31, 23, 59, 59, 999);
+      const year = selectedDate.getUTCFullYear();
+      start = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
+      end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
     }
 
     const isSqlite = sequelize.getDialect() === 'sqlite';
@@ -752,10 +752,8 @@ const logItemAction = async (req, res) => {
 const getTrafficStats = async (req, res) => {
   try {
     const { period = 'day', startDate, endDate } = req.query;
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    
-    if (endDate) end.setHours(23, 59, 59, 999);
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
     const isSqlite = sequelize.getDialect() === 'sqlite';
 
     let dateFormat;
@@ -832,10 +830,8 @@ const getTrafficStats = async (req, res) => {
 const getBusinessHealthAnalytics = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    if (endDate) end.setHours(23, 59, 59, 999);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
     const isSqlite = sequelize.getDialect() === 'sqlite';
 
     // 1. Run core queries in parallel
@@ -991,6 +987,475 @@ const getBusinessHealthAnalytics = async (req, res) => {
   }
 };
 
+// Conversion funnel analytics
+const getConversionFunnel = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+
+    const [visitCount, productViewCount, addToCartCount, clickCount, completedOrdersCount, totalOrdersCount] = await Promise.all([
+      SiteVisit.count({ where: { createdAt: { [Op.between]: [start, end] } } }),
+      ProductView.count({ where: { createdAt: { [Op.between]: [start, end] } } }),
+      MarketingAnalytics.count({ where: { actionType: 'conversion', createdAt: { [Op.between]: [start, end] } } }),
+      MarketingAnalytics.count({ where: { actionType: 'click', createdAt: { [Op.between]: [start, end] } } }),
+      Order.count({ where: { createdAt: { [Op.between]: [start, end] }, status: { [Op.in]: ['completed', 'delivered'] } } }),
+      Order.count({ where: { createdAt: { [Op.between]: [start, end] } } })
+    ]);
+
+    const addToCartRate = visitCount > 0 ? (addToCartCount / visitCount) * 100 : 0;
+    const orderConversionRate = addToCartCount > 0 ? (completedOrdersCount / addToCartCount) * 100 : 0;
+    const visitToOrderRate = visitCount > 0 ? (completedOrdersCount / visitCount) * 100 : 0;
+
+    res.json({
+      success: true,
+      dateRange: { start, end },
+      funnel: [
+        { stage: 'visits', count: visitCount },
+        { stage: 'product_views', count: productViewCount },
+        { stage: 'add_to_cart', count: addToCartCount },
+        { stage: 'click_intent', count: clickCount },
+        { stage: 'orders_completed', count: completedOrdersCount }
+      ],
+      metrics: {
+        addToCartRate: Number(addToCartRate.toFixed(2)),
+        orderConversionRate: Number(orderConversionRate.toFixed(2)),
+        visitToOrderRate: Number(visitToOrderRate.toFixed(2)),
+        totalOrders: totalOrdersCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching conversion funnel analytics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch conversion funnel analytics', error: error.message });
+  }
+};
+
+// Delivery health analytics
+const getDeliveryHealth = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+
+    const deliveredOrders = await Order.findAll({
+      where: {
+        createdAt: { [Op.between]: [start, end] },
+        status: { [Op.in]: ['completed', 'delivered'] },
+        actualDelivery: { [Op.ne]: null }
+      },
+      attributes: ['id', 'createdAt', 'actualDelivery', 'estimatedDelivery', 'deliveryRating'],
+      raw: true
+    });
+
+    const totalDelivered = deliveredOrders.length;
+    let totalDeliveryMs = 0;
+    let onTimeCount = 0;
+    let estimatedCount = 0;
+    let ratingSum = 0;
+    let ratingCount = 0;
+
+    deliveredOrders.forEach(order => {
+      const actual = new Date(order.actualDelivery);
+      const created = new Date(order.createdAt);
+      totalDeliveryMs += Math.max(0, actual - created);
+
+      if (order.estimatedDelivery) {
+        estimatedCount += 1;
+        if (actual <= new Date(order.estimatedDelivery)) {
+          onTimeCount += 1;
+        }
+      }
+
+      if (order.deliveryRating) {
+        ratingSum += parseFloat(order.deliveryRating) || 0;
+        ratingCount += 1;
+      }
+    });
+
+    const avgDeliveryHours = totalDelivered > 0 ? totalDeliveryMs / totalDelivered / (1000 * 60 * 60) : 0;
+    const onTimeDeliveryRate = estimatedCount > 0 ? (onTimeCount / estimatedCount) * 100 : null;
+    const averageDeliveryRating = ratingCount > 0 ? ratingSum / ratingCount : null;
+
+    res.json({
+      success: true,
+      dateRange: { start, end },
+      summary: {
+        totalDeliveredOrders: totalDelivered,
+        avgDeliveryHours: Number(avgDeliveryHours.toFixed(2)),
+        onTimeDeliveryRate: onTimeDeliveryRate !== null ? Number(onTimeDeliveryRate.toFixed(2)) : null,
+        deliveryRating: averageDeliveryRating !== null ? Number(averageDeliveryRating.toFixed(2)) : null,
+        estimatedDeliverySample: estimatedCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching delivery health analytics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch delivery health analytics', error: error.message });
+  }
+};
+
+// Product velocity analytics
+const getProductVelocity = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+
+    const [salesStats, viewStats] = await Promise.all([
+      OrderItem.findAll({
+        where: { createdAt: { [Op.between]: [start, end] } },
+        attributes: [
+          'productId',
+          [fn('COUNT', col('id')), 'orderCount'],
+          [fn('SUM', col('quantity')), 'quantitySold'],
+          [fn('SUM', col('total')), 'revenue']
+        ],
+        group: ['productId'],
+        raw: true
+      }),
+      ProductView.findAll({
+        where: { createdAt: { [Op.between]: [start, end] } },
+        attributes: [
+          'productId',
+          [fn('COUNT', col('id')), 'views']
+        ],
+        group: ['productId'],
+        raw: true
+      })
+    ]);
+
+    const salesMap = new Map(salesStats.map(row => [row.productId, row]));
+    const velocity = viewStats
+      .filter(row => row.productId)
+      .map(row => {
+        const productSales = salesMap.get(row.productId) || {};
+        const orders = parseInt(productSales.orderCount || 0);
+        const views = parseInt(row.views || 0);
+        const conversionRate = views > 0 ? (orders / views) * 100 : 0;
+        return {
+          productId: row.productId,
+          views,
+          orders,
+          quantitySold: parseInt(productSales.quantitySold || 0),
+          revenue: parseFloat(productSales.revenue || 0),
+          conversionRate: Number(conversionRate.toFixed(2))
+        };
+      });
+
+    const lowConversionProducts = velocity
+      .sort((a, b) => a.conversionRate - b.conversionRate || b.views - a.views)
+      .slice(0, 10);
+
+    const topSellingProducts = salesStats
+      .filter(row => row.productId)
+      .sort((a, b) => parseInt(b.quantitySold || 0) - parseInt(a.quantitySold || 0))
+      .slice(0, 10);
+
+    const productIds = new Set([
+      ...lowConversionProducts.map(item => item.productId),
+      ...topSellingProducts.map(item => item.productId)
+    ]);
+
+    const products = await Product.findAll({
+      where: { id: { [Op.in]: Array.from(productIds) } },
+      attributes: ['id', 'name', 'displayPrice', 'coverImage', 'approved'],
+      raw: true
+    });
+
+    const productById = new Map(products.map(p => [p.id, p]));
+
+    const mapProduct = (item) => ({
+      ...item,
+      product: productById.get(item.productId) || null
+    });
+
+    res.json({
+      success: true,
+      dateRange: { start, end },
+      topSellingProducts: topSellingProducts.map(mapProduct),
+      lowConversionProducts: lowConversionProducts.map(mapProduct)
+    });
+  } catch (error) {
+    console.error('Error fetching product velocity analytics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch product velocity analytics', error: error.message });
+  }
+};
+
+// Get Platform Growth & Socio-Economic Impact Analytics
+const getPlatformImpactAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const end = endDate ? parseDateOnlyUtc(endDate, true) : new Date();
+    const start = startDate ? parseDateOnlyUtc(startDate, false) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // 1. Economic Empowerment
+    // Seller Earnings: sum of basePrice * quantity for order items in completed/delivered orders
+    const sellerEarningsItems = await OrderItem.findAll({
+      include: [{
+        model: Order,
+        where: {
+          status: { [Op.in]: ['completed', 'delivered'] },
+          createdAt: { [Op.between]: [start, end] }
+        },
+        attributes: []
+      }],
+      attributes: ['price', 'basePrice', 'quantity'],
+      raw: true
+    });
+
+    let totalSellerEarnings = 0;
+    sellerEarningsItems.forEach(item => {
+      const base = parseFloat(item.basePrice || item.price || 0);
+      const qty = parseInt(item.quantity || 1);
+      totalSellerEarnings += (base * qty);
+    });
+
+    // Marketer commissions
+    const totalMarketerCommissions = await Commission.sum('commissionAmount', {
+      where: {
+        status: { [Op.in]: ['success', 'paid'] },
+        createdAt: { [Op.between]: [start, end] }
+      }
+    }) || 0;
+
+    // Delivery agent earnings
+    const totalDeliveryEarnings = await DeliveryTask.sum('agentEarnings', {
+      where: {
+        status: 'completed',
+        createdAt: { [Op.between]: [start, end] }
+      }
+    }) || 0;
+
+    const totalCommunityEarnings = totalSellerEarnings + totalMarketerCommissions + totalDeliveryEarnings;
+
+    // Counts of active agents
+    const activeSellersCount = await OrderItem.count({
+      distinct: true,
+      col: 'sellerId',
+      include: [{
+        model: Order,
+        where: {
+          status: { [Op.in]: ['completed', 'delivered'] },
+          createdAt: { [Op.between]: [start, end] }
+        }
+      }]
+    });
+
+    const activeMarketersCount = await Commission.count({
+      distinct: true,
+      col: 'marketerId',
+      where: {
+        status: { [Op.in]: ['success', 'paid'] },
+        createdAt: { [Op.between]: [start, end] }
+      }
+    });
+
+    const activeDeliveryAgentsCount = await DeliveryTask.count({
+      distinct: true,
+      col: 'deliveryAgentId',
+      where: {
+        status: 'completed',
+        createdAt: { [Op.between]: [start, end] }
+      }
+    });
+
+    // 2. Loyalty & CLV
+    const periodOrders = await Order.findAll({
+      where: {
+        status: { [Op.in]: ['completed', 'delivered'] },
+        createdAt: { [Op.between]: [start, end] }
+      },
+      attributes: ['userId', 'total'],
+      raw: true
+    });
+
+    const userIds = [...new Set(periodOrders.map(o => o.userId).filter(Boolean))];
+    const totalGmv = periodOrders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+    const totalUniqueBuyers = userIds.length;
+    const customerLifetimeValue = totalUniqueBuyers > 0 ? totalGmv / totalUniqueBuyers : 0;
+
+    let repeatBuyersCount = 0;
+    if (totalUniqueBuyers > 0) {
+      const userOrderCounts = await Order.findAll({
+        attributes: ['userId', [fn('COUNT', col('id')), 'orderCount']],
+        where: {
+          userId: { [Op.in]: userIds },
+          status: { [Op.in]: ['completed', 'delivered'] }
+        },
+        group: ['userId'],
+        raw: true
+      });
+      userOrderCounts.forEach(u => {
+        const count = parseInt(u.orderCount || u.prevCount || 0);
+        if (count >= 2) {
+          repeatBuyersCount++;
+        }
+      });
+    }
+
+    const repeatPurchaseRate = totalUniqueBuyers > 0 ? (repeatBuyersCount / totalUniqueBuyers) * 100 : 0;
+    const averageOrderFrequency = totalUniqueBuyers > 0 ? (periodOrders.length / totalUniqueBuyers) : 0;
+
+    // 3. Conversational/Direct Commerce Adoption
+    const directOrders = await Order.findAll({
+      where: {
+        originalTextBlock: { [Op.ne]: null },
+        createdAt: { [Op.between]: [start, end] }
+      },
+      attributes: ['status', 'total'],
+      raw: true
+    });
+
+    const totalOrdersCount = await Order.count({
+      where: {
+        createdAt: { [Op.between]: [start, end] }
+      }
+    });
+
+    const totalDirectOrdersPlaced = directOrders.length;
+    const totalDirectOrdersCompleted = directOrders.filter(o => ['completed', 'delivered'].includes(o.status)).length;
+    const totalDirectGmv = directOrders.filter(o => ['completed', 'delivered'].includes(o.status)).reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+
+    const directOrderShareRate = totalOrdersCount > 0 ? (totalDirectOrdersPlaced / totalOrdersCount) * 100 : 0;
+    const directOrderGmvShareRate = totalGmv > 0 ? (totalDirectGmv / totalGmv) * 100 : 0;
+
+    // 4. Service Quality & Trust
+    const ratingData = await Order.findOne({
+      attributes: [
+        [fn('AVG', col('deliveryRating')), 'avgRating'],
+        [fn('COUNT', col('deliveryRating')), 'countRating']
+      ],
+      where: {
+        deliveryRating: { [Op.ne]: null },
+        status: { [Op.in]: ['completed', 'delivered'] },
+        createdAt: { [Op.between]: [start, end] }
+      },
+      raw: true
+    });
+
+    const avgDeliveryRating = parseFloat(ratingData?.avgRating || 0);
+
+    const completedOrdersCount = periodOrders.length;
+    const orderFulfillmentRate = totalOrdersCount > 0 ? (completedOrdersCount / totalOrdersCount) * 100 : 0;
+
+    const totalDisputesOrReturns = await ReturnRequest.count({
+      where: {
+        createdAt: { [Op.between]: [start, end] }
+      }
+    });
+    const disputeRate = totalOrdersCount > 0 ? (totalDisputesOrReturns / totalOrdersCount) * 100 : 0;
+
+    const cancellations = await Order.findAll({
+      attributes: ['cancelReason'],
+      where: {
+        status: 'cancelled',
+        cancelReason: { [Op.ne]: null },
+        createdAt: { [Op.between]: [start, end] }
+      },
+      raw: true
+    });
+
+    const reasonCounts = {};
+    cancellations.forEach(c => {
+      const reason = c.cancelReason ? c.cancelReason.trim() : 'Unspecified';
+      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+    });
+    const topCancellationReasons = Object.entries(reasonCounts)
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // 5. Growth trends (Cohorts)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const newUsers = await User.findAll({
+      attributes: ['role', 'roles', 'createdAt'],
+      where: {
+        createdAt: { [Op.gte]: sixMonthsAgo }
+      },
+      raw: true
+    });
+
+    const cohortData = {};
+    newUsers.forEach(u => {
+      const date = new Date(u.createdAt);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      let rolesList = ['customer'];
+      if (u.roles) {
+        try {
+          const parsed = typeof u.roles === 'string' ? JSON.parse(u.roles) : u.roles;
+          if (Array.isArray(parsed)) rolesList = parsed;
+        } catch (e) {
+          if (u.role) rolesList = [u.role];
+        }
+      } else if (u.role) {
+        rolesList = [u.role];
+      }
+      
+      if (!cohortData[monthKey]) {
+        cohortData[monthKey] = {};
+      }
+      
+      rolesList.forEach(r => {
+        cohortData[monthKey][r] = (cohortData[monthKey][r] || 0) + 1;
+      });
+    });
+
+    // Format cohort data for frontend charts
+    const sortedMonths = Object.keys(cohortData).sort();
+    const formattedCohorts = sortedMonths.map(month => ({
+      month,
+      customer: cohortData[month].customer || 0,
+      seller: cohortData[month].seller || 0,
+      marketer: cohortData[month].marketer || 0,
+      delivery_agent: cohortData[month].delivery_agent || cohortData[month].deliveryAgent || 0,
+      service_provider: cohortData[month].service_provider || cohortData[month].serviceProvider || 0
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        economicEmpowerment: {
+          totalSellerEarnings: Number(totalSellerEarnings.toFixed(2)),
+          totalMarketerCommissions: Number(totalMarketerCommissions.toFixed(2)),
+          totalDeliveryEarnings: Number(totalDeliveryEarnings.toFixed(2)),
+          totalCommunityEarnings: Number(totalCommunityEarnings.toFixed(2)),
+          activeSellersCount,
+          activeMarketersCount,
+          activeDeliveryAgentsCount
+        },
+        loyaltyAndCLV: {
+          customerLifetimeValue: Number(customerLifetimeValue.toFixed(2)),
+          repeatPurchaseRate: Number(repeatPurchaseRate.toFixed(2)),
+          averageOrderFrequency: Number(averageOrderFrequency.toFixed(2)),
+          totalUniqueBuyers,
+          repeatBuyersCount
+        },
+        directCommerce: {
+          totalDirectOrdersPlaced,
+          totalDirectOrdersCompleted,
+          totalDirectGmv: Number(totalDirectGmv.toFixed(2)),
+          directOrderShareRate: Number(directOrderShareRate.toFixed(2)),
+          directOrderGmvShareRate: Number(directOrderGmvShareRate.toFixed(2))
+        },
+        serviceQualityAndTrust: {
+          averageDeliveryRating: Number(avgDeliveryRating.toFixed(2)),
+          orderFulfillmentRate: Number(orderFulfillmentRate.toFixed(2)),
+          totalDisputesOrReturns,
+          disputeRate: Number(disputeRate.toFixed(2)),
+          topCancellationReasons
+        },
+        growthCohorts: formattedCohorts
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching platform impact analytics:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch platform impact analytics', error: error.message });
+  }
+};
+
 module.exports = {
   getGeneralOverview,
   getHistoricalTrends,
@@ -1002,5 +1467,9 @@ module.exports = {
   logSiteVisit,
   logItemAction,
   getTrafficStats,
-  getBusinessHealthAnalytics
+  getConversionFunnel,
+  getDeliveryHealth,
+  getProductVelocity,
+  getBusinessHealthAnalytics,
+  getPlatformImpactAnalytics
 };

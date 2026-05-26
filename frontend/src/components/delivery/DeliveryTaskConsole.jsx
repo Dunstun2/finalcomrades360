@@ -378,6 +378,105 @@ const DeliveryTaskConsole = ({
 
     const totals = computeTotals();
 
+    // Trigger periodic updates for the elapsed timer (every 60 seconds)
+    const [, setTick] = React.useState(0);
+    React.useEffect(() => {
+        const interval = setInterval(() => {
+            setTick(t => t + 1);
+        }, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getElapsedTimeInfo = () => {
+        const assignedTime = activeTask?.assignedAt || activeTask?.createdAt || order?.createdAt;
+        if (!assignedTime) return null;
+        
+        const assignedDate = new Date(assignedTime);
+        const now = new Date();
+        const diffMs = now - assignedDate;
+        
+        const diffMins = Math.floor(Math.max(0, diffMs) / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        
+        let elapsedText = '';
+        if (diffMins < 1) {
+            elapsedText = 'just now';
+        } else if (diffMins < 60) {
+            elapsedText = `${diffMins}m ago`;
+        } else if (diffHours < 24) {
+            const minsLeft = diffMins % 60;
+            elapsedText = minsLeft > 0 ? `${diffHours}h ${minsLeft}m ago` : `${diffHours}h ago`;
+        } else {
+            elapsedText = `${diffDays}d ago`;
+        }
+        
+        // Mark as warning/delay if assigned for more than 30 minutes and not yet started/completed
+        const isDelayed = diffMins >= 30 && !['completed', 'failed', 'cancelled'].includes(activeTask?.status || order?.status); 
+
+        return {
+            formattedTime: assignedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+            formattedDate: assignedDate.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+            elapsedText,
+            isDelayed,
+            diffMins
+        };
+    };
+
+    const getExpectedDeliveryInfo = () => {
+        const estTime = activeTask?.estimatedDeliveryTime || order?.deliveryTimePreference;
+        if (!estTime) return null;
+        
+        const estDate = new Date(estTime);
+        
+        if (isNaN(estDate.getTime())) {
+            if (typeof estTime === 'string') {
+                return {
+                    isStringPreference: true,
+                    text: estTime
+                };
+            }
+            return null;
+        }
+        
+        const now = new Date();
+        const diffMs = estDate - now;
+        const diffMins = Math.floor(diffMs / 60000);
+        const isOverdue = diffMins < 0 && !['completed', 'failed', 'cancelled'].includes(activeTask?.status || order?.status);
+        
+        let dueText = '';
+        if (diffMins < 0) {
+            const absMins = Math.abs(diffMins);
+            if (absMins < 60) {
+                dueText = `${absMins}m overdue`;
+            } else {
+                const hours = Math.floor(absMins / 60);
+                const mins = absMins % 60;
+                dueText = mins > 0 ? `${hours}h ${mins}m overdue` : `${hours}h overdue`;
+            }
+        } else {
+            if (diffMins < 60) {
+                dueText = `in ${diffMins}m`;
+            } else {
+                const hours = Math.floor(diffMins / 60);
+                const mins = diffMins % 60;
+                dueText = mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
+            }
+        }
+        
+        return {
+            isStringPreference: false,
+            formattedTime: estDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+            formattedDate: estDate.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+            dueText,
+            isOverdue,
+            diffMins
+        };
+    };
+
+    const elapsedInfo = getElapsedTimeInfo();
+    const expectedInfo = getExpectedDeliveryInfo();
+
     return (
         <div 
             className={`delivery-console-card bg-white rounded-xl sm:rounded-2xl shadow-sm border transition-all duration-300 
@@ -398,11 +497,36 @@ const DeliveryTaskConsole = ({
                     )}
 
                     <div>
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h3 className="text-base sm:text-lg font-black text-gray-900 tracking-tight">{order.orderNumber}</h3>
                             <span className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider border ${statusInfo.color}`}>
                                 {statusInfo.label}
                             </span>
+                            {activeTask?.collectionAlertedAt && (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 bg-purple-100 text-purple-700 border-purple-200`}
+                                    title={`Customer notified at ${new Date(activeTask.collectionAlertedAt).toLocaleString()}`}
+                                >
+                                    <FaCheckCircle size={9} className="text-purple-500" /> Notified
+                                </span>
+                            )}
+                            {elapsedInfo && (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 
+                                    ${elapsedInfo.isDelayed ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' : 'bg-slate-100 text-slate-700 border-slate-200'}`}
+                                    title={`Assigned at ${elapsedInfo.formattedTime}`}
+                                >
+                                    <FaClock size={9} className={elapsedInfo.isDelayed ? 'text-amber-500' : 'text-slate-400'} />
+                                    {elapsedInfo.elapsedText}
+                                </span>
+                            )}
+                            {expectedInfo && !expectedInfo.isStringPreference && (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 
+                                    ${expectedInfo.isOverdue ? 'bg-red-100 text-red-700 border-red-200 animate-pulse' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}
+                                    title={`Deliver by ${expectedInfo.formattedTime}`}
+                                >
+                                    <FaClock size={9} className={expectedInfo.isOverdue ? 'text-red-500' : 'text-emerald-500'} />
+                                    {expectedInfo.dueText}
+                                </span>
+                            )}
                         </div>
                         <p className="text-[10px] sm:text-xs text-slate-500 font-bold mt-1 flex items-center gap-1.5">
                             <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
@@ -434,6 +558,26 @@ const DeliveryTaskConsole = ({
                                 <p className="text-[10px] sm:text-xs text-indigo-600 font-black flex items-center gap-1">
                                     <FaPhone className="text-indigo-300 text-[9px]" />
                                     {order.customerPhone || order.User?.phone}
+                                </p>
+                            )}
+
+                            {elapsedInfo && (
+                                <p className={`text-[10px] sm:text-xs font-semibold flex items-center gap-1 ${elapsedInfo.isDelayed ? 'text-amber-600' : 'text-slate-600'}`}>
+                                    <FaClock size={9} className={elapsedInfo.isDelayed ? 'text-amber-500' : 'text-slate-400'} />
+                                    <span>Assigned: {elapsedInfo.formattedTime} ({elapsedInfo.elapsedText})</span>
+                                </p>
+                            )}
+
+                            {expectedInfo && (
+                                <p className={`text-[10px] sm:text-xs font-black flex items-center gap-1 ${expectedInfo.isOverdue ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                    <FaClock size={9} className={expectedInfo.isOverdue ? 'text-rose-500' : 'text-emerald-500'} />
+                                    <span>
+                                        {expectedInfo.isStringPreference ? (
+                                            `Expected: ${expectedInfo.text}`
+                                        ) : (
+                                            `Deliver by: ${expectedInfo.formattedTime} (${expectedInfo.dueText})`
+                                        )}
+                                    </span>
                                 </p>
                             )}
                         </div>
@@ -535,6 +679,88 @@ const DeliveryTaskConsole = ({
                                 </div>
                             )}
                         </div>
+
+                        {/* Task Timeline & Tracking Progress */}
+                        {(elapsedInfo || expectedInfo || activeTask?.acceptedAt || activeTask?.collectedAt || activeTask?.startedAt || activeTask?.completedAt) && (
+                            <div className="lg:col-span-12 mt-4 bg-white p-4 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 flex items-center gap-1.5">
+                                    <FaClock className="text-blue-500" /> Task Timeline & Timing Details
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {elapsedInfo && (
+                                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-between">
+                                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Assigned At</p>
+                                            <p className="text-xs font-black text-slate-700 mt-1">{elapsedInfo.formattedTime}</p>
+                                            <p className="text-[9px] font-medium text-slate-500 mt-0.5">{elapsedInfo.formattedDate} ({elapsedInfo.elapsedText})</p>
+                                        </div>
+                                    )}
+                                    {activeTask?.acceptedAt ? (
+                                        <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex flex-col justify-between">
+                                            <p className="text-[8px] font-bold text-indigo-400 uppercase tracking-wider">Accepted At</p>
+                                            <p className="text-xs font-black text-indigo-700 mt-1">
+                                                {new Date(activeTask.acceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                            </p>
+                                            <p className="text-[9px] font-medium text-indigo-500 mt-0.5">
+                                                {new Date(activeTask.acceptedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-gray-50/50 rounded-xl border border-gray-100/50 flex flex-col justify-between opacity-50">
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wider">Accepted At</p>
+                                            <p className="text-xs font-bold text-gray-400 mt-1">—</p>
+                                            <p className="text-[9px] text-gray-400 mt-0.5">Not accepted yet</p>
+                                        </div>
+                                    )}
+                                    {activeTask?.collectedAt ? (
+                                        <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-100/70 flex flex-col justify-between">
+                                            <p className="text-[8px] font-bold text-amber-500 uppercase tracking-wider">Collected At</p>
+                                            <p className="text-xs font-black text-amber-700 mt-1">
+                                                {new Date(activeTask.collectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                            </p>
+                                            <p className="text-[9px] font-medium text-amber-600 mt-0.5">
+                                                {new Date(activeTask.collectedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-gray-50/50 rounded-xl border border-gray-100/50 flex flex-col justify-between opacity-50">
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wider">Collected At</p>
+                                            <p className="text-xs font-bold text-gray-400 mt-1">—</p>
+                                            <p className="text-[9px] text-gray-400 mt-0.5">Not collected yet</p>
+                                        </div>
+                                    )}
+                                    {activeTask?.completedAt ? (
+                                        <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex flex-col justify-between">
+                                            <p className="text-[8px] font-bold text-emerald-500 uppercase tracking-wider">Completed At</p>
+                                            <p className="text-xs font-black text-emerald-700 mt-1">
+                                                {new Date(activeTask.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                            </p>
+                                            <p className="text-[9px] font-medium text-emerald-600 mt-0.5">
+                                                {new Date(activeTask.completedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                            </p>
+                                        </div>
+                                    ) : expectedInfo ? (
+                                        <div className={`p-3 rounded-xl border flex flex-col justify-between 
+                                            ${expectedInfo.isOverdue ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50/40 border-emerald-100'}`}>
+                                            <p className={`text-[8px] font-bold uppercase tracking-wider ${expectedInfo.isOverdue ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                                Target Delivery
+                                            </p>
+                                            <p className={`text-xs font-black mt-1 ${expectedInfo.isOverdue ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                                {expectedInfo.isStringPreference ? expectedInfo.text : expectedInfo.formattedTime}
+                                            </p>
+                                            <p className={`text-[9px] font-black mt-0.5 uppercase tracking-tighter ${expectedInfo.isOverdue ? 'text-rose-600 animate-pulse' : 'text-emerald-600'}`}>
+                                                {expectedInfo.isStringPreference ? 'Preference' : expectedInfo.dueText}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-gray-50/50 rounded-xl border border-gray-100/50 flex flex-col justify-between opacity-50">
+                                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-wider">Target Delivery</p>
+                                            <p className="text-xs font-bold text-gray-400 mt-1">—</p>
+                                            <p className="text-[9px] text-gray-400 mt-0.5">Not specified</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Order Details & Earnings Section */}
                         <div className="lg:col-span-12 mt-4">

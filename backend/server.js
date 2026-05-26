@@ -1,5 +1,5 @@
 console.error('🚀 SERVER STARTING - VERSION: ' + Date.now());
-console.log('--- RELOAD VERIFIED V5 ---'); // CRITICAL: loads User as-alias fix
+console.log('--- RELOAD VERIFIED V6 ---'); // CRITICAL: loads User as-alias fix + sortBy sanitization
 
 const express = require('express');
 const cors = require('cors');
@@ -268,6 +268,7 @@ apiRouter.use('/marketing', require('./routes/marketingRoutes'));
 apiRouter.use('/inventory', require('./routes/inventoryRoutes'));
 apiRouter.use('/services', require('./routes/serviceRoutes'));
 apiRouter.use('/finance', require('./routes/financeRoutes'));
+apiRouter.use('/promo-codes', require('./routes/promoCode'));
 apiRouter.use('/payments', require('./routes/paymentRoutes'));
 // apiRouter.use('/mpesa', require('./routes/mpesaRoutes'));
 apiRouter.use('/notifications', require('./routes/notificationRoutes'));
@@ -465,7 +466,7 @@ server.timeout = 60000;
 server.keepAliveTimeout = 65000;
 
 // Passenger/cPanel often provides process.env.PORT
-const DEFAULT_PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 4000);
+const DEFAULT_PORT = process.env.BACKEND_PORT || process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 4000);
 
 // Socket.IO configuration
 const socketAllowedOrigins = [
@@ -624,7 +625,8 @@ async function startServer() {
   // Handle server errors
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-       console.error(`[Runtime] Port ${DEFAULT_PORT} is already in use.`);
+       console.error(`[Runtime] Port ${DEFAULT_PORT} is already in use. Force exiting process so nodemon can retry or cleanly fail.`);
+       process.exit(1); // CRITICAL: Exit so it doesn't become a zombie process
     } else {
        console.error('❌ Server runtime error:', err);
     }
@@ -635,11 +637,28 @@ async function startServer() {
     console.error('UNHANDLED REJECTION! 💥', err.name, err.message);
   });
 
-  // Handle SIGTERM
-  process.on('SIGTERM', () => {
-    console.error('SIGTERM received. Shutting down gracefully');
-    server.close(() => console.log('Process terminated'));
-  });
+  // Graceful shutdown helper
+  const gracefulShutdown = (signal) => {
+    console.error(`[Process] ${signal} received. Shutting down gracefully...`);
+    server.close(() => {
+      console.log('[Process] HTTP server closed.');
+      process.exit(0);
+    });
+    // Force shutdown after 3 seconds if connections are lingering
+    setTimeout(() => {
+      console.error('[Process] Forcing exit due to lingering connections.');
+      process.exit(0);
+    }, 3000).unref();
+  };
+
+  // Handle SIGTERM (Docker/Heroku/systemd)
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  
+  // Handle SIGINT (Ctrl+C)
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Handle SIGUSR2 (Nodemon restarts)
+  process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2'));
 }
 
 // Singleton Startup Protector

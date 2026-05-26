@@ -111,10 +111,10 @@ export default function FastFood() {
                 try {
                     const promoRes = await api.get('/hero-promotions/active');
                     const promos = Array.isArray(promoRes.data?.items) ? promoRes.data.items : (Array.isArray(promoRes.data) ? promoRes.data : []);
-                    const fastFoodPromos = promos.filter(p => p.promoType === 'fastfood' && Array.isArray(p.fastfoods) && p.fastfoods.length > 0);
+                    const fastFoodPromos = promos.filter(p => p.promoType === 'fastfood' && (p.customImageUrl || (Array.isArray(p.fastfoods) && p.fastfoods.length > 0)));
                     
                     fastFoodPromos.forEach(p => {
-                        const fastFoodItem = p.fastfoods[0];
+                        const fastFoodItem = Array.isArray(p.fastfoods) && p.fastfoods.length > 0 ? p.fastfoods[0] : null;
                         const campId = `promo_${p.id}`;
                         // Don't add duplicate if already in list
                         if (!activeList.find(c => c.id === campId)) {
@@ -125,11 +125,14 @@ export default function FastFood() {
                                 type: p.customImageUrl ? 'manual_image_only' : 'featured_item',
                                 title: p.title || '',
                                 subtitle: p.subtitle || '',
-                                image: p.customImageUrl || fastFoodItem.mainImage,
-                                itemId: fastFoodItem.id
+                                image: p.customImageUrl || fastFoodItem?.mainImage,
+                                itemId: fastFoodItem?.id || 'none',
+                                trustPoints: p.trustPoints || undefined
                             });
                         }
-                        itemsMap[fastFoodItem.id] = fastFoodItem;
+                        if (fastFoodItem) {
+                            itemsMap[fastFoodItem.id] = fastFoodItem;
+                        }
                     });
                 } catch (e) {
                     console.error('Failed to load hero promotions:', e);
@@ -265,16 +268,7 @@ export default function FastFood() {
             <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
                 <PageLayout>
                     <div className="min-h-screen flex flex-col pb-20">
-                        {/* Back Button */}
-                        <div className="w-full px-0 md:px-4 py-4">
-                            <button
-                                onClick={() => navigate('/')}
-                                className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors ml-4 md:ml-0"
-                            >
-                                <FaArrowLeft className="mr-2" />
-                                Back to Homepage
-                            </button>
-                        </div>
+
 
                         <FastFoodHero
                             settings={activeCampaigns[currentCampaignIndex] || {}}
@@ -301,6 +295,12 @@ export default function FastFood() {
                         {/* Tab Navigation */}
                         <div className="flex justify-center mt-4 mb-6 px-3 md:px-4 relative z-20">
                             <div className="w-full sm:w-auto bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/50 flex space-x-2">
+                                <button
+                                    onClick={() => navigate('/')}
+                                    className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                                >
+                                    <FaArrowLeft className="mr-2" /> Homepage
+                                </button>
                                 <button
                                     onClick={() => handleTabChange('all')}
                                     className={`flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-50'}`}

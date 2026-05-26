@@ -94,13 +94,60 @@ const initScheduledTasks = () => {
         try {
             const now = new Date();
             // 1. Products
-            const deletedProductsCount = await DeletedProduct.destroy({
+            const expiredProducts = await DeletedProduct.findAll({
                 where: {
                     autoDeleteAt: {
                         [Op.lte]: now
                     }
                 }
             });
+
+            let deletedProductsCount = 0;
+            for (const dp of expiredProducts) {
+                // Permanently delete the original soft-deleted product
+                const originalProduct = await Product.findOne({ where: { id: dp.originalId } });
+                if (originalProduct) {
+                    try {
+                        const db = require('../models');
+                        if (db.CartItem) await db.CartItem.destroy({ where: { productId: originalProduct.id } });
+                        if (db.Wishlist) await db.Wishlist.destroy({ where: { productId: originalProduct.id } });
+                        if (db.ProductVariant) await db.ProductVariant.destroy({ where: { productId: originalProduct.id } });
+                        if (db.ProductView) await db.ProductView.destroy({ where: { productId: originalProduct.id } });
+                        if (db.ProductInquiry) await db.ProductInquiry.destroy({ where: { productId: originalProduct.id } });
+                        if (db.ProductReview) await db.ProductReview.destroy({ where: { productId: originalProduct.id } });
+                        if (db.Commission) await db.Commission.destroy({ where: { productId: originalProduct.id } });
+                        if (db.StockAuditLog) await db.StockAuditLog.destroy({ where: { productId: originalProduct.id } });
+                        if (db.StockReservation) await db.StockReservation.destroy({ where: { productId: originalProduct.id } });
+                        if (db.WarehouseStock) await db.WarehouseStock.destroy({ where: { productId: originalProduct.id } });
+                        if (db.ProductDeletionRequest) await db.ProductDeletionRequest.destroy({ where: { productId: originalProduct.id } });
+                        if (db.OrderItem) await db.OrderItem.update({ productId: null }, { where: { productId: originalProduct.id } });
+                    } catch (e) {
+                        console.warn('Error cleaning up related records during cron deletion of product', originalProduct.id, e);
+                    }
+                    await originalProduct.destroy();
+                }
+                
+                // Cleanup files
+                const filesToDelete = [];
+                try {
+                    if (dp.images) {
+                        const images = typeof dp.images === 'string' ? JSON.parse(dp.images) : dp.images;
+                        if (Array.isArray(images)) filesToDelete.push(...images);
+                    }
+                    if (dp.logistics) {
+                        const logistics = typeof dp.logistics === 'string' ? JSON.parse(dp.logistics) : dp.logistics;
+                        if (logistics.videoPath) filesToDelete.push(logistics.videoPath);
+                    }
+                } catch (e) {}
+                
+                if (filesToDelete.length > 0) {
+                    const { deleteFiles } = require('../utils/fileHelpers');
+                    if (deleteFiles) deleteFiles(filesToDelete);
+                }
+
+                await dp.destroy();
+                deletedProductsCount++;
+            }
 
             // 2. Fast Food
             const deletedFastFoodsCount = await DeletedFastFood.destroy({
@@ -144,6 +191,36 @@ const initScheduledTasks = () => {
             }
         } catch (error) {
             console.error('❌ Error in order auto-completion check:', error);
+        }
+    });
+
+    // Run every day at midnight - Auto-complete delivered Fast Food orders
+    cron.schedule('0 0 * * *', async () => {
+        console.log('🍔 Running midnight Fast Food order auto-completion check...');
+        try {
+            const deliveredOrders = await Order.findAll({
+                where: { status: 'delivered' },
+                include: [{
+                    model: OrderItem,
+                    as: 'OrderItems',
+                    attributes: ['id', 'fastFoodId']
+                }]
+            });
+
+            let completedCount = 0;
+            for (const order of deliveredOrders) {
+                const isFastFood = (order.OrderItems || []).some(item => item.fastFoodId != null);
+                if (isFastFood) {
+                    await order.update({ status: 'completed' });
+                    completedCount++;
+                }
+            }
+
+            if (completedCount > 0) {
+                console.log(`✅ Auto-completed ${completedCount} delivered Fast Food orders.`);
+            }
+        } catch (error) {
+            console.error('❌ Error in Fast Food order auto-completion check:', error);
         }
     });
 
@@ -227,8 +304,8 @@ const initScheduledTasks = () => {
     });
 
     // ─── CRON: Auto-expire unaccepted delivery task assignments + Auto-Reassignment broadcast ───
-    // Runs every 5 minutes — covers tasks stuck in 'assigned' status (never accepted)
-    cron.schedule('*/5 * * * *', async () => {
+    // Runs every minute — covers tasks stuck in 'assigned' status (never accepted)
+    cron.schedule('* * * * *', async () => {
         try {
             const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem } = require('../models');
             const { getIO } = require('../realtime/socket');
@@ -247,7 +324,8 @@ const initScheduledTasks = () => {
                 }
             }
 
-            const earliestThreshold = new Date(Date.now() - fastfoodExpiryMinutes * 60 * 1000);
+            const minExpiryMinutes = Math.min(fastfoodExpiryMinutes, productExpiryMinutes);
+            const earliestThreshold = new Date(Date.now() - minExpiryMinutes * 60 * 1000);
             const expiredTasks = await DeliveryTask.findAll({
                 where: { status: 'assigned', assignedAt: { [Op.lte]: earliestThreshold } },
                 include: [{ model: Order, as: 'order', include: [{ model: OrderItem, as: 'OrderItems', attributes: ['id', 'fastFoodId', 'productId'] }] }]

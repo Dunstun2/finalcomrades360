@@ -110,6 +110,15 @@ export default function AdvancedReports() {
     if (activeTab === 'items') {
       loadItemPerformance();
     }
+    if (activeTab === 'funnel') {
+      loadConversionFunnel();
+    }
+    if (activeTab === 'delivery') {
+      loadDeliveryHealth();
+    }
+    if (activeTab === 'velocity') {
+      loadProductVelocity();
+    }
   }, [activeTab, dateRange]);
 
   const loadItemPerformance = async () => {
@@ -200,12 +209,94 @@ export default function AdvancedReports() {
     }
   };
 
+  const [conversionFunnel, setConversionFunnel] = useState(null);
+  const [deliveryHealth, setDeliveryHealth] = useState(null);
+  const [productVelocity, setProductVelocity] = useState(null);
+  const [conversionLoading, setConversionLoading] = useState(false);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [velocityLoading, setVelocityLoading] = useState(false);
+  const [impactData, setImpactData] = useState(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+
+  const loadConversionFunnel = async () => {
+    setConversionLoading(true);
+    try {
+      const res = await api.get('/analytics/funnel', {
+        params: { startDate: dateRange.start, endDate: dateRange.end }
+      });
+      setConversionFunnel(res.data);
+    } catch (err) {
+      console.warn('Failed to load conversion funnel analytics:', err);
+      setConversionFunnel(null);
+      toast.error('Failed to load conversion funnel analytics');
+    } finally {
+      setConversionLoading(false);
+    }
+  };
+
+  const loadDeliveryHealth = async () => {
+    setDeliveryLoading(true);
+    try {
+      const res = await api.get('/analytics/delivery/health', {
+        params: { startDate: dateRange.start, endDate: dateRange.end }
+      });
+      setDeliveryHealth(res.data.data);
+    } catch (err) {
+      console.warn('Failed to load delivery health analytics:', err);
+      setDeliveryHealth(null);
+      toast.error('Failed to load delivery health analytics');
+    } finally {
+      setDeliveryLoading(false);
+    }
+  };
+
+  const loadProductVelocity = async () => {
+    setVelocityLoading(true);
+    try {
+      const res = await api.get('/analytics/product-velocity', {
+        params: { startDate: dateRange.start, endDate: dateRange.end }
+      });
+      setProductVelocity(res.data);
+    } catch (err) {
+      console.warn('Failed to load product velocity analytics:', err);
+      setProductVelocity(null);
+      toast.error('Failed to load product velocity analytics');
+    } finally {
+      setVelocityLoading(false);
+    }
+  };
+
+  const loadImpactData = async () => {
+    setImpactLoading(true);
+    try {
+      const res = await api.get('/analytics/impact', {
+        params: { startDate: dateRange.start, endDate: dateRange.end }
+      });
+      setImpactData(res.data.data);
+    } catch (err) {
+      console.warn('Failed to load platform impact analytics:', err);
+      toast.error('Failed to load growth & impact metrics');
+    } finally {
+      setImpactLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'impact') {
+      loadImpactData();
+    }
+  }, [activeTab, dateRange]);
+
   const tabs = [
     { id: 'overview', name: 'Overview', icon: '📊' },
     { id: 'traffic', name: 'Traffic & Performance', icon: '🌐' },
+    { id: 'funnel', name: 'Conversion Funnel', icon: '🧪' },
+    { id: 'delivery', name: 'Delivery Health', icon: '🚚' },
+    { id: 'velocity', name: 'Product Velocity', icon: '⚡' },
     { id: 'sales', name: 'Sales', icon: '💰' },
     { id: 'items', name: 'Item Performance', icon: '🧾' },
     { id: 'users', name: 'Users', icon: '👥' },
+    { id: 'impact', name: 'Impact & Community', icon: '🌱' },
     { id: 'growth', name: 'Growth Poster', icon: '🎨' },
     { id: 'custom', name: 'Custom Reports', icon: '🔧' }
   ];
@@ -529,6 +620,147 @@ export default function AdvancedReports() {
             </div>
           )}
 
+          {/* Conversion Funnel Tab */}
+          {activeTab === 'funnel' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-semibold">Conversion Funnel</h3>
+                  <p className="text-sm text-gray-500">Track visits, product views, add-to-cart actions, clicks, and completed orders for the selected range.</p>
+                </div>
+                <button className="btn-outline btn-sm" onClick={loadConversionFunnel} disabled={conversionLoading}>
+                  {conversionLoading ? 'Refreshing...' : 'Refresh Funnel'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(conversionFunnel?.funnel || []).map((stage) => (
+                  <div key={stage.stage} className="card p-4 text-center">
+                    <div className="text-sm uppercase text-gray-500 tracking-[0.15em] mb-2">{stage.stage.replace('_', ' ')}</div>
+                    <div className="text-3xl font-black text-blue-600">{stage.count}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="card p-4">
+                  <div className="text-sm text-gray-500">Add-to-Cart Rate</div>
+                  <div className="text-3xl font-black text-green-600">{conversionFunnel?.metrics?.addToCartRate ?? 0}%</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm text-gray-500">Conversion Rate</div>
+                  <div className="text-3xl font-black text-purple-600">{conversionFunnel?.metrics?.orderConversionRate ?? 0}%</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-sm text-gray-500">Visit-to-Order Rate</div>
+                  <div className="text-3xl font-black text-orange-600">{conversionFunnel?.metrics?.visitToOrderRate ?? 0}%</div>
+                </div>
+              </div>
+
+              <div className="card p-6 bg-gray-50 rounded-3xl">
+                <div className="text-sm text-gray-500">Total orders in range</div>
+                <div className="text-4xl font-black text-blue-700">{conversionFunnel?.metrics?.totalOrders ?? 0}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Delivery Health Tab */}
+          {activeTab === 'delivery' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-semibold">Delivery Health</h3>
+                  <p className="text-sm text-gray-500">Monitor delivery reliability, speed, and customer satisfaction across delivered orders.</p>
+                </div>
+                <button className="btn-outline btn-sm" onClick={loadDeliveryHealth} disabled={deliveryLoading}>
+                  {deliveryLoading ? 'Refreshing...' : 'Refresh Delivery Health'}
+                </button>
+              </div>
+
+              {deliveryLoading ? (
+                <div className="py-16 text-center text-gray-500 italic">Loading delivery health metrics...</div>
+              ) : deliveryHealth ? (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="card p-4 text-center">
+                    <div className="text-sm text-gray-500">Delivered Orders</div>
+                    <div className="text-3xl font-black text-blue-600">{deliveryHealth.totalDeliveredOrders ?? 0}</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-sm text-gray-500">Average Delivery</div>
+                    <div className="text-3xl font-black text-green-600">{deliveryHealth.avgDeliveryHours ?? 0}h</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-sm text-gray-500">On-Time Rate</div>
+                    <div className="text-3xl font-black text-purple-600">{deliveryHealth.onTimeDeliveryRate ?? 0}%</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-sm text-gray-500">Average Rating</div>
+                    <div className="text-3xl font-black text-orange-600">{deliveryHealth.deliveryRating ?? 0}/5</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-16 text-center text-gray-500 italic">No delivery health data available for this period.</div>
+              )}
+            </div>
+          )}
+
+          {/* Product Velocity Tab */}
+          {activeTab === 'velocity' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-semibold">Product Velocity</h3>
+                  <p className="text-sm text-gray-500">Identify top selling items and low-conversion products for optimization.</p>
+                </div>
+                <button className="btn-outline btn-sm" onClick={loadProductVelocity} disabled={velocityLoading}>
+                  {velocityLoading ? 'Refreshing...' : 'Refresh Product Velocity'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="card p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-[0.2em] mb-4">Top Selling Products</h4>
+                  {(productVelocity?.topSellingProducts || []).length > 0 ? (
+                    <div className="space-y-3">
+                      {productVelocity.topSellingProducts.map((item, index) => (
+                        <div key={item.productId || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
+                          <div>
+                            <div className="font-medium text-sm truncate">{item.product?.name || item.productId}</div>
+                            <div className="text-[11px] text-gray-500">{item.quantitySold} units · KES {Number(item.revenue || 0).toLocaleString()}</div>
+                          </div>
+                          <div className="text-sm font-bold text-blue-600">#{index + 1}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 text-gray-400 italic">No velocity data available.</div>
+                  )}
+                </div>
+
+                <div className="card p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-[0.2em] mb-4">Low Conversion Products</h4>
+                  {(productVelocity?.lowConversionProducts || []).length > 0 ? (
+                    <div className="space-y-3">
+                      {productVelocity.lowConversionProducts.map((item, index) => (
+                        <div key={item.productId || index} className="p-3 bg-gray-50 rounded-2xl border border-gray-100">
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <div className="font-medium text-sm truncate">{item.product?.name || item.productId}</div>
+                              <div className="text-[11px] text-gray-500">{item.views} views · {item.orders} orders</div>
+                            </div>
+                            <div className="text-sm font-semibold text-red-600">{item.conversionRate}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 text-gray-400 italic">No low conversion products found.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Sales Tab */}
           {activeTab === 'sales' && (
             <div className="space-y-6">
@@ -832,6 +1064,308 @@ export default function AdvancedReports() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Impact & Community Tab */}
+          {activeTab === 'impact' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">🌱 Platform Growth & Socio-Economic Impact</h3>
+                  <p className="text-sm text-gray-500">Empowering local communities, facilitating conversational commerce, and building trust.</p>
+                </div>
+                <button 
+                  className="btn btn-sm bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-md"
+                  onClick={loadImpactData}
+                  disabled={impactLoading}
+                >
+                  {impactLoading ? 'Refreshing...' : '🔄 Refresh Impact Data'}
+                </button>
+              </div>
+
+              {impactLoading ? (
+                <div className="py-20 text-center space-y-3">
+                  <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  <p className="text-gray-500 font-medium italic">Compiling socio-economic impact metrics...</p>
+                </div>
+              ) : impactData ? (
+                <div className="space-y-8">
+                  {/* KPI Scorecards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-5 rounded-2xl border border-indigo-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                      <div className="absolute right-3 top-3 text-4xl opacity-10">💰</div>
+                      <div className="text-sm font-semibold text-indigo-600 uppercase tracking-wider">Community Earnings</div>
+                      <div className="text-2xl font-black text-indigo-900 mt-2">
+                        KES {impactData.economicEmpowerment?.totalCommunityEarnings?.toLocaleString() || 0}
+                      </div>
+                      <div className="text-xs text-indigo-700 mt-1 font-medium">Distributed among local participants</div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-5 rounded-2xl border border-teal-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                      <div className="absolute right-3 top-3 text-4xl opacity-10">📈</div>
+                      <div className="text-sm font-semibold text-teal-600 uppercase tracking-wider">Customer Lifetime Value</div>
+                      <div className="text-2xl font-black text-teal-900 mt-2">
+                        KES {impactData.loyaltyAndCLV?.customerLifetimeValue?.toLocaleString() || 0}
+                      </div>
+                      <div className="text-xs text-teal-700 mt-1 font-medium">Average purchase volume per customer</div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-5 rounded-2xl border border-amber-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                      <div className="absolute right-3 top-3 text-4xl opacity-10">🔁</div>
+                      <div className="text-sm font-semibold text-amber-600 uppercase tracking-wider">Repeat Purchase Rate</div>
+                      <div className="text-2xl font-black text-amber-900 mt-2">
+                        {impactData.loyaltyAndCLV?.repeatPurchaseRate || 0}%
+                      </div>
+                      <div className="text-xs text-amber-700 mt-1 font-medium">Buyers with 2+ completed orders</div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 rounded-2xl border border-purple-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                      <div className="absolute right-3 top-3 text-4xl opacity-10">⭐️</div>
+                      <div className="text-sm font-semibold text-purple-600 uppercase tracking-wider">Delivery Satisfaction</div>
+                      <div className="text-2xl font-black text-purple-900 mt-2">
+                        {impactData.serviceQualityAndTrust?.averageDeliveryRating || 0} / 5
+                      </div>
+                      <div className="text-xs text-purple-700 mt-1 font-medium">Average delivery quality rating</div>
+                    </div>
+                  </div>
+
+                  {/* Section 1: Economic Empowerment & Community Support */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                      <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span className="text-indigo-600">🤝</span> Economic Empowerment Breakdown
+                      </h4>
+                      <p className="text-xs text-gray-500 mb-6">Total payouts distributed to platform vendors, marketers, and gig workers in this period.</p>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex justify-between text-sm font-semibold text-gray-700 mb-1">
+                            <span>🏪 Sellers / Vendors</span>
+                            <span className="font-bold">KES {impactData.economicEmpowerment?.totalSellerEarnings?.toLocaleString()}</span>
+                          </div>
+                          <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-indigo-600 h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${impactData.economicEmpowerment?.totalCommunityEarnings > 0 ? (impactData.economicEmpowerment.totalSellerEarnings / impactData.economicEmpowerment.totalCommunityEarnings) * 100 : 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-sm font-semibold text-gray-700 mb-1">
+                            <span>📣 Marketers / Promoters</span>
+                            <span className="font-bold">KES {impactData.economicEmpowerment?.totalMarketerCommissions?.toLocaleString()}</span>
+                          </div>
+                          <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-teal-500 h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${impactData.economicEmpowerment?.totalCommunityEarnings > 0 ? (impactData.economicEmpowerment.totalMarketerCommissions / impactData.economicEmpowerment.totalCommunityEarnings) * 100 : 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-sm font-semibold text-gray-700 mb-1">
+                            <span>🛵 Delivery Agents</span>
+                            <span className="font-bold">KES {impactData.economicEmpowerment?.totalDeliveryEarnings?.toLocaleString()}</span>
+                          </div>
+                          <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-amber-500 h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${impactData.economicEmpowerment?.totalCommunityEarnings > 0 ? (impactData.economicEmpowerment.totalDeliveryEarnings / impactData.economicEmpowerment.totalCommunityEarnings) * 100 : 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-8 grid grid-cols-3 gap-2 border-t pt-4">
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500">Active Sellers</div>
+                          <div className="text-lg font-black text-gray-800">{impactData.economicEmpowerment?.activeSellersCount || 0}</div>
+                        </div>
+                        <div className="text-center border-x">
+                          <div className="text-xs text-gray-500">Active Marketers</div>
+                          <div className="text-lg font-black text-gray-800">{impactData.economicEmpowerment?.activeMarketersCount || 0}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500">Active Gig Riders</div>
+                          <div className="text-lg font-black text-gray-800">{impactData.economicEmpowerment?.activeDeliveryAgentsCount || 0}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Loyalty & Retention metrics */}
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                      <div>
+                        <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                          <span className="text-teal-600">💎</span> Buyer Loyalty & CLV Drivers
+                        </h4>
+                        <p className="text-xs text-gray-500 mb-6">Analyzing purchasing frequency and loyalty behavior among buyers.</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 my-2">
+                        <div className="bg-gray-50 p-4 rounded-2xl text-center border border-gray-100">
+                          <div className="text-xs text-gray-500">Total Unique Buyers</div>
+                          <div className="text-2xl font-black text-gray-800 mt-1">{impactData.loyaltyAndCLV?.totalUniqueBuyers || 0}</div>
+                        </div>
+                        <div className="bg-gray-50 p-4 rounded-2xl text-center border border-gray-100">
+                          <div className="text-xs text-gray-500">Average Purchase Frequency</div>
+                          <div className="text-2xl font-black text-gray-800 mt-1">
+                            {impactData.loyaltyAndCLV?.averageOrderFrequency || 0}x
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-teal-50 border border-teal-100 rounded-2xl mt-4">
+                        <div className="text-sm font-semibold text-teal-800">Loyalty Insights</div>
+                        <p className="text-xs text-teal-700 mt-1">
+                          {impactData.loyaltyAndCLV?.repeatPurchaseRate > 30 
+                            ? `High retention! ${impactData.loyaltyAndCLV.repeatPurchaseRate}% of buyers in this period are repeat customers, driving long-term sustainability.`
+                            : `Platform is acquiring new users. Repeat buyer rate is currently ${impactData.loyaltyAndCLV?.repeatPurchaseRate || 0}%. Focus on buyer reactivation campaigns.`
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Conversational Direct Commerce Adoption */}
+                  <div className="bg-gradient-to-r from-blue-900 to-indigo-950 p-8 rounded-[2rem] text-white shadow-lg relative overflow-hidden">
+                    <div className="absolute right-0 bottom-0 opacity-10 text-9xl pointer-events-none select-none translate-x-12 translate-y-12">💬</div>
+                    <div className="max-w-2xl relative z-10">
+                      <span className="px-3 py-1 bg-blue-500/30 backdrop-blur-md rounded-full text-[10px] font-bold text-blue-200 uppercase tracking-widest border border-blue-400/20">
+                        Conversational Adoption
+                      </span>
+                      <h4 className="text-2xl font-black mt-3">Direct Text/Chat Commerce (Conversational UI)</h4>
+                      <p className="text-blue-200 text-sm mt-2">
+                        How many orders are placed by buyers copy-pasting or typing a request in plain text versus standard catalog checkout? Direct order parsing removes friction for social/conversational commerce.
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                        <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10">
+                          <div className="text-xs text-blue-300 font-semibold uppercase tracking-wider">Direct Orders Placed</div>
+                          <div className="text-3xl font-extrabold mt-1">{impactData.directCommerce?.totalDirectOrdersPlaced || 0}</div>
+                          <div className="text-[11px] text-blue-200 mt-2 font-medium">
+                            {impactData.directCommerce?.directOrderShareRate || 0}% of all placed orders
+                          </div>
+                        </div>
+
+                        <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10">
+                          <div className="text-xs text-blue-300 font-semibold uppercase tracking-wider">Direct Orders Completed</div>
+                          <div className="text-3xl font-extrabold mt-1">{impactData.directCommerce?.totalDirectOrdersCompleted || 0}</div>
+                          <div className="text-[11px] text-blue-200 mt-2 font-medium">
+                            Successful conversational fulfillment
+                          </div>
+                        </div>
+
+                        <div className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/10">
+                          <div className="text-xs text-blue-300 font-semibold uppercase tracking-wider">Direct GMV Generated</div>
+                          <div className="text-3xl font-extrabold mt-1">KES {impactData.directCommerce?.totalDirectGmv?.toLocaleString() || 0}</div>
+                          <div className="text-[11px] text-blue-200 mt-2 font-medium">
+                            {impactData.directCommerce?.directOrderGmvShareRate || 0}% of platform GMV
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Platform Trust & Cohort User Growth */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                      <div>
+                        <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                          <span className="text-orange-600">🛡️</span> Service Quality & Platform Trust
+                        </h4>
+                        <p className="text-xs text-gray-500 mb-4">Keeping cancellation rates low and disputes minimal ensures user trust and retention.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex justify-between p-3 bg-gray-50 rounded-2xl items-center border border-gray-100">
+                          <span className="text-sm font-semibold text-gray-700">Order Fulfillment Success Rate</span>
+                          <span className="text-lg font-black text-green-600">{impactData.serviceQualityAndTrust?.orderFulfillmentRate || 0}%</span>
+                        </div>
+                        <div className="flex justify-between p-3 bg-gray-50 rounded-2xl items-center border border-gray-100">
+                          <span className="text-sm font-semibold text-gray-700">Total Dispute/Return Requests</span>
+                          <span className="text-lg font-black text-red-500">{impactData.serviceQualityAndTrust?.totalDisputesOrReturns || 0}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 border-t pt-4">
+                        <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Top Cancellation Reasons</div>
+                        {impactData.serviceQualityAndTrust?.topCancellationReasons?.length > 0 ? (
+                          <div className="space-y-2">
+                            {impactData.serviceQualityAndTrust.topCancellationReasons.map((item, idx) => (
+                              <div key={idx} className="flex justify-between items-center p-2 rounded-xl bg-red-50/50 border border-red-100/50 text-xs">
+                                <span className="font-medium text-gray-700">{item.reason}</span>
+                                <span className="font-bold text-red-600">{item.count} orders</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center text-xs text-gray-400 italic py-4">No order cancellations recorded</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Cohort User Registration Growth */}
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                      <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span className="text-blue-600">🌱</span> User Acquisition Cohorts (Last 6 Months)
+                      </h4>
+                      <p className="text-xs text-gray-500 mb-6">Tracking growth across roles to verify balanced marketplace participation.</p>
+
+                      <div className="h-64">
+                        {impactData.growthCohorts?.length > 0 ? (
+                          <Bar 
+                            data={{
+                              labels: impactData.growthCohorts.map(c => c.month),
+                              datasets: [
+                                {
+                                  label: 'Customers',
+                                  data: impactData.growthCohorts.map(c => c.customer),
+                                  backgroundColor: 'rgba(59, 130, 246, 0.75)',
+                                },
+                                {
+                                  label: 'Sellers',
+                                  data: impactData.growthCohorts.map(c => c.seller),
+                                  backgroundColor: 'rgba(139, 92, 246, 0.75)',
+                                },
+                                {
+                                  label: 'Marketers',
+                                  data: impactData.growthCohorts.map(c => c.marketer),
+                                  backgroundColor: 'rgba(249, 115, 22, 0.75)',
+                                },
+                                {
+                                  label: 'Gig Riders',
+                                  data: impactData.growthCohorts.map(c => c.delivery_agent),
+                                  backgroundColor: 'rgba(34, 197, 94, 0.75)',
+                                }
+                              ]
+                            }}
+                            options={{
+                              responsive: true,
+                              maintainAspectRatio: false,
+                              plugins: {
+                                legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }
+                              },
+                              scales: {
+                                x: { stacked: true },
+                                y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div className="h-full bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 text-sm italic">
+                            Insufficient user cohort data
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center text-gray-400 py-12 italic">Failed to load platform growth & impact data</div>
+              )}
             </div>
           )}
 

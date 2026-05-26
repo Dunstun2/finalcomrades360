@@ -241,10 +241,10 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
                             { model: Service, as: 'Service', attributes: ['title'] }
                         ]
                     },
-                    { model: User, as: 'seller', attributes: ['hostelName', 'roomNumber', 'address', 'campusName', 'phone', 'firstName', 'lastName', 'shopName'] },
+                    { model: User, as: 'seller', attributes: ['phone', 'name', 'businessName', 'businessAddress', 'campus', 'businessPhone'] },
                     { model: Warehouse, as: 'Warehouse', attributes: ['name', 'address', 'contactPhone'] },
-                    { model: PickupStation, as: 'PickupStation', attributes: ['name', 'address', 'contactPhone'] },
-                    { model: User, as: 'user', attributes: ['phone', 'firstName', 'lastName'] }
+                    { model: PickupStation, as: 'PickupStation', attributes: ['name', 'location', 'contactPhone'] },
+                    { model: User, as: 'user', attributes: ['phone', 'name'] }
                 ]
             });
             if (found) fullOrder = found;
@@ -293,8 +293,8 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         if (deliveryType === 'seller_to_customer' || deliveryType === 'seller_to_warehouse' || deliveryType === 'seller_to_pickup_station') {
             const seller = fullOrder.seller;
             if (seller) {
-                pickupLocation = [seller.shopName, seller.hostelName, seller.roomNumber, seller.address].filter(Boolean).join(', ') || `${seller.firstName} ${seller.lastName}`;
-                if (seller.phone) pickupLocation += ` (${seller.phone})`;
+                pickupLocation = [seller.businessName, seller.businessAddress].filter(Boolean).join(', ') || seller.name || 'Seller Location';
+                if (seller.businessPhone || seller.phone) pickupLocation += ` (${seller.businessPhone || seller.phone})`;
             } else {
                 pickupLocation = 'Seller Location';
             }
@@ -309,7 +309,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         } else if (deliveryType === 'pickup_station_to_customer' || deliveryType === 'pickup_station_to_warehouse') {
             const station = fullOrder.PickupStation;
             if (station) {
-                pickupLocation = `${station.name} - ${station.address || ''}`;
+                pickupLocation = `${station.name} - ${station.location || ''}`;
                 if (station.contactPhone) pickupLocation += ` (${station.contactPhone})`;
             } else {
                 pickupLocation = 'Pickup Station';
@@ -521,17 +521,21 @@ async function notifyCustomerOrderCancelled(order, reason) {
 
 
 /**
- * Notify customer that an agent has accepted their delivery
+ * Notify customer that the order has been collected by the delivery agent.
+ * This is a combined notification (replaces separate "agent accepted" + "collected" messages).
+ * Includes: agent name, agent contact phone, tracking link. No status update text.
  */
-async function notifyCustomerAgentAccepted(order, agent) {
-    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been accepted by our delivery agent {agentName}. 🚚\n\nPlease expect a call via {agentPhone}. Thank you for choosing Comrades360!`;
+async function notifyCustomerOrderCollected(order, agent) {
+    const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} has been collected by our delivery agent {agentName} and is now in transit. 🚚\n\nPlease expect a call via {agentPhone}.\n\n🔍 Track your order:\n{trackUrl}\n\nThank you for choosing Comrades360!`;
 
-    await sendCustomerNotificationAcrossChannels('agentAccepted', {
+    await sendCustomerNotificationAcrossChannels('orderCollected', {
         name: order.User?.name || order.customerName || 'Customer',
         orderNumber: order.orderNumber,
         agentName: agent.name,
         agentPhone: agent.phone || 'N/A',
-        title: 'Delivery Accepted 🚚',
+        trackUrl,
+        title: 'Order Collected 🚚',
         type: 'success',
         defaultTemplate
     }, { id: order.userId, name: order.customerName, phone: order.customerPhone, email: order.customerEmail }, order);
@@ -771,6 +775,60 @@ async function notifySellerOrderEdited(order, seller, itemsList) {
     }, seller, null);
 }
 
+/**
+ * Notify customer that their order is ready for collection
+ */
+async function notifyCustomerReadyForCollection(order, agent) {
+    const { Order, OrderItem, Product, FastFood, Service, User } = require('../models');
+    let fullOrder = order;
+    let itemsList = 'N/A';
+
+    if (order && order.id) {
+        try {
+            const found = await Order.findByPk(order.id, {
+                include: [
+                    {
+                        model: OrderItem,
+                        as: 'OrderItems',
+                        include: [
+                            { model: Product, as: 'Product', attributes: ['name'] },
+                            { model: FastFood, as: 'FastFood', attributes: ['name'] },
+                            { model: Service, as: 'Service', attributes: ['title'] }
+                        ]
+                    },
+                    { model: User, as: 'user', attributes: ['phone', 'name'] }
+                ]
+            });
+            if (found) fullOrder = found;
+        } catch(e) {
+            console.error('Failed to fetch full order for collection notification', e);
+        }
+    }
+
+    if (fullOrder && fullOrder.OrderItems && fullOrder.OrderItems.length > 0) {
+        itemsList = fullOrder.OrderItems.map(i => {
+            const name = i.Product?.name || i.FastFood?.name || i.Service?.title || i.name || 'Item';
+            return `• ${name} x${i.quantity || 1}`;
+        }).join('\n');
+    }
+
+    const defaultTemplate = `Hello {name}, your order #{orderNumber} is ready for collection! 📦\n\nItems:\n{itemsList}\n\nPlease pick it up outside {deliveryAddress}.\n\nDelivery Agent Details:\nName: {agentName}\nContact: {agentPhone}`;
+
+    await sendCustomerNotificationAcrossChannels('orderReadyCollection', {
+        name: fullOrder.User?.name || fullOrder.user?.name || fullOrder.customerName || 'Customer',
+        orderNumber: fullOrder.orderNumber,
+        itemsList,
+        deliveryAddress: fullOrder.deliveryAddress || fullOrder.marketingDeliveryAddress || 'your delivery address',
+        agentName: agent.name,
+        agentPhone: agent.phone || 'N/A',
+        title: 'Order Ready for Collection 📦',
+        type: 'success',
+        defaultTemplate,
+        phone: fullOrder.customerPhone || fullOrder.user?.phone,
+        email: fullOrder.customerEmail || fullOrder.user?.email
+    }, { id: fullOrder.userId, name: fullOrder.customerName || fullOrder.user?.name, phone: fullOrder.customerPhone || fullOrder.user?.phone, email: fullOrder.customerEmail || fullOrder.user?.email }, fullOrder);
+}
+
 module.exports = {
     createNotification,
     notifyDeliveryAgentAssignment,
@@ -788,8 +846,9 @@ module.exports = {
     notifyUserIdStatusUpdate,
     notifyCustomerOrderThankYou,
     notifySellerOrderPlaced,
-    notifyCustomerAgentAccepted,
+    notifyCustomerOrderCollected,
     notifySellerOrderEdited,
+    notifyCustomerReadyForCollection,
     logNotify,
     sendCustomerNotificationAcrossChannels
 };

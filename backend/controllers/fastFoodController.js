@@ -98,10 +98,23 @@ exports.getAllFastFoods = async (req, res) => {
 
         console.log(`🔍 [getAllFastFoods] Request: page=${page}, limit=${limit}, sortBy=${sortBy}`);
 
+        // Sanitize sortBy to prevent SQL/SQLite errors
+        let dbSortBy = sortBy;
+        if (dbSortBy === 'soldCount') {
+            dbSortBy = 'orderCount';
+        }
+
+        // Validate that dbSortBy is a valid FastFood attribute or 'distance' to prevent crash
+        const validSortFields = Object.keys(FastFood.rawAttributes);
+        if (dbSortBy !== 'distance' && !validSortFields.includes(dbSortBy)) {
+            console.warn(`⚠️ [getAllFastFoods] Invalid sortBy parameter: '${dbSortBy}'. Falling back to 'createdAt'.`);
+            dbSortBy = 'createdAt';
+        }
+
         const queryOptions = {
             where: {},
             // Use provided sort unless it's 'distance', then fall back to createdAt for DB query
-            order: [[sortBy === 'distance' ? 'createdAt' : sortBy, 'DESC']],
+            order: [[dbSortBy === 'distance' ? 'createdAt' : dbSortBy, 'DESC']],
             // Include review status fields explicitly
             attributes: {
                 include: ['reviewStatus', 'hasBeenApproved']
@@ -1077,8 +1090,16 @@ exports.deleteFastFood = async (req, res) => {
             throw recycleError;
         }
 
-        // Now delete the original fast food
-        await fastFood.destroy();
+        // Soft-delete the original FastFood record to preserve its ID and relationships
+        await fastFood.update({
+            deletedAt: new Date(),
+            status: 'inactive',
+            approved: false,
+            reviewStatus: 'pending',
+            isActive: false,
+            isAvailable: false
+        });
+
         res.status(200).json({ success: true, message: 'Fast food item moved to recycle bin' });
     } catch (error) {
         console.error('Delete error:', error);
@@ -1215,11 +1236,12 @@ exports.restoreFastFood = async (req, res) => {
             return res.status(403).json({ success: false, message: 'You can only restore your own items' });
         }
 
-        // Check if an item with the same name already exists for this vendor
+        // Check if an item with the same name already exists for this vendor, excluding the original record
         const existingItem = await FastFood.findOne({
             where: {
                 vendor: deletedItem.vendor,
-                name: deletedItem.name
+                name: deletedItem.name,
+                id: { [Op.ne]: deletedItem.originalId }
             }
         });
 
@@ -1230,39 +1252,77 @@ exports.restoreFastFood = async (req, res) => {
             });
         }
 
-        // Restore the item
-        const restoredItem = await FastFood.create({
-            name: deletedItem.name,
-            category: deletedItem.category,
-            categoryId: deletedItem.categoryId,
-            subcategoryId: deletedItem.subcategoryId,
-            shortDescription: deletedItem.shortDescription,
-            description: deletedItem.description,
-            mainImage: deletedItem.mainImage,
-            galleryImages: deletedItem.galleryImages,
-            basePrice: deletedItem.basePrice,
-            displayPrice: deletedItem.displayPrice,
-            discountPrice: deletedItem.discountPrice,
-            discountPercentage: deletedItem.discountPercentage,
-            vendorLocation: deletedItem.vendorLocation,
-            vendorLat: deletedItem.vendorLat,
-            vendorLng: deletedItem.vendorLng,
-            preparationTimeMinutes: deletedItem.preparationTimeMinutes || 15,
-            deliveryTimeEstimateMinutes: deletedItem.deliveryTimeEstimateMinutes || 30,
-            sizeVariants: deletedItem.sizeVariants,
-            comboOptions: deletedItem.comboOptions,
-            ingredients: deletedItem.ingredients,
-            tags: deletedItem.tags,
-            dietaryTags: deletedItem.dietaryTags,
-            deliveryCoverageZones: deletedItem.deliveryCoverageZones,
-            marketingEnabled: deletedItem.marketingEnabled,
-            vendor: deletedItem.vendor,
-            addedBy: userId,
-            approved: false, // Reset approval status
-            reviewStatus: 'pending', // Reset to pending
-            isActive: false, // Keep inactive until reviewed
-            isAvailable: false
-        });
+        // Restore the original FastFood record if it still exists
+        let restoredItem = null;
+        const softDeletedItem = await FastFood.findOne({ where: { id: deletedItem.originalId } });
+        if (softDeletedItem) {
+            restoredItem = await softDeletedItem.update({
+                deletedAt: null,
+                name: deletedItem.name,
+                category: deletedItem.category,
+                categoryId: deletedItem.categoryId,
+                subcategoryId: deletedItem.subcategoryId,
+                shortDescription: deletedItem.shortDescription,
+                description: deletedItem.description,
+                mainImage: deletedItem.mainImage,
+                galleryImages: deletedItem.galleryImages,
+                basePrice: deletedItem.basePrice,
+                displayPrice: deletedItem.displayPrice,
+                discountPrice: deletedItem.discountPrice,
+                discountPercentage: deletedItem.discountPercentage,
+                vendorLocation: deletedItem.vendorLocation,
+                vendorLat: deletedItem.vendorLat,
+                vendorLng: deletedItem.vendorLng,
+                preparationTimeMinutes: deletedItem.preparationTimeMinutes || 15,
+                deliveryTimeEstimateMinutes: deletedItem.deliveryTimeEstimateMinutes || 30,
+                sizeVariants: deletedItem.sizeVariants,
+                comboOptions: deletedItem.comboOptions,
+                ingredients: deletedItem.ingredients,
+                tags: deletedItem.tags,
+                dietaryTags: deletedItem.dietaryTags,
+                deliveryCoverageZones: deletedItem.deliveryCoverageZones,
+                marketingEnabled: deletedItem.marketingEnabled,
+                vendor: deletedItem.vendor,
+                approved: false, // Reset approval status
+                reviewStatus: 'pending', // Reset to pending
+                isActive: false,
+                isAvailable: false,
+                status: 'pending'
+            });
+        } else {
+            restoredItem = await FastFood.create({
+                name: deletedItem.name,
+                category: deletedItem.category,
+                categoryId: deletedItem.categoryId,
+                subcategoryId: deletedItem.subcategoryId,
+                shortDescription: deletedItem.shortDescription,
+                description: deletedItem.description,
+                mainImage: deletedItem.mainImage,
+                galleryImages: deletedItem.galleryImages,
+                basePrice: deletedItem.basePrice,
+                displayPrice: deletedItem.displayPrice,
+                discountPrice: deletedItem.discountPrice,
+                discountPercentage: deletedItem.discountPercentage,
+                vendorLocation: deletedItem.vendorLocation,
+                vendorLat: deletedItem.vendorLat,
+                vendorLng: deletedItem.vendorLng,
+                preparationTimeMinutes: deletedItem.preparationTimeMinutes || 15,
+                deliveryTimeEstimateMinutes: deletedItem.deliveryTimeEstimateMinutes || 30,
+                sizeVariants: deletedItem.sizeVariants,
+                comboOptions: deletedItem.comboOptions,
+                ingredients: deletedItem.ingredients,
+                tags: deletedItem.tags,
+                dietaryTags: deletedItem.dietaryTags,
+                deliveryCoverageZones: deletedItem.deliveryCoverageZones,
+                marketingEnabled: deletedItem.marketingEnabled,
+                vendor: deletedItem.vendor,
+                addedBy: userId,
+                approved: false, // Reset approval status
+                reviewStatus: 'pending', // Reset to pending
+                isActive: false,
+                isAvailable: false
+            });
+        }
 
         // Remove from recycle bin
         await deletedItem.destroy();

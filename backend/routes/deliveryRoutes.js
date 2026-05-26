@@ -18,7 +18,8 @@ const {
   confirmCollection,
   markArrivedAtPickup,
   markArrivedAtCustomer,
-  updateMyCurrentLocation
+  updateMyCurrentLocation,
+  bulkAlertCollection
 } = require('../controllers/deliveryController');
 const { getDeliveryWallet } = require('../controllers/deliveryWalletController');
 const { withdraw } = require('../controllers/walletController');
@@ -67,6 +68,7 @@ router.put('/profile', upsertMyProfile);
 router.patch('/profile/location', updateMyCurrentLocation);
 
 // Task management
+router.post('/tasks/bulk-alert-collection', bulkAlertCollection);
 router.post('/tasks/:taskId/accept', acceptDeliveryTask);
 router.post('/tasks/:taskId/reject', rejectDeliveryTask);
 router.post('/tasks/:taskId/mark-arrived', markArrivedAtPickup);

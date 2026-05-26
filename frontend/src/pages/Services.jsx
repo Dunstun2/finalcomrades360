@@ -191,16 +191,6 @@ const Services = () => {
       <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
         <PageLayout>
           <div className="min-h-screen flex flex-col bg-gray-50 pb-20">
-            {/* Back Button */}
-            <div className="w-full px-0 md:px-4 py-4">
-              <button
-                onClick={() => navigate('/')}
-                className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors ml-4 md:ml-0"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Homepage
-              </button>
-            </div>
 
             <HeroBanner
               title="Browse Services"
@@ -208,6 +198,24 @@ const Services = () => {
               promotions={heroPromotions}
               loading={loading}
             />
+
+            {/* Navigation & Subcategory Filter */}
+            <div className="flex justify-center mt-4 mb-4 px-3 md:px-4 relative z-20">
+              <div className="w-full sm:w-auto bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/50 flex space-x-2">
+                <button
+                  onClick={() => navigate('/')}
+                  className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" /> Homepage
+                </button>
+                <button
+                  onClick={() => navigate('/services')}
+                  className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 bg-purple-600 text-white shadow-lg"
+                >
+                  🛠️ <span className="ml-2">Services</span>
+                </button>
+              </div>
+            </div>
 
             {/* Subcategory Filter */}
             <div className="bg-white border-b shadow-sm">

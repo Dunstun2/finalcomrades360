@@ -44,7 +44,7 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
     return (
         <div className="max-w-7xl mx-auto px-0 md:px-4 relative z-30">
             {/* Stats Bar (More Compact) */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8 px-4 md:px-0">
+            <div className="hidden md:grid grid-cols-2 md:grid-cols-4 gap-3 mb-8 px-4 md:px-0">
                 {[
                     { icon: <FaUtensils className="text-orange-500" />, label: "Freshly Made", desc: "Served Hot" },
                     { icon: <FaClock className="text-blue-500" />, label: "Avg Prep Time", desc: "15-20 Mins" },
@@ -61,10 +61,7 @@ const LiveMenuGrid = ({ items = [], searchTerm = "", navigate }) => {
 
             {/* Top Navigation Category Bar */}
             <div className="mb-6 px-4 md:px-0">
-                <div className="flex items-center gap-2 mb-4">
-                    <FaFilter className="text-orange-500" />
-                    <h2 className="font-black text-gray-900 uppercase tracking-tight text-sm">Filter by Category</h2>
-                </div>
+
                 {/* Horizontal Scrollable Container */}
                 <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide snap-x touch-pan-x">
                     <button

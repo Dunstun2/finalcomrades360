@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api, { orderApi } from '../../services/api';
+import { fastFoodService } from '../../services/fastFoodService';
 import { useAuth } from '../../contexts/AuthContext';
 import { normalizeKenyanPhone } from '../../utils/validation';
 import { 
@@ -236,7 +237,21 @@ const DirectOrders = () => {
   const [batches, setBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [deliveryTimePreference, setDeliveryTimePreference] = useState('');
+  const [batchSystemEnabled, setBatchSystemEnabled] = useState(false);
   const submittingRef = useRef(false);
+
+  // Prefill order block if coming from AdminOrders "Reconvert/Duplicate as Direct Order" action
+  useEffect(() => {
+    const prefillBlock = localStorage.getItem('direct_order_prefill_block');
+    const prefillType = localStorage.getItem('direct_order_prefill_type');
+    if (prefillBlock) {
+      setTextBlock(prefillBlock);
+      if (prefillType) setType(prefillType);
+      localStorage.removeItem('direct_order_prefill_block');
+      localStorage.removeItem('direct_order_prefill_type');
+      setActiveTab('new');
+    }
+  }, []);
 
   // --- Manage Orders State ---
   const [orders, setOrders] = useState([]);
@@ -272,16 +287,37 @@ const DirectOrders = () => {
   }, [canPlace]);
   
   useEffect(() => {
+    const fetchBatchConfig = async () => {
+      try {
+        const res = await fastFoodService.getPublicBatchSystemConfig();
+        if (res.success) {
+          const enabled = res.data === true || String(res.data).toLowerCase() === 'true';
+          setBatchSystemEnabled(enabled);
+        }
+      } catch (err) {
+        console.error('Failed to fetch batch system config', err);
+        setBatchSystemEnabled(false);
+      }
+    };
+    if (canPlace) fetchBatchConfig();
+  }, [canPlace]);
+
+  useEffect(() => {
     const fetchBatches = async () => {
       try {
         const { data } = await api.get('/batches/active');
-        setBatches(data || []);
+        setBatches(data?.batches || []);
       } catch (err) {
         console.error('Failed to fetch active batches', err);
       }
     };
-    if (canPlace && type === 'fastfood') fetchBatches();
-  }, [canPlace, type]);
+    if (canPlace && type === 'fastfood' && batchSystemEnabled) {
+      fetchBatches();
+    } else {
+      setBatches([]);
+      setSelectedBatchId(null);
+    }
+  }, [canPlace, type, batchSystemEnabled]);
 
   const handleParse = async () => {
     console.log('[DirectOrder] handleParse triggered. TextBlock length:', textBlock?.length);
@@ -398,6 +434,17 @@ const DirectOrders = () => {
       return;
     }
 
+    // Enforce batch selection if the batch system is enabled and active batches cover this time window
+    if (batchSystemEnabled && type === 'fastfood' && batches.length > 0 && !selectedBatchId) {
+      toast({ 
+        title: 'Batch Selection Required', 
+        description: 'An active batch must be selected to place a fast food order during batch operating hours.', 
+        variant: 'destructive' 
+      });
+      submittingRef.current = false;
+      return;
+    }
+
     setAddressError(false);
     setLoading(true);
     try {
@@ -445,6 +492,8 @@ const DirectOrders = () => {
     setConfirmPhone('');
     setOrderResult(null);
     setAddressError(false);
+    setSelectedBatchId(null);
+    setDeliveryTimePreference('');
     submittingRef.current = false;
   };
 
@@ -639,6 +688,52 @@ const DirectOrders = () => {
                   )}
                 </div>
               </div>
+
+              {/* Batch Selection — only when batch system is ON and batches available */}
+              {batchSystemEnabled && type === 'fastfood' && batches.length > 0 && (
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assign to Batch</h3>
+                    <span className="text-[9px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-bold uppercase">Batch System</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {batches.map(batch => (
+                      <button
+                        key={batch.id}
+                        onClick={() => setSelectedBatchId(selectedBatchId === batch.id ? null : batch.id)}
+                        className={`p-4 rounded-xl border-2 text-left transition-all relative overflow-hidden ${
+                          selectedBatchId === batch.id
+                            ? 'border-orange-500 bg-orange-50 ring-4 ring-orange-500/10 shadow-md'
+                            : 'border-gray-100 bg-gray-50 hover:border-orange-200 hover:bg-orange-50/30'
+                        }`}
+                      >
+                        {selectedBatchId === batch.id && (
+                          <div className="absolute top-0 right-0 p-1.5 bg-orange-500 text-white rounded-bl-xl shadow-lg">
+                            <CheckCircle2 className="w-3 h-3" />
+                          </div>
+                        )}
+                        <p className={`text-sm font-black uppercase tracking-tight ${
+                          selectedBatchId === batch.id ? 'text-orange-700' : 'text-gray-800'
+                        }`}>{batch.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Clock className="w-3 h-3 text-gray-400" />
+                          <span className="text-[11px] font-bold text-gray-500">{batch.startTime} – {batch.endTime}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Package className="w-3 h-3 text-green-500" />
+                          <span className="text-[11px] font-bold text-gray-500">Delivery: {batch.expectedDelivery}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {!selectedBatchId && (
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-xl">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                      <p className="text-[10px] text-red-600 font-black uppercase">Required: Please select a batch for this order</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Primary: Items List */}
               <div className="space-y-4">

@@ -15,7 +15,8 @@ import {
   FaLocationArrow,
   FaSearch,
   FaMobileAlt,
-  FaMoneyBillWave
+  FaMoneyBillWave,
+  FaBell
 } from 'react-icons/fa';
 import { useOutletContext, Link } from 'react-router-dom';
 import api from '../../../services/api';
@@ -27,6 +28,7 @@ import DeliveryChat from '../../../components/delivery/DeliveryChat';
 import DeliveryTaskConsole from '../../../components/delivery/DeliveryTaskConsole';
 import HandoverCodeWidget from '../../../components/delivery/HandoverCodeWidget';
 import { getSocket } from '../../../services/socket';
+import { useToast } from '../../../components/ui/use-toast';
 
 const getLatestTask = (order) => {
   if (!order.deliveryTasks || order.deliveryTasks.length === 0) return null;
@@ -34,6 +36,7 @@ const getLatestTask = (order) => {
 };
 
 const DeliveryAgentOrders = () => {
+  const { toast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -57,6 +60,15 @@ const DeliveryAgentOrders = () => {
   const [missingFields, setMissingFields] = useState([]);
   const [visibleCount, setVisibleCount] = useState(20);
   const [activeTab, setActiveTab] = useState('in_progress'); // 'in_progress', 'completed', 'cancelled'
+  
+  // Rejection/Cancellation Password Modal State
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [tasksToReject, setTasksToReject] = useState([]); // Array of task IDs
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectPassword, setRejectPassword] = useState('');
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const [rejectError, setRejectError] = useState('');
+  const [showRejectPassword, setShowRejectPassword] = useState(false);
   
   // Deterministic color generation for grouping
   const getRouteColor = (pickup, destination) => {
@@ -100,7 +112,33 @@ const DeliveryAgentOrders = () => {
     return 'Customer';
   };
   const [searchQuery, setSearchQuery] = useState('');
+  const [pickupSearchQuery, setPickupSearchQuery] = useState('');
+  const [dropoffSearchQuery, setDropoffSearchQuery] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState('all'); // 'all', 'assigned', 'accepted', 'in_progress'
   const activeTabRef = React.useRef('in_progress'); // Ref to avoid stale closures in polling
+  
+  const counts = useMemo(() => {
+    if (activeTab !== 'in_progress') return { all: 0, assigned: 0, accepted: 0, in_progress: 0 };
+    let assigned = 0;
+    let accepted = 0;
+    let in_progress = 0;
+
+    orders.forEach(o => {
+      const task = getLatestTask(o);
+      if (task) {
+        if (task.status === 'assigned') assigned++;
+        else if (['accepted', 'arrived_at_pickup'].includes(task.status)) accepted++;
+        else if (task.status === 'in_progress') in_progress++;
+      }
+    });
+
+    return {
+      all: orders.length,
+      assigned,
+      accepted,
+      in_progress
+    };
+  }, [orders, activeTab]);
   
   // Real-time context from DeliveryAgentDashboard Shell
   const { lastUpdate } = useOutletContext() || {};
@@ -139,10 +177,10 @@ const DeliveryAgentOrders = () => {
     return () => stopLocationPush();
   }, []); // Initial load
 
-  // React to socket updates — use activeTabRef to avoid stale closure
+  // React to socket updates — use ref to avoid stale closure
   useEffect(() => {
     if (lastUpdate && lastUpdate !== null) {
-      loadMyDeliveries(false, activeTabRef.current);
+      loadMyDeliveriesRef.current(false, activeTabRef.current);
     }
   }, [lastUpdate]);
 
@@ -187,6 +225,7 @@ const DeliveryAgentOrders = () => {
   }, []);
 
   const loadMyDeliveries = useCallback(async (showLoading = true, tab = activeTab) => {
+    console.log('📡 [DEBUG-REJECT] loadMyDeliveries called. showLoading:', showLoading, 'tab:', tab, 'searchQuery:', searchQuery);
     try {
       if (showLoading) setLoading(true);
       
@@ -201,6 +240,7 @@ const DeliveryAgentOrders = () => {
       if (searchQuery) params.append('q', searchQuery);
       
       const res = await api.get(`${endpoint}${params.toString() ? (endpoint.includes('?') ? '&' : '?') + params.toString() : ''}`);
+      console.log('   [DEBUG-REJECT] API Response data count:', res.data.data?.length, 'blockingReason:', res.data.blockingReason);
       setOrders(res.data.data || []);
       setBlockingReason(res.data.blockingReason || null);
       setMissingFields(res.data.missingFields || []);
@@ -212,6 +252,22 @@ const DeliveryAgentOrders = () => {
       if (showLoading) setLoading(false);
     }
   }, [activeTab, searchQuery]);
+
+  useEffect(() => {
+    console.log('🔄 [DEBUG-REJECT] State updated:', {
+      ordersCount: orders.length,
+      ordersIds: orders.map(o => o.id),
+      selectedOrders,
+      tasksToReject,
+      rejectModalOpen,
+      activeTab
+    });
+  }, [orders, selectedOrders, tasksToReject, rejectModalOpen, activeTab]);
+
+  const loadMyDeliveriesRef = useRef(loadMyDeliveries);
+  useEffect(() => {
+    loadMyDeliveriesRef.current = loadMyDeliveries;
+  }, [loadMyDeliveries]);
 
   // Debounced search effect
   useEffect(() => {
@@ -225,6 +281,9 @@ const DeliveryAgentOrders = () => {
     setActiveTab(tab);
     activeTabRef.current = tab; // Keep ref in sync
     setVisibleCount(20); // Reset to default page size
+    setPickupSearchQuery('');
+    setDropoffSearchQuery('');
+    setActiveSubTab('all');
     loadMyDeliveries(true, tab);
   };
 
@@ -235,7 +294,11 @@ const DeliveryAgentOrders = () => {
         setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       }
     } catch (err) {
-      alert('Failed to update status: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Error',
+        description: 'Failed to update status: ' + (err.response?.data?.error || err.response?.data?.message || err.message),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -266,7 +329,11 @@ const DeliveryAgentOrders = () => {
     });
 
     if (mismatched) {
-      alert('Bulk Handover is only available for orders with the SAME pickup and destination points. Please refine your selection.');
+      toast({
+        title: 'Validation Error',
+        description: 'Bulk Handover is only available for orders with the SAME pickup and destination points. Please refine your selection.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -284,12 +351,18 @@ const DeliveryAgentOrders = () => {
       setAutoGenerateCodeOrderId(paidOrderId);
     }
     setShowPaymentModal(false);
-    alert('Payment confirmed. Delivery code is now generated for customer confirmation.');
+    toast({
+      title: 'Payment Confirmed',
+      description: 'Delivery code is now generated for customer confirmation.',
+    });
     loadMyDeliveries(false);
   };
 
   const handleHandoverConfirmed = useCallback(() => {
-    alert('Handover confirmed!');
+    toast({
+      title: 'Handover Confirmed',
+      description: 'The handover has been successfully recorded.',
+    });
     loadMyDeliveries();
   }, [loadMyDeliveries]);
 
@@ -300,7 +373,11 @@ const DeliveryAgentOrders = () => {
   
   const handleQuickPush = async (order) => {
     if (!order.customerPhone) {
-      alert('Customer phone number missing for M-Pesa Push');
+      toast({
+        title: 'Error',
+        description: 'Customer phone number missing for M-Pesa Push',
+        variant: 'destructive',
+      });
       return;
     }
     try {
@@ -310,12 +387,19 @@ const DeliveryAgentOrders = () => {
         amount: order.total
       });
       if (res.data.success) {
-        alert(`M-Pesa Push sent to ${order.customerPhone}. Waiting for confirmation...`);
+        toast({
+          title: 'M-Pesa Push Sent',
+          description: `Push request sent to ${order.customerPhone}. Waiting for confirmation...`,
+        });
         setSelectedOrder(order);
         setShowPaymentModal(true);
       }
     } catch (err) {
-      alert('Push failed: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Push Failed',
+        description: err.response?.data?.error || err.response?.data?.message || err.message,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -328,13 +412,20 @@ const DeliveryAgentOrders = () => {
         verificationData: { method: 'cash' }
       });
       if (res.data.success) {
-        alert('Cash payment confirmed. Delivery code is now generated.');
+        toast({
+          title: 'Cash Payment Confirmed',
+          description: 'Delivery code is now generated.',
+        });
         setOrders(prev => prev.map(o => o.id === order.id ? { ...o, paymentConfirmed: true } : o));
         setAutoGenerateCodeOrderId(order.id);
         loadMyDeliveries(false);
       }
     } catch (err) {
-      alert('Failed to confirm cash payment: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Error',
+        description: 'Failed to confirm cash payment: ' + (err.response?.data?.error || err.response?.data?.message || err.message),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -343,18 +434,60 @@ const DeliveryAgentOrders = () => {
       await api.post(`/delivery/tasks/${taskId}/accept`);
       loadMyDeliveries();
     } catch (err) {
-      alert('Failed to accept task: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Error',
+        description: 'Failed to accept task: ' + (err.response?.data?.error || err.response?.data?.message || err.message),
+        variant: 'destructive',
+      });
     }
   };
 
-  const handleRejectTask = async (taskId) => {
-    const reason = prompt("Please provide a reason for rejection:");
-    if (!reason) return;
+  const handleRejectTask = (taskId) => {
+    setTasksToReject([taskId]);
+    setRejectReason('');
+    setRejectPassword('');
+    setRejectError('');
+    setRejectModalOpen(true);
+  };
+
+  const submitRejectTask = async () => {
+    console.log('🎯 [DEBUG-REJECT] submitRejectTask called. tasksToReject:', tasksToReject);
+    if (!rejectReason.trim()) {
+      setRejectError('Please provide a reason for cancellation.');
+      return;
+    }
+    if (!rejectPassword) {
+      setRejectError('Password is required.');
+      return;
+    }
+    setRejectSubmitting(true);
+    setRejectError('');
     try {
-      await api.post(`/delivery/tasks/${taskId}/reject`, { reason });
-      loadMyDeliveries();
+      // Loop through all tasks to reject
+      for (const taskId of tasksToReject) {
+        console.log('   [DEBUG-REJECT] Rejecting task:', taskId);
+        await api.post(`/delivery/tasks/${taskId}/reject`, {
+          reason: rejectReason,
+          password: rejectPassword
+        });
+      }
+      console.log('   [DEBUG-REJECT] All rejection api requests completed.');
+      setRejectModalOpen(false);
+      setTasksToReject([]);
+      setSelectedOrders([]);
+      
+      console.log('   [DEBUG-REJECT] Calling loadMyDeliveries(false)...');
+      await loadMyDeliveries(false);
+      console.log('   [DEBUG-REJECT] loadMyDeliveries(false) completed.');
+      
+      toast({
+        title: 'Success',
+        description: 'Delivery assignment(s) rejected successfully.',
+      });
     } catch (err) {
-      alert('Failed to reject task: ' + (err.response?.data?.message || err.message));
+      setRejectError(err.response?.data?.error || err.response?.data?.message || err.message);
+    } finally {
+      setRejectSubmitting(false);
     }
   };
 
@@ -366,7 +499,10 @@ const DeliveryAgentOrders = () => {
       });
 
       if (res.data.success) {
-        alert('Collection confirmed successfully!');
+        toast({
+          title: 'Collection Confirmed',
+          description: 'Collection confirmed successfully!',
+        });
         loadMyDeliveries();
       }
     } catch (err) {
@@ -379,11 +515,18 @@ const DeliveryAgentOrders = () => {
     try {
       const res = await api.post(`/delivery/tasks/${taskId}/mark-arrived`);
       if (res.data.success) {
-        alert('Arrival confirmed!');
+        toast({
+          title: 'Arrival Confirmed',
+          description: 'Arrival confirmed!',
+        });
         loadMyDeliveries();
       }
     } catch (err) {
-      alert('Failed: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Error',
+        description: 'Failed: ' + (err.response?.data?.error || err.response?.data?.message || err.message),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -397,10 +540,17 @@ const DeliveryAgentOrders = () => {
         status: 'completed',
         agentNotes: `Item delivered to ${destinationName}`
       });
-      alert(`Arrival confirmed! Order is now at ${destinationName}.`);
+      toast({
+        title: 'Arrival Confirmed',
+        description: `Order is now at ${destinationName}.`,
+      });
       loadMyDeliveries();
     } catch (err) {
-      alert('Failed: ' + (err.response?.data?.message || err.message));
+      toast({
+        title: 'Error',
+        description: 'Failed: ' + (err.response?.data?.error || err.response?.data?.message || err.message),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -423,9 +573,38 @@ const DeliveryAgentOrders = () => {
   const handleBulkStatusChange = async (targetAction) => {
     if (selectedOrders.length === 0) return;
     if (targetAction === 'delivered') {
-      alert('Bulk delivered is disabled. Each order must be completed with a unique customer confirmation code.');
+      toast({
+        title: 'Action Disabled',
+        description: 'Bulk delivered is disabled. Each order must be completed with a unique customer confirmation code.',
+        variant: 'destructive',
+      });
       return;
     }
+
+    if (targetAction === 'reject') {
+      const assignedTaskIds = selectedOrders.map(orderId => {
+        const order = orders.find(o => o.id === orderId);
+        const task = order ? getLatestTask(order) : null;
+        return task && task.status === 'assigned' ? task.id : null;
+      }).filter(Boolean);
+
+      if (assignedTaskIds.length === 0) {
+        toast({
+          title: 'No Actionable Orders',
+          description: 'No assignable/rejectable orders selected.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setTasksToReject(assignedTaskIds);
+      setRejectReason('');
+      setRejectPassword('');
+      setRejectError('');
+      setRejectModalOpen(true);
+      return;
+    }
+
     setBulkProcessing(true);
     try {
       for (const orderId of selectedOrders) {
@@ -438,22 +617,66 @@ const DeliveryAgentOrders = () => {
           if (task.status === 'assigned') {
             await api.post(`/delivery/tasks/${taskId}/accept`);
           }
-        } else if (targetAction === 'reject') {
-          if (task.status === 'assigned') {
-             // For bulk rejection, we use a default reason or could prompt
-             await api.post(`/delivery/tasks/${taskId}/reject`, { reason: 'Bulk rejection by agent' });
-          }
         } else if (targetAction === 'collected') {
           if (['accepted', 'arrived_at_pickup'].includes(task.status)) {
             await api.post(`/delivery/tasks/${taskId}/confirm-collection`, { notes: 'Bulk collection confirmed' });
           }
         }
       }
-      alert(`Bulk action "${targetAction}" completed for ${selectedOrders.length} orders.`);
+      toast({
+        title: 'Bulk Action Completed',
+        description: `Bulk action "${targetAction}" completed for ${selectedOrders.length} orders.`,
+      });
       setSelectedOrders([]);
       loadMyDeliveries();
     } catch (err) {
-      alert('One or more bulk updates failed. Please refresh and try individual updates.');
+      toast({
+        title: 'Bulk Action Failed',
+        description: 'One or more bulk updates failed. Please refresh and try individual updates.',
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
+  const handleBulkAlertCollection = async () => {
+    if (selectedOrders.length === 0) return;
+
+    const inProgressOrderIds = selectedOrders.filter(orderId => {
+      const order = orders.find(o => o.id === orderId);
+      const task = order ? getLatestTask(order) : null;
+      return task && task.status === 'in_progress';
+    });
+
+    if (inProgressOrderIds.length === 0) {
+      toast({
+        title: 'No Actionable Orders',
+        description: 'None of the selected orders are currently in In Progress status.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setBulkProcessing(true);
+    try {
+      const response = await api.post('/delivery/tasks/bulk-alert-collection', {
+        orderIds: inProgressOrderIds
+      });
+      
+      toast({
+        title: 'Collection Alerts Sent',
+        description: response.data?.message || `Successfully sent collection alerts to ${inProgressOrderIds.length} customers.`,
+      });
+      setSelectedOrders([]);
+      loadMyDeliveries();
+    } catch (err) {
+      console.error('Error sending bulk alerts:', err);
+      toast({
+        title: 'Bulk Action Failed',
+        description: err.response?.data?.error || 'Failed to alert customers. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setBulkProcessing(false);
     }
@@ -482,6 +705,7 @@ const DeliveryAgentOrders = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search..."
+                  autoComplete="off"
                   className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -493,7 +717,7 @@ const DeliveryAgentOrders = () => {
               onClick={() => handleTabChange('in_progress')}
               className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'in_progress' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              In Progress
+              Active
             </button>
             <button
               onClick={() => handleTabChange('completed')}
@@ -508,6 +732,123 @@ const DeliveryAgentOrders = () => {
               Cancelled
             </button>
           </div>
+
+          {activeTab === 'in_progress' && (
+            <>
+              {/* Sub-tabs for Active assignments */}
+              <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100/80 rounded-xl mt-2 border border-slate-200/50">
+                <button
+                  onClick={() => setActiveSubTab('all')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    activeSubTab === 'all'
+                      ? 'bg-white text-blue-600 shadow-sm border border-slate-200/40'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>All</span>
+                  <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-full ${
+                    activeSubTab === 'all' ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {counts.all}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('assigned')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    activeSubTab === 'assigned'
+                      ? 'bg-white text-amber-600 shadow-sm border border-slate-200/40'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>Assigned</span>
+                  <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-full ${
+                    activeSubTab === 'assigned' ? 'bg-amber-100 text-amber-600' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {counts.assigned}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('accepted')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    activeSubTab === 'accepted'
+                      ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/40'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>Accepted</span>
+                  <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-full ${
+                    activeSubTab === 'accepted' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {counts.accepted}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('in_progress')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    activeSubTab === 'in_progress'
+                      ? 'bg-white text-emerald-600 shadow-sm border border-slate-200/40'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>In Progress</span>
+                  <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-full ${
+                    activeSubTab === 'in_progress' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {counts.in_progress}
+                  </span>
+                </button>
+              </div>
+
+              {/* Route filters */}
+              <div className="mt-1.5 p-2.5 bg-slate-50 rounded-lg border border-slate-200/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                    Filter by Route
+                    {(pickupSearchQuery || dropoffSearchQuery) && (
+                      <span className="flex h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                    )}
+                  </span>
+                  {(pickupSearchQuery || dropoffSearchQuery) && (
+                    <button
+                      onClick={() => {
+                        setPickupSearchQuery('');
+                        setDropoffSearchQuery('');
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 transition-colors"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-slate-400">
+                      <FaStore className="text-[10px]" />
+                    </div>
+                    <input
+                      type="text"
+                      value={pickupSearchQuery}
+                      onChange={(e) => setPickupSearchQuery(e.target.value)}
+                      placeholder="Search Pickup Point (Seller, Warehouse, Station...)"
+                      className="w-full pl-7 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-slate-400">
+                      <FaMapMarkedAlt className="text-[10px]" />
+                    </div>
+                    <input
+                      type="text"
+                      value={dropoffSearchQuery}
+                      onChange={(e) => setDropoffSearchQuery(e.target.value)}
+                      placeholder="Search Drop-off Point (Customer, Station, Address...)"
+                      className="w-full pl-7 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-400"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="p-1">
@@ -549,14 +890,14 @@ const DeliveryAgentOrders = () => {
                             disabled={bulkProcessing}
                             className="px-4 py-2 bg-emerald-500/30 hover:bg-emerald-500/50 text-white border border-emerald-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
                           >
-                            <FaClipboardCheck className="h-3 w-3" /> Accept All
+                            <FaClipboardCheck className="h-3 w-3" /> Accept Selected
                           </button>
                           <button
                             onClick={() => handleBulkStatusChange('reject')}
                             disabled={bulkProcessing}
                             className="px-4 py-2 bg-red-500/30 hover:bg-red-500/50 text-white border border-red-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
                           >
-                            <FaExclamationCircle className="h-3 w-3" /> Reject All
+                            <FaExclamationCircle className="h-3 w-3" /> Reject Selected
                           </button>
                         </>
                       )}
@@ -580,6 +921,18 @@ const DeliveryAgentOrders = () => {
                           <FaCheckCircle className="h-3 w-3" /> Bulk Handover ({selectedOrders.length})
                         </button>
                       )}
+
+                      {selTasks.some(t => t?.status === 'in_progress') && (
+                        <button
+                          onClick={() => handleBulkAlertCollection()}
+                          disabled={bulkProcessing}
+                          className="px-4 py-2 bg-indigo-500/30 hover:bg-indigo-500/50 text-white border border-indigo-400/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                        >
+                          <FaBell className="h-3 w-3" /> Alert Ready for Collection ({
+                            selTasks.filter(t => t?.status === 'in_progress').length
+                          })
+                        </button>
+                      )}
                     </>
                   );
                 })()}
@@ -588,7 +941,7 @@ const DeliveryAgentOrders = () => {
                   onClick={() => setSelectedOrders([])}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                 >
-                  Cancel
+                  Clear Selection
                 </button>
               </div>
 
@@ -645,19 +998,79 @@ const DeliveryAgentOrders = () => {
             <div className="grid gap-8">
               {(() => {
                 const filtered = orders.filter(o => {
-                  if (!searchQuery) return true;
-                  const q = searchQuery.toLowerCase();
-                  return (
-                    (o.orderNumber && o.orderNumber.toLowerCase().includes(q)) ||
-                    (o.trackingNumber && o.trackingNumber.toLowerCase().includes(q)) ||
-                    (o.user?.name && o.user.name.toLowerCase().includes(q)) ||
-                    (o.user?.county && o.user.county.toLowerCase().includes(q)) ||
-                    (o.user?.town && o.user.town.toLowerCase().includes(q)) ||
-                    (o.user?.estate && o.user.estate.toLowerCase().includes(q)) ||
-                    (o.user?.houseNumber && o.user.houseNumber.toLowerCase().includes(q)) ||
-                    (o.deliveryAddress && o.deliveryAddress.toLowerCase().includes(q)) ||
-                    (o.addressDetails && o.addressDetails.toLowerCase().includes(q))
-                  );
+                  // Sub-tab active assignment filter
+                  const task = getLatestTask(o);
+                  if (activeTab === 'in_progress') {
+                    if (!task) return false;
+                    if (activeSubTab === 'assigned' && task.status !== 'assigned') return false;
+                    if (activeSubTab === 'accepted' && !['accepted', 'arrived_at_pickup'].includes(task.status)) return false;
+                    if (activeSubTab === 'in_progress' && task.status !== 'in_progress') return false;
+                  }
+
+                  // General search query
+                  if (searchQuery) {
+                    const q = searchQuery.toLowerCase();
+                    const matchesGeneral = (
+                      (o.orderNumber && o.orderNumber.toLowerCase().includes(q)) ||
+                      (o.trackingNumber && o.trackingNumber.toLowerCase().includes(q)) ||
+                      (o.user?.name && o.user.name.toLowerCase().includes(q)) ||
+                      (o.user?.county && o.user.county.toLowerCase().includes(q)) ||
+                      (o.user?.town && o.user.town.toLowerCase().includes(q)) ||
+                      (o.user?.estate && o.user.estate.toLowerCase().includes(q)) ||
+                      (o.user?.houseNumber && o.user.houseNumber.toLowerCase().includes(q)) ||
+                      (o.deliveryAddress && o.deliveryAddress.toLowerCase().includes(q)) ||
+                      (o.addressDetails && o.addressDetails.toLowerCase().includes(q))
+                    );
+                    if (!matchesGeneral) return false;
+                  }
+
+                  // Pickup point filter
+                  if (pickupSearchQuery) {
+                    const pQ = pickupSearchQuery.toLowerCase();
+                    const pickupLabel = getPickupLabel(o).toLowerCase();
+                    const sellerAddress = (o.seller?.businessAddress || '').toLowerCase();
+                    const sellerCounty = (o.seller?.businessCounty || '').toLowerCase();
+                    const sellerTown = (o.seller?.businessTown || '').toLowerCase();
+                    const warehouseAddress = (o.Warehouse?.address || '').toLowerCase();
+                    const stationLocation = (o.PickupStation?.location || '').toLowerCase();
+
+                    const matchesPickup =
+                      pickupLabel.includes(pQ) ||
+                      sellerAddress.includes(pQ) ||
+                      sellerCounty.includes(pQ) ||
+                      sellerTown.includes(pQ) ||
+                      warehouseAddress.includes(pQ) ||
+                      stationLocation.includes(pQ);
+
+                    if (!matchesPickup) return false;
+                  }
+
+                  // Drop-off point filter
+                  if (dropoffSearchQuery) {
+                    const dQ = dropoffSearchQuery.toLowerCase();
+                    const destLabel = getDestinationLabel(o).toLowerCase();
+                    const deliveryAddress = (o.deliveryAddress || '').toLowerCase();
+                    const addressDetails = (o.addressDetails || '').toLowerCase();
+                    const userCounty = (o.user?.county || '').toLowerCase();
+                    const userTown = (o.user?.town || '').toLowerCase();
+                    const userEstate = (o.user?.estate || '').toLowerCase();
+                    const destWarehouseAddress = (o.DestinationWarehouse?.address || '').toLowerCase();
+                    const destStationLocation = (o.DestinationPickStation?.location || '').toLowerCase();
+
+                    const matchesDropoff =
+                      destLabel.includes(dQ) ||
+                      deliveryAddress.includes(dQ) ||
+                      addressDetails.includes(dQ) ||
+                      userCounty.includes(dQ) ||
+                      userTown.includes(dQ) ||
+                      userEstate.includes(dQ) ||
+                      destWarehouseAddress.includes(dQ) ||
+                      destStationLocation.includes(dQ);
+
+                    if (!matchesDropoff) return false;
+                  }
+
+                  return true;
                 });
 
                 // Group by Route
@@ -877,7 +1290,10 @@ const DeliveryAgentOrders = () => {
                           })()}
                           orderIds={selectedOrders}
                           onConfirmed={() => {
-                              alert('Bulk Handover Successful!');
+                              toast({
+                                title: 'Success',
+                                description: 'Bulk Handover Successful!',
+                              });
                               setShowHandoverModal(false);
                               setSelectedOrders([]);
                               loadMyDeliveries();
@@ -886,6 +1302,118 @@ const DeliveryAgentOrders = () => {
                   </div>
               </div>
           </div>
+      )}
+
+      {/* Reject Assignment Modal */}
+      {rejectModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitRejectTask();
+            }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200"
+          >
+            {/* Hidden inputs to isolate autofill and prevent hijacking the page's search inputs */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              style={{ display: 'none' }}
+              readOnly
+              value="delivery_agent"
+            />
+            <div className="bg-red-600 p-4 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <FaExclamationCircle className="text-xl" />
+                <h3 className="font-bold text-sm uppercase tracking-wider">
+                  {tasksToReject.length > 1
+                    ? `Reject Assignments (${tasksToReject.length} orders)`
+                    : 'Reject Assignment'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectModalOpen(false);
+                  setTasksToReject([]);
+                }}
+                className="text-white hover:text-red-100 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-gray-500">
+                You are about to cancel this order delivery assignment. This will return the order(s) back to the available pool. Please verify your password to proceed.
+              </p>
+
+              {rejectError && (
+                <div className="p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100">
+                  {rejectError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                  Reason for Cancellation
+                </label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Provide a detailed reason..."
+                  rows="3"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
+              <div className="space-y-1 relative">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                  Verify Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showRejectPassword ? 'text' : 'password'}
+                    value={rejectPassword}
+                    onChange={(e) => setRejectPassword(e.target.value)}
+                    placeholder="Enter your login password"
+                    autoComplete="current-password"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRejectPassword(!showRejectPassword)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                  >
+                    {showRejectPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectModalOpen(false);
+                  setTasksToReject([]);
+                }}
+                disabled={rejectSubmitting}
+                className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={rejectSubmitting}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 rounded-xl shadow-sm transition-all"
+              >
+                {rejectSubmitting ? 'Verifying...' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

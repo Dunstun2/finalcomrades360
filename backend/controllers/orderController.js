@@ -400,7 +400,8 @@ const createOrderFromCart = async (req, res) => {
     deliveryInstructions,
     paymentProofUrl,
     paymentId, // New field to link pre-initiated payment
-    deliveryTimePreference // New optional field
+    deliveryTimePreference, // New optional field
+    promoCode // Promo code logic
   } = req.body;
   
   // Safely extract userId - will be null for guest checkouts
@@ -533,8 +534,12 @@ const createOrderFromCart = async (req, res) => {
       batchSystemEnabled = config && config.value === 'true';
       
       if (batchSystemEnabled) {
+        const rawStatusCandidates = ['Scheduled', 'In Progress', 'scheduled', 'in progress', 'in_progress', 'active'];
         activeBatchCount = await Batch.count({
-          where: { status: 'active' },
+          where: { 
+            status: { [Op.in]: rawStatusCandidates },
+            isActive: true
+          },
           transaction: t
         });
       }
@@ -605,6 +610,18 @@ const createOrderFromCart = async (req, res) => {
 
     if (fastFoodBatchIds.size === 1) {
       sharedBatchId = Number(Array.from(fastFoodBatchIds)[0]);
+    }
+
+    const hasAnyFastFood = cartItems.some(item => item.type === 'fastfood');
+    if (batchSystemEnabled && hasAnyFastFood && activeBatchCount > 0) {
+      const prefTime = deliveryTimePreference || req.body.deliveryTimePreference;
+      if (fastFoodBatchIds.size === 0 && !prefTime) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Please select an active order batch or specify your preferred delivery time.'
+        });
+      }
     }
 
     console.log('✅ Backend: Items validated, creating unified order...');
@@ -732,6 +749,59 @@ const createOrderFromCart = async (req, res) => {
 
     console.log('🚀 Step 5: Creating single unified Order in database...');
 
+    let appliedPromoCode = null;
+    let appliedPromoDiscountPercentage = 0;
+    let appliedPromoObj = null;
+
+    if (promoCode) {
+      const { PromoCode } = require('../models');
+      const promo = await PromoCode.findOne({ where: { code: promoCode, isActive: true }, transaction: t });
+      if (promo) {
+        const now = new Date();
+        let isPromoValid = true;
+        let promoError = '';
+
+        if (promo.validFrom && new Date(promo.validFrom) > now) { isPromoValid = false; promoError = 'Promo code not yet active.'; }
+        if (promo.validUntil && new Date(promo.validUntil) < now) { isPromoValid = false; promoError = 'Promo code expired.'; }
+        if (promo.maxUsageLimit && promo.usageCount >= promo.maxUsageLimit) { isPromoValid = false; promoError = 'Promo code usage limit reached.'; }
+        if (promo.targetAudience === 'new_users') {
+          if (!effectiveUserId) { 
+             let hasPreviousOrders = false;
+             if (req.body.customerPhone) {
+                const { normalizeKenyanPhone } = require('../middleware/validators');
+                try {
+                  const phone = normalizeKenyanPhone(req.body.customerPhone);
+                  const previousOrders = await Order.count({ where: { customerPhone: phone }, transaction: t });
+                  if (previousOrders > 0) hasPreviousOrders = true;
+                } catch(e) {}
+             }
+             if (!hasPreviousOrders && req.body.customerEmail) {
+                const previousOrders = await Order.count({ where: { customerEmail: req.body.customerEmail.toLowerCase() }, transaction: t });
+                if (previousOrders > 0) hasPreviousOrders = true;
+             }
+
+             if (hasPreviousOrders) {
+                isPromoValid = false; promoError = 'For new users only. This contact info has been used before.';
+             }
+          }
+          else {
+            const previousOrders = await Order.count({ where: { userId: effectiveUserId }, transaction: t });
+            if (previousOrders > 0) { isPromoValid = false; promoError = 'For new users only.'; }
+          }
+        }
+
+        if (isPromoValid) {
+          appliedPromoDiscountPercentage = promo.discountPercentage;
+          appliedPromoCode = promo.code;
+          appliedPromoObj = promo;
+          console.log(`✅ Promo code ${appliedPromoCode} ready to be applied: ${appliedPromoDiscountPercentage}%`);
+        } else {
+           await t.rollback();
+           return res.status(400).json({ success: false, message: promoError });
+        }
+      }
+    }
+
     let secondaryReferralCode = null;
     try {
       const buyerUser = await User.findByPk(effectiveUserId, { attributes: ['referredByReferralCode'], transaction: t });
@@ -782,6 +852,7 @@ const createOrderFromCart = async (req, res) => {
       deliveryAddress: req.body.deliveryAddress || null,
       deliveryInstructions: deliveryInstructions || req.body.specialInstructions || null,
       deliveryTimePreference: deliveryTimePreference || req.body.deliveryTimePreference || null,
+      promoCode: appliedPromoCode, // Add promo code here
       batchId: sharedBatchId ? Number(sharedBatchId) : null,
       paymentProofUrl: paymentProofUrl || null
     }, { transaction: t });
@@ -790,6 +861,7 @@ const createOrderFromCart = async (req, res) => {
     // Step 6: Create OrderItems with sellerId populated from product
     let orderSubtotal = 0;
     let orderBaseSubtotal = 0;
+    let orderDiscountableSubtotal = 0; // For applicable products
     let orderDeliveryFee = 0;
     let fastFoodPickupPointFee = null;
     let totalOrderCommission = 0;
@@ -847,6 +919,23 @@ const createOrderFromCart = async (req, res) => {
       const itemLabel = itemLabelParts.join(' - ');
 
       orderSubtotal += itemQtyTotal;
+
+      if (appliedPromoObj && appliedPromoObj.applicableProductIds) {
+        let promoProductIds = appliedPromoObj.applicableProductIds;
+        if (typeof promoProductIds === 'string') {
+          try { promoProductIds = JSON.parse(promoProductIds); } catch(e) { promoProductIds = []; }
+        }
+        if (Array.isArray(promoProductIds) && promoProductIds.length > 0) {
+          const typePrefixId = `${cartItem.type}_${product.id}`;
+          if (promoProductIds.some(promoId => promoId === String(product.id) || promoId === typePrefixId || promoId.startsWith(typePrefixId + ':') || promoId.startsWith(String(product.id) + ':'))) {
+            orderDiscountableSubtotal += itemQtyTotal;
+          }
+        } else {
+          orderDiscountableSubtotal += itemQtyTotal;
+        }
+      } else {
+        orderDiscountableSubtotal += itemQtyTotal;
+      }
 
       // If fastfood pickup point routing, do not sum item delivery fees
       if (adminRoutingStrategy === 'fastfood_pickup_point') {
@@ -1043,13 +1132,39 @@ const createOrderFromCart = async (req, res) => {
       }
     }
 
-    const orderTotal = orderSubtotal + orderDeliveryFee;
+    const preDiscountTotal = orderSubtotal + orderDeliveryFee;
+    let computedDiscountAmount = 0;
+    
+    if (appliedPromoObj) {
+      if (appliedPromoObj.minOrderValue && preDiscountTotal < appliedPromoObj.minOrderValue) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: `Promo code requires a minimum order value of KES ${appliedPromoObj.minOrderValue}.` });
+      }
+
+      if (appliedPromoObj.applicableProductIds && Array.isArray(appliedPromoObj.applicableProductIds) && appliedPromoObj.applicableProductIds.length > 0 && orderDiscountableSubtotal === 0) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Promo code is not applicable to any items in your cart.' });
+      }
+
+      computedDiscountAmount = (orderDiscountableSubtotal * appliedPromoDiscountPercentage) / 100;
+      
+      if (appliedPromoObj.maxDiscountAmount && computedDiscountAmount > appliedPromoObj.maxDiscountAmount) {
+        computedDiscountAmount = appliedPromoObj.maxDiscountAmount;
+      }
+
+      appliedPromoObj.usageCount += 1;
+      await appliedPromoObj.save({ transaction: t });
+    }
+    
+    const orderTotal = preDiscountTotal - computedDiscountAmount;
+
     await order.update({
       total: orderTotal,
       deliveryFee: orderDeliveryFee,
       items: cartItems.length,
       paymentId: req.body.paymentId || null,
-      totalCommission: totalOrderCommission
+      totalCommission: totalOrderCommission,
+      discountAmount: computedDiscountAmount
     }, { transaction: t });
 
     console.log('🚀 Step 8: Crediting seller pending wallets...');
@@ -4267,32 +4382,48 @@ const cancelOrder = async (req, res) => {
     for (const order of orders) {
       const isAssociatedMarketer = req.user.role === 'marketer' && order.marketerId === req.user.id;
       
-      if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && !isAssociatedMarketer) {
+      if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'superadmin' && !isAssociatedMarketer) {
         await t.rollback();
         return res.status(403).json({ error: 'Forbidden: You do not own or have association with this order' });
       }
 
-      const terminalStatuses = ['delivered', 'completed', 'cancelled', 'failed', 'returned'];
-      if (terminalStatuses.includes(order.status)) {
+      if (order.status === 'cancelled') {
         await t.rollback();
-        return res.status(400).json({ error: `Order ${order.orderNumber} is already ${order.status}` });
+        return res.status(400).json({ error: `Order ${order.orderNumber} is already cancelled` });
       }
 
-      const inTransitStatuses = ['in_transit', 'in_transit', 'shipped', 'transit', 'ready_for_pickup'];
-      if (inTransitStatuses.includes(order.status)) {
-        await t.rollback();
-        return res.status(400).json({ error: `Cannot cancel order ${order.orderNumber} while it is ${order.status}` });
+      // If it's a cancellation request (Marketer/Customer)
+      if (req.body.requestOnly) {
+        const terminalStatuses = ['delivered', 'completed', 'cancelled', 'failed', 'returned'];
+        if (terminalStatuses.includes(order.status)) {
+          await t.rollback();
+          return res.status(400).json({ error: `Cannot request cancellation for order ${order.orderNumber} because it is ${order.status}` });
+        }
+        continue; // Skip other cancellation logic checks since this is just a request
       }
 
-      // Fast Food Constraint: Cannot cancel after seller confirmation
-      const hasFastFood = order.OrderItems?.some(item => item.itemType === 'fastfood' || item.fastFoodId);
-      if (hasFastFood && ['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(order.status)) {
-        await t.rollback();
-        return res.status(400).json({ error: `Fast food order ${order.orderNumber} cannot be cancelled once preparation has started.` });
-      }
+      // Regular cancellation checks (bypass for Admin)
+      if (!['admin', 'super_admin', 'superadmin'].includes(req.user.role)) {
+        const terminalStatuses = ['delivered', 'completed', 'cancelled', 'failed', 'returned'];
+        if (terminalStatuses.includes(order.status)) {
+          await t.rollback();
+          return res.status(400).json({ error: `Order ${order.orderNumber} is already ${order.status}` });
+        }
 
-      // Time-window enforcement (admins bypass; all other roles enforced)
-      if (!['admin', 'super_admin'].includes(req.user.role)) {
+        const inTransitStatuses = ['in_transit', 'in_transit', 'shipped', 'transit', 'ready_for_pickup'];
+        if (inTransitStatuses.includes(order.status)) {
+          await t.rollback();
+          return res.status(400).json({ error: `Cannot cancel order ${order.orderNumber} while it is ${order.status}` });
+        }
+
+        // Fast Food Constraint: Cannot cancel after seller confirmation
+        const hasFastFood = order.OrderItems?.some(item => item.itemType === 'fastfood' || item.fastFoodId);
+        if (hasFastFood && ['seller_confirmed', 'super_admin_confirmed', 'processing'].includes(order.status)) {
+          await t.rollback();
+          return res.status(400).json({ error: `Fast food order ${order.orderNumber} cannot be cancelled once preparation has started.` });
+        }
+
+        // Time-window enforcement (admins bypass; all other roles enforced)
         const orderAge = (Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60); // minutes
         if (hasFastFood) {
           if (orderAge > FOOD_ORDER_CANCEL_WINDOW_MINUTES) {
@@ -4309,14 +4440,38 @@ const cancelOrder = async (req, res) => {
       }
     }
 
+    // Handle cancellation request (Marketer/Customer)
+    if (req.body.requestOnly) {
+      for (const order of orders) {
+        await order.update({
+          cancelRequested: true,
+          cancelReason: reason || 'Cancellation requested',
+        }, { transaction: t });
+
+        // Add Tracking Update
+        const existingTracking = parseMaybeJson(order.trackingUpdates, []);
+        existingTracking.push({
+          status: order.status,
+          location: 'System',
+          description: `Cancellation requested. Reason: ${reason || 'Not specified'}`,
+          timestamp: new Date()
+        });
+        await order.update({ trackingUpdates: JSON.stringify(existingTracking) }, { transaction: t });
+      }
+
+      await t.commit();
+      return res.json({ success: true, message: 'Cancellation request submitted successfully' });
+    }
+
     for (const order of orders) {
       const prevStatus = order.status;
       await order.update({
         status: 'cancelled',
         cancelledAt: new Date(),
-        cancelReason: reason || 'Cancelled by customer',
+        cancelReason: reason || order.cancelReason || 'Cancelled by customer',
         cancelledBy: cancelledBy || (req.user.role === 'customer' ? 'customer' : 'admin'),
-        deliveryAgentId: null // Crucial: clear agent if assigned so it leaves their active dashboard
+        deliveryAgentId: null, // Crucial: clear agent if assigned so it leaves their active dashboard
+        cancelRequested: false // Reset flag
       }, { transaction: t });
 
       // Add Tracking Update
@@ -4420,6 +4575,44 @@ const cancelOrder = async (req, res) => {
   }
 };
 
+const rejectCancelRequest = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findByPk(orderId);
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'superadmin') {
+      await t.rollback();
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+
+    await order.update({
+      cancelRequested: false
+    }, { transaction: t });
+
+    // Add Tracking Update
+    const existingTracking = parseMaybeJson(order.trackingUpdates, []);
+    existingTracking.push({
+      status: order.status,
+      location: 'System',
+      description: 'Admin rejected order cancellation request.',
+      timestamp: new Date()
+    });
+    await order.update({ trackingUpdates: JSON.stringify(existingTracking) }, { transaction: t });
+
+    await t.commit();
+    res.json({ success: true, message: 'Cancellation request rejected successfully' });
+  } catch (error) {
+    if (t) await t.rollback();
+    console.error('Error rejecting cancel request:', error);
+    res.status(500).json({ error: 'Failed to reject cancellation request' });
+  }
+};
+
 const updateOrderAddress = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -4428,7 +4621,7 @@ const updateOrderAddress = async (req, res) => {
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
     // Authorization: owner or admin
-    if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (order.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -4442,7 +4635,7 @@ const updateOrderAddress = async (req, res) => {
       deliveryAddress: deliveryAddress || order.deliveryAddress,
       addressDetails: addressDetails || order.addressDetails,
       addressUpdatedAt: new Date(),
-      addressUpdatedBy: req.user.role === 'admin' || req.user.role === 'super_admin' ? 'admin' : 'customer'
+      addressUpdatedBy: ['admin', 'super_admin', 'superadmin'].includes(req.user.role) ? 'admin' : 'customer'
     });
 
     res.json({ message: 'Address updated successfully' });
@@ -4469,15 +4662,15 @@ const editOrder = async (req, res) => {
 
     // Authorization: Admin or Associated Marketer
     const isAssociatedMarketer = req.user.role === 'marketer' && order.marketerId === req.user.id;
-    const isPrivileged = req.user.role === 'admin' || req.user.role === 'super_admin';
+    const isPrivileged = ['admin', 'super_admin', 'superadmin'].includes(req.user.role);
     
     if (!isPrivileged && !isAssociatedMarketer) {
       await t.rollback();
       return res.status(403).json({ error: 'Forbidden: You do not have permission to edit this order' });
     }
 
-    // Restriction: Before collected by delivery agent
-    const restrictedStatuses = ['collected', 'in_transit', 'shipped', 'delivered', 'completed', 'cancelled'];
+    // Restriction: Before delivered or finalized
+    const restrictedStatuses = ['delivered', 'completed', 'cancelled', 'failed', 'returned'];
     if (restrictedStatuses.includes(order.status)) {
       await t.rollback();
       return res.status(400).json({ error: `Cannot edit order when status is ${order.status}` });
@@ -5007,6 +5200,7 @@ module.exports = {
   assignDeliveryAgent,
   unassignDeliveryAgent,
   cancelOrder,
+  rejectCancelRequest,
   updateOrderAddress,
   editOrder,
   addTrackingUpdate,

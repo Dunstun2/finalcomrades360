@@ -16,21 +16,18 @@ const startMarketingAutomation = () => {
     cron.schedule('0 0 * * *', async () => {
         console.log('[Marketing Automation] Running daily "Thank You" messages task...');
         try {
-            const startOfDay = new Date();
-            startOfDay.setHours(0, 0, 0, 0);
+            const now = new Date();
+            const searchStart = new Date(Date.now() - 48 * 60 * 60 * 1000); // Look back 48 hours to handle catch-up
             
-            const endOfDay = new Date();
-            endOfDay.setHours(23, 59, 59, 999);
-
-            // Fetch all orders delivered today
+            // Fetch all orders delivered/completed recently
             const orders = await Order.findAll({
                 where: {
-                    status: 'delivered',
+                    status: { [Op.in]: ['delivered', 'completed'] },
                     thankYouSent: { [Op.not]: true },
                     [Op.or]: [
                         {
                             actualDelivery: {
-                                [Op.between]: [startOfDay, endOfDay]
+                                [Op.between]: [searchStart, now]
                             }
                         },
                         {
@@ -38,7 +35,7 @@ const startMarketingAutomation = () => {
                                 { actualDelivery: null },
                                 {
                                     updatedAt: {
-                                        [Op.between]: [startOfDay, endOfDay]
+                                        [Op.between]: [searchStart, now]
                                     }
                                 }
                             ]

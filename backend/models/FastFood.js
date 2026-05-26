@@ -177,6 +177,11 @@ module.exports = (sequelize) => {
                 key: 'id'
             }
         },
+        deletedAt: {
+            type: DataTypes.DATE,
+            allowNull: true,
+            comment: 'Timestamp when the fast food item was soft deleted'
+        },
         // NEW FIELD: Track changes for approved items
         changes: {
             type: DataTypes.JSON,

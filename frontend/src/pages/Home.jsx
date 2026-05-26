@@ -11,9 +11,9 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import Footer from '../components/Footer';
 import HomeProductCard from '../components/HomeProductCard';
 import ServiceCard from '../components/ServiceCard';
-import FastFoodSection from '../components/FastFoodSection';
 import HeroBanner from '../components/HeroBanner';
 import { resolveImageUrl, FALLBACK_IMAGE } from '../utils/imageUtils';
+import FastFoodSection from '../components/FastFoodSection';
 import { isFastFoodOpen } from '../utils/availabilityUtils';
 import { usePersistentFetch } from '../hooks/usePersistentFetch';
 import useRealtimeSync from '../hooks/useRealtimeSync';
@@ -1011,6 +1011,7 @@ function Home({ isMarketingMode: propMarketingMode }) {
         onAddToCart={handleAddToCart}
       />
 
+
       <div data-testid="homepage-content" className="w-full px-1 sm:px-4 pt-4 md:pt-8 pb-2">
         {/* Quick Navigation Buttons */}
         <div className="mb-6 flex items-center justify-center px-1 sm:px-0">
@@ -1036,6 +1037,12 @@ function Home({ isMarketingMode: propMarketingMode }) {
           </div>
         </div>
 
+        {isSectionVisible('fastfood') && (
+          <FastFoodSection
+            initialData={sortedFastFoodData}
+            initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
+          />
+        )}
         {/* Product Category Filter Navigation */}
         {isSectionVisible('products') && (
           <div className="bg-white border rounded-none sm:rounded-lg shadow-sm mb-6 mt-4">
@@ -1226,14 +1233,6 @@ function Home({ isMarketingMode: propMarketingMode }) {
         )}
       </div>
       ))}
-
-      {/* Fast Food Section */}
-      {isSectionVisible('fastfood') && (
-        <FastFoodSection 
-          initialData={sortedFastFoodData} 
-          initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
-        />
-      )}
 
       {/* Spacer to push footer to bottom */}
       <div className="flex-grow"></div>

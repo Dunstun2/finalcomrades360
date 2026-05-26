@@ -985,6 +985,17 @@ const setFastFoodOrderBatch = async (req, res) => {
     const userId = req.user.id;
     const { batchId, cartType = 'personal' } = req.body;
 
+    if (batchId === null || batchId === '') {
+      const { Cart } = require('../models');
+      await Cart.update({ batchId: null }, { 
+        where: { userId, cartType, itemType: 'fastfood' }
+      });
+      return res.json({
+        success: true,
+        message: 'Batch selection cleared'
+      });
+    }
+
     const parsedBatchId = parseInt(batchId, 10);
     if (!parsedBatchId || Number.isNaN(parsedBatchId)) {
       return res.status(400).json({

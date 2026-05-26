@@ -46,6 +46,7 @@ const DeliveryCharge = require('./DeliveryCharge')(sequelize, Sequelize.DataType
 const Warehouse = require('./Warehouse')(sequelize, Sequelize.DataTypes);
 const PickupStation = require('./PickupStation')(sequelize, Sequelize.DataTypes);
 const FastFoodReview = require('./FastFoodReview')(sequelize, Sequelize.DataTypes);
+const ProductReview = require('./ProductReview')(sequelize, Sequelize.DataTypes);
 const StockReservation = require('./StockReservation')(sequelize, Sequelize.DataTypes);
 const StockAuditLog = require('./StockAuditLog')(sequelize, Sequelize.DataTypes);
 const WarehouseStock = require('./WarehouseStock')(sequelize, Sequelize.DataTypes);
@@ -66,10 +67,12 @@ const AdminAuditLog = require('./AdminAuditLog')(sequelize, Sequelize.DataTypes)
 const BlockedIP = require('./BlockedIP')(sequelize, Sequelize.DataTypes);
 const VerifiedContact = require('./VerifiedContact')(sequelize, Sequelize.DataTypes);
 const KnownLocation = require('./KnownLocation')(sequelize, Sequelize.DataTypes);
+const PromoCode = require('./PromoCode')(sequelize, Sequelize.DataTypes);
 
 
 const models = {
   User,
+  PromoCode,
   AdminAuditLog,
   Product,
   Category,
@@ -114,6 +117,7 @@ const models = {
   PickupStation,
   DeliveryMessage,
   FastFoodReview,
+  ProductReview,
   StockReservation,
   StockAuditLog,
   WarehouseStock,
@@ -146,6 +150,7 @@ Object.values(models).forEach(model => {
 // Re-export all models for easy access
 module.exports = {
   User,
+  PromoCode,
   Product,
   Category,
   Subcategory,
@@ -190,6 +195,7 @@ module.exports = {
   PickupStation,
   DeliveryMessage,
   FastFoodReview,
+  ProductReview,
   StockReservation,
   StockAuditLog,
   WarehouseStock,

@@ -61,11 +61,14 @@ const ProtectedRoute = ({ children, requiredRole }) => {
     }
 
     if (!user) {
+        // Allow guest users to access checkout without login
+        if (location.pathname.startsWith('/checkout')) {
+            return children;
+        }
         // Redirect station users to a specialized login page
         const loginPath = location.pathname.startsWith('/station') ? '/station/login' : '/login';
-        
         // Redirect them to the /login page (or specialized page), but save the current 
-        // location they were trying to go to when they were redirected.
+        // location they were trying to go to when they are redirected.
         return <Navigate to={loginPath} state={{ from: location }} replace />;
     }
 

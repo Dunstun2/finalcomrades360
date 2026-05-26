@@ -563,6 +563,13 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE'
     });
 
+    // Product reviews relationship
+    Product.hasMany(models.ProductReview, {
+      foreignKey: 'productId',
+      as: 'reviews',
+      onDelete: 'CASCADE'
+    });
+
     // Commission relationship
     Product.hasMany(models.Commission, {
       foreignKey: 'productId',

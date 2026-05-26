@@ -11,7 +11,11 @@ const {
   logSiteVisit,
   logItemAction,
   getTrafficStats,
-  getBusinessHealthAnalytics
+  getConversionFunnel,
+  getDeliveryHealth,
+  getProductVelocity,
+  getBusinessHealthAnalytics,
+  getPlatformImpactAnalytics
 } = require('../controllers/analyticsController');
 const { getRevenueAnalytics } = require('../controllers/adminController');
 const { auth, adminOnly, adminOrFinance } = require('../middleware/auth');
@@ -46,6 +50,15 @@ router.get('/marketing/roi', adminOrFinance, getMarketingCampaignROI);
 // Growth poster data - admin/finance only
 router.get('/growth-poster', adminOrFinance, getGrowthPosterData);
 
+// Conversion funnel analytics - admin/finance only
+router.get('/funnel', adminOrFinance, getConversionFunnel);
+
+// Delivery health analytics - admin only
+router.get('/delivery/health', adminOnly, getDeliveryHealth);
+
+// Product velocity analytics - admin only
+router.get('/product-velocity', adminOnly, getProductVelocity);
+
 // Traffic stats - admin/finance only
 router.get('/traffic/stats', adminOrFinance, getTrafficStats);
 
@@ -54,5 +67,8 @@ router.get('/revenue', adminOrFinance, getRevenueAnalytics);
 
 // Business health analytics - admin only
 router.get('/business', adminOnly, getBusinessHealthAnalytics);
+
+// Platform growth and impact analytics - admin/finance only
+router.get('/impact', adminOrFinance, getPlatformImpactAnalytics);
 
 module.exports = router;

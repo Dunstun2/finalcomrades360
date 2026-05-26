@@ -1,6 +1,12 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+
+const rootEnv = loadEnv('', path.resolve(__dirname, '..'));
+// Use a dedicated backend port env variable so Vite's own server PORT does not
+// accidentally override the backend target.
+const backendPort = process.env.BACKEND_PORT || rootEnv.BACKEND_PORT || rootEnv.PORT || '5001';
+const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
 
 // Custom plugin to manage preloads
 function optimizePreloads() {
@@ -48,20 +54,20 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy API requests to the backend
       '/api': {
-        target: 'http://127.0.0.1:5001',
+        target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true,
         secure: false,
         ws: true, // Enable WebSocket proxying
       },
       // Proxy WebSocket requests
       '/socket.io': {
-        target: 'ws://localhost:5001',
+        target: `ws://${backendHost}:${backendPort}`,
         ws: true,
         changeOrigin: true,
       },
       // Proxy uploads directory for images
       '/uploads': {
-        target: 'http://localhost:5001',
+        target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true,
         secure: false,
         ws: true,
