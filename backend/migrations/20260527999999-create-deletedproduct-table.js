@@ -178,9 +178,22 @@ module.exports = {
         defaultValue: Sequelize.NOW
       }
     });
-    await queryInterface.addIndex('DeletedProducts', ['sellerId']);
-    await queryInterface.addIndex('DeletedProducts', ['autoDeleteAt']);
-    await queryInterface.addIndex('DeletedProducts', ['originalId']);
+    // Add indexes only if they do not already exist to prevent duplicate errors in production
+    try {
+      await queryInterface.addIndex('DeletedProducts', ['sellerId'], { name: 'deleted_products_seller_id' });
+    } catch (e) {
+      // Ignore duplicate index error
+    }
+    try {
+      await queryInterface.addIndex('DeletedProducts', ['autoDeleteAt'], { name: 'deleted_products_autoDeleteAt' });
+    } catch (e) {
+      // Ignore duplicate index error
+    }
+    try {
+      await queryInterface.addIndex('DeletedProducts', ['originalId'], { name: 'deleted_products_originalId' });
+    } catch (e) {
+      // Ignore duplicate index error
+    }
   },
 
   down: async (queryInterface, Sequelize) => {
