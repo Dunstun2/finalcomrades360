@@ -638,7 +638,7 @@ exports.placeDirectOrder = async (req, res) => {
                 let isPromoValid = true;
                 let promoError = '';
 
-                const orderType = type || globalType;
+                const orderType = globalType;
                 if (promo.orderType !== 'all' && promo.orderType !== orderType) {
                     isPromoValid = false;
                     promoError = `This promo code is only valid for ${promo.orderType} orders.`;
@@ -742,22 +742,8 @@ exports.placeDirectOrder = async (req, res) => {
             });
         }
         
-        // 2. Resolve Delivery Fee
-        let deliveryFee = totalDeliveryFee;
-        if (pickupStationId) {
-            const station = await PickupStation.findByPk(pickupStationId);
-            if (station) {
-                deliveryFee = parseFloat(station.price || 0);
-            }
-        } else if (deliveryFee === 0) {
-            const routeFeesConfig = await PlatformConfig.findOne({ where: { key: 'delivery_route_fees' } });
-            if (routeFeesConfig) {
-                const routeFees = typeof routeFeesConfig.value === 'string' ? JSON.parse(routeFeesConfig.value) : routeFeesConfig.value;
-                if (routeFees && routeFees.seller_to_customer && routeFees.seller_to_customer.fee !== undefined) {
-                    deliveryFee = parseFloat(routeFees.seller_to_customer.fee);
-                }
-            }
-        }
+        // 2. Resolve Delivery Fee (Direct orders do not charge a delivery fee)
+        let deliveryFee = 0;
 
         // Calculate Discount from Promo Code if applicable
         let orderDiscountableSubtotal = 0;
