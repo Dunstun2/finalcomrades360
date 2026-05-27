@@ -538,10 +538,6 @@ const DirectOrders = () => {
   };
 
   const getDeliveryFee = () => {
-    if (selectedPickupStationId) {
-      const station = pickupStations.find(s => s.id === selectedPickupStationId);
-      return station ? parseFloat(station.price || 0) : 0;
-    }
     return 0;
   };
 
@@ -1032,12 +1028,7 @@ const DirectOrders = () => {
                         <span>Items Subtotal:</span>
                         <span className="font-bold text-white">KES {subtotal.toLocaleString()}</span>
                       </div>
-                      {selectedPickupStationId && (
-                        <div className="flex justify-between">
-                          <span>Delivery Fee (Station):</span>
-                          <span className="font-bold text-white">KES {deliveryFee.toLocaleString()}</span>
-                        </div>
-                      )}
+
                       {appliedPromo && discountAmount > 0 && (
                         <div className="flex justify-between text-green-400 font-bold">
                           <span>Discount ({appliedPromo.discountPercentage}%):</span>

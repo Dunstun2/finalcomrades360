@@ -742,25 +742,8 @@ exports.placeDirectOrder = async (req, res) => {
             });
         }
         
-        // 2. Resolve Delivery Fee
-        let deliveryFee = totalDeliveryFee;
-        if (pickupStationId) {
-            const station = await PickupStation.findByPk(pickupStationId);
-            if (station) {
-                // If it's a pick station, we might override or add to the fee depending on business rules.
-                // For now, we'll use the station price as the total delivery fee if it's set.
-                deliveryFee = parseFloat(station.price || 0);
-            }
-        } else if (deliveryFee === 0) {
-            // If still 0, check for platform route fees for direct delivery (seller_to_customer)
-            const routeFeesConfig = await PlatformConfig.findOne({ where: { key: 'delivery_route_fees' } });
-            if (routeFeesConfig) {
-                const routeFees = typeof routeFeesConfig.value === 'string' ? JSON.parse(routeFeesConfig.value) : routeFeesConfig.value;
-                if (routeFees && routeFees.seller_to_customer && routeFees.seller_to_customer.fee !== undefined) {
-                    deliveryFee = parseFloat(routeFees.seller_to_customer.fee);
-                }
-            }
-        }
+        // 2. Resolve Delivery Fee (Direct orders do not charge/show a delivery fee)
+        let deliveryFee = 0;
 
         // Calculate Discount from Promo Code if applicable
         let orderDiscountableSubtotal = 0;
