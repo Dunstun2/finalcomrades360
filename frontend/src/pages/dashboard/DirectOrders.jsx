@@ -338,6 +338,23 @@ const DirectOrders = () => {
     }
   }, [canPlace, type, batchSystemEnabled]);
 
+  const fetchAutoApplyPromo = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/promo-codes/auto-apply?orderType=${type}`);
+      if (data?.success && data?.data) {
+        setPromoCodeInput(data.data.code);
+      } else {
+        setPromoCodeInput('');
+      }
+    } catch (error) {
+      console.error('Failed to fetch auto-apply promo code:', error);
+    }
+  }, [type]);
+
+  useEffect(() => {
+    if (canPlace) fetchAutoApplyPromo();
+  }, [fetchAutoApplyPromo, canPlace]);
+
   const handleParse = async () => {
     console.log('[DirectOrder] handleParse triggered. TextBlock length:', textBlock?.length);
     if (!textBlock.trim()) {
@@ -359,6 +376,23 @@ const DirectOrders = () => {
         setSuggestedPickupStation(data.suggestedPickupStation);
         setSelectedPickupStationId(data.suggestedPickupStation?.id || null);
         setStep('review');
+
+        if (promoCodeInput) {
+          try {
+            const res = await api.post('/promo-codes/apply', { 
+              code: promoCodeInput.trim().toUpperCase(), 
+              orderType: type,
+              customerPhone: data.parsedData.customerPhone,
+              customerEmail: data.parsedData.customerEmail
+            });
+            if (res.data?.success) {
+              setAppliedPromo(res.data.data);
+              toast({ title: 'Promo Code Applied', description: `Success! discount of ${res.data.data.discountPercentage}% applied.` });
+            }
+          } catch (err) {
+            console.error('Failed to auto-apply promo code:', err);
+          }
+        }
 
         const missing = [];
         if (data.parsedData.items.length === 0) missing.push('Items');
@@ -543,10 +577,10 @@ const DirectOrders = () => {
     setAddressError(false);
     setSelectedBatchId(null);
     setDeliveryTimePreference('');
-    setPromoCodeInput('');
     setAppliedPromo(null);
     setPromoError('');
     submittingRef.current = false;
+    fetchAutoApplyPromo();
   };
 
   const getSubtotal = () => {
