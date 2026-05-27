@@ -383,8 +383,16 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
     const deliveryFeeVal = Number(order.deliveryFee || 0);
     const deliveryFee = deliveryFeeVal > 0 ? deliveryFeeVal.toLocaleString() : '0';
     const paymentMethodLabel = `${order.paymentMethod || 'N/A'} - ${order.paymentType || 'N/A'}`;
-    const subtotal = (Number(order.total || 0) - Number(order.deliveryFee || 0)).toLocaleString();
+    const discountVal = Number(order.discountAmount || 0);
+    const preDiscountSubtotal = Number(order.total || 0) + discountVal - Number(order.deliveryFee || 0);
+    const subtotal = preDiscountSubtotal.toLocaleString();
     const trackUrl = `${siteUrl}/track/${order.orderNumber}`;
+
+    // Build discount section for notifications
+    let discountSection = '';
+    if (discountVal > 0) {
+        discountSection = `\n🎉 Promo Discount: - KES ${discountVal.toLocaleString()}${order.promoCode ? ` (Code: ${order.promoCode})` : ''}`;
+    }
 
     // For guest customers (no account) on direct/marketing orders, include a signup link
     // pre-filled with the marketer's referral code so they can register and claim this order.
@@ -397,8 +405,8 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         : null;
 
     const defaultTemplate = signupUrl
-        ? `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}\n\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\n🔍 Track your order: {trackUrl}\n\n👤 Don't have an account yet? Create one to manage all your orders:\n{signupUrl}`
-        : `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}\n\nTotal: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
+        ? `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}${discountVal > 0 ? '\n{discountSection}' : ''}\n\n💰 Total to Pay: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\n🔍 Track your order: {trackUrl}\n\n👤 Don't have an account yet? Create one to manage all your orders:\n{signupUrl}`
+        : `Hello {name}, your order #{orderNumber} has been placed successfully! 🛍️\n\nItems:\n{itemsList}\nDelivery Fee: KES {deliveryFee}${discountVal > 0 ? '\n{discountSection}' : ''}\n\n💰 Total to Pay: KES {total}\n\nPayment: {paymentMethod}\n\nDelivery Information:\nMethod: {deliveryMethod}\nLocation: {deliveryLocation}\n\nThank you for shopping with Comrades360! \n\nTrack your order here: {trackUrl}`;
 
 
     await sendCustomerNotificationAcrossChannels('orderPlaced', {
@@ -407,6 +415,7 @@ async function notifyCustomerOrderPlaced(order, customer, itemsCount, itemNames,
         itemsList: itemNames || `${itemsCount} items`,
         subtotal,
         deliveryFee,
+        discountSection,
         total: order.total?.toLocaleString() || '0',
         paymentMethod: paymentMethodLabel,
         deliveryMethod,
