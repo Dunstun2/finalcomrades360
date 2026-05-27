@@ -117,8 +117,8 @@ const auth = async (req, res, next) => {
     console.log(`[auth] Checking verification bypass for: ${req.originalUrl} (path: ${req.path})`);
     // Allow unverified users to verify themselves and check their profile status
     const isVerificationOperation = (
-      /(\/auth\/me|\/users\/me|\/users\/profile|\/users\/security|\/users\/login-history|\/users\/active-sessions|\/phone-otp|\/email-change|\/roles|\/role-applications|\/verification|\/upload|\/cart|\/wishlist|\/job-openings)/i.test(req.originalUrl) ||
-      /(\/auth\/me|\/users\/me|\/users\/profile|\/users\/security|\/users\/login-history|\/users\/active-sessions|\/phone-otp|\/email-change|\/roles|\/role-applications|\/verification|\/upload|\/cart|\/wishlist|\/job-openings)/i.test(req.path) ||
+      /(\/auth\/me|\/auth\/force-change-password|\/auth\/verify-password|\/users\/me|\/users\/profile|\/users\/security|\/users\/login-history|\/users\/active-sessions|\/phone-otp|\/email-change|\/roles|\/role-applications|\/verification|\/upload|\/cart|\/wishlist|\/job-openings)/i.test(req.originalUrl) ||
+      /(\/auth\/me|\/auth\/force-change-password|\/auth\/verify-password|\/users\/me|\/users\/profile|\/users\/security|\/users\/login-history|\/users\/active-sessions|\/phone-otp|\/email-change|\/roles|\/role-applications|\/verification|\/upload|\/cart|\/wishlist|\/job-openings)/i.test(req.path) ||
       (req.method === 'POST' && (req.originalUrl.includes('role') || req.path.includes('role')))
     );
 
