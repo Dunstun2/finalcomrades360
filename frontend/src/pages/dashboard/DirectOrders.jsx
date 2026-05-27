@@ -400,7 +400,10 @@ const DirectOrders = () => {
 
   const handlePlaceOrder = async () => {
     // Prevent double-invocation (double-click before loading state propagates)
-    if (submittingRef.current) return;
+    if (submittingRef.current) {
+      console.log('[DirectOrder] Blocked by submittingRef.current === true');
+      return;
+    }
     submittingRef.current = true;
 
     console.log('[DirectOrder] Finalizing Order. Items:', parsedData.items);
@@ -423,17 +426,20 @@ const DirectOrders = () => {
     console.log('[DirectOrder] Phone Comparison:', { original: parsedData.customerPhone, confirm: confirmPhone, normPhone, normConfirm });
 
     if (!normPhone || normPhone.length < 9) {
+      console.log('[DirectOrder] Blocked: Phone number missing or short');
       toast({ title: 'Phone Number Missing', description: 'The phone number was not detected or is too short.', variant: 'destructive' });
       submittingRef.current = false;
       return;
     }
     if (confirmPhone && normPhone !== normConfirm) {
+      console.log('[DirectOrder] Blocked: Phone Mismatch');
       toast({ title: 'Phone Mismatch', description: 'The phone number and its confirmation do not match.', variant: 'destructive' });
       submittingRef.current = false;
       return;
     }
     const addressMissing = !parsedData?.deliveryAddress || parsedData?.deliveryAddress === 'N/A' || parsedData?.deliveryAddress.trim().length < 3;
     if (addressMissing) {
+      console.log('[DirectOrder] Blocked: Delivery Address Missing', { address: parsedData?.deliveryAddress });
       setAddressError(true);
       toast({ title: 'Delivery Address Missing', description: 'Please type the delivery address in the field highlighted below.', variant: 'destructive' });
       submittingRef.current = false;
@@ -442,6 +448,7 @@ const DirectOrders = () => {
 
     // Enforce batch selection if the batch system is enabled and active batches cover this time window
     if (batchSystemEnabled && type === 'fastfood' && batches.length > 0 && !selectedBatchId) {
+      console.log('[DirectOrder] Blocked: Batch Selection Required');
       toast({ 
         title: 'Batch Selection Required', 
         description: 'An active batch must be selected to place a fast food order during batch operating hours.', 
