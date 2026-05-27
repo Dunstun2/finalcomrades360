@@ -240,6 +240,12 @@ const DirectOrders = () => {
   const [batchSystemEnabled, setBatchSystemEnabled] = useState(false);
   const submittingRef = useRef(false);
 
+  // --- Promo Code State ---
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [applyingPromo, setApplyingPromo] = useState(false);
+  const [promoError, setPromoError] = useState('');
+
   // Prefill order block if coming from AdminOrders "Reconvert/Duplicate as Direct Order" action
   useEffect(() => {
     const prefillBlock = localStorage.getItem('direct_order_prefill_block');
@@ -462,7 +468,8 @@ const DirectOrders = () => {
         customerEmail: parsedData.customerEmail,
         originalTextBlock: textBlock,
         batchId: selectedBatchId,
-        deliveryTimePreference: deliveryTimePreference
+        deliveryTimePreference: deliveryTimePreference,
+        promoCode: appliedPromo?.code || null
       };
 
       console.log('[DirectOrder] Sending confirm payload:', payload);
@@ -484,6 +491,28 @@ const DirectOrders = () => {
     }
   };
 
+  const handleApplyPromo = async () => {
+    if (!promoCodeInput) return;
+    setApplyingPromo(true);
+    setPromoError('');
+    try {
+      const res = await api.post('/promo-codes/apply', { 
+        code: promoCodeInput.trim().toUpperCase(), 
+        orderType: type, // 'fastfood' or 'product'
+        customerPhone: parsedData.customerPhone,
+        customerEmail: parsedData.customerEmail
+      });
+      setAppliedPromo(res.data.data);
+      toast({ title: 'Promo Code Applied', description: `Success! discount of ${res.data.data.discountPercentage}% applied.` });
+    } catch (err) {
+      setAppliedPromo(null);
+      setPromoError(err.response?.data?.message || 'Invalid promo code');
+      toast({ title: 'Promo Code Error', description: err.response?.data?.message || 'Invalid promo code', variant: 'destructive' });
+    } finally {
+      setApplyingPromo(false);
+    }
+  };
+
   const reset = () => {
     setStep('input');
     setTextBlock('');
@@ -494,8 +523,66 @@ const DirectOrders = () => {
     setAddressError(false);
     setSelectedBatchId(null);
     setDeliveryTimePreference('');
+    setPromoCodeInput('');
+    setAppliedPromo(null);
+    setPromoError('');
     submittingRef.current = false;
   };
+
+  const getSubtotal = () => {
+    return (parsedData?.items || []).reduce((sum, item) => {
+      const selectedMatch = item.matches?.find(m => m.id === item.selectedId);
+      const price = selectedMatch ? parseFloat(selectedMatch.price || 0) : 0;
+      return sum + (price * (item.quantity || 1));
+    }, 0);
+  };
+
+  const getDeliveryFee = () => {
+    if (selectedPickupStationId) {
+      const station = pickupStations.find(s => s.id === selectedPickupStationId);
+      return station ? parseFloat(station.price || 0) : 0;
+    }
+    return 0;
+  };
+
+  const getDiscountableSubtotal = () => {
+    if (!appliedPromo) return 0;
+    let promoProductIds = appliedPromo.applicableProductIds || [];
+    if (typeof promoProductIds === 'string') {
+      try { promoProductIds = JSON.parse(promoProductIds); } catch(e) { promoProductIds = []; }
+    }
+    if (Array.isArray(promoProductIds) && promoProductIds.length > 0) {
+      return (parsedData?.items || []).reduce((sum, item) => {
+        const selectedMatch = item.matches?.find(m => m.id === item.selectedId);
+        if (!selectedMatch) return sum;
+        
+        const price = parseFloat(selectedMatch.price || 0);
+        const typePrefixId = `${item.type || type}_${selectedMatch.id}`;
+        
+        const isApplicable = promoProductIds.some(promoId => 
+          promoId === String(selectedMatch.id) || 
+          promoId === typePrefixId || 
+          promoId.startsWith(typePrefixId + ':') || 
+          promoId.startsWith(String(selectedMatch.id) + ':')
+        );
+        
+        return sum + (isApplicable ? price * (item.quantity || 1) : 0);
+      }, 0);
+    }
+    return getSubtotal();
+  };
+
+  const subtotal = getSubtotal();
+  const deliveryFee = getDeliveryFee();
+  const discountableSubtotal = getDiscountableSubtotal();
+  let discountAmount = 0;
+  if (appliedPromo) {
+    discountAmount = (discountableSubtotal * appliedPromo.discountPercentage) / 100;
+    if (appliedPromo.maxDiscountAmount && discountAmount > appliedPromo.maxDiscountAmount) {
+      discountAmount = appliedPromo.maxDiscountAmount;
+    }
+  }
+  const finalTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
 
   const allFilteredOrders = orders.filter(o =>
     !searchTerm || 
@@ -689,6 +776,66 @@ const DirectOrders = () => {
                 </div>
               </div>
 
+              {/* Promo Code Card */}
+              <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-blue-500" />
+                    Promo Code (Optional)
+                  </h3>
+                  {appliedPromo && (
+                    <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Applied
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Enter promo code"
+                    value={promoCodeInput}
+                    onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+                    disabled={appliedPromo || applyingPromo}
+                    className="flex-1 text-sm font-bold bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all outline-none disabled:opacity-50"
+                  />
+                  {!appliedPromo ? (
+                    <button
+                      type="button"
+                      onClick={handleApplyPromo}
+                      disabled={!promoCodeInput || applyingPromo}
+                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center gap-2 uppercase tracking-wider text-center"
+                    >
+                      {applyingPromo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Apply'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppliedPromo(null);
+                        setPromoCodeInput('');
+                      }}
+                      className="px-6 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs rounded-xl transition-all active:scale-[0.98] uppercase tracking-wider text-center"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {promoError && (
+                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-wide flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {promoError}
+                  </p>
+                )}
+                
+                {appliedPromo && (
+                  <div className="bg-green-50/50 border border-green-100 rounded-xl p-3.5 text-xs text-green-800 space-y-1">
+                    <p className="font-bold">🎉 Promo Code Applied: <span className="font-black text-green-900">{appliedPromo.code}</span></p>
+                    <p className="font-medium text-[11px] text-green-700">Benefits: {appliedPromo.discountPercentage}% discount on applicable items.</p>
+                  </div>
+                )}
+              </div>
+
               {/* Batch Selection — only when batch system is ON and batches available */}
               {batchSystemEnabled && type === 'fastfood' && batches.length > 0 && (
                 <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-3">
@@ -869,20 +1016,48 @@ const DirectOrders = () => {
               </div>
 
               {/* Summary Footer */}
-              <div className="bg-gray-900 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl relative overflow-hidden mt-2">
+              <div className="bg-gray-900 rounded-3xl p-8 text-white flex flex-col lg:flex-row justify-between items-center gap-6 shadow-2xl relative overflow-hidden mt-2">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full -translate-y-32 translate-x-32 blur-3xl pointer-events-none" />
-                <div className="space-y-1 relative z-10 text-center md:text-left">
-                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Checkout Summary</h3>
-                  <p className="text-3xl font-black tracking-tight">{(parsedData?.items || []).length} Items Selected</p>
-                  <p className="text-sm text-gray-400 font-medium">Customer: <span className="text-white font-bold">{parsedData?.customerName || parsedData?.customerPhone || '—'}</span></p>
+                <div className="space-y-3 relative z-10 text-center lg:text-left flex-1 w-full">
+                  <div>
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Checkout Summary</h3>
+                    <p className="text-2xl font-black tracking-tight">{(parsedData?.items || []).length} Items Selected</p>
+                    <p className="text-xs text-gray-400 font-medium mt-1">Customer: <span className="text-white font-bold">{parsedData?.customerName || parsedData?.customerPhone || '—'}</span></p>
+                  </div>
+                  
+                  {/* Price Breakdown */}
+                  {subtotal > 0 && (
+                    <div className="border-t border-gray-800 pt-3 space-y-1.5 text-xs text-gray-400 max-w-xs mx-auto lg:mx-0">
+                      <div className="flex justify-between">
+                        <span>Items Subtotal:</span>
+                        <span className="font-bold text-white">KES {subtotal.toLocaleString()}</span>
+                      </div>
+                      {selectedPickupStationId && (
+                        <div className="flex justify-between">
+                          <span>Delivery Fee (Station):</span>
+                          <span className="font-bold text-white">KES {deliveryFee.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {appliedPromo && discountAmount > 0 && (
+                        <div className="flex justify-between text-green-400 font-bold">
+                          <span>Discount ({appliedPromo.discountPercentage}%):</span>
+                          <span>- KES {discountAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-black text-white border-t border-gray-800 pt-1.5 mt-1">
+                        <span>Estimated Total:</span>
+                        <span className="text-blue-400">KES {finalTotal.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
-                <div className="flex items-center gap-4 relative z-10 w-full md:w-auto">
-                  <button onClick={reset} className="flex-1 md:flex-none px-8 py-4 text-sm font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest">Cancel</button>
+                <div className="flex items-center gap-4 relative z-10 w-full lg:w-auto shrink-0">
+                  <button onClick={reset} className="flex-1 lg:flex-none px-8 py-4 text-sm font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest">Cancel</button>
                   <button
                     onClick={handlePlaceOrder}
                     disabled={loading || (parsedData?.items || []).length === 0 || (parsedData?.items || []).some(i => !i.selectedId) || userConflict}
-                    className="flex-1 md:flex-none px-10 py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/30 disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
+                    className="flex-1 lg:flex-none px-10 py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/30 disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-sm"
                   >
                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                     Finalize Order

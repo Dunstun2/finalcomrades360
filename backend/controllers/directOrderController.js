@@ -1,4 +1,4 @@
-const { Product, FastFood, User, Order, OrderItem, Commission, PickupStation, DeliveryCharge, PlatformConfig, DeliveryTask, Wallet } = require('../models');
+const { Product, FastFood, User, Order, OrderItem, Commission, PickupStation, DeliveryCharge, PlatformConfig, DeliveryTask, Wallet, PromoCode } = require('../models');
 const { autoCreateDeliveryTask } = require('./orderTransitionController');
 const { calculateCommission } = require('./commissionController');
 const { creditPending } = require('../utils/walletHelpers');
@@ -412,7 +412,8 @@ exports.placeDirectOrder = async (req, res) => {
             customerEmail,
             originalTextBlock,
             batchId,
-            deliveryTimePreference
+            deliveryTimePreference,
+            promoCode
         } = req.body;
 
         const normalizedCustomerPhone = normalizeKenyanPhone(customerPhone) || (customerPhone || '').replace(/\D/g, '');
@@ -625,6 +626,110 @@ exports.placeDirectOrder = async (req, res) => {
 
         const user = userByPhone || userByEmail;
 
+        // Validate & Apply Promo Code
+        let appliedPromoCode = null;
+        let appliedPromoDiscountPercentage = 0;
+        let appliedPromoObj = null;
+
+        if (promoCode) {
+            const promo = await PromoCode.findOne({ where: { code: promoCode, isActive: true }, transaction: t });
+            if (promo) {
+                const now = new Date();
+                let isPromoValid = true;
+                let promoError = '';
+
+                const orderType = type || globalType;
+                if (promo.orderType !== 'all' && promo.orderType !== orderType) {
+                    isPromoValid = false;
+                    promoError = `This promo code is only valid for ${promo.orderType} orders.`;
+                }
+
+                if (promo.validFrom && new Date(promo.validFrom) > now) {
+                    isPromoValid = false;
+                    promoError = 'Promo code not yet active.';
+                }
+                if (promo.validUntil && new Date(promo.validUntil) < now) {
+                    isPromoValid = false;
+                    promoError = 'Promo code expired.';
+                }
+                if (promo.maxUsageLimit && promo.usageCount >= promo.maxUsageLimit) {
+                    isPromoValid = false;
+                    promoError = 'Promo code usage limit reached.';
+                }
+
+                if (isPromoValid && promo.targetAudience === 'new_users') {
+                    const effectiveUserId = user ? user.id : null;
+                    if (!effectiveUserId) {
+                        let hasPreviousOrders = false;
+                        if (effectiveCustomerPhone) {
+                            const previousOrders = await Order.count({ where: { customerPhone: effectiveCustomerPhone }, transaction: t });
+                            if (previousOrders > 0) hasPreviousOrders = true;
+                        }
+                        if (!hasPreviousOrders && customerEmail) {
+                            const previousOrders = await Order.count({ where: { customerEmail: customerEmail.toLowerCase() }, transaction: t });
+                            if (previousOrders > 0) hasPreviousOrders = true;
+                        }
+                        if (hasPreviousOrders) {
+                            isPromoValid = false;
+                            promoError = 'For new users only. This contact info has been used before.';
+                        }
+                    } else {
+                        const previousOrders = await Order.count({ where: { userId: effectiveUserId }, transaction: t });
+                        if (previousOrders > 0) {
+                            isPromoValid = false;
+                            promoError = 'For new users only.';
+                        }
+                    }
+                }
+
+                if (isPromoValid && (promo.minUserOrderCount > 0 || promo.minUserLifetimeSpend > 0)) {
+                    let validOrderCount = 0;
+                    let lifetimeSpend = 0;
+                    const validStatuses = ['delivered', 'completed'];
+                    let whereClause = null;
+                    const effectiveUserId = user ? user.id : null;
+
+                    if (effectiveUserId) {
+                        whereClause = { userId: effectiveUserId, status: { [Op.in]: validStatuses } };
+                    } else {
+                        const orConditions = [];
+                        if (effectiveCustomerPhone) orConditions.push({ customerPhone: effectiveCustomerPhone });
+                        if (customerEmail) orConditions.push({ customerEmail: customerEmail.toLowerCase() });
+                        if (orConditions.length > 0) {
+                            whereClause = { [Op.or]: orConditions, status: { [Op.in]: validStatuses } };
+                        }
+                    }
+
+                    if (whereClause) {
+                        validOrderCount = await Order.count({ where: whereClause, transaction: t });
+                        lifetimeSpend = await Order.sum('total', { where: whereClause, transaction: t }) || 0;
+                    }
+
+                    if (promo.minUserOrderCount > 0 && validOrderCount < promo.minUserOrderCount) {
+                        isPromoValid = false;
+                        promoError = `Promo code requires a minimum of ${promo.minUserOrderCount} previous valid orders.`;
+                    }
+                    if (promo.minUserLifetimeSpend > 0 && lifetimeSpend < promo.minUserLifetimeSpend) {
+                        isPromoValid = false;
+                        promoError = `Promo code requires a lifetime spend of KES ${promo.minUserLifetimeSpend}.`;
+                    }
+                }
+
+                if (isPromoValid) {
+                    appliedPromoDiscountPercentage = promo.discountPercentage;
+                    appliedPromoCode = promo.code;
+                    appliedPromoObj = promo;
+                    console.log(`[DirectOrder] Promo code ${appliedPromoCode} ready to be applied: ${appliedPromoDiscountPercentage}%`);
+                } else {
+                    await t.rollback();
+                    return res.status(400).json({ success: false, message: promoError });
+                }
+            } else {
+                await t.rollback();
+                return res.status(400).json({ success: false, message: 'Invalid or inactive promo code.' });
+            }
+        }
+
         // For Direct Orders placed by Admins or Marketers, we bypass the OTP verification
         // as they are using the "Confirm Phone Number" field to ensure accuracy.
         const isSeller = role === 'seller' || roles.includes('seller');
@@ -657,7 +762,50 @@ exports.placeDirectOrder = async (req, res) => {
             }
         }
 
-        const total = totalSubtotal + deliveryFee;
+        // Calculate Discount from Promo Code if applicable
+        let orderDiscountableSubtotal = 0;
+        for (const pi of processedItems) {
+            if (appliedPromoObj && appliedPromoObj.applicableProductIds) {
+                let promoProductIds = appliedPromoObj.applicableProductIds;
+                if (typeof promoProductIds === 'string') {
+                    try { promoProductIds = JSON.parse(promoProductIds); } catch(e) { promoProductIds = []; }
+                }
+                if (Array.isArray(promoProductIds) && promoProductIds.length > 0) {
+                    const typePrefixId = `${pi.type}_${pi.itemId}`;
+                    if (promoProductIds.some(promoId => promoId === String(pi.itemId) || promoId === typePrefixId || promoId.startsWith(typePrefixId + ':') || promoId.startsWith(String(pi.itemId) + ':'))) {
+                        orderDiscountableSubtotal += pi.subtotal;
+                    }
+                } else {
+                    orderDiscountableSubtotal += pi.subtotal;
+                }
+            } else {
+                orderDiscountableSubtotal += pi.subtotal;
+            }
+        }
+
+        let computedDiscountAmount = 0;
+        if (appliedPromoObj) {
+            const preDiscountTotal = totalSubtotal + deliveryFee;
+            if (appliedPromoObj.minOrderValue && preDiscountTotal < appliedPromoObj.minOrderValue) {
+                await t.rollback();
+                return res.status(400).json({ success: false, message: `Promo code requires a minimum order value of KES ${appliedPromoObj.minOrderValue}.` });
+            }
+
+            if (appliedPromoObj.applicableProductIds && Array.isArray(appliedPromoObj.applicableProductIds) && appliedPromoObj.applicableProductIds.length > 0 && orderDiscountableSubtotal === 0) {
+                await t.rollback();
+                return res.status(400).json({ success: false, message: 'Promo code is not applicable to any items in this order.' });
+            }
+
+            computedDiscountAmount = (orderDiscountableSubtotal * appliedPromoDiscountPercentage) / 100;
+            if (appliedPromoObj.maxDiscountAmount && computedDiscountAmount > appliedPromoObj.maxDiscountAmount) {
+                computedDiscountAmount = appliedPromoObj.maxDiscountAmount;
+            }
+
+            appliedPromoObj.usageCount += 1;
+            await appliedPromoObj.save({ transaction: t });
+        }
+
+        const total = (totalSubtotal + deliveryFee) - computedDiscountAmount;
 
         // 3. Create Order
         const orderNumber = `DIR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -674,6 +822,8 @@ exports.placeDirectOrder = async (req, res) => {
             orderNumber: orderNumber,
             total: total,
             deliveryFee: deliveryFee,
+            discountAmount: computedDiscountAmount,
+            promoCode: appliedPromoCode || null,
             deliveryAddress: deliveryAddress,
             paymentMethod: 'Cash on Delivery',
             paymentType: 'cash_on_delivery',
