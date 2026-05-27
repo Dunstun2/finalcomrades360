@@ -254,7 +254,8 @@ exports.parseDirectOrder = async (req, res) => {
                             price: m.displayPrice || m.basePrice, 
                             sellerId: isFF ? m.vendor : m.sellerId,
                             type: isFF ? 'fastfood' : 'product',
-                            isOpen: isFF ? isFastFoodOpen(m) : true
+                            isOpen: isFF ? isFastFoodOpen(m) : true,
+                            deliveryFee: parseFloat(m.deliveryFee || 0)
                         });
                     }
 
@@ -271,7 +272,8 @@ exports.parseDirectOrder = async (req, res) => {
                                     price: v.discountPrice || v.displayPrice || m.displayPrice, 
                                     sellerId: m.vendor, 
                                     type: 'fastfood',
-                                    isOpen: isFastFoodOpen(m)
+                                    isOpen: isFastFoodOpen(m),
+                                    deliveryFee: parseFloat(m.deliveryFee || 0)
                                 });
                             }
                         }
@@ -287,7 +289,8 @@ exports.parseDirectOrder = async (req, res) => {
                                     price: c.discountPrice || c.displayPrice || m.displayPrice, 
                                     sellerId: m.vendor, 
                                     type: 'fastfood',
-                                    isOpen: isFastFoodOpen(m)
+                                    isOpen: isFastFoodOpen(m),
+                                    deliveryFee: parseFloat(m.deliveryFee || 0)
                                 });
                             }
                         }
@@ -742,8 +745,22 @@ exports.placeDirectOrder = async (req, res) => {
             });
         }
         
-        // 2. Resolve Delivery Fee (Direct orders do not charge a delivery fee)
-        let deliveryFee = 0;
+        // 2. Resolve Delivery Fee
+        let deliveryFee = totalDeliveryFee;
+        if (pickupStationId) {
+            const station = await PickupStation.findByPk(pickupStationId);
+            if (station) {
+                deliveryFee = parseFloat(station.price || 0);
+            }
+        } else if (deliveryFee === 0) {
+            const routeFeesConfig = await PlatformConfig.findOne({ where: { key: 'delivery_route_fees' } });
+            if (routeFeesConfig) {
+                const routeFees = typeof routeFeesConfig.value === 'string' ? JSON.parse(routeFeesConfig.value) : routeFeesConfig.value;
+                if (routeFees && routeFees.seller_to_customer && routeFees.seller_to_customer.fee !== undefined) {
+                    deliveryFee = parseFloat(routeFees.seller_to_customer.fee);
+                }
+            }
+        }
 
         // Calculate Discount from Promo Code if applicable
         let orderDiscountableSubtotal = 0;

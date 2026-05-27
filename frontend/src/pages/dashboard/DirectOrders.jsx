@@ -238,6 +238,7 @@ const DirectOrders = () => {
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [deliveryTimePreference, setDeliveryTimePreference] = useState('');
   const [batchSystemEnabled, setBatchSystemEnabled] = useState(false);
+  const [routeFees, setRouteFees] = useState(null);
   const submittingRef = useRef(false);
 
   // --- Promo Code State ---
@@ -290,6 +291,18 @@ const DirectOrders = () => {
       }
     };
     if (canPlace) fetchStations();
+  }, [canPlace]);
+
+  useEffect(() => {
+    const fetchRouteFees = async () => {
+      try {
+        const { data } = await api.get('/platform/config/delivery_route_fees');
+        if (data) setRouteFees(data);
+      } catch (err) {
+        console.error('Failed to fetch delivery route fees', err);
+      }
+    };
+    if (canPlace) fetchRouteFees();
   }, [canPlace]);
   
   useEffect(() => {
@@ -545,7 +558,52 @@ const DirectOrders = () => {
   };
 
   const getDeliveryFee = () => {
-    return 0;
+    if (selectedPickupStationId) {
+      const station = pickupStations.find(s => s.id === selectedPickupStationId);
+      return station ? parseFloat(station.price || 0) : 0;
+    }
+
+    let totalFee = 0;
+    const items = parsedData?.items || [];
+    
+    if (type === 'fastfood') {
+      const quantities = {};
+      const baseFees = {};
+      
+      items.forEach(item => {
+        const selectedMatch = item.matches?.find(m => m.id === item.selectedId);
+        if (!selectedMatch) return;
+        
+        const sellerId = selectedMatch.sellerId || 'unknown';
+        const qty = item.quantity || 1;
+        quantities[sellerId] = (quantities[sellerId] || 0) + qty;
+        
+        if (baseFees[sellerId] === undefined) {
+          baseFees[sellerId] = parseFloat(selectedMatch.deliveryFee || 0);
+        }
+      });
+      
+      for (const sellerId in quantities) {
+        const qty = quantities[sellerId];
+        const baseFee = baseFees[sellerId] || 0;
+        const incrementalFee = baseFee + (baseFee * 0.55 * Math.max(0, qty - 1));
+        totalFee += incrementalFee;
+      }
+    } else {
+      let baseTotal = 0;
+      items.forEach(item => {
+        const selectedMatch = item.matches?.find(m => m.id === item.selectedId);
+        if (!selectedMatch) return;
+        baseTotal += parseFloat(selectedMatch.deliveryFee || 0) * (item.quantity || 1);
+      });
+      
+      if (baseTotal === 0 && routeFees?.seller_to_customer?.fee !== undefined) {
+        return parseFloat(routeFees.seller_to_customer.fee);
+      }
+      totalFee = baseTotal;
+    }
+    
+    return totalFee;
   };
 
   const getDiscountableSubtotal = () => {
@@ -1035,6 +1093,12 @@ const DirectOrders = () => {
                         <span>Items Subtotal:</span>
                         <span className="font-bold text-white">KES {subtotal.toLocaleString()}</span>
                       </div>
+                      {deliveryFee > 0 && (
+                        <div className="flex justify-between">
+                          <span>Delivery Fee:</span>
+                          <span className="font-bold text-white">KES {deliveryFee.toLocaleString()}</span>
+                        </div>
+                      )}
 
 
                       {appliedPromo && discountAmount > 0 && (
