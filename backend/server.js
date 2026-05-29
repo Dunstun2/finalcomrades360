@@ -289,6 +289,7 @@ apiRouter.use('/commissions', require('./routes/commissionRoutes'));
 apiRouter.use('/admin', require('./routes/adminRoutes'));
 apiRouter.use('/verification', require('./routes/verificationRoutes'));
 apiRouter.use('/social-media-accounts', require('./routes/socialMediaAccountRoutes'));
+apiRouter.use('/quick-action', require('./routes/quickActionRoutes'));
 
 // 2. Secondary / Extended Modules
 apiRouter.use('/analytics', require('./routes/analyticsRoutes'));

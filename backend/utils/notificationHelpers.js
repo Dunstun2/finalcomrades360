@@ -63,6 +63,17 @@ async function sendCustomerNotificationAcrossChannels(templateKey, data, custome
         if (data.trackUrl && !message.includes(data.trackUrl)) {
             message += `\n\n🔍 Track your order: ${data.trackUrl}`;
         }
+
+        // --- Quick Accept Link Guarantee ---
+        // Same as above, ensure agents always get the quick accept link even if the DB template is outdated.
+        if (data.quickAcceptUrl && !message.includes(data.quickAcceptUrl)) {
+            message += `\n\n✅ ACCEPT TASK INSTANTLY:\n${data.quickAcceptUrl}`;
+        }
+
+        // --- Quick Reject Link Guarantee ---
+        if (data.quickRejectUrl && !message.includes(data.quickRejectUrl)) {
+            message += `\n\n❌ REJECT TASK INSTANTLY:\n${data.quickRejectUrl}`;
+        }
         
         // Priority for phone/email: 
         // 1. Order direct (Guest/Marketing) -> This is critical as Marketing orders use req.body fields
@@ -226,20 +237,22 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
 
     const { Order, OrderItem, Product, FastFood, Service, DeliveryTask, User, Warehouse, PickupStation } = require('../models');
 
-    // Make sure we have the full order with items if not already loaded
+    // ALWAYS re-fetch order by ID with full OrderItems to guarantee items are loaded.
+    // The passed-in order object often lacks the OrderItems association.
     let fullOrder = order;
     const orderId = order ? order.id : (typeof orderOrId !== 'object' ? orderOrId : null);
     if (orderId) {
         try {
+            logNotify(`AGENT_NOTIFY: Fetching full order ID=${orderId} with OrderItems...`);
             const found = await Order.findByPk(orderId, {
                 include: [
                     {
                         model: OrderItem,
                         as: 'OrderItems',
                         include: [
-                            { model: Product, as: 'Product', attributes: ['name'] },
-                            { model: FastFood, as: 'FastFood', attributes: ['name'] },
-                            { model: Service, as: 'Service', attributes: ['title'] }
+                            { model: Product, as: 'Product', attributes: ['name'], required: false },
+                            { model: FastFood, as: 'FastFood', attributes: ['name'], required: false },
+                            { model: Service, as: 'Service', attributes: ['title'], required: false }
                         ]
                     },
                     { model: User, as: 'seller', attributes: ['phone', 'name', 'businessName', 'businessAddress', 'campus', 'businessPhone'] },
@@ -248,28 +261,35 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
                     { model: User, as: 'user', attributes: ['phone', 'name'] }
                 ]
             });
-            if (found) fullOrder = found;
+            if (found) {
+                fullOrder = found;
+                logNotify(`AGENT_NOTIFY: Fetched order OK. OrderItems count=${found.OrderItems ? found.OrderItems.length : 0}`);
+            } else {
+                logNotify(`AGENT_NOTIFY: Order.findByPk(${orderId}) returned null`);
+            }
         } catch(e) {
+            logNotify(`AGENT_NOTIFY: FAILED to fetch full order: ${e.message}`);
             console.error('Failed to fetch full order for notification', e);
         }
     }
 
     if (fullOrder) {
-        if (fullOrder.OrderItems && fullOrder.OrderItems.length > 0) {
+        if (Array.isArray(fullOrder.OrderItems) && fullOrder.OrderItems.length > 0) {
             itemsList = fullOrder.OrderItems.map(i => {
                 const name = i.Product?.name || i.FastFood?.name || i.Service?.title || i.name || 'Item';
-                return `${name} x${i.quantity || 1}`;
-            }).join(', ');
-        } else if (fullOrder.itemsCount) {
-            itemsList = `${fullOrder.itemsCount} items`;
+                const price = i.price ? ` - KES ${i.price}` : '';
+                return `* ${name} x${i.quantity || 1}${price}`;
+            }).join('\n');
+        } else if (fullOrder.itemsCount || fullOrder.items) {
+            itemsList = `${fullOrder.itemsCount || fullOrder.items} items`;
         }
-
 
         totalAmount = fullOrder.total?.toLocaleString() || '0';
         deliveryLocation = fullOrder.deliveryAddress || fullOrder.marketingDeliveryAddress || 'Selected Location';
         customerPhone = fullOrder.customerPhone || fullOrder.user?.phone || 'N/A';
     }
 
+    let taskIdForLink = null;
     // Try to get pickup location and updated delivery location from DeliveryTask
     try {
         const orderIdToSearch = fullOrder ? fullOrder.id : (typeof orderOrId !== 'object' ? orderOrId : null);
@@ -282,6 +302,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
                 order: [['createdAt', 'DESC']]
             });
             if (task) {
+                taskIdForLink = task.id;
                 if (task.pickupLocation) pickupLocation = task.pickupLocation;
                 if (task.deliveryLocation) deliveryLocation = task.deliveryLocation;
             }
@@ -326,7 +347,20 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
     const timeoutMsg = isFastfood ? "15 minutes" : "30 minutes";
     const dashboardUrl = `${process.env.FRONTEND_URL || 'https://comrades360.shop'}/dashboard/delivery`;
 
-    const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nPickup Point: {pickupLocation}\nDrop-off: {deliveryLocation}\nCustomer Phone: {customerPhone}\n\n⚠️ PLEASE ACCEPT WITHIN ${timeoutMsg} TO AVOID AUTOMATIC REASSIGNMENT.\n\nManage Task:\n{dashboardUrl}`;
+    let quickAcceptUrl = '';
+    let quickRejectUrl = '';
+    if (taskIdForLink && agent && agent.id) {
+        const crypto = require('crypto');
+        const secret = process.env.JWT_SECRET || 'fallback_secret';
+        const token = crypto.createHmac('sha256', secret)
+                            .update(taskIdForLink.toString() + agent.id.toString())
+                            .digest('hex');
+        const backendUrl = process.env.BACKEND_URL || 'https://api.comrades360.shop';
+        quickAcceptUrl = `${backendUrl}/api/quick-action/accept?taskId=${taskIdForLink}&agentId=${agent.id}&token=${token}`;
+        quickRejectUrl = `${backendUrl}/api/quick-action/reject?taskId=${taskIdForLink}&agentId=${agent.id}&token=${token}`;
+    }
+
+    const defaultTemplate = `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nPickup Point: {pickupLocation}\nDrop-off: {deliveryLocation}\nCustomer Phone: {customerPhone}\n\n⚠️ PLEASE ACCEPT WITHIN ${timeoutMsg} TO AVOID AUTOMATIC REASSIGNMENT.\n\n✅ ACCEPT TASK INSTANTLY:\n{quickAcceptUrl}\n\n❌ REJECT TASK INSTANTLY:\n{quickRejectUrl}\n\n💻 Manage Task in Dashboard:\n{dashboardUrl}`;
 
     // We use sendCustomerNotificationAcrossChannels but pass the agent as the recipient
     // and explicitly set the template key to 'agentTaskAssigned'
@@ -339,6 +373,8 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         deliveryLocation,
         customerPhone,
         dashboardUrl,
+        quickAcceptUrl,
+        quickRejectUrl,
         title: 'New Delivery Task Assigned',
         type: 'info',
         defaultTemplate

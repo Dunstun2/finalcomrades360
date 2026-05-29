@@ -36,9 +36,9 @@ module.exports = (sequelize, DataTypes) => {
   // Define associations
   OrderItem.associate = (models) => {
     OrderItem.belongsTo(models.Order, { foreignKey: "orderId", onDelete: 'CASCADE' });
-    OrderItem.belongsTo(models.Product, { foreignKey: "productId" });
-    OrderItem.belongsTo(models.FastFood, { foreignKey: "fastFoodId" });
-    OrderItem.belongsTo(models.Service, { foreignKey: "serviceId" });
+    OrderItem.belongsTo(models.Product, { foreignKey: "productId", as: "Product" });
+    OrderItem.belongsTo(models.FastFood, { foreignKey: "fastFoodId", as: "FastFood" });
+    OrderItem.belongsTo(models.Service, { foreignKey: "serviceId", as: "Service" });
     OrderItem.belongsTo(models.User, { foreignKey: "sellerId", as: "seller" });
   };
 
