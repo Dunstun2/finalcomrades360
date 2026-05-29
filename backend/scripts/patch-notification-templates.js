@@ -43,7 +43,7 @@ const UPDATED_TEMPLATES = {
   sellerOrderPlaced: `🛍️ New Order Received!\n\nHello {name}, you have a new order #{orderNumber}.\n\nItems: {itemsList}\nTotal Earning: KES {amount}\n\nPlease confirm and prepare the items here:\n${SITE_URL}/dashboard-login?redirect=/seller/orders\n\nThank you for selling with Comrades360!`,
 
   // ✅ Agent task assigned — with dashboard link
-  agentTaskAssigned: `You have been assigned a new delivery task for order #{orderNumber}. Type: {deliveryType}\n\nView your tasks here:\n${SITE_URL}/dashboard-login?redirect=/delivery-agent`,
+  agentTaskAssigned: `You have been assigned a new delivery task for order #{orderNumber}. 🚚\n\nType: {deliveryType}\nItems: {itemsList}\nTotal to Pay: KES {totalAmount}\nPickup Point: {pickupLocation}\nDrop-off: {deliveryLocation}\nCustomer Phone: {customerPhone}\n\n⚠️ PLEASE ACCEPT TO AVOID AUTOMATIC REASSIGNMENT.\n\nManage Task:\n{dashboardUrl}`,
 
   // ✅ Agent task reassigned
   agentTaskReassigned: `A delivery task for order #{orderNumber} has been reassigned to you.\n\nView your tasks:\n${SITE_URL}/dashboard-login?redirect=/delivery-agent`,
