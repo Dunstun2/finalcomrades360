@@ -228,9 +228,10 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
 
     // Make sure we have the full order with items if not already loaded
     let fullOrder = order;
-    if (order && order.id) {
+    const orderId = order ? order.id : (typeof orderOrId !== 'object' ? orderOrId : null);
+    if (orderId) {
         try {
-            const found = await Order.findByPk(order.id, {
+            const found = await Order.findByPk(orderId, {
                 include: [
                     {
                         model: OrderItem,
@@ -262,6 +263,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         } else if (fullOrder.itemsCount) {
             itemsList = `${fullOrder.itemsCount} items`;
         }
+
 
         totalAmount = fullOrder.total?.toLocaleString() || '0';
         deliveryLocation = fullOrder.deliveryAddress || fullOrder.marketingDeliveryAddress || 'Selected Location';
