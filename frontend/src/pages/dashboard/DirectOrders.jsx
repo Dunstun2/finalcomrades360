@@ -377,23 +377,6 @@ const DirectOrders = () => {
         setSelectedPickupStationId(data.suggestedPickupStation?.id || null);
         setStep('review');
 
-        if (promoCodeInput) {
-          try {
-            const res = await api.post('/promo-codes/apply', { 
-              code: promoCodeInput.trim().toUpperCase(), 
-              orderType: type,
-              customerPhone: data.parsedData.customerPhone,
-              customerEmail: data.parsedData.customerEmail
-            });
-            if (res.data?.success) {
-              setAppliedPromo(res.data.data);
-              toast({ title: 'Promo Code Applied', description: `Success! discount of ${res.data.data.discountPercentage}% applied.` });
-            }
-          } catch (err) {
-            console.error('Failed to auto-apply promo code:', err);
-          }
-        }
-
         const missing = [];
         if (data.parsedData.items.length === 0) missing.push('Items');
         if (!data.parsedData.customerPhone) missing.push('Phone Number');
