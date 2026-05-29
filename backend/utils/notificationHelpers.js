@@ -355,7 +355,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         const token = crypto.createHmac('sha256', secret)
                             .update(taskIdForLink.toString() + agent.id.toString())
                             .digest('hex');
-        const backendUrl = process.env.BACKEND_URL || 'https://api.comrades360.shop';
+        const backendUrl = process.env.BACKEND_URL || (process.env.BASE_URL ? process.env.BASE_URL.replace(/\/api$/, '') : 'https://comrades360.shop');
         quickAcceptUrl = `${backendUrl}/api/quick-action/accept?taskId=${taskIdForLink}&agentId=${agent.id}&token=${token}`;
         quickRejectUrl = `${backendUrl}/api/quick-action/reject?taskId=${taskIdForLink}&agentId=${agent.id}&token=${token}`;
     }
