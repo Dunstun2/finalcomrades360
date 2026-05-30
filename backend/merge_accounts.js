@@ -192,9 +192,9 @@ To execute this merge, re-run the command adding the --execute flag:
         console.log(`✅ Merged Wallet table balances (Transferred KES ${transferAmt.toFixed(2)}).`);
       }
 
-      // Sync walletBalance directly on User models
-      const sUser = await User.findByPk(sourceUser.id, { transaction });
-      const tUser = await User.findByPk(targetUser.id, { transaction });
+      // Sync walletBalance directly on User models (paranoid: false to include soft-deleted users)
+      const sUser = await User.findByPk(sourceUser.id, { transaction, paranoid: false });
+      const tUser = await User.findByPk(targetUser.id, { transaction, paranoid: false });
 
       if (parseFloat(sUser.walletBalance || 0) > 0) {
         const userWalletTransfer = parseFloat(sUser.walletBalance);
