@@ -264,25 +264,14 @@ function HomeProductCard({
 
   const firstVariant = useMemo(() => unifiedGetDefaultVariant(variants), [variants]);
 
-  const finalDisplayPrice = Number(
-    firstVariant?.discountPrice || 
-    firstVariant?.displayPrice || 
-    firstVariant?.basePrice || 
-    firstVariant?.price || 
-    product.discountPrice || 
-    product.displayPrice || 
-    product.basePrice || 
-    product.price || 
-    0
-  );
-
+  // Step 1: get the "original" (pre-discount) price
   const originalPrice = Number(
-    firstVariant?.displayPrice || 
-    firstVariant?.basePrice || 
-    firstVariant?.price || 
-    product.displayPrice || 
-    product.basePrice || 
-    product.price || 
+    firstVariant?.displayPrice ||
+    firstVariant?.basePrice ||
+    firstVariant?.price ||
+    product.displayPrice ||
+    product.basePrice ||
+    product.price ||
     0
   );
 
@@ -290,7 +279,28 @@ function HomeProductCard({
     ? Number(firstVariant.discountPercentage || 0)
     : Number(product.discountPercentage || 0);
 
-  const hasDiscount = discountPercent > 0 && finalDisplayPrice < originalPrice;
+  // Step 2: get an explicit discountPrice (only trust it if > 0 and less than original)
+  const explicitDiscountPrice = Number(
+    firstVariant?.discountPrice ||
+    product.discountPrice ||
+    0
+  );
+
+  // Step 3: compute discount from percentage if explicit discountPrice is not set
+  const percentageDiscountPrice =
+    discountPercent > 0 && originalPrice > 0
+      ? parseFloat((originalPrice * (1 - discountPercent / 100)).toFixed(2))
+      : 0;
+
+  // Step 4: pick the best price to show (lower wins, as long as it's valid)
+  const finalDisplayPrice =
+    explicitDiscountPrice > 0 && explicitDiscountPrice < originalPrice
+      ? explicitDiscountPrice
+      : percentageDiscountPrice > 0 && percentageDiscountPrice < originalPrice
+      ? percentageDiscountPrice
+      : originalPrice;
+
+  const hasDiscount = finalDisplayPrice > 0 && finalDisplayPrice < originalPrice;
   const savings = originalPrice - finalDisplayPrice;
 
   const hasValidPrice = originalPrice > 0;
