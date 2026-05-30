@@ -663,7 +663,7 @@ const Products = () => {
         await productApi.toggleVisibility(product.id);
         toast({
           title: 'Success',
-          description: `Product ${product.hidden ? 'shown' : 'hidden'} successfully`,
+          description: `Product ${product.visibilityStatus === 'hidden' ? 'shown' : 'hidden'} successfully`,
         });
         refetch();
       } catch (error) {
@@ -682,19 +682,26 @@ const Products = () => {
 
     const handleSuspend = async (e) => {
       e.stopPropagation();
-      try {
-        await productApi.suspend(product.id);
-        toast({
-          title: 'Success',
-          description: `Product ${product.suspended ? 'unsuspended' : 'suspended'} successfully`,
-        });
-        refetch();
-      } catch (error) {
-        toast({
-          title: 'Error',
-          description: error.response?.data?.message || 'Failed to suspend product',
-          variant: 'destructive',
-        });
+      if (product.suspended) {
+        // Direct unsuspend
+        try {
+          await productApi.unsuspend(product.id);
+          toast({
+            title: 'Success',
+            description: `Product unsuspended successfully`,
+          });
+          refetch();
+        } catch (error) {
+          toast({
+            title: 'Error',
+            description: error.response?.data?.message || 'Failed to unsuspend product',
+            variant: 'destructive',
+          });
+        }
+      } else {
+        // Set in session storage and redirect to suspension form page to capture details
+        sessionStorage.setItem('suspend_product', JSON.stringify(product));
+        navigate('/dashboard/products/suspend');
       }
     };
 
@@ -719,9 +726,9 @@ const Products = () => {
                 <button
                   onClick={handleHide}
                   className="flex-1 px-2 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
-                  title={product.hidden ? 'Show product' : 'Hide product'}
+                  title={product.visibilityStatus === 'hidden' ? 'Show product' : 'Hide product'}
                 >
-                  {product.hidden ? 'Show' : 'Hide'}
+                  {product.visibilityStatus === 'hidden' ? 'Show' : 'Hide'}
                 </button>
                 <button
                   onClick={handleDelete}

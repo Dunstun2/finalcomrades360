@@ -226,6 +226,9 @@ const autoDispatchService = {
             const io = getIO();
 
             for (const agent of topMatches) {
+                // Find the task we created for this agent
+                const agentTask = createdTasks.find(t => t.deliveryAgentId === agent.id);
+                
                 await createNotification(
                     agent.id,
                     'New Auto-Assignment 📦',
@@ -233,7 +236,8 @@ const autoDispatchService = {
                     'info'
                 ).catch(e => console.error(e));
                 
-                notifyDeliveryAgentAssignment(agent, order, order.orderNumber, dType)
+                // Pass agentTask.id directly to avoid race condition with DB lookup
+                notifyDeliveryAgentAssignment(agent, order, order.orderNumber, dType, agentTask ? agentTask.id : null)
                     .catch(err => console.error(`Notify Agent ${agent.id} Error:`, err));
 
                 if (io) {

@@ -130,7 +130,46 @@ exports.mergeAccounts = async (req, res) => {
        sourceUser.walletBalance = 0;
     }
 
-    // 4. Merge Roles
+    // 4. Resolve Placeholders
+    const isPlaceholderEmail = (email) => {
+      if (!email) return true;
+      const em = String(email).trim().toLowerCase();
+      return em.startsWith('noemail_') || 
+             em.endsWith('@placeholder.local') || 
+             em.endsWith('@comrades360.placeholder') ||
+             em.includes('placeholder');
+    };
+
+    const isPlaceholderPhone = (phone) => {
+      if (!phone) return true;
+      const ph = String(phone).trim().toLowerCase();
+      return ph.startsWith('nophone_') || 
+             ph.startsWith('placeholder-') ||
+             ph.includes('placeholder');
+    };
+
+    const isPlaceholderName = (name) => {
+      if (!name) return true;
+      const nm = String(name).trim();
+      return /^User\d{0,4}$/i.test(nm) || nm.toLowerCase() === 'new user';
+    };
+
+    // If target has placeholder details, but source has real details, update target
+    if (isPlaceholderEmail(targetUser.email) && !isPlaceholderEmail(sourceUser.email)) {
+      targetUser.email = sourceUser.email;
+      targetUser.emailVerified = sourceUser.emailVerified;
+    }
+
+    if (isPlaceholderPhone(targetUser.phone) && !isPlaceholderPhone(sourceUser.phone)) {
+      targetUser.phone = sourceUser.phone;
+      targetUser.phoneVerified = sourceUser.phoneVerified;
+    }
+
+    if (isPlaceholderName(targetUser.name) && !isPlaceholderName(sourceUser.name)) {
+      targetUser.name = sourceUser.name;
+    }
+
+    // 5. Merge Roles
     let sourceRoles = Array.isArray(sourceUser.roles) ? sourceUser.roles : [];
     let targetRoles = Array.isArray(targetUser.roles) ? targetUser.roles : [];
     const mergedRoles = [...new Set([...targetRoles, ...sourceRoles])];
@@ -147,15 +186,20 @@ exports.mergeAccounts = async (req, res) => {
 
     targetUser.roles = mergedRoles;
     targetUser.role = mainRole;
-    await targetUser.save();
 
-    // 5. Soft Delete Source User & Free Up Email/Phone
+    // 6. Free up email/phone first on the source user to avoid unique constraints when saving target
     const timestamp = Date.now();
-    sourceUser.email = `merged_${timestamp}_${sourceUser.email}`;
-    sourceUser.phone = `merged_${timestamp}_${sourceUser.phone}`;
+    const originalSourceEmail = sourceUser.email;
+    const originalSourcePhone = sourceUser.phone;
+
+    sourceUser.email = `merged_${timestamp}_${originalSourceEmail}`;
+    sourceUser.phone = `merged_${timestamp}_${originalSourcePhone}`;
     sourceUser.isDeactivated = true;
     sourceUser.isFrozen = true;
     await sourceUser.save();
+
+    // 7. Save Target User now that the email/phone has been freed
+    await targetUser.save();
     
     // Sequelize paranoid soft delete
     await sourceUser.destroy();

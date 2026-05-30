@@ -1,5 +1,5 @@
 const express = require('express');
-const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, getHomepageProducts } = require('../controllers/productController');
+const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, unsuspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, getHomepageProducts } = require('../controllers/productController');
 const { auth, checkRole, optionalAuth, checkSellerProfile } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { uploadProductMedia } = require('../config/multer');
@@ -112,6 +112,11 @@ router.put('/:id/toggle-visibility', auth, checkRole('super_admin', 'superadmin'
 // @desc    Suspend a product with reason and duration
 // @access  Private (Super Admin, Admin)
 router.put('/:id/suspend', auth, checkRole('super_admin', 'superadmin', 'admin'), suspendProduct);
+
+// @route   PUT /api/products/:id/unsuspend
+// @desc    Unsuspend a product
+// @access  Private (Super Admin, Admin)
+router.put('/:id/unsuspend', auth, checkRole('super_admin', 'superadmin', 'admin'), unsuspendProduct);
 
 // @route   POST /api/products/migrate-deleted
 // @desc    Migrate a permanently deleted product back to recycle bin (Admin only)

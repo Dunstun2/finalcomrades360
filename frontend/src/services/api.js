@@ -466,6 +466,9 @@ export const productApi = {
   // Suspend product
   suspend: (id, suspensionData) => productsClient.put(`/${id}/suspend`, suspensionData),
 
+  // Unsuspend product
+  unsuspend: (id) => productsClient.put(`/${id}/unsuspend`),
+
   // Recycle Bin / Deletion Management
   getDeleted: (params) => api.get('/products/deleted', { params }),
   restore: (id, data) => api.post(`/products/${id}/restore`, data),

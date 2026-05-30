@@ -202,7 +202,7 @@ async function createNotification(userId, title, message, type = 'info') {
 /**
  * Notify delivery agent about new task assignment across all channels (In-app, WhatsApp, SMS, Email)
  */
-async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrderNumber, optionalDeliveryType) {
+async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrderNumber, optionalDeliveryType, optionalTaskId) {
     let agent = agentOrId;
     if (typeof agentOrId !== 'object') {
         agent = await User.findByPk(agentOrId);
@@ -289,7 +289,9 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
         customerPhone = fullOrder.customerPhone || fullOrder.user?.phone || 'N/A';
     }
 
-    let taskIdForLink = null;
+    // Use caller-supplied taskId immediately (eliminates race condition where task
+    // was just created in a transaction and may not yet be visible to a separate query).
+    let taskIdForLink = optionalTaskId || null;
     // Try to get pickup location and updated delivery location from DeliveryTask
     try {
         const orderIdToSearch = fullOrder ? fullOrder.id : (typeof orderOrId !== 'object' ? orderOrId : null);
@@ -302,13 +304,15 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
                 order: [['createdAt', 'DESC']]
             });
             if (task) {
-                taskIdForLink = task.id;
+                // If caller didn't supply taskId, use the one from DB
+                if (!taskIdForLink) taskIdForLink = task.id;
                 if (task.pickupLocation) pickupLocation = task.pickupLocation;
                 if (task.deliveryLocation) deliveryLocation = task.deliveryLocation;
             }
         }
     } catch(e) {
         console.error("Failed to fetch delivery task for agent notification", e);
+        // taskIdForLink still has the caller-supplied value, so links will still work
     }
 
     // Fallback logic to derive pickup location if still missing

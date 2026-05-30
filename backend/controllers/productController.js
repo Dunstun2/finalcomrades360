@@ -2296,6 +2296,51 @@ const suspendProduct = async (req, res) => {
   }
 };
 
+const unsuspendProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const productId = parseInt(id, 10);
+
+    if (isNaN(productId)) {
+      return res.status(400).json({ message: 'Invalid product ID' });
+    }
+
+    const product = await Product.findByPk(productId);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // Update product to remove suspension and make it visible again
+    await product.update({
+      suspended: false,
+      suspensionReason: null,
+      suspensionEndTime: null,
+      suspensionDuration: null,
+      suspensionDurationUnit: null,
+      suspensionAdditionalNotes: null,
+      visibilityStatus: 'visible' // Automatically make visible again
+    });
+
+    try {
+      await cacheService.delPattern('products:*');
+      console.log('[unsuspendProduct] Invalidated product cache after update');
+    } catch (cacheError) {
+      console.warn('[unsuspendProduct] Cache invalidation failed:', cacheError.message);
+    }
+
+    res.status(200).json({
+      message: 'Product unsuspended successfully.',
+      product: product
+    });
+  } catch (error) {
+    console.error('Error unsuspending product:', error);
+    res.status(500).json({
+      message: 'Server error while unsuspending product',
+      error: error.message
+    });
+  }
+};
+
 const requestProductDeletion = async (req, res) => {
   try {
     const { productId, reason, password } = req.body;
@@ -2596,6 +2641,7 @@ module.exports = {
   deleteProduct,
   toggleVisibility,
   suspendProduct,
+  unsuspendProduct,
   requestProductDeletion,
   getDeletedProducts,
   restoreProduct,
