@@ -265,15 +265,10 @@ function HomeProductCard({
   const firstVariant = useMemo(() => unifiedGetDefaultVariant(variants), [variants]);
 
   // Step 1: get the "original" (pre-discount) price
-  const originalPrice = Number(
-    firstVariant?.displayPrice ||
-    firstVariant?.basePrice ||
-    firstVariant?.price ||
-    product.displayPrice ||
-    product.basePrice ||
-    product.price ||
-    0
-  );
+  // Ensure the display price (originalPrice) is always >= base price
+  const pDisplay = Number(firstVariant?.displayPrice || product.displayPrice || 0);
+  const pBase = Number(firstVariant?.basePrice || firstVariant?.price || product.basePrice || product.price || 0);
+  const originalPrice = pDisplay > pBase ? pDisplay : pBase;
 
   const discountPercent = firstVariant
     ? Number(firstVariant.discountPercentage || 0)
