@@ -279,7 +279,7 @@ function HomeProductCard({
     ? Number(firstVariant.discountPercentage || 0)
     : Number(product.discountPercentage || 0);
 
-  // Step 2: get an explicit discountPrice (only trust it if > 0 and less than original)
+  // Step 2: get an explicit discountPrice (trust it if it is > 0)
   const explicitDiscountPrice = Number(
     firstVariant?.discountPrice ||
     product.discountPrice ||
@@ -292,18 +292,18 @@ function HomeProductCard({
       ? parseFloat((originalPrice * (1 - discountPercent / 100)).toFixed(2))
       : 0;
 
-  // Step 4: pick the best price to show (lower wins, as long as it's valid)
+  // Step 4: pick the best price to show
   const finalDisplayPrice =
-    explicitDiscountPrice > 0 && explicitDiscountPrice < originalPrice
+    explicitDiscountPrice > 0 
       ? explicitDiscountPrice
-      : percentageDiscountPrice > 0 && percentageDiscountPrice < originalPrice
+      : percentageDiscountPrice > 0 
       ? percentageDiscountPrice
       : originalPrice;
 
   const hasDiscount = finalDisplayPrice > 0 && finalDisplayPrice < originalPrice;
-  const savings = originalPrice - finalDisplayPrice;
+  const savings = originalPrice > finalDisplayPrice ? originalPrice - finalDisplayPrice : 0;
 
-  const hasValidPrice = originalPrice > 0;
+  const hasValidPrice = originalPrice > 0 || finalDisplayPrice > 0;
 
   // Ensure we only mark as out of stock if stock is EXPLICITLY defined and <= 0
   const isOutOfStock = product.stock !== undefined && product.stock !== null && Number(product.stock) <= 0;
