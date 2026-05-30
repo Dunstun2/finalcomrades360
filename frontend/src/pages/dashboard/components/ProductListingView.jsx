@@ -357,13 +357,21 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
   };
 
   // --- Actions ---
-  const handleToggleVisibility = async (id) => {
-    setActionLoading(id);
-    try { await productApi.toggleVisibility(id); await fetchProductsOnly(page, false); toast({ title: "Updated", description: "Visibility toggled" }); }
-    catch (e) { toast({ title: "Error", variant: "destructive" }); }
-    finally { setActionLoading(null); }
-  };
-
+const handleToggleVisibility = async (id) => {
+  setActionLoading(id);
+  try {
+    await productApi.toggleVisibility(id);
+    // Refresh product list and obtain updated data
+    const updatedProducts = await fetchProductsOnly(page, false);
+    // Update hiddenProducts based on new visibility flags
+    setHiddenProducts(updatedProducts.filter(p => p.isHidden));
+    toast({ title: "Updated", description: "Visibility toggled" });
+  } catch (e) {
+    toast({ title: "Error", variant: "destructive" });
+  } finally {
+    setActionLoading(null);
+  }
+};
   const handleDelete = (product) => {
     setDeleteModal({ isOpen: true, product });
   };
@@ -398,9 +406,16 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
 
   const handleSuspendProduct = async (id) => {
     setActionLoading(id);
-    try { await productApi.suspend(id, { reason: 'Admin' }); await fetchProductsOnly(page, false); toast({ title: "Suspended", description: "Item suspended" }); }
-    catch (e) { toast({ title: "Error", variant: "destructive" }); }
-    finally { setActionLoading(null); }
+    try {
+      await productApi.toggleVisibility(id);
+      // Refresh product list
+      await fetchProductsOnly(page, false);
+      toast({ title: "Updated", description: "Visibility toggled" });
+    } catch (e) {
+      toast({ title: "Error", variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleUnsuspendProduct = async (id) => {

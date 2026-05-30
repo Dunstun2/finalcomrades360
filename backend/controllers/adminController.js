@@ -27,6 +27,7 @@ const { Op, fn, col, literal } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { normalizeKenyanPhone, validateKenyanPhone } = require('../middleware/validators');
 const { moveToSuccess } = require('../utils/walletHelpers');
+const cacheService = require('../scripts/services/cacheService');
 
 const parseDateOnlyUtc = (dateString, endOfDay = false) => {
   if (!dateString) return null;
@@ -2229,6 +2230,12 @@ const deleteProduct = async (req, res) => {
     const product = await Product.findByPk(productId);
     if (!product) return res.status(404).json({ message: 'Product not found.' });
     await product.destroy();
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+    } catch (cacheError) {
+      console.warn('[deleteProduct Admin] Cache invalidation failed:', cacheError.message);
+    }
     res.json({ message: 'Product deleted', productId: Number(productId) });
   } catch (error) {
     res.status(500).json({ message: 'Server error while deleting product.', error: error.message });
@@ -2248,6 +2255,12 @@ const setProductFlashSale = async (req, res) => {
     if (typeof flashSaleEndTime !== 'undefined') product.flashSaleEndTime = flashSaleEndTime ? new Date(flashSaleEndTime) : null;
 
     await product.save();
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+    } catch (cacheError) {
+      console.warn('[setProductFlashSale] Cache invalidation failed:', cacheError.message);
+    }
     res.status(200).json({ message: 'Flash sale configuration updated.', product });
   } catch (error) {
     res.status(500).json({ message: 'Server error while updating flash sale.', error: error.message });
@@ -2307,6 +2320,12 @@ const approveProduct = async (req, res) => {
     product.reviewStatus = 'approved';
     product.reviewNotes = null;
     await product.save();
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+    } catch (cacheError) {
+      console.warn('[approveProduct Admin] Cache invalidation failed:', cacheError.message);
+    }
     // Notify seller of approval (best-effort)
     try {
       if (product.sellerId) {
@@ -2333,6 +2352,12 @@ const rejectProduct = async (req, res) => {
     product.reviewStatus = 'rejected';
     product.reviewNotes = reason || 'Rejected by admin';
     await product.save();
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+    } catch (cacheError) {
+      console.warn('[rejectProduct Admin] Cache invalidation failed:', cacheError.message);
+    }
     // Best-effort: notify seller about rejection
     try {
       if (product.sellerId) {
@@ -2359,6 +2384,12 @@ const requestProductChanges = async (req, res) => {
     product.reviewStatus = 'changes_requested';
     product.reviewNotes = notes || 'Please address requested changes and resubmit.';
     await product.save();
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+    } catch (cacheError) {
+      console.warn('[requestProductChanges Admin] Cache invalidation failed:', cacheError.message);
+    }
     // Notify seller of requested changes (best-effort)
     try {
       if (product.sellerId) {

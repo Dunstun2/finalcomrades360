@@ -509,6 +509,7 @@ const AppContent = () => {
                   <Route path="product-management" element={<ProductManagement />} />
                   <Route path="products/recycle-bin" element={<RecycleBin />} />
                   <Route path="products" element={<DashboardProducts />} />
+                  <Route path="products/suspend" element={<SuspendProduct />} />
                   <Route path="products/:view" element={<DashboardProducts />} />
                   <Route path="products/:view/:id" element={<DashboardProducts />} />
                   <Route path="products/comrades" element={<ComradesProducts />} />

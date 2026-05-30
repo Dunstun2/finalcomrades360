@@ -490,6 +490,7 @@ const createProduct = async (req, res, next) => {
     // Invalidate product-related cache when new product is created
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[createProduct] Invalidated product cache after creation');
     } catch (cacheError) {
       console.warn('[createProduct] Cache invalidation failed:', cacheError.message);
@@ -775,7 +776,7 @@ const getAllProducts = async (req, res) => {
         'id', 'name', 'shortDescription', 'basePrice', 'displayPrice', 'discountPrice',
         'discountPercentage',
         'stock', 'status', 'approved', 'reviewStatus', 'categoryId',
-        'subcategoryId', 'sellerId', 'createdAt', 'isActive', 'visibilityStatus',
+        'subcategoryId', 'sellerId', 'createdAt', 'updatedAt', 'isActive', 'visibilityStatus', 'suspended',
         'marketingEnabled', 'marketingCommission', 'marketingCommissionType',
         'coverImage', 'galleryImages', 'isFlashSale', 'variants', 'tags'
       ];
@@ -1113,6 +1114,14 @@ const approveProduct = async (req, res) => {
       displayPrice: parsedDisplayPrice
     });
 
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+      console.log('[approveProduct] Invalidated product and homepage cache');
+    } catch (cacheError) {
+      console.warn('Cache invalidation failed:', cacheError.message);
+    }
+
     res.status(200).json({
       message: 'Product approved successfully with display price set',
       product: product
@@ -1144,6 +1153,14 @@ const rejectProduct = async (req, res) => {
       reviewStatus: 'rejected',
       reviewNotes: reason || 'Product rejected by admin'
     });
+
+    try {
+      await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
+      console.log('[rejectProduct] Invalidated product and homepage cache');
+    } catch (cacheError) {
+      console.warn('Cache invalidation failed:', cacheError.message);
+    }
 
     res.status(200).json({
       message: 'Product rejected successfully',
@@ -1981,6 +1998,7 @@ const updateProduct = async (req, res, next) => {
     // Invalidate product-related cache when product is updated
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[updateProduct] Invalidated product cache after update');
     } catch (cacheError) {
       console.warn('[updateProduct] Cache invalidation failed:', cacheError.message);
@@ -2144,6 +2162,7 @@ const deleteProduct = async (req, res) => {
     // Invalidate product-related cache when product is deleted
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[deleteProduct] Invalidated product cache after deletion');
     } catch (cacheError) {
       console.warn('[deleteProduct] Cache invalidation failed:', cacheError.message);
@@ -2185,6 +2204,7 @@ const toggleVisibility = async (req, res) => {
 
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[toggleVisibility] Invalidated product cache after update');
     } catch (cacheError) {
       console.warn('[toggleVisibility] Cache invalidation failed:', cacheError.message);
@@ -2268,6 +2288,7 @@ const suspendProduct = async (req, res) => {
 
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[suspendProduct] Invalidated product cache after update');
     } catch (cacheError) {
       console.warn('[suspendProduct] Cache invalidation failed:', cacheError.message);
@@ -2323,6 +2344,7 @@ const unsuspendProduct = async (req, res) => {
 
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[unsuspendProduct] Invalidated product cache after update');
     } catch (cacheError) {
       console.warn('[unsuspendProduct] Cache invalidation failed:', cacheError.message);
@@ -2511,6 +2533,7 @@ const restoreProduct = async (req, res) => {
     // Invalidate product-related cache
     try {
       await cacheService.delPattern('products:*');
+      await cacheService.delPattern('homepage:*');
       console.log('[restoreProduct] Invalidated product cache after restoration');
     } catch (cacheError) {
       console.warn('[restoreProduct] Cache invalidation failed:', cacheError.message);

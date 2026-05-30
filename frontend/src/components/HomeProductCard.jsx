@@ -445,6 +445,10 @@ const areEqual = (prevProps, nextProps) => {
     prevProps.contentClassName === nextProps.contentClassName &&
     prevProps.product?.id === nextProps.product?.id &&
     prevProps.product?.updatedAt === nextProps.product?.updatedAt &&
+    prevProps.product?.visibilityStatus === nextProps.product?.visibilityStatus &&
+    prevProps.product?.suspended === nextProps.product?.suspended &&
+    prevProps.product?.status === nextProps.product?.status &&
+    prevProps.product?.approved === nextProps.product?.approved &&
     prevProps.product?.stock === nextProps.product?.stock &&
     prevProps.product?.displayPrice === nextProps.product?.displayPrice &&
     prevProps.product?.discountPrice === nextProps.product?.discountPrice &&

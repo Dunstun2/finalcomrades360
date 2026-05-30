@@ -659,14 +659,26 @@ const Products = () => {
   const renderProductCard = useCallback((product) => {
     const handleHide = async (e) => {
       e.stopPropagation();
+      const wasHidden = product.visibilityStatus === 'hidden';
+      const newStatus = wasHidden ? 'visible' : 'hidden';
+
+      // Optimistic update: immediately reflect in UI
+      setDisplayedProducts(prev =>
+        prev.map(p => p.id === product.id ? { ...p, visibilityStatus: newStatus } : p)
+      );
+
       try {
         await productApi.toggleVisibility(product.id);
         toast({
           title: 'Success',
-          description: `Product ${product.visibilityStatus === 'hidden' ? 'shown' : 'hidden'} successfully`,
+          description: `Product ${wasHidden ? 'shown' : 'hidden'} successfully`,
         });
         refetch();
       } catch (error) {
+        // Revert on failure
+        setDisplayedProducts(prev =>
+          prev.map(p => p.id === product.id ? { ...p, visibilityStatus: wasHidden ? 'hidden' : 'visible' } : p)
+        );
         toast({
           title: 'Error',
           description: error.response?.data?.message || 'Failed to toggle product visibility',
@@ -683,7 +695,11 @@ const Products = () => {
     const handleSuspend = async (e) => {
       e.stopPropagation();
       if (product.suspended) {
-        // Direct unsuspend
+        // Optimistic update: immediately reflect unsuspend in UI
+        setDisplayedProducts(prev =>
+          prev.map(p => p.id === product.id ? { ...p, suspended: false } : p)
+        );
+
         try {
           await productApi.unsuspend(product.id);
           toast({
@@ -692,6 +708,10 @@ const Products = () => {
           });
           refetch();
         } catch (error) {
+          // Revert on failure
+          setDisplayedProducts(prev =>
+            prev.map(p => p.id === product.id ? { ...p, suspended: true } : p)
+          );
           toast({
             title: 'Error',
             description: error.response?.data?.message || 'Failed to unsuspend product',
@@ -896,7 +916,7 @@ const Products = () => {
                           }`}>
                           {product.approved ? 'Approved' : 'Pending'}
                         </span>
-                        {product.hidden && (
+                        {product.visibilityStatus === 'hidden' && (
                           <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600 text-center w-fit flex items-center gap-1">
                             <FaEye className="w-2.5 h-2.5" /> Hidden
                           </span>
