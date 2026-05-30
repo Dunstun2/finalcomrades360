@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { DeliveryTask, Order, User } = require('../models');
+const { DeliveryTask, Order, User, sequelize, PlatformConfig } = require('../models');
+const { Op } = require('sequelize');
+const { revertPending } = require('../utils/walletHelpers');
 
 // Quick accept route: GET /api/quick-action/accept?taskId=...&agentId=...&token=...
 router.get('/accept', async (req, res) => {
@@ -32,59 +34,121 @@ router.get('/accept', async (req, res) => {
             `);
         }
 
-        // Find the task
-        const task = await DeliveryTask.findOne({
-            where: { id: taskId, deliveryAgentId: agentId },
-            include: [{ model: Order, as: 'order' }]
-        });
-
-        if (!task) {
-            return res.status(404).send(`
-                <html><body>
-                <h2 style="color:red">Task Not Found</h2>
-                <p>We could not find this delivery assignment.</p>
-                </body></html>
-            `);
-        }
-
         const dashboardUrl = `${process.env.FRONTEND_URL || 'https://comrades360.shop'}/dashboard/delivery`;
 
-        if (['accepted', 'arrived_at_pickup', 'in_progress', 'completed'].includes(task.status)) {
-            return res.status(200).send(`
-                <html><body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h2 style="color: #2e7d32;">✅ Already Accepted!</h2>
-                <p>This task is already accepted and in progress.</p>
-                <a href="${dashboardUrl}" style="display:inline-block; padding: 10px 20px; background: #1976d2; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Open Dashboard</a>
-                </body></html>
-            `);
-        }
+        const tx = await sequelize.transaction();
+        let task;
+        let siblingTasks = [];
+        try {
+            task = await DeliveryTask.findOne({
+                where: { id: taskId, deliveryAgentId: agentId },
+                include: [{ model: Order, as: 'order' }],
+                transaction: tx,
+                lock: tx.LOCK.UPDATE
+            });
 
-        if (task.status !== 'requested' && task.status !== 'assigned') {
-            return res.status(400).send(`
-                <html><body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h2 style="color: #d32f2f;">❌ Cannot Accept Task</h2>
-                <p>This task is currently in status: <strong>${task.status}</strong></p>
-                <a href="${dashboardUrl}" style="display:inline-block; padding: 10px 20px; background: #1976d2; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Open Dashboard</a>
-                </body></html>
-            `);
-        }
-
-        // Accept the task
-        task.status = 'accepted';
-        task.acceptedAt = new Date();
-        await task.save();
-
-        // Check and update order status if needed
-        if (task.order) {
-            if (task.order.status === 'awaiting_delivery_assignment') {
-                task.order.status = 'processing';
-                task.order.processingAt = new Date();
-                await task.order.save();
-            } else if (task.order.status === 'ordered') {
-                task.order.status = 'processing';
-                task.order.processingAt = new Date();
-                await task.order.save();
+            if (!task) {
+                await tx.rollback();
+                return res.status(404).send(`
+                    <html><body>
+                    <h2 style="color:red">Task Not Found</h2>
+                    <p>We could not find this delivery assignment.</p>
+                    </body></html>
+                `);
             }
+
+            if (['accepted', 'arrived_at_pickup', 'in_progress', 'completed'].includes(task.status)) {
+                await tx.rollback();
+                return res.status(200).send(`
+                    <html><body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h2 style="color: #2e7d32;">✅ Already Accepted!</h2>
+                    <p>This task is already accepted and in progress.</p>
+                    <a href="${dashboardUrl}" style="display:inline-block; padding: 10px 20px; background: #1976d2; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Open Dashboard</a>
+                    </body></html>
+                `);
+            }
+
+            if (task.status !== 'requested' && task.status !== 'assigned') {
+                await tx.rollback();
+                return res.status(400).send(`
+                    <html><body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h2 style="color: #d32f2f;">❌ Cannot Accept Task</h2>
+                    <p>This task is currently in status: <strong>${task.status}</strong></p>
+                    <a href="${dashboardUrl}" style="display:inline-block; padding: 10px 20px; background: #1976d2; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px;">Open Dashboard</a>
+                    </body></html>
+                `);
+            }
+
+            // Accept the task
+            await task.update({
+                status: 'accepted',
+                acceptedAt: new Date()
+            }, { transaction: tx });
+
+            // Find sibling tasks first
+            siblingTasks = await DeliveryTask.findAll({
+                where: {
+                    orderId: task.orderId,
+                    id: { [Op.ne]: task.id },
+                    status: { [Op.in]: ['assigned', 'requested'] }
+                },
+                attributes: ['id', 'deliveryAgentId', 'deliveryFee', 'agentShare'],
+                transaction: tx
+            });
+
+            if (siblingTasks.length > 0) {
+                // Revert pending wallet credits for sibling agents
+                for (const sib of siblingTasks) {
+                    if (sib.deliveryAgentId) {
+                        const sibShare = parseFloat(sib.agentShare) || 70;
+                        const sibEarnings = (parseFloat(sib.deliveryFee) || 0) * (sibShare / 100);
+                        if (sibEarnings > 0) {
+                            await revertPending(sib.deliveryAgentId, sibEarnings, task.orderId, tx);
+                        }
+                    }
+                }
+
+                // Cancel all sibling tasks
+                await DeliveryTask.update(
+                    {
+                        status: 'cancelled',
+                        rejectionReason: 'Order accepted by another agent'
+                    },
+                    {
+                        where: {
+                            orderId: task.orderId,
+                            id: { [Op.ne]: task.id },
+                            status: { [Op.in]: ['assigned', 'requested'] }
+                        },
+                        transaction: tx
+                    }
+                );
+            }
+
+            // Update the parent order to reflect the winning agent
+            if (task.order) {
+                await task.order.update({ deliveryAgentId: agentId }, { transaction: tx });
+
+                // Update order status if in relevant status
+                const currentStatus = task.order.status;
+                const statusesToProcess = ['super_admin_confirmed', 'seller_confirmed', 'ready_for_pickup', 'order_placed', 'awaiting_delivery_assignment', 'ordered'];
+                if (statusesToProcess.includes(currentStatus)) {
+                    await task.order.update({ status: 'processing', processingAt: new Date() }, { transaction: tx });
+                }
+            }
+
+            // Lock agentShare if missing
+            if (!task.agentShare) {
+                const shareConfig = await PlatformConfig.findOne({ where: { key: 'delivery_fee_agent_share' }, transaction: tx });
+                const sharePercent = shareConfig ? parseFloat(shareConfig.value) : 70;
+                await task.update({ agentShare: sharePercent }, { transaction: tx });
+            }
+
+            await tx.commit();
+
+        } catch (error) {
+            await tx.rollback();
+            throw error;
         }
 
         // Try emitting to sockets if possible (soft fail if not)
@@ -94,6 +158,19 @@ router.get('/accept', async (req, res) => {
             if (io) {
                 io.to(`user_${agentId}`).emit('deliveryTaskUpdated', task);
                 io.to('admin').emit('deliveryRequestUpdate', { orderId: task.orderId, status: 'accepted' });
+                
+                // Let other agents know their task was claimed
+                if (siblingTasks.length > 0) {
+                    for (const sib of siblingTasks) {
+                        if (sib.deliveryAgentId) {
+                            io.to(`user:${sib.deliveryAgentId}`).emit('deliveryTaskRemoved', {
+                                orderId: task.orderId,
+                                taskId: sib.id,
+                                reason: 'Order was claimed by another agent.'
+                            });
+                        }
+                    }
+                }
             }
         } catch(e) {
             console.error('[QuickAccept] Socket emit failed (non-fatal):', e.message);
