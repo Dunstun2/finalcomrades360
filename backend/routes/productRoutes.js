@@ -1,5 +1,5 @@
 const express = require('express');
-const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, unsuspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, getHomepageProducts } = require('../controllers/productController');
+const { createProduct, getAllProducts, getProductById, getSuperAdminProducts, getRecentlyApprovedProducts, getPendingProducts, approveProduct, rejectProduct, updateProduct, checkDuplicate, deleteProduct, toggleVisibility, suspendProduct, unsuspendProduct, requestProductDeletion, getDeletedProducts, restoreProduct, permanentlyDeleteProduct, getHomepageProducts, getProductDebug } = require('../controllers/productController');
 const { auth, checkRole, optionalAuth, checkSellerProfile } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { uploadProductMedia } = require('../config/multer');
@@ -31,6 +31,9 @@ router.get('/', optionalAuth, getAllProducts);
 // @desc    Fast homepage products with minimal data for quick loading
 // @access  Public
 router.get('/homepage-fast', optionalAuth, getHomepageProducts);
+
+// Debug endpoint to fetch a product by ID directly from DB (bypasses cache)
+router.get('/debug/:id', optionalAuth, getProductDebug);
 
 // @route   GET /api/products/admin/all
 // @desc    Get all products for admin/super admin, including hidden and unapproved

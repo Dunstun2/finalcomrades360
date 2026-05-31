@@ -2686,6 +2686,21 @@ const permanentlyDeleteProduct = async (req, res) => {
   }
 };
 
+const getProductDebug = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findOne({ where: { id }, raw: true });
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    // Return full product data for debugging
+    res.status(200).json({ product });
+  } catch (error) {
+    console.error('Error in getProductDebug:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   createProduct,
   getAllProducts,
@@ -2705,6 +2720,8 @@ module.exports = {
   getDeletedProducts,
   restoreProduct,
   permanentlyDeleteProduct,
-  getHomepageProducts
+  getHomepageProducts,
+  getProductDebug
 };
+
 
