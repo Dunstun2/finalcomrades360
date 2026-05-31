@@ -16,6 +16,7 @@ import { resolveImageUrl, FALLBACK_IMAGE } from '../utils/imageUtils';
 import FastFoodSection from '../components/FastFoodSection';
 import { isFastFoodOpen } from '../utils/availabilityUtils';
 import { usePersistentFetch } from '../hooks/usePersistentFetch';
+// Ensure we have the API base URL for constructing absolute endpoints
 import useRealtimeSync from '../hooks/useRealtimeSync';
 import { useToast } from '../components/ui/use-toast';
 
@@ -597,7 +598,9 @@ function Home({ isMarketingMode: propMarketingMode }) {
   }, []);
 
   // Instant Loading Implementation
-  const batchUrl = isMarketingMode ? `/ultra-fast/batch?marketing=true` : `/ultra-fast/batch`;
+  // Determine API base URL (env or relative)
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const batchUrl = isMarketingMode ? `${API_BASE}/ultra-fast/batch?marketing=true` : `${API_BASE}/ultra-fast/batch`;
   const { data: homeBatchData, loading: hookLoading, error: hookError, refresh: refreshHomeData } = usePersistentFetch(
     // FORCE CACHE BUST FROM V15 -> V16
     `home_data_v19_critical_refresh_${isMarketingMode ? 'marketing' : 'personal'}`,
