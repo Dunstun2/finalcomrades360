@@ -837,6 +837,7 @@ exports.updateFastFood = async (req, res, next) => {
                             success: false,
                             message: 'Discount Price must be greater than 0 before approval.'
                         });
+                    }
                     updateData.hasBeenApproved = true;
                     updateData.changes = []; // Clear changes log upon approval
                     // Also ensure it is active if approved
