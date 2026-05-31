@@ -1938,21 +1938,38 @@ const updateProduct = async (req, res, next) => {
     const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
     const isDraft = ['1', 'true', true].includes((req.body.draft ?? '').toString().toLowerCase());
 
-    if (isPrivileged) {
-      if (!isDraft) {
+    const wasAlreadyLive = product.approved === true && product.status === 'active' && product.reviewStatus === 'approved';
+
+    if (isDraft) {
+      // If it's a draft autosave request, ALWAYS preserve the existing live status!
+      // This prevents background autosaves from hiding currently live products.
+      if (wasAlreadyLive) {
         updateData.status = 'active';
         updateData.approved = true;
         updateData.reviewStatus = 'approved';
       } else {
         updateData.status = 'draft';
         updateData.reviewStatus = 'draft';
+        updateData.approved = false;
       }
+    } else if (isPrivileged) {
+      // Privileged users (admins) always publish directly
+      updateData.status = 'active';
+      updateData.approved = true;
+      updateData.reviewStatus = 'approved';
     } else {
-      // Sellers / Service Providers / others
-      // If they are updating, it must be reviewed again
-      updateData.status = 'draft';
-      updateData.approved = false;
-      updateData.reviewStatus = 'pending';
+      // Non-privileged users (sellers/service providers) submitting final edits:
+      if (wasAlreadyLive) {
+        // Keep it live so it doesn't vanish from the storefront,
+        // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
+        updateData.status = 'active';
+        updateData.approved = true;
+        updateData.reviewStatus = 'pending';
+      } else {
+        updateData.status = 'draft';
+        updateData.approved = false;
+        updateData.reviewStatus = 'pending';
+      }
     }
 
     // Normalize visibilityStatus to prevent homepage disappearance ('active' -> 'visible')

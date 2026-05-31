@@ -837,8 +837,6 @@ exports.updateFastFood = async (req, res, next) => {
                             success: false,
                             message: 'Discount Price must be greater than 0 before approval.'
                         });
-                    }
-
                     updateData.hasBeenApproved = true;
                     updateData.changes = []; // Clear changes log upon approval
                     // Also ensure it is active if approved
@@ -851,11 +849,36 @@ exports.updateFastFood = async (req, res, next) => {
                 updateData.reviewStatus = 'draft';
                 updateData.status = 'pending'; // SYNC: Set status to pending for drafts
             }
-        } else {
+        }
+
+        // Apply wasAlreadyLive check to protect approved items from demotion
+        const wasAlreadyLive = fastFood.approved === true && 
+                               (fastFood.status === 'approved' || fastFood.status === 'active') && 
+                               fastFood.reviewStatus === 'approved';
+
+        if (isDraft) {
+            if (wasAlreadyLive) {
+                updateData.status = fastFood.status || 'approved';
+                updateData.approved = true;
+                updateData.reviewStatus = 'approved';
+            } else {
+                updateData.reviewStatus = 'draft';
+                updateData.status = 'pending';
+                updateData.approved = false;
+            }
+        } else if (!isPrivileged) {
             // Vendors / Sellers updating
-            updateData.approved = false;
-            updateData.reviewStatus = 'pending';
-            updateData.status = 'pending'; // SYNC: Set status to pending
+            if (wasAlreadyLive) {
+                // Keep it live so it doesn't vanish from the storefront,
+                // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
+                updateData.approved = true;
+                updateData.status = fastFood.status || 'approved';
+                updateData.reviewStatus = 'pending';
+            } else {
+                updateData.approved = false;
+                updateData.reviewStatus = 'pending';
+                updateData.status = 'pending'; // SYNC: Set status to pending
+            }
         }
 
         // Price Standardization Logic
