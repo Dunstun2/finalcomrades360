@@ -508,10 +508,12 @@ exports.createFastFood = async (req, res, next) => {
 
                 createData.approved = true;
                 createData.reviewStatus = 'approved';
+                createData.status = 'approved'; // SYNC: Set status to approved when approved
                 createData.isActive = true;
                 createData.hasBeenApproved = true;
             } else {
                 createData.reviewStatus = 'draft';
+                createData.status = 'pending'; // SYNC: Set status to pending for drafts
             }
             // If vendor not specified by admin, default to themselves
             if (!createData.vendor) {
@@ -521,6 +523,7 @@ exports.createFastFood = async (req, res, next) => {
             // Regular Sellers / Vendors
             createData.approved = false;
             createData.reviewStatus = 'pending';
+            createData.status = 'pending'; // SYNC: Set status to pending
             // Force vendor ID to be the authenticated user for non-privileged users
             createData.vendor = req.user.id;
         }
@@ -842,14 +845,17 @@ exports.updateFastFood = async (req, res, next) => {
                     if (updateData.isActive === undefined) {
                         updateData.isActive = true;
                     }
+                    updateData.status = 'approved'; // SYNC: Set status to approved
                 }
             } else {
                 updateData.reviewStatus = 'draft';
+                updateData.status = 'pending'; // SYNC: Set status to pending for drafts
             }
         } else {
             // Vendors / Sellers updating
             updateData.approved = false;
             updateData.reviewStatus = 'pending';
+            updateData.status = 'pending'; // SYNC: Set status to pending
         }
 
         // Price Standardization Logic
@@ -889,6 +895,7 @@ exports.updateFastFood = async (req, res, next) => {
         if (updateData.reviewStatus === 'pending') {
             console.log('🔒 [updateFastFood] Status is pending, forcing approved = false');
             updateData.approved = false;
+            updateData.status = 'pending'; // SYNC: Force status to pending
         }
 
         console.log('💾 [updateFastFood] Saving update:', {

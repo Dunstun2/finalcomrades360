@@ -1111,6 +1111,9 @@ const approveProduct = async (req, res) => {
     await product.update({
       approved: true,
       reviewStatus: 'approved',
+      status: 'active',
+      visibilityStatus: 'visible',
+      isActive: true,
       displayPrice: parsedDisplayPrice
     });
 
@@ -1151,6 +1154,7 @@ const rejectProduct = async (req, res) => {
     await product.update({
       approved: false,
       reviewStatus: 'rejected',
+      status: 'rejected',
       reviewNotes: reason || 'Product rejected by admin'
     });
 

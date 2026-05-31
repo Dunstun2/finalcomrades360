@@ -1076,6 +1076,15 @@ const bulkUpdateStatus = async (req, res) => {
     if (status) updates.reviewStatus = status;
     if (approved !== undefined) updates.approved = approved;
 
+    // FIX: Sync the status column to match the approval state
+    if (approved === true || status === 'approved') {
+      updates.status = 'active';
+      updates.visibilityStatus = 'visible';
+      updates.isActive = true;
+    } else if (approved === false || status === 'rejected') {
+      updates.status = 'draft';
+    }
+
     const [count] = await Product.update(updates, { where: { id: productIds } });
 
     res.json({ message: `Updated status for ${count} products`, updatedCount: count });
@@ -2319,6 +2328,10 @@ const approveProduct = async (req, res) => {
     product.hasBeenApproved = true;
     product.reviewStatus = 'approved';
     product.reviewNotes = null;
+    // FIX: Sync status to 'active' so item passes public query filters
+    product.status = 'active';
+    product.visibilityStatus = 'visible';
+    product.isActive = true;
     await product.save();
     try {
       await cacheService.delPattern('products:*');
@@ -2351,6 +2364,8 @@ const rejectProduct = async (req, res) => {
     product.approved = false;
     product.reviewStatus = 'rejected';
     product.reviewNotes = reason || 'Rejected by admin';
+    // FIX: Sync status to 'rejected' to remove from public listings
+    product.status = 'rejected';
     await product.save();
     try {
       await cacheService.delPattern('products:*');
@@ -2383,6 +2398,8 @@ const requestProductChanges = async (req, res) => {
     product.approved = false;
     product.reviewStatus = 'changes_requested';
     product.reviewNotes = notes || 'Please address requested changes and resubmit.';
+    // FIX: Sync status to 'draft' to remove from public listings
+    product.status = 'draft';
     await product.save();
     try {
       await cacheService.delPattern('products:*');
@@ -2425,6 +2442,10 @@ const editAndApproveProduct = async (req, res) => {
     product.hasBeenApproved = true;
     product.reviewStatus = 'approved';
     product.reviewNotes = null;
+    // FIX: Sync status to 'active' so item passes public query filters
+    product.status = 'active';
+    product.visibilityStatus = 'visible';
+    product.isActive = true;
     await product.save();
     res.status(200).json({ message: 'Product edited and approved.', product });
   } catch (error) {
