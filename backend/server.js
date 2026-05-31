@@ -606,22 +606,13 @@ async function startServer() {
   // Official Phusion Passenger detection pattern
   // When running under Passenger, PhusionPassenger global is injected automatically
   // When running standalone (local dev / manual node), it is undefined
-  if (typeof PhusionPassenger !== 'undefined') {
-    // PASSENGER MODE: Listen on Passenger's unix socket
-    console.error('🚀 Step 2: Passenger detected — listening on Passenger socket...');
-    PhusionPassenger.configure({ autoInstall: false });
-    server.listen('passenger', () => {
-      console.error('🚀 Step 2: Server bound to Passenger socket - SUCCESS');
-      setImmediate(() => initializeServices(io));
-    });
-  } else {
-    // STANDALONE MODE: Listen on TCP port (local dev or manual node server.js)
-    server.listen(DEFAULT_PORT, () => {
-      console.error(`🚀 Step 2: Server bound to port ${DEFAULT_PORT} - SUCCESS`);
-      console.log('🚀 STANDALONE MODE: Server logic ready and listening.');
-      setImmediate(() => initializeServices(io));
-    });
-  }
+  // ---- FORCE PM2 STANDALONE MODE ----
+// Always listen on the configured TCP port, ignoring Passenger.
+server.listen(DEFAULT_PORT, '0.0.0.0', () => {
+  console.error(`🚀 Server bound to port ${DEFAULT_PORT} (PM2 standalone) - SUCCESS`);
+  console.log('🚀 STANDALONE MODE: Server logic ready and listening via PM2.');
+  setImmediate(() => initializeServices(io));
+});
 
   // Handle server errors
   server.on('error', (err) => {
