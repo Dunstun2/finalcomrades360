@@ -1940,6 +1940,14 @@ const updateProduct = async (req, res, next) => {
 
     const wasAlreadyLive = product.approved === true && product.status === 'active' && product.reviewStatus === 'approved';
 
+    // Check if any price or discount field has actually changed compared to the database values
+    const hasPriceChanged = (
+      (updateData.basePrice !== undefined && parseFloat(updateData.basePrice) !== parseFloat(product.basePrice)) ||
+      (updateData.displayPrice !== undefined && parseFloat(updateData.displayPrice) !== parseFloat(product.displayPrice)) ||
+      (updateData.discountPercentage !== undefined && parseInt(updateData.discountPercentage, 10) !== parseInt(product.discountPercentage, 10)) ||
+      (updateData.discountPrice !== undefined && parseFloat(updateData.discountPrice) !== parseFloat(product.discountPrice))
+    );
+
     if (isDraft) {
       // If it's a draft autosave request, ALWAYS preserve the existing live status!
       // This prevents background autosaves from hiding currently live products.
@@ -1960,11 +1968,18 @@ const updateProduct = async (req, res, next) => {
     } else {
       // Non-privileged users (sellers/service providers) submitting final edits:
       if (wasAlreadyLive) {
-        // Keep it live so it doesn't vanish from the storefront,
-        // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
-        updateData.status = 'active';
-        updateData.approved = true;
-        updateData.reviewStatus = 'pending';
+        if (hasPriceChanged) {
+          // If they changed the price, flag it as pending re-review in the admin queue,
+          // but keep it live on the storefront so they don't lose sales traffic!
+          updateData.status = 'active';
+          updateData.approved = true;
+          updateData.reviewStatus = 'pending';
+        } else {
+          // If the price did NOT change, it stays fully approved directly!
+          updateData.status = 'active';
+          updateData.approved = true;
+          updateData.reviewStatus = 'approved';
+        }
       } else {
         updateData.status = 'draft';
         updateData.approved = false;

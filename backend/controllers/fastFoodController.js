@@ -856,6 +856,14 @@ exports.updateFastFood = async (req, res, next) => {
                                (fastFood.status === 'approved' || fastFood.status === 'active') && 
                                fastFood.reviewStatus === 'approved';
 
+        // Check if any price or discount field has actually changed compared to the database values
+        const hasPriceChanged = (
+            (updateData.basePrice !== undefined && parseFloat(updateData.basePrice) !== parseFloat(fastFood.basePrice)) ||
+            (updateData.displayPrice !== undefined && parseFloat(updateData.displayPrice) !== parseFloat(fastFood.displayPrice)) ||
+            (updateData.discountPercentage !== undefined && parseInt(updateData.discountPercentage, 10) !== parseInt(fastFood.discountPercentage, 10)) ||
+            (updateData.discountPrice !== undefined && parseFloat(updateData.discountPrice) !== parseFloat(fastFood.discountPrice))
+        );
+
         if (isDraft) {
             if (wasAlreadyLive) {
                 updateData.status = fastFood.status || 'approved';
@@ -869,11 +877,18 @@ exports.updateFastFood = async (req, res, next) => {
         } else if (!isPrivileged) {
             // Vendors / Sellers updating
             if (wasAlreadyLive) {
-                // Keep it live so it doesn't vanish from the storefront,
-                // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
-                updateData.approved = true;
-                updateData.status = fastFood.status || 'approved';
-                updateData.reviewStatus = 'pending';
+                if (hasPriceChanged) {
+                    // Keep it live so it doesn't vanish from the storefront,
+                    // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
+                    updateData.approved = true;
+                    updateData.status = fastFood.status || 'approved';
+                    updateData.reviewStatus = 'pending';
+                } else {
+                    // If the price did NOT change, it stays fully approved directly!
+                    updateData.approved = true;
+                    updateData.status = fastFood.status || 'approved';
+                    updateData.reviewStatus = 'approved';
+                }
             } else {
                 updateData.approved = false;
                 updateData.reviewStatus = 'pending';
