@@ -23,6 +23,8 @@ export default function PricingPlans() {
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [billingCycle, setBillingCycle] = useState('weekly');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [foodSearchTerm, setFoodSearchTerm] = useState('');
+  const [selectedFoodCategory, setSelectedFoodCategory] = useState('all');
 
   // Guest checkout state (for both custom schedule and packages)
   const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState(null);
@@ -89,6 +91,27 @@ export default function PricingPlans() {
     const multiplier = billingCycle === 'monthly' ? 4 : (billingCycle === 'daily' ? 1 / 7 : 1);
     setWeeklyTotal(parseFloat((total * multiplier).toFixed(2)));
   }, [customSchedule, fastFoodItems, billingCycle]);
+
+  const availableFoodCategories = React.useMemo(() => {
+    const categories = fastFoodItems
+      .map(item => (item.category || 'Uncategorized').trim())
+      .filter(Boolean);
+    return Array.from(new Set(categories));
+  }, [fastFoodItems]);
+
+  const filteredFoodItems = React.useMemo(() => {
+    return fastFoodItems.filter(item => {
+      const matchesSearch = foodSearchTerm.trim().length === 0 ||
+        `${item.name || ''} ${item.shortDescription || ''} ${item.category || ''}`
+          .toLowerCase()
+          .includes(foodSearchTerm.trim().toLowerCase());
+
+      const matchesCategory = selectedFoodCategory === 'all' ||
+        (item.category || 'Uncategorized') === selectedFoodCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [fastFoodItems, foodSearchTerm, selectedFoodCategory]);
 
   const isSlotSelected = (day, mealTime) =>
     customSchedule.some(e => e.key === `${day}_${mealTime}`);
@@ -299,6 +322,53 @@ export default function PricingPlans() {
 
             <div className="bg-white/10 rounded-2xl p-5 backdrop-blur">
               <h2 className="text-white font-bold text-lg mb-4">2. Pick Your Days & Meals</h2>
+              <div className="space-y-4 mb-6">
+                <div className="grid gap-3 md:grid-cols-[1fr_auto] items-end">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-white/80">Search meals</label>
+                    <input
+                      type="text"
+                      value={foodSearchTerm}
+                      onChange={e => setFoodSearchTerm(e.target.value)}
+                      placeholder="Search by name, description or category"
+                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder:text-white/40 focus:border-blue-400 focus:bg-white/15 focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-white/80">Filter by category</label>
+                    <select
+                      value={selectedFoodCategory}
+                      onChange={e => setSelectedFoodCategory(e.target.value)}
+                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white focus:border-blue-400 focus:bg-white/15 focus:outline-none"
+                    >
+                      <option value="all">All categories</option>
+                      {availableFoodCategories.map(category => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p>
+                      Filtered meals: <span className="font-semibold text-white">{filteredFoodItems.length}</span>
+                      {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
+                    </p>
+                    {filteredFoodItems.length === 0 && (
+                      <p className="text-amber-300">Try a different keyword or category.</p>
+                    )}
+                  </div>
+                  {filteredFoodItems.length > 0 && (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
+                      {filteredFoodItems.slice(0, 8).map(item => (
+                        <div key={item.id} className="rounded-xl bg-white/10 px-3 py-2 text-xs text-white/90">
+                          {item.name} — KES {item.price} <span className="text-white/50">{item.category || 'Uncategorized'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -335,32 +405,81 @@ export default function PricingPlans() {
             {customSchedule.length > 0 && (
               <div className="bg-white/10 rounded-2xl p-5 backdrop-blur">
                 <h2 className="text-white font-bold text-lg mb-4">3. Choose Your Food for Each Slot</h2>
+
+                <div className="grid gap-3 md:grid-cols-[1fr_auto] items-end mb-6">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-white/80">Search meals</label>
+                    <input
+                      type="text"
+                      value={foodSearchTerm}
+                      onChange={e => setFoodSearchTerm(e.target.value)}
+                      placeholder="Search by name, description or category"
+                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder:text-white/40 focus:border-blue-400 focus:bg-white/15 focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-white/80">Filter by category</label>
+                    <select
+                      value={selectedFoodCategory}
+                      onChange={e => setSelectedFoodCategory(e.target.value)}
+                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white focus:border-blue-400 focus:bg-white/15 focus:outline-none"
+                    >
+                      <option value="all">All categories</option>
+                      {availableFoodCategories.map(category => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/80 mb-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p>
+                      Filtered meals: <span className="font-semibold text-white">{filteredFoodItems.length}</span>
+                      {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
+                    </p>
+                    {filteredFoodItems.length === 0 && (
+                      <p className="text-amber-300">No items match your filter. Try a different search term or category.</p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {customSchedule.map(slot => (
-                    <div key={slot.key} className="bg-white/10 rounded-xl p-4">
-                      <p className="text-white font-semibold capitalize mb-2">
-                        {slot.dayOfWeek.slice(0,3)} — {slot.mealTimeType}
-                      </p>
-                      <select
-                        className="w-full rounded-lg bg-white/20 text-white border border-white/20 px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        value={slot.fastFoodItemId || ''}
-                        onChange={e => updateSlot(slot.key, 'fastFoodItemId', parseInt(e.target.value))}
-                      >
-                        <option value="">Select food item...</option>
-                        {fastFoodItems.map(item => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} — KES {item.price}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="time"
-                        className="w-full rounded-lg bg-white/20 text-white border border-white/20 px-3 py-2 text-sm focus:outline-none"
-                        value={slot.preferredTime}
-                        onChange={e => updateSlot(slot.key, 'preferredTime', e.target.value)}
-                      />
-                    </div>
-                  ))}
+                  {customSchedule.map(slot => {
+                    const selectedFoodItem = fastFoodItems.find(item => item.id === slot.fastFoodItemId);
+                    const slotOptions = selectedFoodItem && !filteredFoodItems.some(item => item.id === selectedFoodItem.id)
+                      ? [selectedFoodItem, ...filteredFoodItems]
+                      : filteredFoodItems;
+
+                    return (
+                      <div key={slot.key} className="bg-white/10 rounded-xl p-4">
+                        <p className="text-white font-semibold capitalize mb-2">
+                          {slot.dayOfWeek.slice(0,3)} — {slot.mealTimeType}
+                        </p>
+                        <select
+                          className="w-full rounded-lg bg-white/20 text-white border border-white/20 px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          value={slot.fastFoodItemId || ''}
+                          onChange={e => updateSlot(slot.key, 'fastFoodItemId', parseInt(e.target.value))}
+                        >
+                          <option value="">Select food item...</option>
+                          {slotOptions.map(item => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} — KES {item.price}
+                            </option>
+                          ))}
+                        </select>
+                        {filteredFoodItems.length === 0 && (
+                          <p className="text-xs text-amber-200">No items match your filter. Clear the search or choose a different category.</p>
+                        )}
+                        <input
+                          type="time"
+                          className="w-full rounded-lg bg-white/20 text-white border border-white/20 px-3 py-2 text-sm focus:outline-none"
+                          value={slot.preferredTime}
+                          onChange={e => updateSlot(slot.key, 'preferredTime', e.target.value)}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
