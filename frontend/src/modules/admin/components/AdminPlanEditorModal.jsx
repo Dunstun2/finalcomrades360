@@ -32,6 +32,8 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
   });
 
   const [fastFoodItems, setFastFoodItems] = useState([]);
+  const [foodSearchTerm, setFoodSearchTerm] = useState('');
+  const [selectedFoodCategory, setSelectedFoodCategory] = useState('all');
   const [loadingFoods, setLoadingFoods] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -61,6 +63,27 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
       setFormData(prev => ({ ...prev, price: total, billingCycle: 'custom' }));
     }
   }, [formData.templateSchedule, formData.type, fastFoodItems]);
+
+  const availableFoodCategories = React.useMemo(() => {
+    const categories = fastFoodItems
+      .map(item => (item.category || 'Uncategorized').trim())
+      .filter(Boolean);
+    return Array.from(new Set(categories));
+  }, [fastFoodItems]);
+
+  const filteredFastFoodItems = React.useMemo(() => {
+    return fastFoodItems.filter(item => {
+      const matchesSearch = foodSearchTerm.trim().length === 0 ||
+        `${item.name || ''} ${item.shortDescription || ''} ${item.category || ''}`
+          .toLowerCase()
+          .includes(foodSearchTerm.trim().toLowerCase());
+
+      const matchesCategory = selectedFoodCategory === 'all' ||
+        (item.category || 'Uncategorized') === selectedFoodCategory;
+
+      return matchesSearch && matchesCategory;
+    });
+  }, [fastFoodItems, foodSearchTerm, selectedFoodCategory]);
 
   const fetchFoods = async () => {
     setLoadingFoods(true);
@@ -305,6 +328,52 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                 <div className="flex justify-center"><LoadingSpinner /></div>
               ) : (
                 <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto] items-end">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Search dishes</label>
+                      <input
+                        type="text"
+                        value={foodSearchTerm}
+                        onChange={e => setFoodSearchTerm(e.target.value)}
+                        placeholder="Search by name, description or category"
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Filter by category</label>
+                      <select
+                        value={selectedFoodCategory}
+                        onChange={e => setSelectedFoodCategory(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                      >
+                        <option value="all">All categories</option>
+                        {availableFoodCategories.map(category => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p>
+                        Showing <strong>{filteredFastFoodItems.length}</strong> dish{filteredFastFoodItems.length !== 1 ? 'es' : ''}
+                        {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
+                      </p>
+                      {filteredFastFoodItems.length === 0 && (
+                        <p className="text-sm text-amber-600">No dishes match your filter.</p>
+                      )}
+                    </div>
+                    {filteredFastFoodItems.length > 0 && (
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                        {filteredFastFoodItems.slice(0, 8).map(item => (
+                          <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-2 text-xs">
+                            <p className="font-medium text-gray-800">{item.name}</p>
+                            <p className="text-gray-500 text-xs">KES {getCustomerPrice(item)} · {item.category || 'Uncategorized'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   {/* Calendar Date Picker Row */}
                   <div className="flex flex-col sm:flex-row items-end gap-3 bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
                     <div className="flex-1 w-full">
@@ -386,11 +455,17 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                                   onChange={e => updateSlot(slot.id, 'fastFoodItemId', parseInt(e.target.value))}
                                 >
                                   <option value="">Choose food item...</option>
-                                  {fastFoodItems.map(item => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name} — KES {getCustomerPrice(item)}
-                                    </option>
-                                  ))}
+                                  {(() => {
+                                    const selectedItem = fastFoodItems.find(item => item.id === slot.fastFoodItemId);
+                                    const options = selectedItem && !filteredFastFoodItems.some(item => item.id === selectedItem.id)
+                                      ? [selectedItem, ...filteredFastFoodItems]
+                                      : filteredFastFoodItems;
+                                    return options.map(item => (
+                                      <option key={item.id} value={item.id}>
+                                        {item.name} — KES {getCustomerPrice(item)}
+                                      </option>
+                                    ));
+                                  })()}
                                 </select>
                                 <input
                                   type="time"
