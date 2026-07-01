@@ -6,7 +6,8 @@
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
     "start": "node backend/server.js",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "wallet:release": "node backend/scripts/verify_and_release_funds.js"
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.9.11",

@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 
 async function processOrderLocation(order) {
   try {
-    const { KnownLocation } = require('../models');
+    const { KnownLocation } = require('../database/models.registry');
     const { deliveryLat, deliveryLng, deliveryAddress, status, deliveryAgentId } = order;
     if (!deliveryAddress) return;
 
@@ -15,7 +15,7 @@ async function processOrderLocation(order) {
 
     // If order is delivered, try to capture the agent's actual location at that moment
     if (status === 'delivered' && deliveryAgentId) {
-      const { DeliveryAgentProfile } = require('../models');
+      const { DeliveryAgentProfile } = require('../database/models.registry');
       const agentProfile = await DeliveryAgentProfile.findOne({ where: { userId: deliveryAgentId } });
       if (agentProfile && agentProfile.currentLocation) {
         try {
@@ -67,7 +67,7 @@ async function processOrderLocation(order) {
 async function getPlaceAtLocation(lat, lng) {
   if (!lat || !lng) return null;
   
-  const { KnownLocation, Warehouse, PickupStation } = require('../models');
+  const { KnownLocation, Warehouse, PickupStation } = require('../database/models.registry');
 
   // 1. Check Verified Learned Locations
   const nearby = await KnownLocation.findOne({

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import api from '../services/api';
+import api from '@/shared/services/api';
 
 /**
  * Custom hook for fetching data with localStorage persistence (Instant Loading).

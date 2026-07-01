@@ -1,4 +1,4 @@
-const { PlatformConfig } = require('../models');
+const { PlatformConfig } = require('../database/models.registry');
 
 /**
  * Helper to fetch a template from the database or fallback to default

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User, Warehouse, PickupStation } = require('../models');
+const { User, Warehouse, PickupStation } = require('../database/models.registry');
 
 /**
  * Returns true if the user has been specifically suspended from a role dashboard.
@@ -48,7 +48,7 @@ const auth = async (req, res, next) => {
   try {
     const secret = process.env.JWT_SECRET || 'your-secret-key';
     const decoded = jwt.verify(token, secret);
-    console.log(`[auth] Token verified for user ID: ${decoded.id}`);
+    console.log(`[auth] Token verified for user ID: ${decoded.id}`, decoded);
 
     if (decoded.userType === 'station_manager') {
       const stationType = decoded.stationType;

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { Notification, PlatformConfig, User } = require('../models');
+const { Notification, PlatformConfig, User } = require('../database/models.registry');
 const { sendMessage } = require('./messageService');
 const { getDynamicMessage, getEnabledChannels } = require('./templateUtils');
 const { sendEmail } = require('./mailer');
@@ -235,7 +235,7 @@ async function notifyDeliveryAgentAssignment(agentOrId, orderOrId, optionalOrder
     let deliveryLocation = 'N/A';
     let customerPhone = 'N/A';
 
-    const { Order, OrderItem, Product, FastFood, Service, DeliveryTask, User, Warehouse, PickupStation } = require('../models');
+    const { Order, OrderItem, Product, FastFood, Service, DeliveryTask, User, Warehouse, PickupStation } = require('../database/models.registry');
 
     // ALWAYS re-fetch order by ID with full OrderItems to guarantee items are loaded.
     // The passed-in order object often lacks the OrderItems association.
@@ -830,7 +830,7 @@ async function notifySellerOrderEdited(order, seller, itemsList) {
  * Notify customer that their order is ready for collection
  */
 async function notifyCustomerReadyForCollection(order, agent) {
-    const { Order, OrderItem, Product, FastFood, Service, User } = require('../models');
+    const { Order, OrderItem, Product, FastFood, Service, User } = require('../database/models.registry');
     let fullOrder = order;
     let itemsList = 'N/A';
 

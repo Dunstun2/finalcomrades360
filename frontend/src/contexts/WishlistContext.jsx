@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useAuth } from './AuthContext';
-import { useToast } from '../components/ui/use-toast';
-import wishlistService from '../services/wishlistService';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/shared/components/use-toast';
+import wishlistService from '@/modules/products/services/wishlistService';
 
 const WishlistContext = createContext();
 

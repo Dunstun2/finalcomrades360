@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api from '../services/api';
-import useRealtimeSync from '../hooks/useRealtimeSync';
+import api from '@/shared/services/api';
+import useRealtimeSync from '@/hooks/useRealtimeSync';
 
 const PlatformContext = createContext();
 

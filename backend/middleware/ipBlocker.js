@@ -1,4 +1,4 @@
-const { BlockedIP } = require('../models');
+const { BlockedIP } = require('../database/models.registry');
 const { Op } = require('sequelize');
 
 const ipBlocker = async (req, res, next) => {

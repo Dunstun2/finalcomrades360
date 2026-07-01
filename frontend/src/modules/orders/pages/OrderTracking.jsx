@@ -1,0 +1,635 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import api from '@/shared/services/api';
+import { resolveImageUrl, FALLBACK_IMAGE, getProductMainImage } from '@/utils/imageUtils';
+import { ensureArray, normalizeIngredient } from '@/utils/parsingUtils';
+import { FaBox, FaTruck, FaCheckCircle, FaClock, FaMapMarkerAlt, FaCreditCard, FaArrowLeft, FaRoute, FaUser, FaUserTie, FaPhone, FaWhatsapp, FaExclamationCircle } from 'react-icons/fa';
+import DeliveryTrackingMap from '@/modules/orders/components/DeliveryTrackingMap';
+
+export default function OrderTracking() {
+  const { orderId } = useParams();
+  const { user } = useAuth();
+  const [order, setOrder] = useState(null);
+  const [tracking, setTracking] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [handoverCodeInput, setHandoverCodeInput] = useState('');
+  const [handoverCodeError, setHandoverCodeError] = useState('');
+  const [handoverCodeSuccess, setHandoverCodeSuccess] = useState('');
+
+  useEffect(() => {
+    loadOrderTracking();
+
+    // Auto-refresh tracking for active orders (every 20s)
+    let interval = null;
+    if (tracking && ['order_placed', 'super_admin_confirmed', 'seller_confirmed', 'processing', 'shipped', 'in_transit', 'ready_for_pickup'].includes(tracking.status?.toLowerCase().replace(/ /g, '_'))) {
+      interval = setInterval(loadOrderTracking, 20000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [orderId, tracking?.status]);
+
+  const loadOrderTracking = async () => {
+    try {
+      setLoading(true);
+      const [trackingRes, orderRes] = await Promise.all([
+        api.get(`/orders/${orderId}/tracking`),
+        api.get(`/orders/${orderId}`)
+      ]);
+      setTracking(trackingRes.data);
+      setOrder(orderRes.data);
+    } catch (err) {
+      console.error('Failed to load tracking:', err);
+      setError('Failed to load order tracking information');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-KE', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      'Pending Payment': 'text-yellow-600',
+      'Processing': 'text-blue-600',
+      'Preparing': 'text-orange-600',
+      'Shipped': 'text-purple-600',
+      'Out for Delivery': 'text-indigo-600',
+      'In Transit': 'text-indigo-600',
+      'Ready for Pickup': 'text-sky-600',
+      'Delivered': 'text-green-600',
+      'Cancelled': 'text-red-600'
+    };
+    return colors[status] || 'text-gray-600';
+  };
+
+  const getStatusIcon = (status) => {
+    const icons = {
+      'Pending Payment': FaClock,
+      'Processing': FaClock,
+      'Preparing': FaClock,
+      'Shipped': FaTruck,
+      'Out for Delivery': FaTruck,
+      'In Transit': FaTruck,
+      'Ready for Pickup': FaBox,
+      'Delivered': FaCheckCircle,
+      'Cancelled': FaClock
+    };
+    return icons[status] || FaClock;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-0 md:px-4">
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span className="ml-2 text-gray-600">Loading tracking information...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !tracking) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-0 md:px-4">
+          <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+            <FaClock className="mx-auto h-16 w-16 text-red-500 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Error</h2>
+            <p className="text-gray-600 mb-6">{error || 'Tracking information not available'}</p>
+            <Link
+              to="/customer/orders"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              <FaArrowLeft className="mr-2" />
+              Back to Orders
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const StatusIcon = getStatusIcon(tracking.status);
+
+  // Extract location data for map
+  const pickupLocation = tracking.pickup?.lat ? tracking.pickup : null;
+  const dropoffLocation = tracking.destination?.lat ? tracking.destination : {
+    name: order?.deliveryAddress || 'Delivery Address'
+  };
+  const agentLocation = tracking.deliveryAgent?.location || null;
+  const pois = tracking.pois || { warehouse: null, pickupStation: null };
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-0 md:px-4">
+        {/* Header */}
+        <div className="mb-8">
+          <Link
+            to="/customer/orders"
+            className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-4"
+          >
+            <FaArrowLeft className="mr-2" />
+            Back to Orders
+          </Link>
+          <div className="flex justify-between items-end">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Order Tracking</h1>
+              <div className="flex items-center gap-3">
+                <p className="mt-2 text-gray-600">Track your order #{tracking.orderNumber}</p>
+                {(order?.isMarketingOrder || order?.marketerId) && (
+                  <span className="mt-2 flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs font-black uppercase rounded-lg border border-blue-200">
+                    <FaUserTie size={10} /> Marketer Order
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Guest Verification Notice */}
+        {order && !order.userId && !order.phoneVerified && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4 shadow-sm">
+            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
+              <FaExclamationCircle className="text-amber-500 text-xl" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">Verify Your Phone Number</h4>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                Our delivery agent will need to call you at <strong>{order.customerPhone}</strong>. 
+                Please ensure your phone is reachable to avoid delivery delays.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Live Map Integration */}
+        {!['cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (
+          <div className="mb-8 rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+            <DeliveryTrackingMap
+              status={tracking.status}
+              pickupLocation={tracking.pickup}
+              dropoffLocation={tracking.destination}
+              agentLocation={tracking.liveTracking}
+              pois={{ 
+                warehouse: tracking.pickup?.lat ? tracking.pickup : null, 
+                pickupStation: tracking.destination?.lat ? tracking.destination : null 
+              }}
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+          {/* Order Summary */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Current Status */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">Current Status</h2>
+                {(() => {
+                  const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                    if (!rawStatus) return 'Processing';
+                    const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                    const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                    const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
+                    const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                    
+                    if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                    if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+
+                    if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
+                    if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
+
+                    if (s === 'order_placed') return 'Order Placed';
+                    if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                    if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
+                    
+                    return 'Processing';
+                  };
+                  const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
+                  const displayColor = getStatusColor(displayStatus);
+                  const DisplayIcon = getStatusIcon(displayStatus);
+
+                  return (
+                    <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${displayColor} bg-opacity-10`}>
+                      <DisplayIcon className="mr-2 h-4 w-4" />
+                      {displayStatus}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Timeline progress bar */}
+              {(() => {
+                const getCustomerFriendlyStatus = (rawStatus, orderObj) => {
+                  if (!rawStatus) return 'Processing';
+                  const s = rawStatus.toLowerCase().replace(/ /g, '_');
+                  const tasks = Array.isArray(orderObj?.deliveryTasks) ? orderObj.deliveryTasks : [];
+                  const hasAcceptedDeliveryTask = tasks.some(task => ['accepted', 'in_progress'].includes(task.status));
+                  const isFastFood = orderObj?.adminRoutingStrategy === 'direct_delivery' || orderObj?.adminRoutingStrategy === 'fastfood_pickup_point' || orderObj?.OrderItems?.some(item => item.fastFoodId || item.FastFood);
+                  
+                  if (['delivered', 'completed'].includes(s)) return 'Delivered';
+                  if (['cancelled', 'failed', 'returned'].includes(s)) return 'Cancelled';
+
+                  if (['seller_confirmed', 'super_admin_confirmed'].includes(s)) return 'Preparing';
+                  if (hasAcceptedDeliveryTask || ['in_transit', 'out_for_delivery'].includes(s)) return 'In Transit';
+
+                  if (s === 'order_placed') return 'Order Placed';
+                  if (s === 'ready_for_pickup' && orderObj?.deliveryMethod === 'pick_station') return 'Ready for Pickup';
+                  if (['at_warehouse', 'en_route_to_warehouse', 'shipped'].includes(s)) return isFastFood ? 'Preparing' : 'Shipped';
+                  
+                  return 'Processing';
+                };
+                const displayStatus = getCustomerFriendlyStatus(tracking.status, order);
+                const steps = ['Order Placed', 'Preparing', 'In Transit', 'Delivered'];
+                const idx = steps.indexOf(displayStatus);
+                return (
+                  <div className="mt-4 mb-8">
+                    <div className="flex items-center justify-between relative">
+                      <div className="absolute top-3 left-0 right-0 h-1 bg-gray-100 z-0 mx-4" />
+                      <div
+                        className="absolute top-3 left-0 h-1 bg-blue-500 z-0 ml-4 transition-all duration-700"
+                        style={{ width: idx >= 0 ? `${(idx / (steps.length - 1)) * (100 - 8)}%` : '0%' }}
+                      />
+                      {steps.map((step, i) => (
+                        <div key={step} className="flex flex-col items-center gap-1 z-10">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                            i <= idx
+                              ? 'bg-blue-500 border-blue-500 text-white'
+                              : 'bg-white border-gray-200 text-gray-300'
+                          }`}>
+                            {i < idx ? <FaCheckCircle className="h-3 w-3" /> : i + 1}
+                          </div>
+                          <span className={`text-[9px] font-medium leading-tight text-center max-w-[48px] ${i <= idx ? 'text-blue-600' : 'text-gray-300'}`}>
+                            {step}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {tracking.trackingNumber && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600">Tracking Number</p>
+                  <p className="font-mono font-medium">{tracking.trackingNumber}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t pt-4">
+                {tracking.estimatedDelivery && (
+                  <div>
+                    <p className="text-gray-600">Estimated Delivery</p>
+                    <p className="font-bold text-gray-900">{formatDate(tracking.estimatedDelivery)}</p>
+                  </div>
+                )}
+                {tracking.actualDelivery && (
+                  <div>
+                    <p className="text-gray-600">Actual Delivery</p>
+                    <p className="font-bold text-gray-900">{formatDate(tracking.actualDelivery)}</p>
+                  </div>
+                )}
+                {tracking.batch && (
+                  <div className="md:col-span-2 mt-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <p className="text-xs font-bold text-blue-800">Fast Food Batch: {tracking.batch.name}</p>
+                    <p className="text-[11px] text-blue-600 font-medium">Expected Delivery Time: {tracking.batch.expectedDelivery || 'Not specified'}</p>
+                  </div>
+                )}
+                {tracking.deliveryTimePreference && !tracking.batch && (
+                  <div className="md:col-span-2 mt-2 p-3 bg-orange-50 rounded-xl border border-orange-100">
+                    <p className="text-xs font-bold text-orange-800">Preferred Delivery Time: {tracking.deliveryTimePreference}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Handover Code Input: Show if tracking.handoverCode exists, even before status is 'delivered' */}
+              {tracking.handoverCode && (
+                <div className="mt-6 pt-6 border-t border-dashed">
+                  <h4 className="text-sm font-bold text-gray-900 mb-3">Enter Handover Code</h4>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={handoverCodeInput}
+                      onChange={e => setHandoverCodeInput(e.target.value)}
+                      placeholder="Enter code provided by agent"
+                      className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"
+                    />
+                    <button
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition shadow-sm active:scale-95 disabled:opacity-50"
+                      onClick={async () => {
+                        setHandoverCodeError('');
+                        setHandoverCodeSuccess('');
+                        try {
+                          const res = await api.post('/handover/confirm', { 
+                            code: handoverCodeInput,
+                            orderId: parseInt(orderId),
+                            handoverType: 'agent_to_customer'
+                          });
+                          if (res.data && res.data.success) {
+                            setHandoverCodeSuccess('Code accepted! Order completed.');
+                            loadOrderTracking();
+                          } else {
+                            setHandoverCodeError(res.data?.message || 'Invalid code. Please try again.');
+                          }
+                        } catch (err) {
+                          setHandoverCodeError('Invalid code or server error. Please try again.');
+                        }
+                      }}
+                      disabled={!handoverCodeInput}
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                  {handoverCodeError && <p className="text-red-600 text-xs mt-2 font-medium">{handoverCodeError}</p>}
+                  {handoverCodeSuccess && <p className="text-green-600 text-xs mt-2 font-medium">{handoverCodeSuccess}</p>}
+                </div>
+              )}
+            </div>
+
+            {/* Tracking Timeline */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+                <FaRoute className="mr-2 text-blue-600" />
+                Tracking Updates
+              </h3>
+
+              {tracking.trackingUpdates && tracking.trackingUpdates.length > 0 ? (
+                <div className="space-y-4">
+                  {tracking.trackingUpdates.map((update, index) => (
+                    <div key={index} className="flex items-start space-x-4">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <FaCheckCircle className="h-4 w-4 text-blue-600" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-900">{update.message}</p>
+                          <p className="text-sm text-gray-500">{formatDate(update.timestamp)}</p>
+                        </div>
+                        {update.location && (
+                          <p className="text-sm text-gray-600 flex items-center mt-1">
+                            <FaMapMarkerAlt className="mr-1 h-3 w-3" />
+                            {update.location}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FaClock className="mx-auto h-12 w-12 mb-4" />
+                  <p>No tracking updates available yet</p>
+                </div>
+              )}
+            </div>
+
+            {/* Order Items */}
+            {order && order.OrderItems && order.OrderItems.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
+                <div className="space-y-3">
+                  {order.OrderItems.map((item) => {
+                    const ff = item.FastFood || item.fastFood;
+                    const p = item.Product || item.product;
+                    const imageUrl = ff ? resolveImageUrl(ff.mainImage || ff.image) : getProductMainImage(p);
+                    const itemName = item.itemLabel || item.name || p?.name || ff?.name || 'Order Item';
+
+                    return (
+                      <div key={item.id} className="flex items-start space-x-4 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-16 h-16 bg-gray-200 rounded-lg flex-shrink-0 overflow-hidden border">
+                          <img
+                            src={imageUrl}
+                            alt={itemName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.currentTarget.src = FALLBACK_IMAGE; }}
+                            crossOrigin="anonymous"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">{itemName}</h4>
+                          <p className="text-sm text-gray-600">Quantity: {item.quantity}</p>
+
+                          {/* Fast Food Details */}
+                          {item.FastFood && (
+                            <div className="mt-1 space-y-1">
+                              {ensureArray(item.FastFood.ingredients).length > 0 && (
+                                <p className="text-[10px] text-gray-400 leading-tight">
+                                  <strong>Ingredients:</strong> {ensureArray(item.FastFood.ingredients).map(i => {
+                                    const { name } = normalizeIngredient(i);
+                                    return name;
+                                  }).filter(Boolean).join(', ')}
+                                </p>
+                              )}
+                              {ensureArray(item.FastFood.allergens).length > 0 && (
+                                <p className="text-[10px] text-red-500 font-medium">
+                                  Allergens: {ensureArray(item.FastFood.allergens).join(', ')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium text-gray-900">{(item.price * item.quantity).toLocaleString()} KES</p>
+                          <p className="text-xs text-gray-500">{item.price.toLocaleString()} each</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Delivery Information */}
+          <div className="space-y-6">
+            {/* Delivery Agent */}
+            {tracking.deliveryAgent && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <FaUser className="text-blue-500" /> Delivery Agent
+                  </h3>
+                  <div className="flex gap-2">
+                    {tracking.deliveryAgent.phone && (
+                      <>
+                        <a 
+                          href={`tel:${tracking.deliveryAgent.phone}`}
+                          className="p-2 bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors shadow-sm border border-green-200"
+                          title="Call Agent"
+                        >
+                          <FaPhone className="w-4 h-4" />
+                        </a>
+                        <a 
+                          href={`https://wa.me/${tracking.deliveryAgent.phone.replace('+', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors shadow-sm border border-emerald-200"
+                          title="WhatsApp Agent"
+                        >
+                          <FaWhatsapp className="w-4 h-4" />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
+                      <FaUser className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-bold text-gray-900">{tracking.deliveryAgent.name}</p>
+                      <p className="text-xs text-gray-500 font-medium">{tracking.deliveryAgent.phone}</p>
+                    </div>
+                  </div>
+
+                  {tracking.liveTracking ? (
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-blue-400 font-bold">Live Status</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                          <span className="text-[10px] font-bold text-blue-600">LIVE</span>
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                          <FaTruck className="text-blue-500 w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-gray-900 leading-tight">
+                            {tracking.liveTracking.currentPlace ? (
+                              <>Agent currently at <span className="text-blue-600">{tracking.liveTracking.currentPlace}</span></>
+                            ) : (
+                              <>Agent is on the move</>
+                            )}
+                          </p>
+                          {tracking.liveTracking.distance && (
+                            <p className="text-[11px] text-gray-500 font-medium">
+                              {tracking.liveTracking.distance} km away from your location
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center gap-3">
+                      <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-gray-400">
+                        <FaClock className="w-4 h-4 animate-pulse" />
+                      </div>
+                      <p className="text-[11px] font-medium text-gray-500">Agent assigned. Waiting for them to start the journey.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!tracking.deliveryAgent && !['delivered', 'completed', 'cancelled', 'failed', 'returned'].includes(tracking.status?.toLowerCase().replace(/ /g, '_')) && (
+              <div className="bg-orange-50 rounded-2xl shadow-sm border border-orange-100 p-6 flex items-center gap-4">
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
+                  <FaUser className="text-orange-400 w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-orange-900">Finding Agent</h3>
+                  <p className="text-xs text-orange-600">Searching for the best delivery agent nearby...</p>
+                </div>
+              </div>
+            )}
+
+            {/* Marketer Information */}
+            {(order?.isMarketingOrder || order?.marketerId || order?.marketer) && (
+              <div className="bg-blue-50 rounded-lg shadow-sm p-6 border border-blue-100">
+                <h3 className="text-lg font-semibold text-blue-900 mb-4 flex items-center">
+                  <FaUserTie className="mr-2 text-blue-600" />
+                  Marketer Information
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <p><strong>Name:</strong> {order?.marketer?.name || (order?.isMarketingOrder ? 'Authorized Marketer' : 'System Marketer')}</p>
+                  {order?.marketer?.phone ? (
+                    <p><strong>Phone:</strong> {order.marketer.phone}</p>
+                  ) : (order?.isMarketingOrder && (
+                    <p className="text-xs text-gray-400 italic">Phone contact not provided</p>
+                  ))}
+                  {order?.marketer?.email && (
+                    <p><strong>Email:</strong> {order.marketer.email}</p>
+                  )}
+                  <div className="mt-4 p-2 bg-blue-100/50 rounded text-blue-700 text-xs font-medium text-center">
+                    This order was placed on your behalf by an authorized marketer.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Details */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <FaMapMarkerAlt className="mr-2 text-blue-600" />
+                Delivery Information
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-gray-600">Delivery Method</p>
+                  <p className="font-medium">{order?.deliveryMethod === 'home_delivery' ? 'Home Delivery' : 'Pick Station'}</p>
+                </div>
+                {order?.deliveryAddress && (
+                  <div>
+                    <p className="text-gray-600">Address</p>
+                    <p className="font-medium">{order.deliveryAddress}</p>
+                  </div>
+                )}
+                {tracking.deliveryAttempts > 0 && (
+                  <div>
+                    <p className="text-gray-600">Delivery Attempts</p>
+                    <p className="font-medium">{tracking.deliveryAttempts}</p>
+                  </div>
+                )}
+                {tracking.lastDeliveryAttempt && (
+                  <div>
+                    <p className="text-gray-600">Last Attempt</p>
+                    <p className="font-medium">{formatDate(tracking.lastDeliveryAttempt)}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Delivery Notes */}
+            {tracking.deliveryNotes && (
+              <div className="bg-yellow-50 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-yellow-900 mb-2">Delivery Notes</h3>
+                <p className="text-yellow-800 text-sm">{tracking.deliveryNotes}</p>
+              </div>
+            )}
+
+            {/* Order Total */}
+            {order && (
+              <div className="bg-blue-50 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-blue-900 mb-2">Order Total</h3>
+                <p className="text-2xl font-bold text-blue-600">{order.total?.toFixed(2)} KES</p>
+                <p className="text-sm text-blue-700 mt-1">Payment: {order.paymentMethod}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

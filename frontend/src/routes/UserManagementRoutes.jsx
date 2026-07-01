@@ -1,14 +1,14 @@
 import React from 'react';
 import { Route, Routes, Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // User Management Components
-import UserManagement from './pages/UserManagement';
-import Dashboard from './pages/Dashboard';
-import UserManagementOverview from './pages/dashboard/UserManagementOverview';
-import Home from './pages/Home';
-import Login from './pages/Login';
-import Register from './pages/Register';
+import UserManagement from '@/routes/pages/UserManagement';
+import Dashboard from '@/routes/pages/Dashboard';
+import UserManagementOverview from '@/routes/pages/dashboard/UserManagementOverview';
+import Home from '@/routes/pages/Home';
+import Login from '@/routes/pages/Login';
+import Register from '@/routes/pages/Register';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requiredRole }) => {

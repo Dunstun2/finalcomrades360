@@ -1,4 +1,4 @@
-const { DeliveryTask, Order, DeliveryAgentProfile, Wallet, Transaction, DeliveryCharge, PlatformConfig, Warehouse, PickupStation, sequelize, User } = require('../models');
+const { DeliveryTask, Order, DeliveryAgentProfile, Wallet, Transaction, DeliveryCharge, PlatformConfig, Warehouse, PickupStation, sequelize, User } = require('../database/models.registry');
 const { creditPending, moveToSuccess } = require('../utils/walletHelpers');
 const { upsertDeliveryChargeForTask, settleDeliveryChargeForTask } = require('../utils/deliveryChargeHelpers');
 

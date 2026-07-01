@@ -19,12 +19,12 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { BrowserRouter } from 'react-router-dom'
-import { ToastProvider, ToastViewport } from './components/ui/toast'
-import App from './App.jsx'
-import './styles/global.css' // Global styles with standard dimensions
-import './styles.css'
-import './styles/ecommerce-standards.css'
-import { initPerformanceMonitoring } from './utils/performance';
+import { ToastProvider, ToastViewport } from '@/shared/components/toast'
+import App from '@/App.jsx'
+import '@/styles/global.css' // Global styles with standard dimensions
+import '@/styles.css'
+import '@/styles/ecommerce-standards.css'
+import { initPerformanceMonitoring } from '@/utils/performance';
 
 // Initialize performance monitoring
 initPerformanceMonitoring();

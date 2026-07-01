@@ -1,4 +1,4 @@
-const { Order, OrderItem, Product, FastFood, User, Warehouse, PickupStation, FastFoodPickupPoint } = require('../models');
+const { Order, OrderItem, Product, FastFood, User, Warehouse, PickupStation, FastFoodPickupPoint } = require('../database/models.registry');
 const { Op } = require('sequelize');
 
 const PRODUCT_ROUTING_STRATEGIES = ['warehouse', 'pick_station', 'direct_delivery'];

@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { Batch } = require('../models');
+const { Batch } = require('../database/models.registry');
 
 /**
  * Batch Automation Service

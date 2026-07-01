@@ -1,4 +1,4 @@
-const { Wallet, Transaction, sequelize } = require('../models');
+const { Wallet, Transaction, sequelize } = require('../database/models.registry');
 const { Op } = require('sequelize');
 
 /**
@@ -60,7 +60,7 @@ const creditPending = async (userId, amount, description, orderId = null, transa
 const moveToSuccess = async (userId, amount, orderNumber, description, orderId = null, transaction = null, walletType = null) => {
     if (amount <= 0) return;
 
-    const { PlatformConfig } = require('../models');
+    const { PlatformConfig } = require('../database/models.registry');
     
     const wallet = await Wallet.findOne({ 
         where: { userId }, 

@@ -1,4 +1,4 @@
-const { ProductInquiry, User, Notification } = require('../../models');
+const { ProductInquiry, User, Notification } = require('../../database/models.registry');
 const { Op } = require('sequelize');
 
 /**
@@ -134,7 +134,7 @@ class SupportChatModule {
         where: whereClause,
         include: [
           {
-            model: require('../../models').Product,
+            model: require('../../database/models.registry').Product,
             as: 'Product',
             attributes: ['id', 'name', 'coverImage', 'galleryImages']
           }
@@ -168,7 +168,7 @@ class SupportChatModule {
         where: whereClause,
         include: [
           {
-            model: require('../../models').Product,
+            model: require('../../database/models.registry').Product,
             as: 'Product',
             attributes: ['id', 'name', 'coverImage', 'galleryImages', 'categoryId']
           },
@@ -267,7 +267,7 @@ class SupportChatModule {
         order: [['createdAt', 'DESC']],
         include: [
           {
-            model: require('../../models').Product,
+            model: require('../../database/models.registry').Product,
             as: 'Product',
             attributes: ['name']
           },

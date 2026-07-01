@@ -1,4 +1,4 @@
-const { Payment, Order } = require('../../models');
+const { Payment, Order } = require('../../database/models.registry');
 const mpesaService = require('./mpesaService');
 const { Op } = require('sequelize');
 

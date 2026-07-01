@@ -63,8 +63,13 @@ backend/product_dump.txt
 
 # AI Agent Temp Output
 scratch/
+backend/scratch/
+dev_archive/
 copilot-firewall-hosts.json
 files_with_user.txt
+backend_tree.txt
+frontend_tree.txt
+db_schema_report.md
 
 # Package lock (optional - uncomment if you prefer to track it)
 # package-lock.json

@@ -1,13 +1,16 @@
 const cron = require('node-cron');
-const { Product, Notification, User, DeletedProduct, DeletedFastFood, Order, OrderItem, HandoverCode, DeliveryTask, Payment, DeliveryCharge, PlatformConfig, SupportMessage, sequelize } = require('../models');
+const { Product, Notification, User, DeletedProduct, DeletedFastFood, Order, OrderItem, HandoverCode, DeliveryTask, Payment, DeliveryCharge, PlatformConfig, SupportMessage, sequelize } = require('../database/models.registry');
 const { revertPending } = require('../utils/walletHelpers');
 const { Op } = require('sequelize');
 const autoDispatchService = require('../services/autoDispatchService');
+const { initSubscriptionCrons } = require('../modules/subscriptions/cron');
 
 const initScheduledTasks = () => {
     console.log('⏰ Initializing scheduled tasks...');
 
-    // Run every day at 9:00 AM - Low Stock Check
+    // Register subscription module cron workers (renewals, meal generation, grace checks)
+    initSubscriptionCrons();
+
     cron.schedule('0 9 * * *', async () => {
         console.log('🔔 Running daily low stock check...');
         try {
@@ -108,7 +111,7 @@ const initScheduledTasks = () => {
                 const originalProduct = await Product.findOne({ where: { id: dp.originalId } });
                 if (originalProduct) {
                     try {
-                        const db = require('../models');
+                        const db = require('../database/models.registry');
                         if (db.CartItem) await db.CartItem.destroy({ where: { productId: originalProduct.id } });
                         if (db.Wishlist) await db.Wishlist.destroy({ where: { productId: originalProduct.id } });
                         if (db.ProductVariant) await db.ProductVariant.destroy({ where: { productId: originalProduct.id } });
@@ -272,31 +275,31 @@ const initScheduledTasks = () => {
 
     // Run every 15 minutes - Cleanup Expired Stock Reservations
     cron.schedule('*/15 * * * *', async () => {
-        console.log('🔄 Running stock reservation cleanup...');
         try {
-            const { cleanupExpiredReservations } = require('../controllers/inventoryController');
+            console.log('🔄 Running stock reservation cleanup...');
+            const { cleanupExpiredReservations } = require('../modules/platform/controllers/inventory.controller');
             await cleanupExpiredReservations();
         } catch (error) {
             console.error('❌ Error in stock reservation cleanup:', error);
         }
     });
 
-    // Run every 30 minutes - Process Payment Retry Queue
-    cron.schedule('*/30 * * * *', async () => {
-        console.log('💳 Processing payment retry queue...');
+    // 2. Retry failed payments (Runs every 15 minutes)
+    cron.schedule('*/15 * * * *', async () => {
         try {
-            const { processRetryQueue } = require('../controllers/paymentEnhancementsController');
+            console.log('🔄 Processing payment retry queue...');
+            const { processRetryQueue } = require('../modules/finance/controllers/paymentEnhancements.controller');
             await processRetryQueue();
         } catch (error) {
-            console.error('❌ Error in payment retry queue processing:', error);
+            console.error('❌ Error in payment retry processing:', error);
         }
     });
 
-    // Run every day at 10:00 AM - Enhanced Low Stock Notifications
-    cron.schedule('0 10 * * *', async () => {
-        console.log('📊 Running enhanced low stock check...');
+    // 3. Check low stock and notify sellers (Runs once daily at 9:00 AM)
+    cron.schedule('0 9 * * *', async () => {
         try {
-            const { checkLowStockAndNotify } = require('../controllers/inventoryController');
+            console.log('🔄 Running daily low stock check...');
+            const { checkLowStockAndNotify } = require('../modules/platform/controllers/inventory.controller');
             await checkLowStockAndNotify();
         } catch (error) {
             console.error('❌ Error in enhanced low stock check:', error);
@@ -307,7 +310,7 @@ const initScheduledTasks = () => {
     // Runs every minute — covers tasks stuck in 'assigned' status (never accepted)
     cron.schedule('* * * * *', async () => {
         try {
-            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem } = require('../models');
+            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem } = require('../database/models.registry');
             const { getIO } = require('../realtime/socket');
 
             const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
@@ -387,7 +390,7 @@ const initScheduledTasks = () => {
     // Runs every 2 minutes — covers tasks stuck in 'accepted' status (accepted but agent hasn't collected)
     cron.schedule('*/2 * * * *', async () => {
         try {
-            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem, User } = require('../models');
+            const { Order, DeliveryTask, PlatformConfig, DeliveryAgentProfile, Notification, OrderItem, User } = require('../database/models.registry');
             const { getIO } = require('../realtime/socket');
             const { revertPending } = require('../utils/walletHelpers');
 
@@ -469,7 +472,7 @@ const initScheduledTasks = () => {
 
                         // Revert pending wallet credit for this agent
                         try {
-                            const { DeliveryCharge } = require('../models');
+                            const { DeliveryCharge } = require('../database/models.registry');
                             const charges = await DeliveryCharge.findAll({ where: { orderId: task.order.id, payeeUserId: task.deliveryAgentId } });
                             for (const charge of charges) {
                                 if (charge.agentAmount > 0) await revertPending(charge.payeeUserId, charge.agentAmount, task.order.id);
@@ -605,7 +608,7 @@ const initScheduledTasks = () => {
                 for (const order of validStuckOrders) {
                     // First, try to auto-create task if it doesn't exist
                     try {
-                        const { autoCreateDeliveryTask } = require('../controllers/orderTransitionController');
+                        const { autoCreateDeliveryTask } = require('../modules/orders/controllers/transition.controller');
                         await autoCreateDeliveryTask(order, 'order_placed', order.status);
                     } catch (e) {
                         console.error(`[AutoDispatch-Cron] Failed to create task for #${order.orderNumber}:`, e);
@@ -625,7 +628,7 @@ const initScheduledTasks = () => {
     // Runs every 30 minutes — alerts admin when a seller has not confirmed an order within the configured threshold
     cron.schedule('*/30 * * * *', async () => {
         try {
-            const { Order, PlatformConfig, Notification, User } = require('../models');
+            const { Order, PlatformConfig, Notification, User } = require('../database/models.registry');
             const { getIO } = require('../realtime/socket');
 
             const config = await PlatformConfig.findOne({ where: { key: 'logistic_settings' } });
@@ -814,7 +817,7 @@ const initScheduledTasks = () => {
     // Finds tasks stuck in 'in_progress' for too long and alerts admin WITHOUT auto-failing them
     cron.schedule('*/30 * * * *', async () => {
         try {
-            const { DeliveryTask, PlatformConfig, Notification, User } = require('../models');
+            const { DeliveryTask, PlatformConfig, Notification, User } = require('../database/models.registry');
             const { getIO } = require('../realtime/socket');
 
             // Get stuck threshold from config (default 3 hours)
