@@ -27,7 +27,6 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
     isVisible: plan?.isVisible ?? true,
     tags: plan?.tags || [],
     imageUrl: plan?.imageUrl || '',
-    imageUrl: plan?.imageUrl || '',
     templateSchedule: (plan?.templateSchedule || []).map(s => ({ ...s, id: Math.random().toString() }))
   });
 
@@ -412,8 +411,13 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
 
                   {/* Food selectors for active slots */}
                   {formData.templateSchedule.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {Object.entries(
+                    <>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <p className="text-sm font-semibold text-gray-800 mb-2">Choose food items for each schedule slot</p>
+                        <p className="text-xs text-gray-500">Use the search bar above to filter available dishes by name, description, or category before selecting from the dropdown list.</p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {Object.entries(
                         formData.templateSchedule.reduce((acc, slot) => {
                           const key = `${slot.dayOfWeek}|${slot.mealTimeType}`;
                           if (!acc[key]) acc[key] = [];
@@ -436,7 +440,7 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                                 + Add Dish
                               </button>
                             </div>
-                            
+                             
                             {slots.map((slot, idx) => (
                               <div key={slot.id} className="space-y-2 relative bg-gray-50 p-2 rounded-md border border-gray-100">
                                 {slots.length > 1 && (
@@ -479,9 +483,9 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                         );
                       })}
                     </div>
+                  </>
                   )}
-                </div>
-              )}
+                </div>              )}
             </div>
           )}
 
