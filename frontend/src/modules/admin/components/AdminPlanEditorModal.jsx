@@ -327,51 +327,53 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                 <div className="flex justify-center"><LoadingSpinner /></div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto] items-end">
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Search dishes</label>
-                      <input
-                        type="text"
-                        value={foodSearchTerm}
-                        onChange={e => setFoodSearchTerm(e.target.value)}
-                        placeholder="Search by name, description or category"
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
-                      />
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 mb-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="space-y-2 sm:flex-1">
+                        <label className="block text-sm font-medium text-blue-900">Search dishes</label>
+                        <input
+                          type="text"
+                          value={foodSearchTerm}
+                          onChange={e => setFoodSearchTerm(e.target.value)}
+                          placeholder="Search by name, description or category"
+                          className="block w-full rounded-md border-blue-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                        />
+                      </div>
+                      <div className="space-y-2 sm:w-72">
+                        <label className="block text-sm font-medium text-blue-900">Filter by category</label>
+                        <select
+                          value={selectedFoodCategory}
+                          onChange={e => setSelectedFoodCategory(e.target.value)}
+                          className="block w-full rounded-md border-blue-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                        >
+                          <option value="all">All categories</option>
+                          {availableFoodCategories.map(category => (
+                            <option key={category} value={category}>{category}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Filter by category</label>
-                      <select
-                        value={selectedFoodCategory}
-                        onChange={e => setSelectedFoodCategory(e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
-                      >
-                        <option value="all">All categories</option>
-                        {availableFoodCategories.map(category => (
-                          <option key={category} value={category}>{category}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p>
-                        Showing <strong>{filteredFastFoodItems.length}</strong> dish{filteredFastFoodItems.length !== 1 ? 'es' : ''}
-                        {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
-                      </p>
-                      {filteredFastFoodItems.length === 0 && (
-                        <p className="text-sm text-amber-600">No dishes match your filter.</p>
+                    <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3 text-sm text-blue-900">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p>
+                          {filteredFastFoodItems.length} dish{filteredFastFoodItems.length !== 1 ? 'es' : ''}
+                          {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
+                        </p>
+                        {filteredFastFoodItems.length === 0 && (
+                          <p className="text-sm text-amber-600">No dishes match your filter.</p>
+                        )}
+                      </div>
+                      {filteredFastFoodItems.length > 0 && (
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                          {filteredFastFoodItems.slice(0, 8).map(item => (
+                            <div key={item.id} className="rounded-lg border border-gray-200 bg-blue-50 p-2 text-xs">
+                              <p className="font-medium text-blue-900">{item.name}</p>
+                              <p className="text-blue-700 text-xs">KES {getCustomerPrice(item)} · {item.category || 'Uncategorized'}</p>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    {filteredFastFoodItems.length > 0 && (
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-                        {filteredFastFoodItems.slice(0, 8).map(item => (
-                          <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-2 text-xs">
-                            <p className="font-medium text-gray-800">{item.name}</p>
-                            <p className="text-gray-500 text-xs">KES {getCustomerPrice(item)} · {item.category || 'Uncategorized'}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   {/* Calendar Date Picker Row */}
                   <div className="flex flex-col sm:flex-row items-end gap-3 bg-white p-4 rounded-lg border border-gray-300 shadow-sm">
@@ -471,6 +473,11 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                                     ));
                                   })()}
                                 </select>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {foodSearchTerm || selectedFoodCategory !== 'all'
+                                    ? `Filtered to ${filteredFastFoodItems.length} items${selectedFoodCategory !== 'all' ? ` in ${selectedFoodCategory}` : ''}.`
+                                    : 'Use the search box above to narrow the menu before choosing a food item.'}
+                                </p>
                                 <input
                                   type="time"
                                   className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
