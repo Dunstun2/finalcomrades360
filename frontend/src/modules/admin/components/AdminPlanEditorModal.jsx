@@ -416,7 +416,45 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                     <>
                       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                         <p className="text-sm font-semibold text-gray-800 mb-2">Choose food items for each schedule slot</p>
-                        <p className="text-xs text-gray-500">Use the search bar above to filter available dishes by name, description, or category before selecting from the dropdown list.</p>
+                        <p className="text-xs text-gray-500">Use the search box above or the filters below to narrow choices before selecting a food item for each slot.</p>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                          <div className="space-y-2 sm:flex-1">
+                            <label className="block text-sm font-medium text-gray-700">Search dishes</label>
+                            <input
+                              type="text"
+                              value={foodSearchTerm}
+                              onChange={e => setFoodSearchTerm(e.target.value)}
+                              placeholder="Search by name, description or category"
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                            />
+                          </div>
+                          <div className="space-y-2 sm:w-72">
+                            <label className="block text-sm font-medium text-gray-700">Filter by category</label>
+                            <select
+                              value={selectedFoodCategory}
+                              onChange={e => setSelectedFoodCategory(e.target.value)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2"
+                            >
+                              <option value="all">All categories</option>
+                              {availableFoodCategories.map(category => (
+                                <option key={category} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p>
+                              {filteredFastFoodItems.length} dish{filteredFastFoodItems.length !== 1 ? 'es' : ''}
+                              {selectedFoodCategory !== 'all' && ` in ${selectedFoodCategory}`}
+                            </p>
+                            {filteredFastFoodItems.length === 0 && (
+                              <p className="text-sm text-amber-600">No dishes match your filter.</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {Object.entries(
@@ -474,9 +512,9 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                                   })()}
                                 </select>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  {foodSearchTerm || selectedFoodCategory !== 'all'
-                                    ? `Filtered to ${filteredFastFoodItems.length} items${selectedFoodCategory !== 'all' ? ` in ${selectedFoodCategory}` : ''}.`
-                                    : 'Use the search box above to narrow the menu before choosing a food item.'}
+                                  {filteredFastFoodItems.length > 0
+                                    ? `Showing ${filteredFastFoodItems.length} matching items${selectedFoodCategory !== 'all' ? ` in ${selectedFoodCategory}` : ''}.`
+                                    : 'Use the search box above or category filter to narrow the menu.'}
                                 </p>
                                 <input
                                   type="time"
