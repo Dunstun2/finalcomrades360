@@ -20,7 +20,7 @@ const CUSTOMER_PAID_ROUTE_TYPES = new Set([
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 
 // Import models for fallback if not passed as dependencies
-const models = require('../models');
+const models = require('../database/models.registry');
 
 const calculateSellerMerchandisePayout = (order, orderItems = []) => {
   if (Array.isArray(orderItems) && orderItems.length > 0) {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { updateImageVersion, getImageVersion, generateCacheBustedUrl } from '../utils/imageUtils';
+import { updateImageVersion, getImageVersion, generateCacheBustedUrl } from '@/utils/imageUtils';
 
 /**
  * Custom hook for managing image versions to ensure consistency across components

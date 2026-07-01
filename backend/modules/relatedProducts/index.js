@@ -1,4 +1,4 @@
-const { Product, User } = require('../../models');
+const { Product, User } = require('../../database/models.registry');
 const { Op } = require('sequelize');
 
 /**

@@ -10,33 +10,15 @@ const { getIO } = require('../realtime/socket');
  * @param {string} [socketId] - Optional specific socketId to also target directly.
  */
 const mirrorOtp = (contact, otp, type = 'registration', socketId = null) => {
-  if (!contact && !socketId) return;
-
-  try {
-    const io = getIO();
-    if (io) {
-      const payload = {
-        otp,
-        type,
-        timestamp: new Date().toISOString()
-      };
-
-      // 1. Emit to a specific room for this contact (Cross-device support)
-      if (contact) {
-        const room = `otp:${contact.toLowerCase().trim()}`;
-        console.log(`[OTP-Mirror] Mirroring ${type} OTP to room: ${room}`);
-        io.to(room).emit('otp:received', payload);
-      }
-
-      // 2. Fallback: Emit to specific socket if provided (Same-device support)
-      if (socketId) {
-        console.log(`[OTP-Mirror] Mirroring ${type} OTP to socket: ${socketId}`);
-        io.to(socketId).emit('otp:received', payload);
-      }
-    }
-  } catch (err) {
-    console.error('[OTP-Mirror] Failed to mirror OTP:', err.message);
-  }
+  // CRITICAL SECURITY FIX: 
+  // We NEVER send the actual OTP back to the frontend over WebSockets.
+  // If we do, a malicious user can request an OTP for someone else's email/phone 
+  // and the backend will hand them the OTP instantly via the socket, bypassing verification.
+  // 
+  // Auto-filling is now STRICTLY handled by the WebOTP API on the frontend 
+  // (which intercepts actual SMS messages securely via the OS).
+  console.log(`[OTP-Mirror] Blocked insecure socket mirror attempt for type: ${type}`);
+  return;
 };
 
 module.exports = {

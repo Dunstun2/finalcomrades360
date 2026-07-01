@@ -64,7 +64,7 @@ class MpesaService {
   async syncConfig() {
     try {
       // Lazy load model to avoid circular dependency
-      const { PlatformConfig } = require('../../models');
+      const { PlatformConfig } = require('../../database/models.registry');
       const configRecord = await PlatformConfig.findOne({ where: { key: 'mpesa_config' } });
       if (configRecord) {
         const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;

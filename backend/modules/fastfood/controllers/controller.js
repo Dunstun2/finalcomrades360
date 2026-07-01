@@ -1,0 +1,1458 @@
+const { FastFood, User, Category, Subcategory, Cart, DeletedFastFood, sequelize } = require('../../../database/models.registry');
+const { Op } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
+const { optimizeImage } = require('../../../utils/imageValidation');
+const { normalizeItemName } = require('../../../utils/itemNamePolicy');
+const { deleteFiles } = require('../../../utils/fileCleanup');
+const { isFastFoodOpen } = require('../../../utils/fastFoodUtils');
+
+// Helper function to calculate distance using Haversine formula
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        ;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const d = R * c; // Distance in km
+    return parseFloat(d.toFixed(2));
+};
+
+const deg2rad = (deg) => {
+    return deg * (Math.PI / 180);
+};
+
+const normalizeDeliveryFee = (rawValue) => {
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+        return null;
+    }
+
+    const parsed = parseFloat(rawValue);
+    if (Number.isNaN(parsed) || parsed < 0) {
+        return null;
+    }
+
+    return Number(parsed.toFixed(2));
+};
+
+const syncApprovedSellerDeliveryFee = async ({ vendorId, deliveryFee, sourceItemId = null }) => {
+    if (!vendorId || deliveryFee === null) {
+        return;
+    }
+
+    try {
+        // 1. Get IDs of approved fast foods for this vendor first
+        // This avoids the correlated subquery in the Cart update which is slow in MySQL/MariaDB
+        const approvedItems = await FastFood.findAll({
+            where: {
+                vendor: vendorId,
+                [Op.or]: [
+                    { approved: true },
+                    { reviewStatus: 'approved' },
+                    { hasBeenApproved: true }
+                ]
+            },
+            attributes: ['id'],
+            raw: true
+        });
+
+        const approvedIds = approvedItems.map(item => item.id);
+        if (approvedIds.length === 0) return;
+
+        // 2. Update FastFood delivery fees in one go
+        // Skip sourceItemId if provided (it was already updated by the caller)
+        const updateWhere = { id: { [Op.in]: approvedIds } };
+        if (sourceItemId) {
+            updateWhere.id = { [Op.in]: approvedIds.filter(id => id !== sourceItemId) };
+        }
+        
+        if (updateWhere.id[Op.in].length > 0) {
+            await FastFood.update({ deliveryFee }, { where: updateWhere });
+        }
+
+        // 3. Update Cart items using the pre-fetched IDs
+        // This is much faster than a subquery in MySQL and prevents long-running locks
+        await Cart.update(
+            { deliveryFee },
+            { 
+                where: { 
+                    itemType: 'fastfood',
+                    fastFoodId: { [Op.in]: approvedIds }
+                } 
+            }
+        );
+    } catch (error) {
+        console.error('[syncApprovedSellerDeliveryFee] Background sync failed:', error.message);
+    }
+};
+
+// Get all fast food items
+exports.getAllFastFoods = async (req, res) => {
+    try {
+        const { category, subcategoryId, vendor, search, limit, page, minPrice, maxPrice, isFeatured, userLat, userLng, sortBy = 'createdAt', includeInactive } = req.query;
+
+        console.log(`🔍 [getAllFastFoods] Request: page=${page}, limit=${limit}, sortBy=${sortBy}`);
+
+        // Sanitize sortBy to prevent SQL/SQLite errors
+        let dbSortBy = sortBy;
+        if (dbSortBy === 'soldCount') {
+            dbSortBy = 'orderCount';
+        }
+
+        // Validate that dbSortBy is a valid FastFood attribute or 'distance' to prevent crash
+        const validSortFields = Object.keys(FastFood.rawAttributes);
+        if (dbSortBy !== 'distance' && !validSortFields.includes(dbSortBy)) {
+            console.warn(`⚠️ [getAllFastFoods] Invalid sortBy parameter: '${dbSortBy}'. Falling back to 'createdAt'.`);
+            dbSortBy = 'createdAt';
+        }
+
+        const queryOptions = {
+            where: {},
+            // Use provided sort unless it's 'distance', then fall back to createdAt for DB query
+            order: [[dbSortBy === 'distance' ? 'createdAt' : dbSortBy, 'DESC']],
+            // Include review status fields explicitly
+            attributes: {
+                include: ['reviewStatus', 'hasBeenApproved']
+            }
+        };
+
+        // Check if user is admin/superadmin with robust normalization
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isSuperAdmin = userRole === 'superadmin';
+        const isPrivileged = userRole === 'admin' || isSuperAdmin;
+
+        // Check if explicit public view is requested
+        const isPublicView = req.query.view === 'public';
+        const isPublicBrowse = !isPrivileged || isPublicView;
+
+        // browseAll=true: show all approved items regardless of isAvailable (includes closed shops)
+        const isBrowseAll = req.query.browseAll === 'true';
+
+        // Strict filters for public-facing queries
+        // MODIFIED: If marketing=true is passed, allow viewing items regardless of isActive/isAvailable
+        // so marketers can pre-share approved items that may not be currently "open"
+        const isMarketing = req.query.marketing === 'true';
+
+        if (isPublicBrowse) {
+            // In marketing mode: skip isActive requirement (marketers can share approved-but-closed items)
+            if (!isMarketing) {
+                queryOptions.where.isActive = true;
+            }
+
+            // Allow items that are either approved via the boolean OR have status/reviewStatus 'approved'/'active'
+            queryOptions.where[Op.or] = [
+                { approved: true },
+                { status: { [Op.in]: ['approved', 'active'] } },
+                { reviewStatus: { [Op.in]: ['approved', 'active'] } }
+            ];
+
+            // browseAll mode: skip isAvailable filter so closed-shop items are visible
+            // Only enforce availability for regular shoppers (not marketers, not browseAll)
+            if (!isMarketing && !isBrowseAll) {
+                queryOptions.where.isAvailable = true;
+            }
+        } else {
+            // Admin can see all items, optionally filter inactive
+            if (includeInactive === 'false') {
+                queryOptions.where.isActive = true;
+                queryOptions.where.isAvailable = true;
+            }
+        }
+
+        if (category) queryOptions.where.category = category;
+        if (subcategoryId) queryOptions.where.subcategoryId = subcategoryId;
+        if (vendor) queryOptions.where.vendor = vendor;
+        if (isFeatured) queryOptions.where.isFeatured = isFeatured === 'true';
+
+        // Fix: If in marketing mode, explicitly filter for marketing-enabled items
+        // This ensures the pagination returns relevant items, not just the newest items that might not have marketing enabled.
+        if (isMarketing) {
+            queryOptions.where.marketingEnabled = true;
+            // Also ensure we only fetch items with commission > 1 as requested
+            queryOptions.where.marketingCommission = { [Op.gt]: 1 };
+        }
+
+        if (search) {
+            const searchCondition = {
+                [Op.or]: [
+                    { name: { [Op.like]: `%${search}%` } },
+                    { shortDescription: { [Op.like]: `%${search}%` } }
+                ]
+            };
+
+            if (queryOptions.where[Op.or]) {
+                // If we already have an Op.or (for approval), we must wrap both in an Op.and
+                const existingOr = queryOptions.where[Op.or];
+                delete queryOptions.where[Op.or];
+                queryOptions.where[Op.and] = [
+                    { [Op.or]: existingOr },
+                    searchCondition
+                ];
+            } else {
+                queryOptions.where[Op.or] = searchCondition[Op.or];
+            }
+        }
+
+        if (minPrice || maxPrice) {
+            queryOptions.where.basePrice = {};
+            if (minPrice) queryOptions.where.basePrice[Op.gte] = minPrice;
+            if (maxPrice) queryOptions.where.basePrice[Op.lte] = maxPrice;
+        }
+
+        // Include vendor details
+        queryOptions.include = [
+            {
+                model: User,
+                as: 'vendorDetail',
+                attributes: ['id', 'name', 'email', 'phone', 'businessName']
+            }
+        ];
+
+        // Pagination: Only apply to DB query if NOT in public browse mode 
+        // (Public browse needs all items to sort by 'isOpen' in memory)
+        if (limit && page && !isPublicBrowse) {
+            queryOptions.limit = parseInt(limit);
+            queryOptions.offset = (parseInt(page) - 1) * parseInt(limit);
+        }
+
+        console.log('🔍 [getAllFastFoods] Executing DB Query...');
+        const { count, rows: fastFoodsRaw } = await FastFood.findAndCountAll(queryOptions);
+        console.log(`✅ [getAllFastFoods] DB Success: Found ${count} items`);
+
+        // --- SMART SORTING & PAGINATION ---
+        // For public views, we want to show OPEN kitchens first. 
+        // Since "open" status is dynamic (time-based), we fetch all matching items, 
+        // calculate status in memory, sort, and then paginate.
+        
+        // Convert to plain objects and add distance + open status
+        let fastFoods = fastFoodsRaw.map(item => {
+            const plain = item.get({ plain: true });
+            
+            // Add distance if coordinates provided
+            if (userLat && userLng && plain.vendorLat && plain.vendorLng) {
+                plain.distance = calculateDistance(
+                    parseFloat(userLat),
+                    parseFloat(userLng),
+                    parseFloat(plain.vendorLat),
+                    parseFloat(plain.vendorLng)
+                );
+            } else {
+                plain.distance = null;
+            }
+
+            // Add open status
+            plain.isOpen = isFastFoodOpen(plain);
+            
+            return plain;
+        });
+
+        // Apply Sorting
+        fastFoods.sort((a, b) => {
+            // 1. Open items first
+            if (a.isOpen && !b.isOpen) return -1;
+            if (!a.isOpen && b.isOpen) return 1;
+
+            // 2. Featured items second
+            if (a.isFeatured && !b.isFeatured) return -1;
+            if (!a.isFeatured && b.isFeatured) return 1;
+
+            // 3. User-requested sort (default distance if coords provided, else createdAt)
+            if (sortBy === 'distance' && a.distance !== null && b.distance !== null) {
+                return a.distance - b.distance;
+            }
+
+            // Fallback to createdAt DESC
+            const dateA = new Date(a.createdAt || 0);
+            const dateB = new Date(b.createdAt || 0);
+            return dateB - dateA;
+        });
+
+        // 4. In-Memory Pagination
+        // We only do in-memory pagination if limit/page were provided and we are in public browse mode
+        // (If not in public browse, the DB query already handled pagination)
+        let paginatedData = fastFoods;
+        const totalCount = count;
+        const requestedLimit = limit ? parseInt(limit) : null;
+        const requestedPage = page ? parseInt(page) : 1;
+
+        if (requestedLimit) {
+            const start = (requestedPage - 1) * requestedLimit;
+            const end = start + requestedLimit;
+            paginatedData = fastFoods.slice(start, end);
+        }
+
+        const totalPages = requestedLimit ? Math.ceil(totalCount / requestedLimit) : 1;
+
+        console.log(`📦 [getAllFastFoods] Returning ${paginatedData.length} items (Page ${requestedPage} of ${totalPages})`);
+
+        res.status(200).json({
+            success: true,
+            count: paginatedData.length,
+            totalCount: totalCount,
+            totalPages: totalPages,
+            currentPage: requestedPage,
+            data: paginatedData
+        });
+    } catch (error) {
+        console.error('❌ [getAllFastFoods] CRASH:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get single fast food item
+exports.getFastFoodById = async (req, res) => {
+    try {
+        const fastFood = await FastFood.findByPk(req.params.id, {
+            include: [
+                {
+                    model: User,
+                    as: 'vendorDetail',
+                    attributes: ['id', 'name', 'email', 'phone', 'businessName']
+                }
+            ]
+        });
+        if (!fastFood) {
+            return res.status(404).json({ success: false, message: 'Fast food item not found' });
+        }
+
+        // Check visibility: only approved and active items are public
+        // Admin/superadmin and the vendor themselves can view it regardless of approval
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isSuperAdmin = userRole === 'superadmin';
+        const isPrivileged = userRole === 'admin' || isSuperAdmin;
+        
+        // Fix: Robust type comparison and remove non-existent sellerId field
+        const isOwner = req.user && String(req.user.id) === String(fastFood.vendor);
+
+        // Fix: Align visibility logic with getAllFastFoods (allow status='active' or reviewStatus='approved'/'active')
+        const isLive = (
+            fastFood.approved || 
+            ['approved', 'active'].includes(fastFood.status) || 
+            ['approved', 'active'].includes(fastFood.reviewStatus)
+        ) && fastFood.isActive && fastFood.isAvailable;
+
+        console.log(`[getFastFoodById] ID=${req.params.id}: isLive=${isLive}, approved=${fastFood.approved}, status=${fastFood.status}, reviewStatus=${fastFood.reviewStatus}, isActive=${fastFood.isActive}, isAvailable=${fastFood.isAvailable}`);
+        console.log(`[getFastFoodById] User: isPrivileged=${isPrivileged}, isOwner=${isOwner}`);
+
+        if (!isLive && !isPrivileged && !isOwner) {
+            return res.status(404).json({ success: false, message: 'Fast food item not found or not currently active' });
+        }
+
+        res.status(200).json({ success: true, data: fastFood });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Create new fast food item
+exports.createFastFood = async (req, res, next) => {
+    try {
+        const createData = { ...req.body };
+        if (createData.name) {
+            createData.name = normalizeItemName(createData.name);
+        }
+
+        // CRITICAL FIX: Always delete ID from create requests
+        // If ID is present (even if null/undefined), Sequelize will use it instead of auto-incrementing
+        delete createData.id;
+
+        // Parse numeric fields properly
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
+            if (createData[field] !== undefined && createData[field] !== '' && createData[field] !== null) {
+                createData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(createData[field])) : parseFloat(createData[field]);
+            } else if (createData[field] === '' || createData[field] === undefined) {
+                createData[field] = null;
+            }
+        });
+
+        // Ensure subcategoryId is an integer or null
+        if (createData.subcategoryId && createData.subcategoryId !== '') {
+            createData.subcategoryId = parseInt(createData.subcategoryId, 10);
+        } else {
+            createData.subcategoryId = null;
+        }
+
+        // Parse JSON fields
+        ['sizeVariants', 'comboOptions', 'availabilityDays', 'ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'galleryImages', 'deliveryCoverageZones', 'nutritionalInfo'].forEach(field => {
+            if (createData[field]) {
+                if (typeof createData[field] === 'string') {
+                    try {
+                        let parsed = JSON.parse(createData[field]);
+                        // Handle potential double-stringification
+                        if (typeof parsed === 'string' && (parsed.startsWith('[') || parsed.startsWith('{'))) {
+                            parsed = JSON.parse(parsed);
+                        }
+                        createData[field] = parsed;
+                    } catch (e) {
+                        console.error(`Error parsing ${field}:`, e);
+                    }
+                }
+            }
+        });
+
+        // Ensure boolean parsing for multipart/form-data
+        ['isActive', 'isAvailable', 'isFeatured', 'pickupAvailable', 'isComboOption', 'marketingEnabled'].forEach(field => {
+            if (createData[field] !== undefined) {
+                createData[field] = createData[field] === 'true' || createData[field] === true;
+            }
+        });
+
+        // Handle empty strings for dates
+        if (createData.marketingStartDate === '') createData.marketingStartDate = null;
+        if (createData.marketingEndDate === '') createData.marketingEndDate = null;
+
+        // 1. Handle Main Image
+        if (req.files && req.files.mainImage && req.files.mainImage[0]) {
+            const file = req.files.mainImage[0];
+            // Compression middleware already optimized it to JPEG on disk
+            createData.mainImage = `/uploads/other/${file.filename}`;
+        } else if (!createData.mainImage) {
+            createData.mainImage = '/uploads/default-food.jpg'; // Default
+        }
+
+        // 2. Handle Gallery Images
+        if (req.files && req.files.galleryImages) {
+            createData.galleryImages = req.files.galleryImages.map(file => `/uploads/products/${file.filename}`).slice(0, 3);
+        } else if (createData.galleryImages && typeof createData.galleryImages === 'string') {
+            try {
+                createData.galleryImages = JSON.parse(createData.galleryImages);
+            } catch (e) {
+                console.error('Error parsing galleryImages:', e);
+            }
+        }
+
+        // Status & Approval Workflow logic
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isSuperAdmin = userRole === 'superadmin';
+        const isPrivileged = userRole === 'admin' || isSuperAdmin;
+        const isDraft = ['1', 'true', true].includes((req.body.draft ?? '').toString().toLowerCase());
+
+        if (isPrivileged) {
+            if (!isDraft) {
+                // VALIDATION: displayPrice must be set before approval
+                const displayPriceValue = parseFloat(createData.displayPrice || 0);
+                const basePriceValue = parseFloat(createData.basePrice || 0);
+
+                if (!createData.displayPrice || displayPriceValue <= 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Display Price is required before approval. Please set a display price greater than 0.'
+                    });
+                }
+
+                // VALIDATION: displayPrice must be >= basePrice
+                if (displayPriceValue < basePriceValue) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Display Price (${displayPriceValue} KES) cannot be less than Base Price (${basePriceValue} KES)`
+                    });
+                }
+
+                // VALIDATION: discountPrice must be set before approval
+                const discountPriceValue = parseFloat(createData.discountPrice || 0);
+                if (!createData.discountPrice || discountPriceValue <= 0) {
+                    // Try to calculate it if displayPrice is present
+                    const calculatedDiscount = Math.round(displayPriceValue * (1 - parseFloat(createData.discountPercentage || 0) / 100));
+                    if (calculatedDiscount <= 0) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Discount Price is required before approval. Please ensure Display Price and Discount Percentage are valid.'
+                        });
+                    }
+                    createData.discountPrice = calculatedDiscount;
+                }
+
+                // AUTO-FILL: If location is missing, attempt to pull from Vendor's Business Profile
+                if (!createData.vendorLocation || !createData.vendorLat || !createData.vendorLng) {
+                    const vendorProfile = await User.findByPk(createData.vendor);
+                    if (vendorProfile) {
+                        createData.vendorLocation = createData.vendorLocation || vendorProfile.businessAddress;
+                        createData.vendorLat = createData.vendorLat || vendorProfile.businessLat;
+                        createData.vendorLng = createData.vendorLng || vendorProfile.businessLng;
+                        console.log(`[createFastFood] Auto-filled location for vendor ${createData.vendor} from business profile.`);
+                    }
+                }
+
+                // FINAL VALIDATION: Vendor Location (Mandatory for Smart Filtering)
+                if (!createData.vendorLocation || !createData.vendorLat || !createData.vendorLng) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering. Vendor profile must be complete.'
+                    });
+                }
+
+                // VALIDATION: deliveryFee must be set before approval
+                // null = not set, 0 = free delivery, >0 = fee amount
+                if (createData.deliveryFee === undefined || createData.deliveryFee === null || createData.deliveryFee === '') {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Delivery Fee is required before approval. Set to 0 for free delivery or specify the fee amount.'
+                    });
+                }
+
+                // Ensure deliveryFee is a valid number >= 0
+                const deliveryFeeValue = normalizeDeliveryFee(createData.deliveryFee);
+                if (deliveryFeeValue === null) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Delivery Fee must be a number greater than or equal to 0 (0 means free delivery).'
+                    });
+                }
+
+                createData.deliveryFee = deliveryFeeValue;
+
+                createData.approved = true;
+                createData.reviewStatus = 'approved';
+                createData.status = 'approved'; // SYNC: Set status to approved when approved
+                createData.isActive = true;
+                createData.hasBeenApproved = true;
+            } else {
+                createData.reviewStatus = 'draft';
+                createData.status = 'pending'; // SYNC: Set status to pending for drafts
+            }
+            // If vendor not specified by admin, default to themselves
+            if (!createData.vendor) {
+                createData.vendor = req.user.id;
+            }
+        } else {
+            // Regular Sellers / Vendors
+            createData.approved = false;
+            createData.reviewStatus = 'pending';
+            createData.status = 'pending'; // SYNC: Set status to pending
+            // Force vendor ID to be the authenticated user for non-privileged users
+            createData.vendor = req.user.id;
+        }
+
+        // Audit Trail: explicit creator ID
+        createData.addedBy = req.user.id;
+
+        // Price Standardization Logic
+        if (createData.discountPercentage === undefined) createData.discountPercentage = 0;
+        let displayPriceValue = parseFloat(createData.displayPrice || 0);
+
+        // For non-privileged users (sellers), we no longer force displayPrice = basePrice
+        // This allows displayPrice to remain null until an admin sets it.
+        if (displayPriceValue > 0) {
+            createData.displayPrice = displayPriceValue;
+            if (parseFloat(createData.discountPercentage) === 0) {
+                createData.discountPrice = Math.round(displayPriceValue);
+            } else if (!createData.discountPrice) {
+                createData.discountPrice = Math.round(displayPriceValue * (1 - parseFloat(createData.discountPercentage) / 100));
+            }
+        } else if (isPrivileged) {
+            // Admins must have a display price if they aren't saving a draft (already validated above)
+            // If they are saving a draft, we can allow it to be null or default it if they provided one
+            if (displayPriceValue > 0) createData.displayPrice = displayPriceValue;
+        }
+
+        // Final check for discountPrice before DB save
+        if (!createData.discountPrice || parseFloat(createData.discountPrice) <= 0) {
+            createData.discountPrice = Math.round(displayPriceValue);
+        }
+
+        // Calculate absolute commission if type is percentage
+        if (createData.marketingEnabled) {
+            const type = createData.marketingCommissionType || 'flat';
+            const rate = parseFloat(createData.marketingCommission || 0);
+
+            if (type === 'percentage') {
+                createData.marketingCommissionPercentage = rate;
+                // Hook in model will also handle this, but let's be explicit for the response
+                const price = parseFloat(createData.discountPrice || createData.displayPrice || 0);
+                const basePrice = parseFloat(createData.basePrice || 0);
+                const markup = Math.max(0, price - basePrice);
+                createData.marketingCommission = (markup * rate) / 100;
+            } else {
+                createData.marketingCommissionPercentage = 0.00;
+                createData.marketingCommission = rate;
+            }
+        }
+
+        const newItem = await FastFood.create(createData);
+
+        // Respond immediately — don't block on delivery-fee sync or cache
+        res.status(201).json({ success: true, data: newItem });
+
+        // Background: sync delivery fee across all vendor items + bust cache
+        if (newItem.approved || newItem.reviewStatus === 'approved') {
+            setImmediate(async () => {
+                try {
+                    const canonicalDeliveryFee = normalizeDeliveryFee(newItem.deliveryFee);
+                    await syncApprovedSellerDeliveryFee({
+                        vendorId: newItem.vendor,
+                        deliveryFee: canonicalDeliveryFee,
+                        sourceItemId: newItem.id
+                    });
+                } catch (e) {
+                    console.error('[createFastFood] Background delivery-fee sync failed:', e.message);
+                }
+                try {
+                    const cacheService = require('../../../scripts/services/cacheService');
+                    await cacheService.delPattern('homepage:*');
+                } catch (e) {
+                    console.error('[createFastFood] Background cache invalidation failed:', e.message);
+                }
+            });
+        }
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Update fast food item
+exports.updateFastFood = async (req, res, next) => {
+    try {
+        console.log(`[updateFastFood] Starting update for item ID: ${req.params.id} by user: ${req.user.id}`);
+        
+        // Prepare update data early to avoid TDZ (Temporal Dead Zone) in production
+        const updateData = { ...req.body };
+        
+        const fastFood = await FastFood.findByPk(req.params.id);
+        if (!fastFood) {
+            return res.status(404).json({ success: false, message: 'Fast food item not found' });
+        }
+
+        // Check ownership or privileged role
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isSuperAdmin = userRole === 'superadmin';
+        const isPrivileged = userRole === 'admin' || isSuperAdmin;
+        if (!isPrivileged && fastFood.vendor !== req.user.id) {
+            return res.status(403).json({ success: false, message: 'Not authorized to update this item' });
+        }
+
+
+        // Handle file uploads if they exist (processed by multer middleware)
+
+        // CRITICAL: Protect vendor ownership
+        if (updateData.vendorId || updateData.vendor) {
+            if (isPrivileged) {
+                console.log(`👤 [updateFastFood] Admin modifying vendor (current: ${fastFood.vendor}, new: ${updateData.vendor || updateData.vendorId})`);
+                if (updateData.vendorId) updateData.vendor = parseInt(updateData.vendorId, 10);
+                if (updateData.vendor) updateData.vendor = parseInt(updateData.vendor, 10);
+            } else {
+                console.warn(`⚠️ [updateFastFood] Unauthorized attempt to modify vendor detected! Ignoring.`);
+                delete updateData.vendorId;
+                delete updateData.vendor;
+            }
+        }
+
+        if (updateData.name) {
+            updateData.name = normalizeItemName(updateData.name);
+        }
+
+        // Parse numeric fields properly
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
+            if (updateData[field] !== undefined && updateData[field] !== '') {
+                updateData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(updateData[field])) : parseFloat(updateData[field]);
+            } else if (updateData[field] === '') {
+                updateData[field] = null;
+            }
+        });
+
+        // Ensure subcategoryId is an integer or null
+        if (updateData.subcategoryId && updateData.subcategoryId !== '') {
+            updateData.subcategoryId = parseInt(updateData.subcategoryId, 10);
+        } else if (updateData.subcategoryId === '') {
+            updateData.subcategoryId = null;
+        }
+
+        // Parse JSON fields if they are strings (Multipart/form-data sends them as strings)
+        ['sizeVariants', 'comboOptions', 'availabilityDays', 'ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'existingGalleryImages', 'deliveryCoverageZones', 'nutritionalInfo'].forEach(field => {
+            if (updateData[field] && typeof updateData[field] === 'string') {
+                try {
+                    let parsed = JSON.parse(updateData[field]);
+                    // Handle potential double-stringification from frontend/axios
+                    if (typeof parsed === 'string' && (parsed.startsWith('[') || parsed.startsWith('{'))) {
+                        parsed = JSON.parse(parsed);
+                    }
+                    updateData[field] = parsed;
+                } catch (e) {
+                    console.error(`Error parsing ${field}:`, e);
+                    // Fallback to empty array if parsing fails for array fields
+                    if (['sizeVariants', 'comboOptions', 'availabilityDays', 'ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'existingGalleryImages'].includes(field)) {
+                        updateData[field] = [];
+                    }
+                }
+            }
+        });
+
+        // Ensure boolean parsing for multipart/form-data
+        ['isActive', 'isAvailable', 'isFeatured', 'pickupAvailable', 'isComboOption', 'marketingEnabled'].forEach(field => {
+            if (updateData[field] !== undefined) {
+                updateData[field] = updateData[field] === 'true' || updateData[field] === true;
+            }
+        });
+
+        // Handle empty strings for dates
+        if (updateData.marketingStartDate === '') updateData.marketingStartDate = null;
+        if (updateData.marketingEndDate === '') updateData.marketingEndDate = null;
+
+        // 1. Handle Main Image
+        if (req.files && req.files.mainImage && req.files.mainImage[0]) {
+            const file = req.files.mainImage[0];
+            // Compression middleware already optimized it to JPEG on disk
+            updateData.mainImage = `/uploads/other/${file.filename}`;
+        }
+
+        // 2. Handle Gallery Images (Merging existing + new)
+        let finalGalleryImages = [];
+        let galleryUpdated = false;
+
+        // Check if existingGalleryImages was PROVIDED (even if empty)
+        if (updateData.existingGalleryImages !== undefined) {
+            galleryUpdated = true;
+            if (Array.isArray(updateData.existingGalleryImages)) {
+                finalGalleryImages = [...updateData.existingGalleryImages];
+            }
+        } else if (fastFood.galleryImages) {
+            // If not provided in request, keep what we have in DB
+            const currentGallery = Array.isArray(fastFood.galleryImages) ? fastFood.galleryImages : [];
+            finalGalleryImages = [...currentGallery];
+        }
+
+        // Add new uploaded files if any
+        if (req.files && req.files.galleryImages) {
+            galleryUpdated = true;
+            const newImagePaths = req.files.galleryImages.map(file => `/uploads/products/${file.filename}`);
+            finalGalleryImages = [...finalGalleryImages, ...newImagePaths];
+        }
+
+        // Assign to galleryImages only if there was an update attempt
+        if (galleryUpdated) {
+            // ENFORCE LIMIT: Max 3 gallery images total
+            if (finalGalleryImages.length > 3) {
+                console.log(`⚠️ [updateFastFood] Truncating gallery from ${finalGalleryImages.length} to 3 images`);
+                finalGalleryImages = finalGalleryImages.slice(0, 3);
+            }
+            updateData.galleryImages = finalGalleryImages;
+        }
+
+        // Clean up temporary fields
+        delete updateData.existingGalleryImages;
+
+        // Log reason for suspend actions (suspension is now handled by isActive)
+        if (updateData.reason) {
+            delete updateData.reason; // Don't save reason to database
+        }
+
+        // CRITICAL FIX: NEVER allow vendor field to be changed
+        // The vendor field represents the original creator/owner and should NEVER be modified
+        // Even if provided in the request body, remove it to preserve ownership
+        // Even if provided in the request body, remove it to preserve ownership
+        if (updateData.vendor !== undefined || updateData.addedBy !== undefined) {
+            console.warn(`⚠️ [updateFastFood] Attempt to modify ownership fields detected! Ignoring. Original vendor: ${fastFood.vendor}, Attempted: ${updateData.vendor}`);
+            delete updateData.vendor;
+            delete updateData.addedBy;
+        }
+
+        // Status & Approval Workflow logic for update
+        const isDraft = ['1', 'true', true].includes((req.body.draft ?? '').toString().toLowerCase());
+
+        if (isPrivileged) {
+            if (!isDraft) {
+                // VALIDATION: displayPrice must be set before approval (only if we are approving or it is already approved)
+                // We only run this validation if the item is GOING TO BE approved or IS approved.
+                const newApprovalStatus = updateData.approved !== undefined ? updateData.approved : fastFood.approved;
+
+                if (newApprovalStatus === true) {
+                    const finalDisplayPriceForValidation = updateData.displayPrice !== undefined ? parseFloat(updateData.displayPrice) : parseFloat(fastFood.displayPrice || 0);
+                    const finalBasePriceForValidation = updateData.basePrice !== undefined ? parseFloat(updateData.basePrice) : parseFloat(fastFood.basePrice || 0);
+                    const finalDeliveryFeeForValidation = updateData.deliveryFee !== undefined
+                        ? normalizeDeliveryFee(updateData.deliveryFee)
+                        : normalizeDeliveryFee(fastFood.deliveryFee);
+
+                    if (!finalDisplayPriceForValidation || finalDisplayPriceForValidation <= 0) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Display Price is required for approved items. Please set a display price greater than 0.'
+                        });
+                    }
+
+                    if (finalDisplayPriceForValidation < finalBasePriceForValidation) {
+                        return res.status(400).json({
+                            success: false,
+                            message: `Display Price (${finalDisplayPriceForValidation} KES) cannot be less than Base Price (${finalBasePriceForValidation} KES)`
+                        });
+                    }
+
+                    // Determine final state of location fields (merged with existing data)
+                    const currentLoc = updateData.vendorLocation !== undefined ? updateData.vendorLocation : fastFood.vendorLocation;
+                    const currentLat = updateData.vendorLat !== undefined ? updateData.vendorLat : fastFood.vendorLat;
+                    const currentLng = updateData.vendorLng !== undefined ? updateData.vendorLng : fastFood.vendorLng;
+
+                    // AUTO-FILL: If location info is still missing, attempt to pull from Vendor's Business Profile
+                    if (!currentLoc || !currentLat || !currentLng) {
+                        const vendorProfile = await User.findByPk(fastFood.vendor);
+                        if (vendorProfile) {
+                            if (!currentLoc && vendorProfile.businessAddress) updateData.vendorLocation = vendorProfile.businessAddress;
+                            if (!currentLat && vendorProfile.businessLat) updateData.vendorLat = vendorProfile.businessLat;
+                            if (!currentLng && vendorProfile.businessLng) updateData.vendorLng = vendorProfile.businessLng;
+                            console.log(`[updateFastFood] Auto-filled location for vendor ${fastFood.vendor} from business profile.`);
+                        }
+                    }
+
+                    // FINAL VALIDATION: Re-check merged results after auto-fill
+                    const finalLoc = updateData.vendorLocation !== undefined ? updateData.vendorLocation : fastFood.vendorLocation;
+                    const finalLat = updateData.vendorLat !== undefined ? updateData.vendorLat : fastFood.vendorLat;
+                    const finalLng = updateData.vendorLng !== undefined ? updateData.vendorLng : fastFood.vendorLng;
+
+                    if (!finalLoc || !finalLat || !finalLng) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Vendor Location and Coordinates (Lat/Lng) are required for smart menu filtering. Vendor profile must be complete.'
+                        });
+                    }
+
+                    updateData.deliveryFee = finalDeliveryFeeForValidation;
+                }
+
+                // CONDITIONAL APPROVAL: Only update these if explicitly provided in the request
+                // This prevents "Set to Open" (availabilityMode update) from accidentally approving a pending item
+                if (updateData.approved !== undefined) {
+                    updateData.approved = updateData.approved; // already set by spread, but being explicit for logic flow
+                }
+
+                if (updateData.reviewStatus !== undefined) {
+                    updateData.reviewStatus = updateData.reviewStatus;
+                }
+
+                // If it becomes approved, ensure hasBeenApproved is true
+                if (updateData.approved === true || updateData.reviewStatus === 'approved') {
+                    // FORCE SYNC: Ensure status string matches boolean
+                    updateData.reviewStatus = 'approved';
+                    updateData.approved = true;
+
+                    // VALIDATION: discountPrice must be > 0 for approved items
+                    const finalDisplay = updateData.displayPrice !== undefined ? parseFloat(updateData.displayPrice) : parseFloat(fastFood.displayPrice || 0);
+                    const finalPct = updateData.discountPercentage !== undefined ? parseFloat(updateData.discountPercentage) : parseFloat(fastFood.discountPercentage || 0);
+                    const finalDiscount = updateData.discountPrice !== undefined ? Math.round(parseFloat(updateData.discountPrice)) : (finalPct > 0 ? Math.round(finalDisplay * (1 - finalPct / 100)) : Math.round(finalDisplay));
+
+                    if (finalDiscount <= 0) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Discount Price must be greater than 0 before approval.'
+                        });
+                    }
+                    updateData.hasBeenApproved = true;
+                    updateData.changes = []; // Clear changes log upon approval
+                    // Also ensure it is active if approved
+                    if (updateData.isActive === undefined) {
+                        updateData.isActive = true;
+                    }
+                    updateData.status = 'approved'; // SYNC: Set status to approved
+                }
+            } else {
+                updateData.reviewStatus = 'draft';
+                updateData.status = 'pending'; // SYNC: Set status to pending for drafts
+            }
+        }
+
+        // Apply wasAlreadyLive check to protect approved items from demotion
+        const wasAlreadyLive = fastFood.approved === true && 
+                               (fastFood.status === 'approved' || fastFood.status === 'active') && 
+                               fastFood.reviewStatus === 'approved';
+
+        // Check if any price or discount field has actually changed compared to the database values
+        const hasPriceChanged = (
+            (updateData.basePrice !== undefined && parseFloat(updateData.basePrice) !== parseFloat(fastFood.basePrice)) ||
+            (updateData.displayPrice !== undefined && parseFloat(updateData.displayPrice) !== parseFloat(fastFood.displayPrice)) ||
+            (updateData.discountPercentage !== undefined && parseInt(updateData.discountPercentage, 10) !== parseInt(fastFood.discountPercentage, 10)) ||
+            (updateData.discountPrice !== undefined && parseFloat(updateData.discountPrice) !== parseFloat(fastFood.discountPrice))
+        );
+
+        if (isDraft) {
+            if (wasAlreadyLive) {
+                updateData.status = fastFood.status || 'approved';
+                updateData.approved = true;
+                updateData.reviewStatus = 'approved';
+            } else {
+                updateData.reviewStatus = 'draft';
+                updateData.status = 'pending';
+                updateData.approved = false;
+            }
+        } else if (!isPrivileged) {
+            // Vendors / Sellers updating
+            if (wasAlreadyLive) {
+                if (hasPriceChanged) {
+                    // Keep it live so it doesn't vanish from the storefront,
+                    // but set reviewStatus to pending so it shows up in the admin pending queue for re-review!
+                    updateData.approved = true;
+                    updateData.status = fastFood.status || 'approved';
+                    updateData.reviewStatus = 'pending';
+                } else {
+                    // If the price did NOT change, it stays fully approved directly!
+                    updateData.approved = true;
+                    updateData.status = fastFood.status || 'approved';
+                    updateData.reviewStatus = 'approved';
+                }
+            } else {
+                updateData.approved = false;
+                updateData.reviewStatus = 'pending';
+                updateData.status = 'pending'; // SYNC: Set status to pending
+            }
+        }
+
+        // Price Standardization Logic
+        const finalDisplayPrice = updateData.displayPrice !== undefined ? parseFloat(updateData.displayPrice) : (fastFood.displayPrice ? parseFloat(fastFood.displayPrice) : 0);
+        const finalDiscountPct = updateData.discountPercentage !== undefined ? parseFloat(updateData.discountPercentage) : parseFloat(fastFood.discountPercentage || 0);
+
+        if (finalDisplayPrice > 0) {
+            updateData.displayPrice = Math.round(finalDisplayPrice);
+            if (finalDiscountPct === 0) {
+                updateData.discountPrice = Math.round(finalDisplayPrice);
+            } else if (!updateData.discountPrice && finalDiscountPct > 0) {
+                updateData.discountPrice = Math.round(finalDisplayPrice * (1 - finalDiscountPct / 100));
+            } else if (updateData.discountPrice) {
+                updateData.discountPrice = Math.round(updateData.discountPrice);
+            }
+        }
+
+        // Calculate absolute commission if type is percentage
+        const isMarkEnabled = updateData.marketingEnabled !== undefined ? updateData.marketingEnabled : fastFood.marketingEnabled;
+        if (isMarkEnabled && (updateData.marketingCommission !== undefined || updateData.marketingType !== undefined)) {
+            const type = updateData.marketingCommissionType || fastFood.marketingCommissionType || 'flat';
+            const inputComm = updateData.marketingCommission !== undefined ? parseFloat(updateData.marketingCommission) : (type === 'percentage' ? fastFood.marketingCommissionPercentage : fastFood.marketingCommission);
+
+            if (type === 'percentage') {
+                updateData.marketingCommissionPercentage = inputComm;
+                const price = updateData.discountPrice || updateData.displayPrice || fastFood.discountPrice || fastFood.displayPrice || 0;
+                const basePrice = updateData.basePrice || fastFood.basePrice || 0;
+                const markup = Math.max(0, parseFloat(price) - parseFloat(basePrice));
+                updateData.marketingCommission = (markup * inputComm) / 100;
+            } else {
+                updateData.marketingCommissionPercentage = 0.00;
+                updateData.marketingCommission = inputComm;
+            }
+        }
+
+        // FORCE CONSISTENCY: If reviewStatus is pending, approved MUST be false
+        if (updateData.reviewStatus === 'pending') {
+            console.log('🔒 [updateFastFood] Status is pending, forcing approved = false');
+            updateData.approved = false;
+            updateData.status = 'pending'; // SYNC: Force status to pending
+        }
+
+        console.log('💾 [updateFastFood] Saving update:', {
+            id: fastFood.id,
+            approved: updateData.approved,
+            reviewStatus: updateData.reviewStatus,
+            editorRole: userRole,
+            isPrivileged
+        });
+
+        // CHANGE TRACKING: Capture differences for approved items edits
+        // Track changes if it was previously approved AND (it's not a draft OR it's being sent to pending status)
+        if (fastFood.hasBeenApproved && (!isDraft || updateData.reviewStatus === 'pending')) {
+            const changes = [];
+            // ... (tracking logic implied)
+            // ... (tracking logic implied)
+            // ...
+            const fieldsToTrack = [
+                'name', 'shortDescription', 'description', 'category', 'subcategoryId',
+                'basePrice', 'displayPrice', 'preparationTimeMinutes', 'ingredients', 'tags',
+                'deliveryTimeEstimateMinutes', 'deliveryFee', 'deliveryFeeType', 'deliveryAreaLimits', 'deliveryCoverageZones',
+                'vendorLocation', 'vendorLat', 'vendorLng', 'kitchenVendor',
+                'isActive', 'isAvailable', 'availabilityMode', 'availabilityDays',
+                'sizeVariants', 'comboOptions', 'dietaryTags', 'allergens', 'nutritionalInfo',
+                'spiceLevel', 'minOrderQty', 'maxOrderQty', 'estimatedServings', 'customizations',
+                'marketingEnabled', 'marketingCommission', 'marketingCommissionType',
+                'marketingStartDate', 'marketingEndDate', 'marketingDuration',
+                'isFeatured', 'dailyLimit', 'pickupAvailable', 'pickupLocation'
+            ];
+
+            const areDifferent = (a, b) => {
+                if (a === null && b === null) return false;
+                if (a === undefined || b === undefined) return false; // Ignore undefined updates
+                // Handle numbers (decimal strings vs floats)
+                if (typeof a === 'number' || typeof b === 'number') {
+                    return parseFloat(a) !== parseFloat(b);
+                }
+                if (typeof a === 'object' || Array.isArray(a)) {
+                    return JSON.stringify(a) !== JSON.stringify(b);
+                }
+                return String(a).trim() !== String(b).trim();
+            };
+
+            fieldsToTrack.forEach(field => {
+                if (updateData[field] !== undefined) {
+                    const oldVal = fastFood[field];
+                    const newVal = updateData[field];
+
+                    // Specific check for arrays to avoid false positives on empty vs []
+                    if (Array.isArray(oldVal) && Array.isArray(newVal) && oldVal.length === 0 && newVal.length === 0) return;
+
+                    if (areDifferent(oldVal, newVal)) {
+                        changes.push({
+                            field,
+                            oldValue: oldVal,
+                            newValue: newVal
+                        });
+                    }
+                }
+            });
+
+            // Image tracking
+            if (updateData.mainImage && updateData.mainImage !== fastFood.mainImage) {
+                changes.push({ field: 'mainImage', oldValue: fastFood.mainImage, newValue: updateData.mainImage });
+            }
+            if (updateData.galleryImages) {
+                if (JSON.stringify(fastFood.galleryImages || []) !== JSON.stringify(updateData.galleryImages)) {
+                    changes.push({ field: 'galleryImages', oldValue: fastFood.galleryImages, newValue: updateData.galleryImages });
+                }
+            }
+
+            if (changes.length > 0) {
+                updateData.changes = changes;
+            }
+        }
+
+        // CLEANUP: Find orphaned images
+        const oldFiles = [];
+        if (fastFood.mainImage) oldFiles.push(fastFood.mainImage);
+        if (fastFood.galleryImages && Array.isArray(fastFood.galleryImages)) {
+            oldFiles.push(...fastFood.galleryImages);
+        }
+
+        const newFiles = [];
+        if (updateData.mainImage) newFiles.push(updateData.mainImage);
+        else if (fastFood.mainImage) newFiles.push(fastFood.mainImage);
+        
+        if (updateData.galleryImages && Array.isArray(updateData.galleryImages)) {
+            newFiles.push(...updateData.galleryImages);
+        } else if (fastFood.galleryImages && Array.isArray(fastFood.galleryImages)) {
+            newFiles.push(...fastFood.galleryImages);
+        }
+
+        const filesToDelete = oldFiles.filter(oldFile => !newFiles.includes(oldFile));
+
+        // Determine if vendor-wide delivery fee sync is needed (compute before update for closure)
+        const shouldSyncSellerDeliveryFee =
+            (updateData.approved === true || updateData.reviewStatus === 'approved' || fastFood.approved === true || fastFood.reviewStatus === 'approved')
+            && updateData.deliveryFee !== undefined;
+
+        await fastFood.update(updateData);
+
+        // Delete orphaned files in background (non-blocking)
+        if (filesToDelete.length > 0) {
+            deleteFiles(filesToDelete);
+        }
+
+        // Respond immediately — don't wait for vendor-wide sync or cache
+        res.status(200).json({ success: true, data: fastFood });
+
+        // Background: heavy vendor-wide delivery-fee sync + cache invalidation
+        setImmediate(async () => {
+            try {
+                if (shouldSyncSellerDeliveryFee) {
+                    await syncApprovedSellerDeliveryFee({
+                        vendorId: fastFood.vendor,
+                        deliveryFee: normalizeDeliveryFee(updateData.deliveryFee),
+                        sourceItemId: fastFood.id
+                    });
+                }
+            } catch (e) {
+                console.error('[updateFastFood] Background delivery-fee sync failed:', e.message);
+            }
+            try {
+                const cacheService = require('../../../scripts/services/cacheService');
+                await cacheService.delPattern('homepage:*');
+            } catch (e) {
+                console.error('[updateFastFood] Background cache invalidation failed:', e.message);
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Delete fast food item
+exports.deleteFastFood = async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const fastFood = await FastFood.findByPk(req.params.id);
+
+        if (!fastFood) {
+            return res.status(404).json({ success: false, message: 'Fast food item not found' });
+        }
+
+        // Check ownership or privileged role
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isSuperAdmin = userRole === 'superadmin';
+        const isPrivileged = userRole === 'admin' || isSuperAdmin;
+        if (!isPrivileged && fastFood.vendor !== req.user.id) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete this item' });
+        }
+
+        // Move fast food to recycle bin instead of hard delete
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+        console.log('📦 Moving fast food to recycle bin:', fastFood.id);
+
+        try {
+            await DeletedFastFood.create({
+                originalId: fastFood.id,
+                vendor: fastFood.vendor,
+                name: fastFood.name,
+                category: fastFood.category,
+                categoryId: fastFood.categoryId,
+                subcategoryId: fastFood.subcategoryId,
+                shortDescription: fastFood.shortDescription,
+                description: fastFood.description,
+                mainImage: fastFood.mainImage,
+                galleryImages: fastFood.galleryImages,
+                basePrice: fastFood.basePrice,
+                displayPrice: fastFood.displayPrice,
+                discountPrice: fastFood.discountPrice,
+                discountPercentage: fastFood.discountPercentage,
+                vendorLocation: fastFood.vendorLocation,
+                vendorLat: fastFood.vendorLat,
+                vendorLng: fastFood.vendorLng,
+                preparationTimeMinutes: fastFood.preparationTimeMinutes,
+                deliveryTimeEstimateMinutes: fastFood.deliveryTimeEstimateMinutes,
+                sizeVariants: fastFood.sizeVariants,
+                comboOptions: fastFood.comboOptions,
+                ingredients: fastFood.ingredients,
+                tags: fastFood.tags,
+                dietaryTags: fastFood.dietaryTags,
+                deliveryCoverageZones: fastFood.deliveryCoverageZones,
+                marketingEnabled: fastFood.marketingEnabled,
+                status: fastFood.status,
+                reviewStatus: fastFood.reviewStatus,
+                approved: fastFood.approved,
+                deletionReason: reason || 'Deleted by user/admin',
+                deletedAt: new Date(),
+                autoDeleteAt: thirtyDaysFromNow
+            });
+
+            console.log('✅ Fast food moved to recycle bin successfully');
+        } catch (recycleError) {
+            console.error('❌ Error moving fast food to recycle bin:', recycleError);
+            throw recycleError;
+        }
+
+        // Soft-delete the original FastFood record to preserve its ID and relationships
+        await fastFood.update({
+            deletedAt: new Date(),
+            status: 'inactive',
+            approved: false,
+            reviewStatus: 'pending',
+            isActive: false,
+            isAvailable: false
+        });
+
+        res.status(200).json({ success: true, message: 'Fast food item moved to recycle bin' });
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get vendor's fast food items
+exports.getVendorFastFoods = async (req, res) => {
+    try {
+        console.log('🔍 getVendorFastFoods HIT');
+        console.log('User ID:', req.user?.id, 'Role:', req.user?.role);
+
+        let vendorId = req.params.vendorId;
+
+        // If route is /vendor/me or vendorId is 'me', use authenticated user's ID
+        if (!vendorId || vendorId === 'me' || req.path.includes('/vendor/me')) {
+            vendorId = req.user.id;
+        }
+
+        console.log('Target Vendor ID:', vendorId);
+
+        // Authorization Check
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'admin' || userRole === 'superadmin';
+
+        if (String(vendorId) !== String(req.user.id) && !isPrivileged) {
+            console.warn('⛔ Authorization Failed for getVendorFastFoods');
+            return res.status(403).json({ success: false, message: 'Not authorized to view these items' });
+        }
+
+        console.log(`🔍 [getVendorFastFoods] Executing DB Query for vendor: ${vendorId}...`);
+
+        const page = Math.max(1, parseInt(req.query.page || '1', 10));
+        const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize || '1000', 10)));
+        const { approved, reviewStatus } = req.query;
+
+        const where = { vendor: vendorId };
+        if (approved !== undefined) where.approved = approved === 'true';
+        if (reviewStatus) where.reviewStatus = reviewStatus;
+
+        const { count, rows } = await FastFood.findAndCountAll({
+            where,
+            order: [['createdAt', 'DESC']],
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+            raw: true
+        });
+
+        console.log(`✅ [getVendorFastFoods] DB Query Success: Found ${rows.length} of ${count} items`);
+
+        res.status(200).json({
+            data: rows,
+            meta: {
+                total: count,
+                page,
+                pageSize,
+                totalPages: Math.ceil(count / pageSize)
+            }
+        });
+    } catch (error) {
+        console.error('getVendorFastFoods Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// --- RECYCLE BIN MANAGEMENT ---
+
+// Get deleted fast food items
+exports.getDeletedFastFoods = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
+
+        console.log(`[getDeletedFastFoods] Fetching for user: ${userId}, Admin: ${isPrivileged}`);
+
+        const where = isPrivileged ? {} : { vendor: userId };
+        const deletedItems = await DeletedFastFood.findAll({
+            where,
+            include: [{
+                model: User,
+                as: 'vendorDetail',
+                attributes: ['id', 'name', 'email', 'businessName'],
+                required: false
+            }],
+            order: [['deletedAt', 'DESC']]
+        });
+
+        res.status(200).json({ success: true, data: deletedItems });
+    } catch (error) {
+        console.error('Error fetching deleted fast foods:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching recycle bin',
+            error: error.message
+        });
+    }
+};
+
+// Restore fast food item
+exports.restoreFastFood = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const { password } = req.body;
+
+        if (!password) {
+            return res.status(400).json({ success: false, message: 'Password is required for restoration' });
+        }
+
+        // Verify password
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const bcrypt = require('bcryptjs');
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ success: false, message: 'Invalid password' });
+        }
+
+        // Find the deleted item
+        const deletedItem = await DeletedFastFood.findByPk(id);
+        if (!deletedItem) {
+            return res.status(404).json({ success: false, message: 'Deleted item not found' });
+        }
+
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
+
+        if (!isPrivileged && deletedItem.vendor !== userId) {
+            return res.status(403).json({ success: false, message: 'You can only restore your own items' });
+        }
+
+        // Check if an item with the same name already exists for this vendor, excluding the original record
+        const existingItem = await FastFood.findOne({
+            where: {
+                vendor: deletedItem.vendor,
+                name: deletedItem.name,
+                id: { [Op.ne]: deletedItem.originalId }
+            }
+        });
+
+        if (existingItem) {
+            return res.status(409).json({
+                success: false,
+                message: 'An active item with this name already exists. Please rename or delete the existing item first.'
+            });
+        }
+
+        // Restore the original FastFood record if it still exists
+        let restoredItem = null;
+        const softDeletedItem = await FastFood.findOne({ where: { id: deletedItem.originalId } });
+        if (softDeletedItem) {
+            restoredItem = await softDeletedItem.update({
+                deletedAt: null,
+                name: deletedItem.name,
+                category: deletedItem.category,
+                categoryId: deletedItem.categoryId,
+                subcategoryId: deletedItem.subcategoryId,
+                shortDescription: deletedItem.shortDescription,
+                description: deletedItem.description,
+                mainImage: deletedItem.mainImage,
+                galleryImages: deletedItem.galleryImages,
+                basePrice: deletedItem.basePrice,
+                displayPrice: deletedItem.displayPrice,
+                discountPrice: deletedItem.discountPrice,
+                discountPercentage: deletedItem.discountPercentage,
+                vendorLocation: deletedItem.vendorLocation,
+                vendorLat: deletedItem.vendorLat,
+                vendorLng: deletedItem.vendorLng,
+                preparationTimeMinutes: deletedItem.preparationTimeMinutes || 15,
+                deliveryTimeEstimateMinutes: deletedItem.deliveryTimeEstimateMinutes || 30,
+                sizeVariants: deletedItem.sizeVariants,
+                comboOptions: deletedItem.comboOptions,
+                ingredients: deletedItem.ingredients,
+                tags: deletedItem.tags,
+                dietaryTags: deletedItem.dietaryTags,
+                deliveryCoverageZones: deletedItem.deliveryCoverageZones,
+                marketingEnabled: deletedItem.marketingEnabled,
+                vendor: deletedItem.vendor,
+                approved: false, // Reset approval status
+                reviewStatus: 'pending', // Reset to pending
+                isActive: false,
+                isAvailable: false,
+                status: 'pending'
+            });
+        } else {
+            restoredItem = await FastFood.create({
+                name: deletedItem.name,
+                category: deletedItem.category,
+                categoryId: deletedItem.categoryId,
+                subcategoryId: deletedItem.subcategoryId,
+                shortDescription: deletedItem.shortDescription,
+                description: deletedItem.description,
+                mainImage: deletedItem.mainImage,
+                galleryImages: deletedItem.galleryImages,
+                basePrice: deletedItem.basePrice,
+                displayPrice: deletedItem.displayPrice,
+                discountPrice: deletedItem.discountPrice,
+                discountPercentage: deletedItem.discountPercentage,
+                vendorLocation: deletedItem.vendorLocation,
+                vendorLat: deletedItem.vendorLat,
+                vendorLng: deletedItem.vendorLng,
+                preparationTimeMinutes: deletedItem.preparationTimeMinutes || 15,
+                deliveryTimeEstimateMinutes: deletedItem.deliveryTimeEstimateMinutes || 30,
+                sizeVariants: deletedItem.sizeVariants,
+                comboOptions: deletedItem.comboOptions,
+                ingredients: deletedItem.ingredients,
+                tags: deletedItem.tags,
+                dietaryTags: deletedItem.dietaryTags,
+                deliveryCoverageZones: deletedItem.deliveryCoverageZones,
+                marketingEnabled: deletedItem.marketingEnabled,
+                vendor: deletedItem.vendor,
+                addedBy: userId,
+                approved: false, // Reset approval status
+                reviewStatus: 'pending', // Reset to pending
+                isActive: false,
+                isAvailable: false
+            });
+        }
+
+        // Remove from recycle bin
+        await deletedItem.destroy();
+
+        res.status(200).json({
+            success: true,
+            message: 'Fast food item restored successfully. It is now pending review.',
+            data: restoredItem
+        });
+    } catch (error) {
+        console.error('Error restoring fast food:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while restoring item',
+            error: error.message
+        });
+    }
+};
+
+// Permanently delete fast food item
+exports.permanentlyDeleteFastFood = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const { password } = req.body;
+
+        if (!password) {
+            return res.status(400).json({ success: false, message: 'Password is required for permanent deletion' });
+        }
+
+        // Verify password
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const bcrypt = require('bcryptjs');
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ success: false, message: 'Invalid password' });
+        }
+
+        // Find the deleted item
+        const deletedItem = await DeletedFastFood.findByPk(id);
+        if (!deletedItem) {
+            return res.status(404).json({ success: false, message: 'Deleted item not found' });
+        }
+
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
+
+        if (!isPrivileged && deletedItem.vendor !== userId) {
+            return res.status(403).json({ success: false, message: 'You can only permanently delete your own items' });
+        }
+
+        // Permanently delete from recycle bin
+        const filesToDelete = [];
+        try {
+            if (deletedItem.mainImage) filesToDelete.push(deletedItem.mainImage);
+            if (deletedItem.galleryImages) {
+                const images = typeof deletedItem.galleryImages === 'string' ? JSON.parse(deletedItem.galleryImages) : deletedItem.galleryImages;
+                if (Array.isArray(images)) filesToDelete.push(...images);
+            }
+        } catch (e) {
+            console.warn('Error parsing deletedItem images for cleanup', e);
+        }
+
+        await deletedItem.destroy();
+
+        // Clean up files
+        if (filesToDelete.length > 0) {
+            deleteFiles(filesToDelete);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Fast food item permanently deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error permanently deleting fast food:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while permanently deleting item',
+            error: error.message
+        });
+    }
+};

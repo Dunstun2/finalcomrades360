@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import api from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../components/ui/use-toast';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Checkbox } from '../components/ui/checkbox';
+import api from '@/shared/services/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/shared/components/use-toast';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/dialog';
+import { Checkbox } from '@/shared/components/checkbox';
 import { 
   normalizeVariants as unifyVariants, 
   getVariantId as unifiedGetVariantId, 
   getVariantLabel as unifiedGetVariantLabel 
-} from '../utils/variantUtils';
+} from '@/utils/variantUtils';
 
 const CartContext = createContext({
   count: 0,

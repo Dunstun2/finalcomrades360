@@ -1,4 +1,4 @@
-const { HandoverCode, sequelize, Op } = require('../models');
+const { HandoverCode, sequelize, Op } = require('../database/models.registry');
 const { confirmHandoverProcessor } = require('./handoverService');
 
 /**

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useMemo } from 'react';
-import api, { productApi } from '../services/api';
-import { toast } from '../components/ui/use-toast';
+import api, { productApi } from '@/shared/services/api';
+import { toast } from '@/shared/components/use-toast';
 
 const CategoriesContext = createContext();
 

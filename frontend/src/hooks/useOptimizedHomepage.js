@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useHomepageCache } from '../utils/indexedDb';
-import api from '../services/api';
+import { useHomepageCache } from '@/utils/indexedDb';
+import api from '@/shared/services/api';
 
 export const useOptimizedHomepage = () => {
   const { getCachedData, cacheData, isStale } = useHomepageCache();

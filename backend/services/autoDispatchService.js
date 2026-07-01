@@ -1,4 +1,4 @@
-const { Order, DeliveryTask, User, DeliveryAgentProfile, PlatformConfig, Wallet, Transaction, DeliveryCharge } = require('../models');
+const { Order, DeliveryTask, User, DeliveryAgentProfile, PlatformConfig, Wallet, Transaction, DeliveryCharge } = require('../database/models.registry');
 const { Op } = require('sequelize');
 const { sequelize } = require('../database/database');
 const { matchAgentsToOrder, checkProfileCompleteness, getAgentCurrentLoad, calculateLocalityScore } = require('../utils/deliveryUtils');
@@ -154,7 +154,7 @@ const autoDispatchService = {
             console.log(`🎯 [AutoDispatch] Broadcasting to ${topMatches.length} Agents: ${topMatches.map(a => a.name).join(', ')}`);
 
             // 6. Assignment Logic
-            const { getProvisionalDeliveryType } = require('../controllers/deliveryController');
+            const { getProvisionalDeliveryType } = require('../modules/delivery/controllers/controller');
             const dType = getProvisionalDeliveryType(order);
             const finalFee = parseFloat(order.deliveryFee) || 0;
             

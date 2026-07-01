@@ -55,7 +55,7 @@ const initWhatsApp = async () => {
     // 1. Fetch config from DB
     let method = 'local';
     try {
-        const { PlatformConfig } = require('../models');
+        const { PlatformConfig } = require('../database/models.registry');
         const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
         if (configRecord) {
             const dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
@@ -252,7 +252,7 @@ const sendMessage = async (to, message, method = 'whatsapp') => {
             if (configCache.has('whatsapp_config') && (now - configCache.get('whatsapp_config').timestamp < CACHE_TTL)) {
                 dbConfig = configCache.get('whatsapp_config').value;
             } else {
-                const { PlatformConfig } = require('../models');
+                const { PlatformConfig } = require('../database/models.registry');
                 const configRecord = await PlatformConfig.findOne({ where: { key: 'whatsapp_config' } });
                 if (configRecord) {
                     dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;
@@ -303,7 +303,7 @@ const sendSms = async (to, message) => {
         if (configCache.has('sms_config') && (now - configCache.get('sms_config').timestamp < CACHE_TTL)) {
             dbConfig = configCache.get('sms_config').value;
         } else {
-            const { PlatformConfig } = require('../models');
+            const { PlatformConfig } = require('../database/models.registry');
             const configRecord = await PlatformConfig.findOne({ where: { key: 'sms_config' } });
             if (configRecord) {
                 dbConfig = typeof configRecord.value === 'string' ? JSON.parse(configRecord.value) : configRecord.value;

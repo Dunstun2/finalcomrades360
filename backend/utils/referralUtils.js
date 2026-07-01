@@ -1,4 +1,4 @@
-const { User } = require('../models');
+const { User } = require('../database/models.registry');
 
 // Generate a random referral code
 const generateReferralCode = () => {

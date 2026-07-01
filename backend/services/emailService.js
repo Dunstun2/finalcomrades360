@@ -1,6 +1,6 @@
 const { sendEmail } = require('./mailer');
 const emailTemplates = require('./emailTemplates');
-const { Notification } = require('../models');
+const { Notification } = require('../database/models.registry');
 
 // Enhanced Email Service with template support and fallback
 class EmailService {

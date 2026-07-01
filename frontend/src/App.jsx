@@ -1,27 +1,27 @@
 import React, { Suspense, lazy, useEffect, useState, useMemo } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
-import { initPerformanceMonitoring } from './utils/performance';
-import { CategoriesProvider } from './contexts/CategoriesContext';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { CartProvider } from './contexts/CartContext';
-import { WishlistProvider } from './contexts/WishlistContext';
-import { PlatformProvider, usePlatform } from './contexts/PlatformContext';
-import ErrorBoundary from './components/ErrorBoundary';
-import LoadingSpinner from './components/ui/LoadingSpinner';
-import ProtectedRoute from './components/ProtectedRoute';
-import ReferrerBanner from './components/ReferrerBanner';
-import VerificationNotice from './components/VerificationNotice';
-import ForcePasswordChangeModal from './components/ForcePasswordChangeModal';
-import api from './services/api';
+import { initPerformanceMonitoring } from '@/utils/performance';
+import { CategoriesProvider } from '@/contexts/CategoriesContext';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { CartProvider } from '@/contexts/CartContext';
+import { WishlistProvider } from '@/contexts/WishlistContext';
+import { PlatformProvider, usePlatform } from '@/contexts/PlatformContext';
+import ErrorBoundary from '@/shared/components/ErrorBoundary';
+import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import ProtectedRoute from '@/shared/components/ProtectedRoute';
+import ReferrerBanner from '@/modules/marketing/components/ReferrerBanner';
+import VerificationNotice from '@/modules/auth/components/VerificationNotice';
+import ForcePasswordChangeModal from '@/modules/auth/components/ForcePasswordChangeModal';
+import api from '@/shared/services/api';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import RealtimeSync from './components/RealtimeSync';
-import DashboardGuard from './components/DashboardGuard';
-import useTrafficTracker from './hooks/useTrafficTracker';
-// import VerificationRequired from './components/VerificationRequired'; // Removed as per user request
-import Home from './pages/Home';
-const MaintenancePage = React.lazy(() => import('./pages/MaintenancePage'));
+import RealtimeSync from '@/shared/components/RealtimeSync';
+import DashboardGuard from '@/modules/dashboard/components/DashboardGuard';
+import useTrafficTracker from '@/hooks/useTrafficTracker';
+// import VerificationRequired from '@/modules/auth/components/VerificationRequired'; // Removed as per user request
+import Home from '@/shared/pages/Home';
+const MaintenancePage = React.lazy(() => import('@/shared/pages/MaintenancePage'));
 
 // Define a loading component
 const PageLoading = () => (
@@ -38,32 +38,32 @@ const components = import.meta.glob('./components/**/*.jsx');
 // render. Lazy-loading it puts it in a separate chunk that initializes before
 // React's internal dispatcher is ready, causing "Cannot read properties of null
 // (reading 'useEffect')" hook crashes.
-import PageLayout from './components/layout/PageLayout';
-const Navbar = lazy(() => import('./components/Navbar'));
-const MarketingNavbar = lazy(() => import('./components/MarketingNavbar'));
-import MarketingBottomNav from './components/MarketingBottomNav';
-const Login = lazy(() => import('./pages/Login'));
+import PageLayout from '@/shared/components/PageLayout';
+const Navbar = lazy(() => import('@/shared/components/Navbar'));
+const MarketingNavbar = lazy(() => import('@/modules/marketing/components/MarketingNavbar'));
+import MarketingBottomNav from '@/modules/marketing/components/MarketingBottomNav';
+const Login = lazy(() => import('@/modules/auth/pages/Login'));
 
 
-const DashboardLogin = lazy(() => import('./pages/DashboardLogin'));
-const Register = lazy(() => import('./pages/Register'));
-const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
-const AuthModal = lazy(() => import('./components/auth/AuthModal'));
-const Cart = lazy(() => import('./pages/Cart'));
-const ProductDetails = lazy(() => import('./pages/ProductDetails'));
-const Search = lazy(() => import('./pages/Search'));
-const Category = lazy(() => import('./pages/Category'));
-const Services = lazy(() => import('./pages/Services'));
-const ServiceDetails = lazy(() => import('./pages/ServiceDetails'));
-const FastFood = lazy(() => import('./pages/FastFood'));
-const FastFoodDetails = lazy(() => import('./pages/FastFoodDetails'));
-const Products = lazy(() => import('./pages/Products'));
-const ComradesMenu = lazy(() => import('./pages/ComradesMenu'));
-const ServicesManagement = lazy(() => import('./pages/dashboard/ServicesManagement'));
+const DashboardLogin = lazy(() => import('@/modules/auth/pages/DashboardLogin'));
+const Register = lazy(() => import('@/modules/auth/pages/Register'));
+const ForgotPassword = lazy(() => import('@/modules/auth/pages/ForgotPassword'));
+const AuthModal = lazy(() => import('@/modules/auth/components/AuthModal'));
+const Cart = lazy(() => import('@/modules/orders/pages/Cart'));
+const ProductDetails = lazy(() => import('@/modules/products/pages/ProductDetails'));
+const Search = lazy(() => import('@/shared/pages/Search'));
+const Category = lazy(() => import('@/modules/products/pages/Category'));
+const Services = lazy(() => import('@/modules/services/pages/Services'));
+const ServiceDetails = lazy(() => import('@/modules/services/pages/ServiceDetails'));
+const FastFood = lazy(() => import('@/modules/fastfood/pages/FastFood'));
+const FastFoodDetails = lazy(() => import('@/modules/fastfood/pages/FastFoodDetails'));
+const Products = lazy(() => import('@/modules/products/pages/Products'));
+const ComradesMenu = lazy(() => import('@/shared/pages/ComradesMenu'));
+const ServicesManagement = lazy(() => import('@/modules/services/pages/ServicesManagement'));
 
 // Public Footer Pages
-const StaticContentPage = lazy(() => import('./pages/public/StaticContentPage'));
-const AppContentManager = lazy(() => import('./pages/dashboard/settings/AppContentManager'));
+const StaticContentPage = lazy(() => import('@/shared/pages/StaticContentPage'));
+const AppContentManager = lazy(() => import('@/shared/pages/AppContentManager'));
 
 // Marketing components
 const MarketingDashboard = lazy(pages['./pages/marketing/MarketerDashboard.jsx']);
@@ -74,7 +74,7 @@ const SharedLinks = lazy(pages['./pages/marketing/SharedLinks.jsx']);
 const Affiliates = lazy(pages['./pages/marketing/Affiliates.jsx']);
 const Commissions = lazy(pages['./pages/marketing/Commissions.jsx']);
 const MarketerWallet = lazy(pages['./pages/marketing/MarketerWallet.jsx']);
-const MarketerPromoCodes = lazy(() => import('./pages/marketing/MarketerPromoCodes'));
+const MarketerPromoCodes = lazy(() => import('@/modules/marketing/pages/MarketerPromoCodes'));
 // Lazy load account related components
 const Account = lazy(pages['./pages/Account.jsx']);
 const AccountVerification = lazy(pages['./pages/AccountVerification.jsx']);
@@ -118,118 +118,125 @@ const ServiceProviderWallet = lazy(pages['./pages/dashboard/ServiceProviderWalle
 const RoleApplication = lazy(pages['./pages/RoleApplication.jsx']);
 const ProductShare = lazy(pages['./pages/ProductShare.jsx']);
 const DeliveryAgent = lazy(pages['./pages/DeliveryAgent.jsx']);
-const OpsManager = lazy(() => import('./pages/OpsManager'));
-const WorkWithUs = lazy(() => import('./pages/customer/WorkWithUs'));
-const RoleApplicationForm = lazy(() => import('./pages/customer/RoleApplicationForm'));
-const LogisticsManager = lazy(() => import('./pages/LogisticsManager'));
-const FinanceManager = lazy(() => import('./pages/FinanceManager'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const DeliveryFeeSettings = lazy(() => import('./pages/dashboard/DeliveryFeeSettings'));
-const Overview = lazy(() => import('./pages/dashboard/Overview'));
-const ProductManagement = lazy(() => import('./pages/dashboard/ProductManagement'));
-const DashboardProducts = lazy(() => import('./pages/dashboard/Products'));
-const StationManagerDashboard = lazy(() => import('./pages/station/StationManagerDashboard'));
-const StationLogin = lazy(() => import('./pages/station/StationLogin'));
-const StationWallet = lazy(() => import('./pages/station/StationWallet'));
-const ProductList = lazy(() => import('./pages/dashboard/products/ProductList'));
-const ComradesProducts = lazy(() => import('./pages/dashboard/comrades/ComradesProducts'));
-const ComradesProductList = lazy(() => import('./pages/dashboard/comrades/ComradesProductList'));
-const ComradesProductForm = lazy(() => import('./pages/dashboard/comrades/ComradesProductForm'));
-const ProductListingMode = lazy(() => import('./pages/dashboard/ProductListingMode'));
-import ScrollToTop from './components/ScrollToTop';
+const OpsManager = lazy(() => import('@/modules/admin/pages/OpsManager'));
+const WorkWithUs = lazy(() => import('@/shared/pages/WorkWithUs'));
+const RoleApplicationForm = lazy(() => import('@/modules/seller/pages/RoleApplicationForm'));
+const LogisticsManager = lazy(() => import('@/modules/delivery/pages/LogisticsManager'));
+const FinanceManager = lazy(() => import('@/modules/finance/pages/FinanceManager'));
+const Dashboard = lazy(() => import('@/modules/dashboard/pages/Dashboard'));
+const DeliveryFeeSettings = lazy(() => import('@/modules/delivery/pages/DeliveryFeeSettings'));
+const Overview = lazy(() => import('@/shared/pages/Overview'));
+const ProductManagement = lazy(() => import('@/modules/products/pages/ProductManagement'));
+const DashboardProducts = lazy(() => import('@/modules/products/pages/Products'));
+const StationManagerDashboard = lazy(() => import('@/modules/delivery/pages/StationManagerDashboard'));
+const StationLogin = lazy(() => import('@/modules/auth/pages/StationLogin'));
+const StationWallet = lazy(() => import('@/modules/delivery/pages/StationWallet'));
+const ProductList = lazy(() => import('@/modules/products/pages/ProductList'));
+const ComradesProducts = lazy(() => import('@/modules/products/pages/ComradesProducts'));
+const ComradesProductList = lazy(() => import('@/modules/products/pages/ComradesProductList'));
+const ComradesProductForm = lazy(() => import('@/modules/products/pages/ComradesProductForm'));
+const ProductListingMode = lazy(() => import('@/modules/products/pages/ProductListingMode'));
+import ScrollToTop from '@/shared/components/ScrollToTop';
 
-const Customer = lazy(() => import('./pages/Customer'));
-const CustomerOverview = lazy(() => import('./pages/customer/CustomerOverview'));
-const CustomerOrders = lazy(() => import('./pages/customer/CustomerOrders'));
-const MyInquiries = lazy(() => import('./pages/customer/MyInquiries'));
-const SupportChat = lazy(() => import('./pages/customer/SupportChat'));
-const CancelOrder = lazy(() => import('./pages/CancelOrder'));
-const UpdateOrderAddress = lazy(() => import('./pages/UpdateOrderAddress'));
-const OrderTracking = lazy(() => import('./pages/OrderTracking'));
-const PublicTracking = lazy(() => import('./pages/PublicTracking'));
-const CustomerWishlist = lazy(() => import('./pages/customer/CustomerWishlist'));
-const CustomerAddresses = lazy(() => import('./pages/customer/CustomerAddresses'));
-const CustomerNotifications = lazy(() => import('./pages/customer/CustomerNotifications'));
-const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
-const CustomerUpgrade = lazy(() => import('./pages/customer/CustomerUpgrade'));
-const MyApplications = lazy(() => import('./pages/customer/MyApplications'));
-const Checkout = lazy(() => import('./pages/Checkout'));
-const Wishlist = lazy(() => import('./pages/Wishlist'));
+// Subscription UI Pages
+const AdminSubscriptions = lazy(() => import('@/modules/admin/pages/AdminSubscriptions'));
+const SellerSubscriptions = lazy(() => import('@/modules/seller/pages/SellerSubscriptions'));
+const CustomerSubscriptions = lazy(() => import('@/modules/users/pages/CustomerSubscriptions'));
+const PricingPlans = lazy(() => import('@/shared/pages/PricingPlans'));
+const GuestSubscriptionManager = lazy(() => import('@/shared/pages/GuestSubscriptionManager'));
+
+const Customer = lazy(() => import('@/modules/users/pages/Customer'));
+const CustomerOverview = lazy(() => import('@/modules/users/pages/CustomerOverview'));
+const CustomerOrders = lazy(() => import('@/modules/orders/pages/CustomerOrders'));
+const MyInquiries = lazy(() => import('@/shared/pages/MyInquiries'));
+const SupportChat = lazy(() => import('@/shared/pages/SupportChat'));
+const CancelOrder = lazy(() => import('@/modules/orders/pages/CancelOrder'));
+const UpdateOrderAddress = lazy(() => import('@/modules/orders/pages/UpdateOrderAddress'));
+const OrderTracking = lazy(() => import('@/modules/orders/pages/OrderTracking'));
+const PublicTracking = lazy(() => import('@/modules/orders/pages/PublicTracking'));
+const CustomerWishlist = lazy(() => import('@/modules/products/pages/CustomerWishlist'));
+const CustomerAddresses = lazy(() => import('@/modules/users/pages/CustomerAddresses'));
+const CustomerNotifications = lazy(() => import('@/modules/users/pages/CustomerNotifications'));
+const NotificationsPage = lazy(() => import('@/shared/pages/NotificationsPage'));
+const CustomerUpgrade = lazy(() => import('@/modules/users/pages/CustomerUpgrade'));
+const MyApplications = lazy(() => import('@/shared/pages/MyApplications'));
+const Checkout = lazy(() => import('@/modules/orders/pages/Checkout'));
+const Wishlist = lazy(() => import('@/modules/products/pages/Wishlist'));
 
 // New dashboard pages (converted to lazy loading)
-const ReturnRequestPage = lazy(() => import('./pages/customer/ReturnRequestPage'));
-const UserManagement = lazy(() => import('./pages/UserManagement'));
-const UserApplications = lazy(() => import('./pages/dashboard/UserApplications'));
-const UserManagementOverview = lazy(() => import('./pages/dashboard/UserManagementOverview'));
-const AuditLogViewer = lazy(() => import('./pages/dashboard/AuditLogViewer'));
-const MarketerManagement = lazy(() => import('./pages/dashboard/MarketerManagement'));
-const CreateService = lazy(() => import('./pages/dashboard/services/CreateService'));
-const MyServices = lazy(() => import('./pages/dashboard/services/MyServices'));
-const DeliveryAssignment = lazy(() => import('./pages/dashboard/DeliveryAssignment'));
-const DeliveryAgents = lazy(() => import('./pages/dashboard/DeliveryAgents'));
-const CommissionManagement = lazy(() => import('./pages/dashboard/CommissionManagement'));
-const ReferralAnalytics = lazy(() => import('./pages/dashboard/ReferralAnalytics'));
-const InventoryManagement = lazy(() => import('./pages/dashboard/components/InventoryManagement'));
+const ReturnRequestPage = lazy(() => import('@/shared/pages/ReturnRequestPage'));
+const UserManagement = lazy(() => import('@/modules/users/pages/UserManagement'));
+const UserApplications = lazy(() => import('@/modules/users/pages/UserApplications'));
+const UserManagementOverview = lazy(() => import('@/modules/users/pages/UserManagementOverview'));
+const AuditLogViewer = lazy(() => import('@/shared/pages/AuditLogViewer'));
+const MarketerManagement = lazy(() => import('@/shared/pages/MarketerManagement'));
+const CreateService = lazy(() => import('@/modules/services/pages/CreateService'));
+const MyServices = lazy(() => import('@/modules/services/pages/MyServices'));
+const DeliveryAssignment = lazy(() => import('@/modules/delivery/pages/DeliveryAssignment'));
+const DeliveryAgents = lazy(() => import('@/modules/delivery/pages/DeliveryAgents'));
+const CommissionManagement = lazy(() => import('@/shared/pages/CommissionManagement'));
+const ReferralAnalytics = lazy(() => import('@/shared/pages/ReferralAnalytics'));
+const InventoryManagement = lazy(() => import('@/shared/pages/InventoryManagement'));
 // removed HeroPromotionManager import
-const EnhancedCategories = lazy(() => import('./pages/dashboard/EnhancedCategories'));
-const SystemSettings = lazy(() => import('./pages/dashboard/SystemSettings'));
-const SecuritySettings = lazy(() => import('./pages/dashboard/SecuritySettings'));
-const AdvancedReports = lazy(() => import('./pages/dashboard/AdvancedReports'));
-const BusinessAnalytics = lazy(() => import('./pages/dashboard/analytics/BusinessAnalytics'));
-const AdminOrders = lazy(() => import('./pages/dashboard/AdminOrders'));
-const AdminReturnsList = lazy(() => import('./pages/dashboard/AdminReturnsList'));
-const SuperAdminOrders = lazy(() => import('./pages/dashboard/SuperAdminOrders'));
-const OrderAnalytics = lazy(() => import('./pages/dashboard/OrderAnalytics'));
-const AdminOverview = lazy(() => import('./pages/dashboard/AdminOverview'));
-const SuspendProduct = lazy(() => import('./pages/dashboard/SuspendProduct'));
-const AdminServicesApproval = lazy(() => import('./pages/dashboard/AdminServicesApproval'));
-const ServiceReviews = lazy(() => import('./pages/dashboard/ServiceReviews'));
-const SupportTickets = lazy(() => import('./pages/dashboard/SupportTickets'));
-const CustomerService = lazy(() => import('./pages/dashboard/CustomerService'));
-const FastFoodForm = lazy(() => import('./pages/dashboard/FastFoodForm'));
-const FastFoodManagement = lazy(() => import('./pages/dashboard/FastFoodManagement'));
-const HeroSettingsConfig = lazy(() => import('./pages/dashboard/HeroSettingsConfig'));
-const SmartProductForm = lazy(() => import('./pages/dashboard/SmartProductForm'));
-const TestDynamicForms = lazy(() => import('./pages/dashboard/TestDynamicForms'));
-const DeliveryAgentDashboard = lazy(() => import('./pages/dashboard/DeliveryAgentDashboard'));
-const DeliveryRequests = lazy(() => import('./pages/dashboard/DeliveryRequests'));
-const ServiceProviderDashboard = lazy(() => import('./pages/dashboard/ServiceProviderDashboard'));
-const OtherDashboards = lazy(() => import('./pages/dashboard/OtherDashboards'));
-const SellerManagement = lazy(() => import('./pages/dashboard/SellerManagement'));
-const ServiceProviderManagement = lazy(() => import('./pages/dashboard/ServiceProviderManagement'));
-const CustomerManagement = lazy(() => import('./pages/dashboard/CustomerManagement'));
-const WarehouseManagement = lazy(() => import('./pages/dashboard/WarehouseManagement'));
-const PickupStationManagement = lazy(() => import('./pages/dashboard/PickupStationManagement'));
-const SellerBusinessLocation = lazy(() => import('./pages/seller/SellerBusinessLocation'));
-const ProductDeletionRequests = lazy(() => import('./pages/dashboard/ProductDeletionRequests'));
-const SystemRevenue = lazy(() => import('./pages/dashboard/SystemRevenue'));
-const PendingPayouts = lazy(() => import('./pages/dashboard/PendingPayouts'));
-const AdminLiveMap = lazy(() => import('./pages/dashboard/AdminLiveMap'));
-const DeliveryEarningVerification = lazy(() => import('./pages/dashboard/delivery/DeliveryEarningVerification'));
-const BatchSystem = lazy(() => import('./pages/dashboard/BatchSystem'));
-const CustomerReturnsList = lazy(() => import('./pages/customer/CustomerReturnsList'));
-const FastFoodPickupPoints = lazy(() => import('./pages/dashboard/FastFoodPickupPoints'));
-const ContactMessages = lazy(() => import('./pages/dashboard/ContactMessages'));
-const AdminOnBehalfCreation = lazy(() => import('./pages/dashboard/AdminOnBehalfCreation'));
-const RoleTools = lazy(() => import('./pages/dashboard/RoleTools'));
-const DirectOrders = lazy(() => import('./pages/dashboard/DirectOrders'));
-const MarketingNotifications = lazy(() => import('./pages/dashboard/MarketingNotifications'));
-const PromoCodes = lazy(() => import('./pages/marketing/PromoCodes'));
-const AdminTools = lazy(() => import('./pages/dashboard/AdminTools'));
-const DashboardManual = lazy(() => import('./components/dashboard/DashboardManual'));
-const LogisticsInvoices = lazy(() => import('./pages/dashboard/LogisticsInvoices'));
+const EnhancedCategories = lazy(() => import('@/shared/pages/EnhancedCategories'));
+const SystemSettings = lazy(() => import('@/shared/pages/SystemSettings'));
+const SecuritySettings = lazy(() => import('@/shared/pages/SecuritySettings'));
+const AdvancedReports = lazy(() => import('@/shared/pages/AdvancedReports'));
+const BusinessAnalytics = lazy(() => import('@/shared/pages/BusinessAnalytics'));
+const AdminOrders = lazy(() => import('@/modules/orders/pages/AdminOrders'));
+const AdminReturnsList = lazy(() => import('@/modules/admin/pages/AdminReturnsList'));
+const SuperAdminOrders = lazy(() => import('@/modules/orders/pages/SuperAdminOrders'));
+const OrderAnalytics = lazy(() => import('@/modules/orders/pages/OrderAnalytics'));
+const AdminOverview = lazy(() => import('@/modules/admin/pages/AdminOverview'));
+const SuspendProduct = lazy(() => import('@/modules/products/pages/SuspendProduct'));
+const AdminServicesApproval = lazy(() => import('@/modules/services/pages/AdminServicesApproval'));
+const ServiceReviews = lazy(() => import('@/modules/services/pages/ServiceReviews'));
+const SupportTickets = lazy(() => import('@/shared/pages/SupportTickets'));
+const CustomerService = lazy(() => import('@/modules/services/pages/CustomerService'));
+const FastFoodForm = lazy(() => import('@/modules/fastfood/pages/FastFoodForm'));
+const FastFoodManagement = lazy(() => import('@/modules/fastfood/pages/FastFoodManagement'));
+const HeroSettingsConfig = lazy(() => import('@/modules/marketing/pages/HeroSettingsConfig'));
+const SmartProductForm = lazy(() => import('@/modules/products/pages/SmartProductForm'));
+const TestDynamicForms = lazy(() => import('@/shared/pages/TestDynamicForms'));
+const DeliveryAgentDashboard = lazy(() => import('@/modules/delivery/pages/DeliveryAgentDashboard'));
+const DeliveryRequests = lazy(() => import('@/modules/delivery/pages/DeliveryRequests'));
+const ServiceProviderDashboard = lazy(() => import('@/modules/services/pages/ServiceProviderDashboard'));
+const OtherDashboards = lazy(() => import('@/modules/dashboard/pages/OtherDashboards'));
+const SellerManagement = lazy(() => import('@/modules/seller/pages/SellerManagement'));
+const ServiceProviderManagement = lazy(() => import('@/modules/services/pages/ServiceProviderManagement'));
+const CustomerManagement = lazy(() => import('@/modules/users/pages/CustomerManagement'));
+const WarehouseManagement = lazy(() => import('@/shared/pages/WarehouseManagement'));
+const PickupStationManagement = lazy(() => import('@/modules/delivery/pages/PickupStationManagement'));
+const SellerBusinessLocation = lazy(() => import('@/modules/seller/pages/SellerBusinessLocation'));
+const ProductDeletionRequests = lazy(() => import('@/modules/products/pages/ProductDeletionRequests'));
+const SystemRevenue = lazy(() => import('@/shared/pages/SystemRevenue'));
+const PendingPayouts = lazy(() => import('@/modules/finance/pages/PendingPayouts'));
+const AdminLiveMap = lazy(() => import('@/modules/admin/pages/AdminLiveMap'));
+const DeliveryEarningVerification = lazy(() => import('@/modules/auth/pages/DeliveryEarningVerification'));
+const BatchSystem = lazy(() => import('@/shared/pages/BatchSystem'));
+const CustomerReturnsList = lazy(() => import('@/modules/users/pages/CustomerReturnsList'));
+const FastFoodPickupPoints = lazy(() => import('@/modules/fastfood/pages/FastFoodPickupPoints'));
+const ContactMessages = lazy(() => import('@/shared/pages/ContactMessages'));
+const AdminOnBehalfCreation = lazy(() => import('@/modules/admin/pages/AdminOnBehalfCreation'));
+const RoleTools = lazy(() => import('@/shared/pages/RoleTools'));
+const DirectOrders = lazy(() => import('@/modules/orders/pages/DirectOrders'));
+const MarketingNotifications = lazy(() => import('@/modules/marketing/pages/MarketingNotifications'));
+const PromoCodes = lazy(() => import('@/modules/marketing/pages/PromoCodes'));
+const AdminTools = lazy(() => import('@/modules/admin/pages/AdminTools'));
+const DashboardManual = lazy(() => import('@/modules/dashboard/components/DashboardManual'));
+const LogisticsInvoices = lazy(() => import('@/modules/delivery/pages/LogisticsInvoices'));
 
 // Delivery Agent Sub-components
-const DeliveryAgentOrders = lazy(() => import('./pages/dashboard/delivery/Orders'));
-const DeliveryAgentAvailable = lazy(() => import('./pages/dashboard/delivery/Available'));
-const DeliveryLogistics = lazy(() => import('./pages/dashboard/delivery/DeliveryLogistics'));
-const DeliveryAgentAccount = lazy(() => import('./pages/dashboard/delivery/Account'));
+const DeliveryAgentOrders = lazy(() => import('@/modules/orders/pages/Orders'));
+const DeliveryAgentAvailable = lazy(() => import('@/shared/pages/Available'));
+const DeliveryLogistics = lazy(() => import('@/modules/delivery/pages/DeliveryLogistics'));
+const DeliveryAgentAccount = lazy(() => import('@/modules/users/pages/Account'));
 
-const DeliveryNotifications = lazy(() => import('./pages/dashboard/delivery/Notifications'));
-const DeliverySupport = lazy(() => import('./pages/dashboard/delivery/Support'));
-const DeliverySettings = lazy(() => import('./pages/dashboard/delivery/Settings'));
-const DeliveryLiveMap = lazy(() => import('./pages/dashboard/delivery/LiveMap'));
-const DeliveryWallet = lazy(() => import('./pages/dashboard/delivery/Wallet'));
+const DeliveryNotifications = lazy(() => import('@/shared/pages/Notifications'));
+const DeliverySupport = lazy(() => import('@/shared/pages/Support'));
+const DeliverySettings = lazy(() => import('@/shared/pages/Settings'));
+const DeliveryLiveMap = lazy(() => import('@/shared/pages/LiveMap'));
+const DeliveryWallet = lazy(() => import('@/modules/finance/pages/Wallet'));
 
 // Main App component with providers
 const AppWithProviders = () => (
@@ -453,6 +460,8 @@ const AppContent = () => {
                 <Route path="/fastfood/:id" element={<FastFoodDetails />} />
                 <Route path="/menu" element={<ComradesMenu />} />
                 <Route path="/products" element={<Products />} />
+                <Route path="/pricing" element={<PricingPlans />} />
+                <Route path="/guest/subscriptions/:token" element={<GuestSubscriptionManager />} />
 
                 {/* Public Footer Pages */}
                 <Route path="/about" element={<StaticContentPage pageKey="content_page_about" title="About Us" />} />
@@ -574,6 +583,7 @@ const AppContent = () => {
                   <Route path="direct-orders" element={<DirectOrders />} />
                   <Route path="other-dashboards" element={<OtherDashboards />} />
                   <Route path="admin-tools" element={<AdminTools />} />
+                  <Route path="subscriptions" element={<AdminSubscriptions />} />
                   <Route path="admin-tools/audit-log" element={<AuditLogViewer />} />
                   <Route path="manual" element={<DashboardManual role="admin" />} />
                   {/* Logistics Manager entry point */}
@@ -616,6 +626,7 @@ const AppContent = () => {
                   <Route path="orders" element={<SellerOrders />} />
                   <Route path="earnings" element={<SellerEarnings />} />
                   <Route path="analytics" element={<SellerAnalytics />} />
+                  <Route path="subscriptions" element={<SellerSubscriptions />} />
                   <Route path="wallet" element={<SellerWallet />} />
                   <Route path="reports" element={<SellerReports />} />
                   <Route path="recycle-bin" element={<RecycleBin />} />
@@ -690,6 +701,7 @@ const AppContent = () => {
                   <Route path="returns" element={<CustomerReturnsList />} />
                   <Route path="wishlist" element={<Wishlist />} />
                   <Route path="wallet" element={<div>Wallet</div>} />
+                  <Route path="subscriptions" element={<CustomerSubscriptions />} />
                   <Route path="address" element={<CustomerAddresses />} />
                   <Route path="settings" element={<AccountSettings />} />
                   <Route path="account-page" element={<AccountPage />} />

@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { Order, OrderItem, User } = require('../models');
+const { Order, OrderItem, User } = require('../database/models.registry');
 const { Op } = require('sequelize');
 const { notifyCustomerOrderThankYou } = require('../utils/notificationHelpers');
 

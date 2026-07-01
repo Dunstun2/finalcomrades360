@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import api, { productApi, adminApi } from '../services/api';
+import api, { productApi, adminApi } from '@/shared/services/api';
 
 /**
  * Custom hook for API operations

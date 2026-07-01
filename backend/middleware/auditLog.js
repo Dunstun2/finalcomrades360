@@ -1,4 +1,4 @@
-const { AdminAuditLog } = require('../models');
+const { AdminAuditLog } = require('../database/models.registry');
 
 /**
  * Logs an admin action to the AdminAuditLog table.

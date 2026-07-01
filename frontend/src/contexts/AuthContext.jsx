@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import api from '../services/api';
-import { joinUserRoom } from '../services/socket';
+import api from '@/shared/services/api';
+import { joinUserRoom } from '@/shared/services/socket';
 
 const AuthContext = createContext(null);
 
@@ -110,6 +110,9 @@ export const AuthProvider = ({ children }) => {
 
       if (token) {
         localStorage.setItem('token', token);
+        // Ensure axios includes token for subsequent requests
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        api.defaults.headers.common['X-Access-Token'] = token;
         console.log('Login success - Token saved.');
       } else {
         console.warn('[AuthContext] No token found in login response.');
@@ -153,7 +156,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const loginWithGoogle = () => {
+  const loginWithGoogle = (isRegistration = false) => {
     return new Promise((resolve, reject) => {
       if (typeof window.google === 'undefined') {
         reject(new Error('Google Identity Services script not loaded. Please refresh the page.'));
@@ -169,7 +172,7 @@ export const AuthProvider = ({ children }) => {
             return;
           }
           try {
-            const user = await googleLogin(response.access_token, 'access_token');
+            const user = await googleLogin(response.access_token, 'access_token', isRegistration);
             resolve(user);
           } catch (err) {
             reject(err);
@@ -181,12 +184,16 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
-  const googleLogin = async (googleToken, tokenType = 'id_token') => {
+  const googleLogin = async (googleToken, tokenType = 'id_token', isRegistration = false) => {
     try {
-      const response = await api.post('/auth/google', { token: googleToken, tokenType });
+      const response = await api.post('/auth/google', { token: googleToken, tokenType, isRegistration });
       
       if (!response.data || typeof response.data !== 'object') {
         throw new Error('Google Login failed: Invalid response from server.');
+      }
+
+      if (response.data.success === false) {
+        throw new Error(response.data.message || 'Google Login failed.');
       }
 
       const token = response.data.token;
@@ -211,9 +218,10 @@ export const AuthProvider = ({ children }) => {
 
       return sessionUser;
     } catch (error) {
-      console.error('[AuthContext] Google Login failed:', error.message);
-      setError(error.message);
-      throw error;
+      const msg = error.response?.data?.message || error.message || 'Google Login failed.';
+      console.error('[AuthContext] Google Login failed:', msg);
+      setError(msg);
+      throw new Error(msg);
     }
   };
 

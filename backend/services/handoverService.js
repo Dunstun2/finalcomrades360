@@ -1,4 +1,4 @@
-const { HandoverCode, Order, DeliveryTask, User, Wallet, Transaction, Commission, OrderItem, Product, FastFood, Service, ReturnRequest, sequelize, Op } = require('../models');
+const { HandoverCode, Order, DeliveryTask, User, Wallet, Transaction, Commission, OrderItem, Product, FastFood, Service, ReturnRequest, sequelize, Op } = require('../database/models.registry');
 const { creditAgentForTask } = require('./earningsService');
 const { moveToSuccess } = require('../utils/walletHelpers');
 const { SELLER_PAID_ROUTE_TYPES, calculateSellerMerchandisePayout } = require('../utils/deliveryChargeHelpers');
