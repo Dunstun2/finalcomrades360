@@ -145,6 +145,19 @@ exports.getBlogBySlug = async (req, res) => {
 // @access Admin
 exports.createBlog = async (req, res) => {
   try {
+    console.log('[blog] Create request received');
+    console.log('[blog] User:', req.user ? { id: req.user.id, role: req.user.role, email: req.user.email } : 'No user');
+    console.log('[blog] Body keys:', Object.keys(req.body));
+
+    // Verify user authentication
+    if (!req.user || !req.user.id) {
+      console.error('[blog] Create error: User not authenticated');
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please ensure you are logged in as an admin.'
+      });
+    }
+
     const {
       title,
       featuredImage,
@@ -162,14 +175,25 @@ exports.createBlog = async (req, res) => {
     } = req.body;
 
     if (!title || !authorName || !summary || !content) {
+      console.error('[blog] Validation failed:', {
+        hasTitle: !!title,
+        hasAuthorName: !!authorName,
+        hasSummary: !!summary,
+        hasContent: !!content
+      });
       return res.status(400).json({
         success: false,
         message: 'Title, author name, summary, and content are required'
       });
     }
 
+    console.log('[blog] Validation passed, generating slug...');
+
+    console.log('[blog] Validation passed, generating slug...');
+
     // Generate slug
     let slug = generateSlug(title);
+    console.log('[blog] Generated slug:', slug);
 
     // Ensure slug is unique
     let existingPost = await BlogPost.findOne({ where: { slug } });
@@ -179,8 +203,18 @@ exports.createBlog = async (req, res) => {
       existingPost = await BlogPost.findOne({ where: { slug } });
       counter++;
     }
+    console.log('[blog] Final unique slug:', slug);
 
     const publishedAt = status === 'published' ? new Date() : null;
+
+    console.log('[blog] Creating blog post with data:', {
+      title,
+      slug,
+      status: status || 'draft',
+      authorName,
+      hasContent: !!content,
+      createdBy: req.user.id
+    });
 
     const post = await BlogPost.create({
       title,
@@ -201,6 +235,8 @@ exports.createBlog = async (req, res) => {
       createdBy: req.user.id
     });
 
+    console.log('[blog] Blog post created successfully:', post.id);
+
     res.status(201).json({
       success: true,
       message: 'Blog post created successfully',
@@ -208,10 +244,33 @@ exports.createBlog = async (req, res) => {
     });
   } catch (error) {
     console.error('[blog] Create error:', error);
+    console.error('[blog] Error name:', error.name);
+    console.error('[blog] Error code:', error.code);
+    console.error('[blog] Error stack:', error.stack);
+    console.error('[blog] Request body:', req.body);
+    console.error('[blog] User info:', req.user ? { id: req.user.id, role: req.user.role } : 'No user');
+
+    // Check for specific database errors
+    if (error.name === 'SequelizeDatabaseError') {
+      console.error('[blog] Database error detected!');
+      console.error('[blog] SQL:', error.sql);
+
+      if (error.message.includes("Table") && error.message.includes("doesn't exist")) {
+        return res.status(500).json({
+          success: false,
+          message: 'Database table not found. Please contact administrator to sync the database.',
+          error: 'BlogPost table does not exist in production database',
+          needsSync: true
+        });
+      }
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to create blog post',
-      error: error.message
+      error: error.message,
+      errorType: error.name,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

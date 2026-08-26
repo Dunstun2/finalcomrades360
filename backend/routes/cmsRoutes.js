@@ -49,6 +49,20 @@ router.delete('/contact', auth, adminOnly, cmsController.deleteContactPage);
 
 // ============= BLOG ROUTES =============
 
+// DEBUG: Test endpoint to verify auth and user context
+router.get('/blog/test-auth', auth, adminOnly, (req, res) => {
+    res.json({
+        success: true,
+        message: 'Authentication successful',
+        user: {
+            id: req.user?.id,
+            email: req.user?.email,
+            role: req.user?.role,
+            roles: req.user?.roles
+        }
+    });
+});
+
 // Get all blog posts (public with admin access to drafts)
 router.get('/blog', optionalAuth, blogController.getAllBlogs);
 
