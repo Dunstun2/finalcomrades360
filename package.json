@@ -7,10 +7,10 @@
     "dev": "concurrently \"cd frontend && set BACKEND_PORT=6001&& npm run dev\" \"cd backend && npm run dev\"",
     "start": "node backend/server.js",
     "build": "cd frontend && npm run build",
-    "db:migrate": "cd backend && npx sequelize-cli db:migrate",
-    "db:migrate:prod": "cd backend && npx sequelize-cli db:migrate --env production",
-    "db:migrate:status": "cd backend && npx sequelize-cli db:migrate:status",
-    "db:migrate:status:prod": "cd backend && npx sequelize-cli db:migrate:status --env production",
+    "db:migrate": "cd backend && node scripts/run_migrations.js",
+    "db:migrate:prod": "cd backend && set NODE_ENV=production&& node scripts/run_migrations.js",
+    "db:migrate:status": "cd backend && node scripts/run_migrations.js --status",
+    "db:migrate:status:prod": "cd backend && set NODE_ENV=production&& node scripts/run_migrations.js --status",
     "wallet:release": "node backend/scripts/verify_and_release_funds.js"
   },
   "devDependencies": {
