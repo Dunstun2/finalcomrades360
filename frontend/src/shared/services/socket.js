@@ -37,8 +37,7 @@ const connectSocket = () => {
 
   // Create new socket connection
   socket = io(WS_URL, {
-    // Prioritize polling for cPanel compatibility, then try websocket
-    transports: ['polling', 'websocket'], 
+    transports: ['websocket', 'polling'], 
     upgrade: true,
     rememberUpgrade: true,
     autoConnect: true,
@@ -49,11 +48,7 @@ const connectSocket = () => {
     randomizationFactor: 0.5,
     withCredentials: true,
     path: '/socket.io/',
-    timeout: 60000, // Increased to 60s to match server timeout
-    // Add additional options for better handshake reliability
-    extraHeaders: {
-      "X-Requested-With": "XMLHttpRequest"
-    }
+    timeout: 60000
   });
 
   // Connection event handlers

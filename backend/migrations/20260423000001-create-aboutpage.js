@@ -35,7 +35,7 @@ module.exports = {
         comment: 'Additional company information'
       },
       createdBy: {
-        type: Sequelize.UUID,
+        type: Sequelize.INTEGER,
         allowNull: false,
         references: {
           model: 'User',
@@ -46,7 +46,7 @@ module.exports = {
         comment: 'Admin user who created this content'
       },
       updatedBy: {
-        type: Sequelize.UUID,
+        type: Sequelize.INTEGER,
         allowNull: true,
         references: {
           model: 'User',

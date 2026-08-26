@@ -34,7 +34,7 @@ module.exports = (sequelize, DataTypes) => {
       comment: "Additional company information"
     },
     createdBy: {
-      type: DataTypes.UUID,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: 'User',
@@ -43,7 +43,7 @@ module.exports = (sequelize, DataTypes) => {
       comment: "Admin user who created this content"
     },
     updatedBy: {
-      type: DataTypes.UUID,
+      type: DataTypes.INTEGER,
       allowNull: true,
       references: {
         model: 'User',

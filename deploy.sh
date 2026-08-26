@@ -69,11 +69,13 @@ echo ""
 
 echo -e "${YELLOW}Step 6: Deploying frontend...${NC}"
 if [ -d "frontend/dist" ]; then
-    # EXACT same command as .cpanel.yml
-    rsync -avz frontend/dist/ "$PUBLIC_HTML/" >> "$DEPLOY_LOG" 2>&1
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -avz frontend/dist/ "$PUBLIC_HTML/" >> "$DEPLOY_LOG" 2>&1
+    else
+        cp -rf frontend/dist/* "$PUBLIC_HTML/" >> "$DEPLOY_LOG" 2>&1
+    fi
     echo -e "${GREEN}✓ Frontend synced to $PUBLIC_HTML${NC}"
     
-    # EXACT same command as .cpanel.yml
     cp .htaccess "$PUBLIC_HTML/.htaccess" >> "$DEPLOY_LOG" 2>&1 || echo "No .htaccess found, skipping"
     echo -e "${GREEN}✓ .htaccess copied${NC}"
 else
@@ -83,12 +85,16 @@ fi
 echo ""
 
 echo -e "${YELLOW}Step 7: Deploying backend...${NC}"
-# EXACT same command as .cpanel.yml
-rsync -avz \
-    --exclude 'node_modules' \
-    --exclude 'uploads' \
-    --exclude 'error.log' \
-    backend/ "$BACKEND_PATH/" >> "$DEPLOY_LOG" 2>&1
+if command -v rsync >/dev/null 2>&1; then
+    rsync -avz \
+        --exclude 'node_modules' \
+        --exclude 'uploads' \
+        --exclude 'error.log' \
+        backend/ "$BACKEND_PATH/" >> "$DEPLOY_LOG" 2>&1
+else
+    cp -rf backend/* "$BACKEND_PATH/" >> "$DEPLOY_LOG" 2>&1
+    cp -f backend/.sequelizerc "$BACKEND_PATH/.sequelizerc" >> "$DEPLOY_LOG" 2>&1 || true
+fi
 echo -e "${GREEN}✓ Backend synced to $BACKEND_PATH${NC}"
 echo ""
 

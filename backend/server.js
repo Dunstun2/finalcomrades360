@@ -376,31 +376,66 @@ app.use(async (req, res, next) => {
 });
 
 
-// Serve static files from uploads directory with aggressive caching
+// Serve static files from uploads directory with aggressive caching and subdirectory fallback
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const CPANEL_UPLOADS_DIR = path.join(__dirname, '../public_html/uploads');
+const UPLOAD_SUB_DIRS = ['', 'products', 'other', 'services', 'profiles', 'ids', 'fastfood', 'banners'];
+
+const placeholderSvg = `<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="400" height="400" fill="#f3f4f6"/>
+  <text x="200" y="200" font-family="sans-serif" font-size="18" text-anchor="middle" dominant-baseline="middle" fill="#9ca3af">No Image</text>
+</svg>`;
+
 app.use('/uploads', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Max-Age', '86400');
 
-  // Cache images for 1 year (static/immutable)
+  // Cache images
   if (req.method === 'GET' && !req.url.includes('?')) {
     res.header('Cache-Control', 'public, max-age=31536000, immutable');
   } else {
-    res.header('Cache-Control', 'public, max-age=3600'); // 1 hour for others
+    res.header('Cache-Control', 'public, max-age=3600');
   }
 
-  next();
-}, express.static(path.join(__dirname, 'uploads')), (req, res) => {
-  if (process.env.NODE_ENV === 'development') {
-    // Fallback: serve SVG placeholder only in development
-    const placeholderSvg = `<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="400" height="400" fill="#f3f4f6"/>
-  <text x="200" y="270" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#9ca3af">No Image</text>
-</svg>`;
+  // Extract clean requested file path (remove leading slash and query params)
+  const cleanPath = req.path.replace(/^\/+/, '');
+  if (!cleanPath) return next();
+
+  // 1. Direct path check in backend/uploads
+  const directPath = path.join(UPLOADS_DIR, cleanPath);
+  if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+    return res.sendFile(directPath);
+  }
+
+  // 2. Direct path check in public_html/uploads
+  const cpanelDirectPath = path.join(CPANEL_UPLOADS_DIR, cleanPath);
+  if (fs.existsSync(cpanelDirectPath) && fs.statSync(cpanelDirectPath).isFile()) {
+    return res.sendFile(cpanelDirectPath);
+  }
+
+  // 3. If cleanPath is just a filename, search known subdirectories
+  const baseFileName = path.basename(cleanPath);
+  for (const subDir of UPLOAD_SUB_DIRS) {
+    if (!subDir) continue;
+    const candidatePath = path.join(UPLOADS_DIR, subDir, baseFileName);
+    if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      return res.sendFile(candidatePath);
+    }
+    const cpanelCandidatePath = path.join(CPANEL_UPLOADS_DIR, subDir, baseFileName);
+    if (fs.existsSync(cpanelCandidatePath) && fs.statSync(cpanelCandidatePath).isFile()) {
+      return res.sendFile(cpanelCandidatePath);
+    }
+  }
+
+  // 4. If image extension and not found on disk, serve clean SVG placeholder instead of broken JSON 404
+  const ext = path.extname(baseFileName).toLowerCase();
+  if (['.jpg', '.jpeg', '.png', '.webp', '.svg', '.gif', '.heic', '.heif', ''].includes(ext)) {
     res.set('Content-Type', 'image/svg+xml');
     return res.send(placeholderSvg);
   }
+
   res.status(404).json({ message: 'Resource not found' });
 });
 

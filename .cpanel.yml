@@ -11,14 +11,16 @@ deployment:
     - echo "=== Deployment started at $(date) ===" >> /home/vdranjxy/logs/git-deploy.log
     
     # 1. Sync Frontend to public_html
-    - /usr/bin/rsync -avz frontend/dist/ /home/vdranjxy/public_html/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
-    - /bin/cp .htaccess /home/vdranjxy/public_html/.htaccess >> /home/vdranjxy/logs/git-deploy.log 2>&1
+    - /bin/cp -rf frontend/dist/* /home/vdranjxy/public_html/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
+    - /bin/cp -f .htaccess /home/vdranjxy/public_html/.htaccess >> /home/vdranjxy/logs/git-deploy.log 2>&1
     
     # 2. Sync Backend to comrades-master (the runtime root)
-    - /usr/bin/rsync -avz --exclude 'node_modules' --exclude 'uploads' --exclude 'error.log' backend/ /home/vdranjxy/comrades-master/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
+    - /bin/cp -rf backend/* /home/vdranjxy/comrades-master/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
+    - /bin/cp -f backend/.sequelizerc /home/vdranjxy/comrades-master/.sequelizerc >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
     
     # Log completion
     - echo "=== Deployment completed at $(date) ===" >> /home/vdranjxy/logs/git-deploy.log
     - echo "" >> /home/vdranjxy/logs/git-deploy.log
+
     
 
