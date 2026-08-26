@@ -107,7 +107,7 @@ const MarketerDashboard = () => {
         setActiveTab(lastPart);
       }
     }
-    
+
     // Support opening sidebar via URL (e.g. from global bottom nav 'More' button)
     if (params.get('openSidebar') === 'true') {
       setIsSidebarOpen(true);
@@ -118,7 +118,7 @@ const MarketerDashboard = () => {
     }
   }, [location.search, location.pathname, activeTab, navigate]);
 
-  
+
   // Listen for global toggle-marketing-sidebar event
   useEffect(() => {
     const handleToggle = () => setIsSidebarOpen(prev => !prev);
@@ -147,7 +147,7 @@ const MarketerDashboard = () => {
       else if (isSectionVisible('services')) setBrowseSubTab('service');
       else if (isSectionVisible('fastfood')) setBrowseSubTab('fastfood');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maintenance]);
 
   // Social media accounts state
@@ -201,16 +201,16 @@ const MarketerDashboard = () => {
   const getDeepLink = (item) => {
     // Priority: 1. Environment Variable, 2. Current Origin
     const envUrl = import.meta.env.VITE_API_URL;
-    const origin = (envUrl && envUrl.startsWith('http')) 
-      ? envUrl.replace(/\/api\/?$/, '') 
+    const origin = (envUrl && envUrl.startsWith('http'))
+      ? envUrl.replace(/\/api\/?$/, '')
       : window.location.origin;
-    
+
     const ref = user?.referralCode || 'PROMO';
     if (!item) return `${origin}/?ref=${ref}`;
 
     const base = `${origin}/api/marketing/r`;
     let params = `?ref=${ref}`;
-    
+
     if (item.type === 'product') params += `&productId=${item.id}`;
     else if (item.type === 'service') params += `&serviceId=${item.id}`;
     else if (item.type === 'fastfood') params += `&fastfoodId=${item.id}`;
@@ -527,15 +527,15 @@ const MarketerDashboard = () => {
     try {
       if (pageNum === 1) setLoadingCustomers(true);
       else setLoadingMoreCustomers(true);
-      
+
       const res = await api.get(`/marketing/my-customers?page=${pageNum}&limit=10`);
-      
+
       if (pageNum === 1) {
         setMyCustomers(res.data?.customers || []);
       } else {
         setMyCustomers(prev => [...prev, ...(res.data?.customers || [])]);
       }
-      
+
       setTotalCustomers(res.data?.total || 0);
       setHasMoreCustomers(res.data?.hasMore || false);
       setCustomersPage(pageNum);
@@ -684,59 +684,59 @@ const MarketerDashboard = () => {
         ]);
 
         // Helper to extract array from various response structures
-      const extractData = (data, key) => {
-        if (!data) return [];
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data[key])) return data[key];
-        if (data.data) {
-          if (Array.isArray(data.data)) return data.data;
-          if (Array.isArray(data.data[key])) return data.data[key];
-        }
-        return [];
-      };
+        const extractData = (data, key) => {
+          if (!data) return [];
+          if (Array.isArray(data)) return data;
+          if (Array.isArray(data[key])) return data[key];
+          if (data.data) {
+            if (Array.isArray(data.data)) return data.data;
+            if (Array.isArray(data.data[key])) return data.data[key];
+          }
+          return [];
+        };
 
-      const allProducts = extractData(productsResponse.data, 'products');
-      const allServices = extractData(servicesResponse.data, 'services');
-      const allFastFood = extractData(fastFoodResponse.data, 'fastFoods');
+        const allProducts = extractData(productsResponse.data, 'products');
+        const allServices = extractData(servicesResponse.data, 'services');
+        const allFastFood = extractData(fastFoodResponse.data, 'fastFoods');
 
-      // Helper: Calculate commission amount
-      const calculateCommission = (item) => {
-        return parseFloat(item.marketingCommission || 0);
-      };
+        // Helper: Calculate commission amount
+        const calculateCommission = (item) => {
+          return parseFloat(item.marketingCommission || 0);
+        };
 
-      const normalizedProducts = allProducts.map((product) => {
-        const commissionRate = parseFloat(product.marketingCommission) || parseFloat(product.commissionRate) || 5;
-        const commissionAmount = calculateCommission({ ...product, marketingCommission: commissionRate });
-        const isApproved = product.approved === true || product.approved === 1 || product.approved === '1' || product.status === 'active' || product.status === 'approved';
-        const isVisible = product.visibilityStatus !== 'hidden' && product.visibilityStatus !== 'inactive';
-        const isSuspended = product.suspended === true || product.suspended === 1 || product.suspended === '1';
-        const isActive = product.isActive !== false && product.isActive !== 0 && product.isActive !== '0';
-        return { ...product, type: 'product', marketingCommission: commissionRate, _marketingCommissionAmount: commissionAmount, _isApproved: isApproved, _isVisible: isVisible, _isSuspended: isSuspended, _isActive: isActive };
-      });
+        const normalizedProducts = allProducts.map((product) => {
+          const commissionRate = parseFloat(product.marketingCommission) || parseFloat(product.commissionRate) || 5;
+          const commissionAmount = calculateCommission({ ...product, marketingCommission: commissionRate });
+          const isApproved = product.approved === true || product.approved === 1 || product.approved === '1' || product.status === 'active' || product.status === 'approved';
+          const isVisible = product.visibilityStatus !== 'hidden' && product.visibilityStatus !== 'inactive';
+          const isSuspended = product.suspended === true || product.suspended === 1 || product.suspended === '1';
+          const isActive = product.isActive !== false && product.isActive !== 0 && product.isActive !== '0';
+          return { ...product, type: 'product', marketingCommission: commissionRate, _marketingCommissionAmount: commissionAmount, _isApproved: isApproved, _isVisible: isVisible, _isSuspended: isSuspended, _isActive: isActive };
+        });
 
-      const normalizedServices = allServices.map((service) => {
-        const commissionAmount = calculateCommission(service);
-        return { ...service, type: 'service', name: service.title || service.name, images: service.images?.map(img => img.imageUrl || img) || [], marketingCommission: service.marketingCommission || 0, _marketingCommissionAmount: commissionAmount, _isApproved: service.status === 'approved' || service.status === 'active', _isVisible: service.isAvailable === true || service.isAvailable === 1 || service.isAvailable === '1', _isSuspended: service.status === 'suspended' };
-      });
+        const normalizedServices = allServices.map((service) => {
+          const commissionAmount = calculateCommission(service);
+          return { ...service, type: 'service', name: service.title || service.name, images: service.images?.map(img => img.imageUrl || img) || [], marketingCommission: service.marketingCommission || 0, _marketingCommissionAmount: commissionAmount, _isApproved: service.status === 'approved' || service.status === 'active', _isVisible: service.isAvailable === true || service.isAvailable === 1 || service.isAvailable === '1', _isSuspended: service.status === 'suspended' };
+        });
 
-      const normalizedFastFood = allFastFood.map((food) => {
-        const commissionAmount = calculateCommission(food);
-        // Backend already filters by isActive=true for non-admin, so trust the response
-        // Accept items with status 'active' or 'approved' (or legacy approved boolean)
-        const isApproved = food.status === 'active' || food.status === 'approved' || food.approved === true || food.approved === 1 || food.approved === '1';
-        const isActive = food.isActive === true || food.isActive === 1 || food.isActive === '1' || isApproved; // fallback: if approved, treat as visible
-        return { ...food, type: 'fastfood', images: [food.mainImage, ...(food.galleryImages || [])].filter(Boolean), marketingCommission: food.marketingCommission || 0, _marketingCommissionAmount: commissionAmount, _isApproved: isApproved, _isVisible: isActive, _isSuspended: false };
-      });
+        const normalizedFastFood = allFastFood.map((food) => {
+          const commissionAmount = calculateCommission(food);
+          // Backend already filters by isActive=true for non-admin, so trust the response
+          // Accept items with status 'active' or 'approved' (or legacy approved boolean)
+          const isApproved = food.status === 'active' || food.status === 'approved' || food.approved === true || food.approved === 1 || food.approved === '1';
+          const isActive = food.isActive === true || food.isActive === 1 || food.isActive === '1' || isApproved; // fallback: if approved, treat as visible
+          return { ...food, type: 'fastfood', images: [food.mainImage, ...(food.galleryImages || [])].filter(Boolean), marketingCommission: food.marketingCommission || 0, _marketingCommissionAmount: commissionAmount, _isApproved: isApproved, _isVisible: isActive, _isSuspended: false };
+        });
 
-      const allItems = [...normalizedProducts, ...normalizedServices, ...normalizedFastFood];
+        const allItems = [...normalizedProducts, ...normalizedServices, ...normalizedFastFood];
 
-      // Determine if there's more to load
-      const mightHaveMore = allProducts.length === 20 || allServices.length === 20 || allFastFood.length === 20;
-      setHasMore(mightHaveMore);
+        // Determine if there's more to load
+        const mightHaveMore = allProducts.length === 20 || allServices.length === 20 || allFastFood.length === 20;
+        setHasMore(mightHaveMore);
 
-      const finalMarketingEnabledItems = allItems.filter((item) => {
-        return item._isApproved && item._isVisible && !item._isSuspended && item._marketingCommissionAmount > 0;
-      });
+        const finalMarketingEnabledItems = allItems.filter((item) => {
+          return item._isApproved && item._isVisible && !item._isSuspended && item._marketingCommissionAmount > 0;
+        });
 
         if (pageNum === 1) {
           setProducts(finalMarketingEnabledItems);
@@ -798,7 +798,7 @@ const MarketerDashboard = () => {
 
   useEffect(() => {
     // Initial fetch including catalog
-    fetchData(1, false, true); 
+    fetchData(1, false, true);
     fetchSocialMediaAccounts();
 
     const interval = setInterval(() => {
@@ -1019,7 +1019,7 @@ const MarketerDashboard = () => {
   const renderOverview = () => (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Marketing Overview</h2>
-      
+
 
       {marketerData && (
         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
@@ -1327,119 +1327,119 @@ const MarketerDashboard = () => {
             <p className="text-sm text-amber-600">This section is temporarily offline. Please check back soon.</p>
           </div>
         ) : (
-        <div className="bg-white rounded-lg shadow border border-gray-100 p-1 sm:p-2 mt-2">
-          <div className="mb-4">
-            <input
-              type="text"
-              placeholder="Search products..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          <div className="bg-white rounded-lg shadow border border-gray-100 p-1 sm:p-2 mt-2">
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {filteredItems.length === 0 ? (
+              <div className="text-center py-8">
+                <FaShoppingCart className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No {browseSubTab === 'product' ? 'Products' : browseSubTab === 'service' ? 'Services' : 'Fast Food Items'} Available</h3>
+                <p className="text-gray-600">No marketing-enabled items of this type are currently available.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1.5 mt-2">
+                {filteredItems.map((item) => {
+                  const commissionInfo = (
+                    <div className="mt-2 flex items-center justify-between px-2.5 py-1.5 bg-green-50/50 rounded-lg border border-green-100/50 group/comm transition-all hover:bg-green-50">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Commission</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-black text-green-700">
+                          KES {item._marketingCommissionAmount?.toLocaleString() || '0'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+
+                  const renderCustomActions = ({ handleView }) => (
+                    <div className="flex items-center border-t border-gray-100 gap-1 mt-auto">
+                      <button
+                        className="flex-1 px-1 py-1.5 bg-blue-600 text-white text-[10px] sm:text-xs font-bold rounded transition-colors flex items-center justify-center gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleShareItem(item);
+                        }}
+                      >
+                        <FaShareAlt size={10} /> Share
+                      </button>
+
+                      <button
+                        onClick={handleView}
+                        className="flex-1 px-1 py-1.5 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
+                      >
+                        View
+                      </button>
+                    </div>
+                  );
+
+                  if (item.type === 'product') {
+                    return (
+                      <HomeProductCard
+                        key={`product-${item.id}`}
+                        product={item}
+                        renderActions={renderCustomActions}
+                        contentClassName="h-auto"
+                      />
+                    );
+                  }
+
+                  if (item.type === 'service') {
+                    return (
+                      <ServiceCard
+                        key={`service-${item.id}`}
+                        service={item}
+                        renderActions={renderCustomActions}
+                        contentClassName="h-auto"
+                      />
+                    );
+                  }
+
+                  if (item.type === 'fastfood') {
+                    return (
+                      <FastFoodCard
+                        key={`fastfood-${item.id}`}
+                        item={item}
+                        renderActions={renderCustomActions}
+                        contentClassName="h-auto"
+                      />
+                    );
+                  }
+
+                  return null;
+                })}
+              </div>
+            )}
+
+            {/* Load More Button */}
+            {hasMore && filteredItems.length > 0 && (
+              <div className="mt-8 text-center">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="px-4 py-2 sm:px-8 sm:py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-base"
+                >
+                  {isLoadingMore ? (
+                    <span className="flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Loading more...
+                    </span>
+                  ) : (
+                    'Load More Products'
+                  )}
+                </button>
+              </div>
+            )}
+
           </div>
-
-          {filteredItems.length === 0 ? (
-            <div className="text-center py-8">
-              <FaShoppingCart className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No {browseSubTab === 'product' ? 'Products' : browseSubTab === 'service' ? 'Services' : 'Fast Food Items'} Available</h3>
-              <p className="text-gray-600">No marketing-enabled items of this type are currently available.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1.5 mt-2">
-              {filteredItems.map((item) => {
-                const commissionInfo = (
-                  <div className="mt-2 flex items-center justify-between px-2.5 py-1.5 bg-green-50/50 rounded-lg border border-green-100/50 group/comm transition-all hover:bg-green-50">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] uppercase tracking-wider text-green-600 font-bold">Commission</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-black text-green-700">
-                        KES {item._marketingCommissionAmount?.toLocaleString() || '0'}
-                      </span>
-                    </div>
-                  </div>
-                );
-
-                const renderCustomActions = ({ handleView }) => (
-                  <div className="flex items-center border-t border-gray-100 gap-1 mt-auto">
-                    <button
-                      className="flex-1 px-1 py-1.5 bg-blue-600 text-white text-[10px] sm:text-xs font-bold rounded transition-colors flex items-center justify-center gap-1"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleShareItem(item);
-                      }}
-                    >
-                      <FaShareAlt size={10} /> Share
-                    </button>
-
-                    <button
-                      onClick={handleView}
-                      className="flex-1 px-1 py-1.5 text-[10px] sm:text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 rounded transition-colors"
-                    >
-                      View
-                    </button>
-                  </div>
-                );
-
-                if (item.type === 'product') {
-                  return (
-                    <HomeProductCard
-                      key={`product-${item.id}`}
-                      product={item}
-                      renderActions={renderCustomActions}
-                      contentClassName="h-auto"
-                    />
-                  );
-                }
-
-                if (item.type === 'service') {
-                  return (
-                    <ServiceCard
-                      key={`service-${item.id}`}
-                      service={item}
-                      renderActions={renderCustomActions}
-                      contentClassName="h-auto"
-                    />
-                  );
-                }
-
-                if (item.type === 'fastfood') {
-                  return (
-                    <FastFoodCard
-                      key={`fastfood-${item.id}`}
-                      item={item}
-                      renderActions={renderCustomActions}
-                      contentClassName="h-auto"
-                    />
-                  );
-                }
-
-                return null;
-              })}
-            </div>
-          )}
-
-          {/* Load More Button */}
-          {hasMore && filteredItems.length > 0 && (
-            <div className="mt-8 text-center">
-              <button
-                onClick={handleLoadMore}
-                disabled={isLoadingMore}
-                className="px-4 py-2 sm:px-8 sm:py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-base"
-              >
-                {isLoadingMore ? (
-                  <span className="flex items-center justify-center">
-                    <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Loading more...
-                  </span>
-                ) : (
-                  'Load More Products'
-                )}
-              </button>
-            </div>
-          )}
-
-        </div>
         )} {/* end currentSectionOffline ternary */}
       </div>
     );
@@ -2153,10 +2153,10 @@ const MarketerDashboard = () => {
                       <FaShieldAlt className="w-4 h-4" />
                       <p className="text-[11px] font-black uppercase tracking-wider">Identity Verification Required</p>
                     </div>
-                    <PhoneVerification 
-                      mode="guest" 
-                      currentPhone={addUserForm.phone} 
-                      onVerified={() => setIsPhoneVerified(true)} 
+                    <PhoneVerification
+                      mode="guest"
+                      currentPhone={addUserForm.phone}
+                      onVerified={() => setIsPhoneVerified(true)}
                     />
                   </div>
                 )}
@@ -2417,7 +2417,7 @@ const MarketerDashboard = () => {
   return (
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
       {/* Backdrop for mobile — must be BELOW the sidebar (z-50) so sidebar links remain clickable */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
@@ -2431,7 +2431,7 @@ const MarketerDashboard = () => {
             <h2 className="text-xl font-extrabold text-indigo-900 tracking-tight">Marketer Panel</h2>
             <p className="text-[10px] lg:text-xs text-gray-500 mt-1 uppercase tracking-widest font-bold">Promotion Console</p>
           </div>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(false)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-full text-gray-400"
           >
@@ -2455,8 +2455,7 @@ const MarketerDashboard = () => {
                     navigate(`/marketing?tab=${tab.id}`);
                     setActiveTab(tab.id);
                   }}
-                  className={`w-full flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-[9px] lg:text-[15px] font-bold uppercase tracking-tight ${
-                    activeTab === tab.id
+                  className={`w-full flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-[9px] lg:text-[15px] font-bold uppercase tracking-tight ${activeTab === tab.id
                       ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 scale-105 z-10'
                       : 'text-gray-500 hover:bg-gray-100 hover:text-indigo-600 text-left'
                     }`}
@@ -2466,7 +2465,7 @@ const MarketerDashboard = () => {
                 </button>
               </li>
             ))}
-            
+
             {/* Mobile-only Exit Button */}
             <li className="mt-4 pt-4 border-t border-gray-100 lg:hidden">
               <button
@@ -2494,7 +2493,7 @@ const MarketerDashboard = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-14 z-30 shadow-sm">
+        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-0 z-30 shadow-sm">
           <div className="flex items-center gap-3">
 
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/marketing')}>
@@ -2521,7 +2520,7 @@ const MarketerDashboard = () => {
               </div>
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline-block text-[10px] bg-white/20 px-2 py-1 rounded font-bold uppercase tracking-tighter border border-white/20">Privileged Session</span>
-                <button 
+                <button
                   onClick={() => navigate('/dashboard/other-dashboards')}
                   className="text-[10px] lg:text-xs font-black bg-white text-blue-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-all uppercase shadow-sm"
                 >
@@ -2572,8 +2571,8 @@ const MarketerDashboard = () => {
 
       {/* Mobile Bottom Navigation */}
       <div className="lg:hidden">
-        <BottomNavbar 
-          items={marketerBottomNavItems} 
+        <BottomNavbar
+          items={marketerBottomNavItems}
           onMenuClick={() => setIsSidebarOpen(prev => !prev)}
         />
       </div>
@@ -2632,13 +2631,12 @@ const MarketerDashboard = () => {
                 <button onClick={sharePosterAndLink} disabled={isGeneratingPoster} className="w-full flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-200 hover:shadow-2xl transition-all disabled:opacity-50"> <FaShareAlt /> Share Image + Link </button>
                 <div className="grid grid-cols-2 gap-3">
                   <button onClick={downloadPoster} disabled={isGeneratingPoster} className="flex items-center justify-center gap-2 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200"> <FaDownload /> Download </button>
-                  <button 
-                    onClick={() => handleCopyLink(getDeepLink(sharingItem))} 
-                    className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all border ${
-                      copiedLink ? 'bg-green-600 text-white border-green-600' : 'bg-gray-100 text-gray-700 border-gray-100 hover:bg-gray-200'
-                    }`}
-                  > 
-                    {copiedLink ? <><FaCheck /> Copied!</> : <><FaCopy /> Copy Link</>} 
+                  <button
+                    onClick={() => handleCopyLink(getDeepLink(sharingItem))}
+                    className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all border ${copiedLink ? 'bg-green-600 text-white border-green-600' : 'bg-gray-100 text-gray-700 border-gray-100 hover:bg-gray-200'
+                      }`}
+                  >
+                    {copiedLink ? <><FaCheck /> Copied!</> : <><FaCopy /> Copy Link</>}
                   </button>
                 </div>
               </div>

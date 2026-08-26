@@ -21,6 +21,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import { ToastProvider, ToastViewport } from '@/shared/components/toast'
 import App from '@/App.jsx'
+import { PlatformProvider } from '@/contexts/PlatformContext';
 import '@/styles/global.css' // Global styles with standard dimensions
 import '@/styles.css'
 import '@/styles/ecommerce-standards.css'
@@ -64,7 +65,9 @@ const root = createRoot(container);
 root.render(
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-      <App />
+      <PlatformProvider>
+        <App />
+      </PlatformProvider>
     </BrowserRouter>
   </QueryClientProvider>
 );

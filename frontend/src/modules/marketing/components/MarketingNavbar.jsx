@@ -6,11 +6,16 @@ import { useCategories } from '@/contexts/CategoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/shared/components/use-toast';
 import { copyToClipboard } from '@/utils/clipboard';
+import { usePlatform } from '@/contexts/PlatformContext';
+import { resolveImageUrl } from '@/utils/imageUtils';
 
 export default function MarketingNavbar() {
     const { cart } = useCart();
     const location = useLocation();
     const navigate = useNavigate();
+    const { settings: platformSettings } = usePlatform();
+    const siteName = platformSettings.platform?.siteName || 'Comrades360';
+    const siteLogo = platformSettings.platform?.siteLogo;
     
     const cartScope = location.pathname.startsWith('/fastfood') ? 'fastfood' : 'products';
     const cartLink = `/cart?scope=${cartScope}`;
@@ -139,7 +144,7 @@ export default function MarketingNavbar() {
     return (
         <nav className="bg-blue-900 border-b border-blue-800 shadow-md fixed top-0 left-0 w-full z-[160] text-white">
             <div className="max-w-7xl mx-auto px-1.5 sm:px-4">
-                <div className="flex justify-between items-center h-14 md:h-16 gap-4">
+                <div className="flex justify-between items-center h-16 md:h-20 gap-4">
 
                     {/* Left: Branding & Categories */}
                     <div className="flex items-center space-x-1 sm:space-x-4">
@@ -154,7 +159,11 @@ export default function MarketingNavbar() {
                         </button>
 
                         <Link to="/" className="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2 flex-shrink-0">
-                            <span>Comrades360</span>
+                            {siteLogo ? (
+                                <img src={resolveImageUrl(siteLogo)} alt={siteName} className="max-h-[54px] md:max-h-[66px] w-auto object-contain py-1" />
+                            ) : (
+                                <span>{siteName}</span>
+                            )}
                         </Link>
 
                         {/* Categories Dropdown */}
@@ -236,20 +245,23 @@ export default function MarketingNavbar() {
 
                     {/* Center: Search Bar (Desktop Only) */}
                     <div className="flex-1 max-w-xl mx-auto px-4 hidden md:block">
-                        <div className="relative flex w-full text-gray-900 shadow-sm transition-shadow focus-within:shadow-md">
+                        <div className="flex w-full text-gray-900 relative items-center">
+                            <div className="absolute left-4 text-gray-400">
+                                <FaSearch className="text-lg" />
+                            </div>
                             <input
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                                 placeholder="Search products, services, food..."
-                                className="w-full px-4 py-2 rounded-l-md border-0 focus:ring-2 focus:ring-blue-300 outline-none text-sm bg-white"
+                                className="w-full h-12 pl-12 pr-28 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm transition-all bg-white"
                             />
                             <button
                                 onClick={handleSearch}
-                                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-r-md transition-colors"
+                                className="absolute right-1.5 top-1.5 bottom-1.5 px-6 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-full shadow transition-all active:scale-95"
                             >
-                                <FaSearch />
+                                Search
                             </button>
                         </div>
                     </div>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { FaBox, FaClock, FaTimes } from 'react-icons/fa';
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { FaBox, FaClock } from 'react-icons/fa';
 import { Eye, EyeOff, Ban, Trash2, Edit, X, Filter, Search, ArrowUpDown, Plus } from 'lucide-react';
-import { productApi } from '@/shared/services/api'; // Ensure this api export has .get() method on it (wrapper)
+import { productApi } from '@/shared/services/api';
 import { useToast } from '@/shared/components/use-toast';
-import ComradesProductForm from '@/modules/products/pages/ComradesProductForm';
+import ComradesProductForm from './ComradesProductForm';
 import HomeProductCard from '@/modules/products/components/HomeProductCard';
 import ServiceCard from '@/modules/services/components/ServiceCard';
 import FastFoodCard from '@/modules/fastfood/components/FastFoodCard';
@@ -91,8 +91,8 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
 
   // --- Derived Data ---
   const activeProducts = useMemo(() => {
-    // console.log('🔄 Recalculating activeProducts...');
-    // console.log(`📊 Raw counts: ${rawProducts.length} products, ${services.length} services, ${fastFoodItems.length} fastfood`);
+    // console.log('≡ƒöä Recalculating activeProducts...');
+    // console.log(`≡ƒôè Raw counts: ${rawProducts.length} products, ${services.length} services, ${fastFoodItems.length} fastfood`);
 
     // 1. Normalize and Gather All Valid Items
     // Filter Products: Approved, Not Hidden, Not Suspended
@@ -112,7 +112,7 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
     const validServices = services.map(s => normalizeItem(s, 'service'));
     const validFastFood = fastFoodItems.map(f => normalizeItem(f, 'fastfood'));
 
-    // console.log(`✨ Filtered counts: ${validProducts.length} products, ${validServices.length} services, ${validFastFood.length} fastfood`);
+    // console.log(`Γ£¿ Filtered counts: ${validProducts.length} products, ${validServices.length} services, ${validFastFood.length} fastfood`);
 
     // Combine all
     let combined = [...validProducts, ...validServices, ...validFastFood];
@@ -188,18 +188,18 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
     pendingFetchInFlight.current = true;
     setPendingLoading(true);
     try {
-      // console.log('🔍 Fetching pending products...');
+      // console.log('≡ƒöì Fetching pending products...');
       const response = await productApi.getPending();
-      // console.log('📦 Pending products raw response:', response);
+      // console.log('≡ƒôª Pending products raw response:', response);
 
       let products = [];
       if (Array.isArray(response?.data)) products = response.data;
       else if (Array.isArray(response?.data?.data)) products = response.data.data;
       else if (Array.isArray(response?.data?.products)) products = response.data.products;
 
-      // console.log(`✅ Extracted ${products.length} pending products`);
+      // console.log(`Γ£à Extracted ${products.length} pending products`);
       setPendingProducts(products.map(p => normalizeItem(p, 'product')));
-    } catch (e) { console.error('❌ Error fetching pending:', e); }
+    } catch (e) { console.error('Γ¥î Error fetching pending:', e); }
     finally {
       setPendingLoadAttempted(true);
       setPendingLoading(false);
@@ -211,19 +211,19 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
     if (servicesFetchInFlight.current) return;
     servicesFetchInFlight.current = true;
     try {
-      // console.log('🔍 Fetching services...');
+      // console.log('≡ƒöì Fetching services...');
       // Use configured api instance via productApi.get wrapper if available or fallback to direct usage
       const response = await productApi.get('/services', { params: { status: 'approved', limit: 40 } });
-      // console.log('📦 Services raw response:', response);
+      // console.log('≡ƒôª Services raw response:', response);
 
       let servicesData = [];
       if (Array.isArray(response?.data?.services)) servicesData = response.data.services;
       else if (Array.isArray(response?.data?.data)) servicesData = response.data.data;
       else if (Array.isArray(response?.data)) servicesData = response.data;
 
-      // console.log(`✅ Extracted ${servicesData.length} services`);
+      // console.log(`Γ£à Extracted ${servicesData.length} services`);
       setServices(servicesData.map(s => normalizeItem(s, 'service')));
-    } catch (e) { console.error('❌ Error fetching services:', e); }
+    } catch (e) { console.error('Γ¥î Error fetching services:', e); }
     finally { servicesFetchInFlight.current = false; }
   };
 
@@ -231,7 +231,7 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
     if (fastFoodFetchInFlight.current) return;
     fastFoodFetchInFlight.current = true;
     try {
-      // console.log('🔍 Fetching fast food...');
+      // console.log('≡ƒöì Fetching fast food...');
       const response = await productApi.get('/fastfood', {
         params: {
           limit: 40,
@@ -239,7 +239,7 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
           includeInactive: 'false'
         }
       });
-      // console.log('📦 Fast food raw response:', response);
+      // console.log('≡ƒôª Fast food raw response:', response);
 
       let data = [];
       if (Array.isArray(response?.data)) data = response.data;
@@ -247,14 +247,14 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
       else if (Array.isArray(response?.data?.items)) data = response.data.items;
 
       // if (data.length > 0) {
-      //   console.log('🔬 First fast food item keys:', Object.keys(data[0]));
-      //   console.log('🔬 First fast food item sample:', data[0]);
+      //   console.log('≡ƒö¼ First fast food item keys:', Object.keys(data[0]));
+      //   console.log('≡ƒö¼ First fast food item sample:', data[0]);
       // }
 
       const approved = data.filter(i => i.isActive !== false); // Default to true if undefined, checks isActive
-      // console.log(`✅ Extracted ${approved.length} fast food items (${data.length} total)`);
+      // console.log(`Γ£à Extracted ${approved.length} fast food items (${data.length} total)`);
       setFastFoodItems(approved.map(f => normalizeItem(f, 'fastfood')));
-    } catch (e) { console.error('❌ Error fetching fastfood:', e); }
+    } catch (e) { console.error('Γ¥î Error fetching fastfood:', e); }
     finally { fastFoodFetchInFlight.current = false; }
   };
 
@@ -295,7 +295,7 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
         setSuspendedProducts(batchSuspended);
       }
     } catch (e) {
-      console.error('❌ Fetch products error:', e);
+      console.error('Γ¥î Fetch products error:', e);
       toast({ title: "Error", description: "Failed to load products", variant: "destructive" });
     } finally {
       setLoading(false);
@@ -357,21 +357,13 @@ const ProductListingView = ({ onBack, onViewProduct, onListProduct }) => {
   };
 
   // --- Actions ---
-const handleToggleVisibility = async (id) => {
-  setActionLoading(id);
-  try {
-    await productApi.toggleVisibility(id);
-    // Refresh product list and obtain updated data
-    const updatedProducts = await fetchProductsOnly(page, false);
-    // Update hiddenProducts based on new visibility flags
-    setHiddenProducts(updatedProducts.filter(p => p.isHidden));
-    toast({ title: "Updated", description: "Visibility toggled" });
-  } catch (e) {
-    toast({ title: "Error", variant: "destructive" });
-  } finally {
-    setActionLoading(null);
-  }
-};
+  const handleToggleVisibility = async (id) => {
+    setActionLoading(id);
+    try { await productApi.toggleVisibility(id); await fetchProductsOnly(page, false); toast({ title: "Updated", description: "Visibility toggled" }); }
+    catch (e) { toast({ title: "Error", variant: "destructive" }); }
+    finally { setActionLoading(null); }
+  };
+
   const handleDelete = (product) => {
     setDeleteModal({ isOpen: true, product });
   };
@@ -382,8 +374,8 @@ const handleToggleVisibility = async (id) => {
       const config = { data: { password, reason } };
       await productApi.delete(productId, config);
 
-      // Optimistic Update: Remove from all possible state arrays immediately (use String comparison for safety)
-      const filterOut = (prev) => prev.filter(item => String(item.id || item._id) !== String(productId));
+      // Optimistic Update: Remove from all possible state arrays immediately
+      const filterOut = (prev) => prev.filter(item => (item.id || item._id) !== productId);
 
       setRawProducts(filterOut);
       setPendingProducts(filterOut);
@@ -394,8 +386,8 @@ const handleToggleVisibility = async (id) => {
 
       toast({ title: "Deleted", description: "Item removed successfully" });
 
-      // Silently refresh in the background without clearing the UI state
-      fetchProductsOnly(1, false);
+      // Comprehensive refresh in background to ensure data consistency
+      handleRefresh();
     } catch (e) {
       toast({ title: "Error", description: e.response?.data?.message || "Failed to delete", variant: "destructive" });
       throw e;
@@ -406,16 +398,9 @@ const handleToggleVisibility = async (id) => {
 
   const handleSuspendProduct = async (id) => {
     setActionLoading(id);
-    try {
-      await productApi.toggleVisibility(id);
-      // Refresh product list
-      await fetchProductsOnly(page, false);
-      toast({ title: "Updated", description: "Visibility toggled" });
-    } catch (e) {
-      toast({ title: "Error", variant: "destructive" });
-    } finally {
-      setActionLoading(null);
-    }
+    try { await productApi.suspend(id, { reason: 'Admin' }); await fetchProductsOnly(page, false); toast({ title: "Suspended", description: "Item suspended" }); }
+    catch (e) { toast({ title: "Error", variant: "destructive" }); }
+    finally { setActionLoading(null); }
   };
 
   const handleUnsuspendProduct = async (id) => {
@@ -428,41 +413,6 @@ const handleToggleVisibility = async (id) => {
   const handleListProduct = (item) => {
     setSelectedProduct(item);
     setShowForm(true);
-  };
-
-  // Quick Approve action for pending items
-  const handleApproveProduct = async (product) => {
-    if (!product?.id) return;
-    setActionLoading(`approve-${product.id}`);
-    try {
-      await productApi.approve(product.id);
-      toast({ title: 'Approved', description: 'Product approved successfully' });
-      // Refresh pending list
-      fetchPendingProducts();
-    } catch (e) {
-      console.error('Approve error', e);
-      toast({ title: 'Error', description: 'Failed to approve product', variant: 'destructive' });
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // Quick Reject action for pending items
-  const handleRejectProduct = async (product) => {
-    if (!product?.id) return;
-    const reason = prompt('Provide reason for rejection');
-    if (!reason) return;
-    setActionLoading(`reject-${product.id}`);
-    try {
-      await productApi.reject(product.id, reason);
-      toast({ title: 'Rejected', description: 'Product rejected' });
-      fetchPendingProducts();
-    } catch (e) {
-      console.error('Reject error', e);
-      toast({ title: 'Error', description: 'Failed to reject product', variant: 'destructive' });
-    } finally {
-      setActionLoading(null);
-    }
   };
 
   const getCurrentList = () => {
@@ -488,14 +438,9 @@ const handleToggleVisibility = async (id) => {
       </button>
 
       {activeSection === 'pending' && (
-        <>
-          <button onClick={(e) => { e.stopPropagation(); handleListProduct(product); }} className="flex-1 min-w-[30%] px-2 py-1.5 text-xs sm:text-sm font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors flex items-center justify-center truncate" style={{ color: '#ffffff', fontWeight: 'bold' }} title="Edit Listing">
-            <Edit className="h-3 w-3 mr-1 flex-shrink-0" style={{ color: '#ffffff' }} /> <span style={{ color: '#ffffff' }}>List</span>
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); handleRejectProduct(product); }} className="flex-1 min-w-[30%] px-2 py-1.5 text-xs sm:text-sm font-bold text-white bg-red-600 rounded hover:bg-red-700 transition-colors flex items-center justify-center truncate" style={{ color: '#ffffff' }} title="Reject Product">
-            <FaTimes className="h-3 w-3 mr-1" /> Reject
-          </button>
-        </>
+        <button onClick={(e) => { e.stopPropagation(); handleListProduct(product); }} className="flex-1 min-w-[30%] px-2 py-1.5 text-xs sm:text-sm font-bold text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors flex items-center justify-center truncate" style={{ color: '#ffffff', fontWeight: 'bold' }} title="Edit Listing">
+          <Edit className="h-3 w-3 mr-1 flex-shrink-0" style={{ color: '#ffffff' }} /> <span style={{ color: '#ffffff' }}>List</span>
+        </button>
       )}
 
       {(activeSection === 'hidden' || (activeSection === 'all' && product.isHidden)) && (
@@ -665,7 +610,7 @@ const handleToggleVisibility = async (id) => {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold">List Product</h2>

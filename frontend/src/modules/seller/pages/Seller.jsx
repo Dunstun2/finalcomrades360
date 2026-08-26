@@ -10,14 +10,14 @@ export default function Seller() {
   const { user } = useAuth()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [marketingOpen, setMarketingOpen] = useState(false)
-  
+
   const sellerBottomNavItems = [
     { icon: '🏠', label: 'Home', path: '/seller', end: true },
     { icon: '📦', label: 'Products', path: '/seller/products' },
     { icon: '➕', label: 'Add', path: '/seller/products/add' },
     { icon: '🛒', label: 'Orders', path: '/seller/orders' },
   ];
-  
+
   const logout = () => { localStorage.removeItem('token'); window.location.href = '/login' }
 
   const menuItems = [
@@ -33,6 +33,7 @@ export default function Seller() {
     { to: "/seller/wallet", label: "Wallet", icon: "💰" },
     { to: "/seller/subscriptions", label: "Subscriptions", icon: "💳" },
     { to: "/seller/reports", label: "Reports", icon: "📊" },
+    { to: "/seller/analytics", label: "Analytics", icon: "📈" },
     { to: "/seller/recycle-bin", label: "Recycle Bin", icon: "🗑️" },
     { to: "/seller/manual", label: "Seller Manual", icon: "📖" },
     { to: "/seller/tools", label: "Account Tools", icon: "🛠️" },
@@ -53,7 +54,7 @@ export default function Seller() {
   return (
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
       {/* Backdrop for mobile */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
@@ -65,7 +66,7 @@ export default function Seller() {
             <h2 className="text-xl font-extrabold text-blue-900 tracking-tight">Seller Console</h2>
             <p className="text-[10px] lg:text-xs text-gray-500 mt-1 uppercase tracking-widest font-bold">Manage your business</p>
           </div>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(false)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-full text-gray-400"
           >
@@ -99,7 +100,7 @@ export default function Seller() {
                 className={`w-full flex items-center gap-2 px-4 py-2 lg:py-2.5 rounded-xl transition-all duration-200 text-[9px] lg:text-[15px] font-bold uppercase tracking-tight ${isMarketingActive
                   ? 'bg-purple-600 text-white shadow-lg shadow-purple-100'
                   : 'text-gray-500 hover:bg-gray-100 hover:text-purple-600'
-                }`}
+                  }`}
               >
                 <span className="text-sm lg:text-base opacity-90">📣</span>
                 <span className="flex-1 text-left">Marketing</span>
@@ -120,7 +121,7 @@ export default function Seller() {
                         className={({ isActive }) => `flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[9px] lg:text-xs font-semibold uppercase tracking-tight ${isActive
                           ? 'bg-purple-50 text-purple-800 font-bold'
                           : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                        }`}
+                          }`}
                       >
                         <span className="opacity-80">{item.icon}</span>
                         <span>{item.label}</span>
@@ -143,7 +144,7 @@ export default function Seller() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-14 z-30 shadow-sm">
+        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-0 z-30 shadow-sm">
           <div className="flex items-center gap-3">
 
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/seller')}>
@@ -169,7 +170,7 @@ export default function Seller() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline-block text-[10px] bg-white/20 px-2 py-1 rounded font-bold uppercase tracking-tighter border border-white/20">Privileged Session</span>
-                <button 
+                <button
                   onClick={() => navigate('/dashboard/other-dashboards')}
                   className="text-[10px] lg:text-xs font-black bg-white text-blue-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-all uppercase shadow-sm"
                 >
@@ -187,9 +188,9 @@ export default function Seller() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <BottomNavbar 
-        items={sellerBottomNavItems} 
-        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+      <BottomNavbar
+        items={sellerBottomNavItems}
+        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)}
       />
       <style dangerouslySetInnerHTML={{
         __html: `

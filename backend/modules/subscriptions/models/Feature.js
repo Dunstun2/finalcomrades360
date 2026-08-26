@@ -23,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     category: {
-      type: DataTypes.ENUM('Analytics', 'Marketing', 'Orders', 'Finance', 'Visibility', 'Support', 'Delivery', 'Meal'),
+      type: DataTypes.ENUM('Analytics', 'Marketing', 'Orders', 'Finance', 'Visibility', 'Support', 'Delivery', 'Meal', 'Limits'),
       allowNull: false
     }
   }, {

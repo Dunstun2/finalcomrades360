@@ -1,4 +1,5 @@
 const { FastFood, User, Category, Subcategory, Cart, DeletedFastFood, sequelize } = require('../../../database/models.registry');
+const { Subscription, Plan, PlanBenefit, Feature } = require('../../../database/models.registry');
 const { Op } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
@@ -257,7 +258,11 @@ exports.getAllFastFoods = async (req, res) => {
             if (a.isOpen && !b.isOpen) return -1;
             if (!a.isOpen && b.isOpen) return 1;
 
-            // 2. Featured items second
+            // 2. Boosted items second
+            if (a.isBoosted && !b.isBoosted) return -1;
+            if (!a.isBoosted && b.isBoosted) return 1;
+
+            // 3. Featured items third
             if (a.isFeatured && !b.isFeatured) return -1;
             if (!a.isFeatured && b.isFeatured) return 1;
 
@@ -530,6 +535,80 @@ exports.createFastFood = async (req, res, next) => {
 
         // Audit Trail: explicit creator ID
         createData.addedBy = req.user.id;
+
+        // --- Subscription Limit Check: max_products (applies to meals too) ---
+        if (!isPrivileged && !isDraft) {
+          try {
+            const vendorId = createData.vendor;
+            const activeSubs = await Subscription.findAll({
+              where: { userId: vendorId, status: ['Active', 'Trial'] },
+              include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+            });
+
+            let maxProductsLimit = null;
+            for (const sub of activeSubs) {
+              if (sub.plan?.type !== 'seller') continue;
+              const maxProdBenefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'max_products');
+              if (maxProdBenefit) {
+                const limitVal = maxProdBenefit.value?.limit;
+                if (limitVal && limitVal > 0) {
+                  maxProductsLimit = Math.max(maxProductsLimit || 0, limitVal);
+                }
+              }
+            }
+
+            if (maxProductsLimit !== null) {
+              const currentCount = await FastFood.count({ where: { vendor: vendorId, reviewStatus: { [Op.ne]: 'deleted' } } });
+              if (currentCount >= maxProductsLimit) {
+                return res.status(403).json({
+                  success: false,
+                  code: 'PRODUCT_LIMIT_REACHED',
+                  message: `Your subscription plan allows a maximum of ${maxProductsLimit} items. You currently have ${currentCount}. Please upgrade your plan.`
+                });
+              }
+            }
+            // --- Subscription Limit Check: max_categories ---
+            let maxCategoriesLimit = null;
+            for (const sub of activeSubs) {
+              if (sub.plan?.type !== 'seller') continue;
+              const maxCatBenefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'max_categories');
+              if (maxCatBenefit) {
+                const limitVal = maxCatBenefit.value?.limit;
+                if (limitVal && limitVal > 0) {
+                  maxCategoriesLimit = Math.max(maxCategoriesLimit || 0, limitVal);
+                }
+              }
+            }
+
+            if (maxCategoriesLimit !== null && createData.categoryId) {
+              const distinctCats = await Product.findAll({
+                where: { sellerId: vendorId, status: { [Op.ne]: 'deleted' } },
+                attributes: [[sequelize.fn('DISTINCT', sequelize.col('categoryId')), 'categoryId']],
+                raw: true
+              });
+              const distinctFoodCats = await FastFood.findAll({
+                where: { vendor: vendorId, reviewStatus: { [Op.ne]: 'deleted' } },
+                attributes: [[sequelize.fn('DISTINCT', sequelize.col('categoryId')), 'categoryId']],
+                raw: true
+              });
+
+              const activeCategories = new Set([
+                ...distinctCats.map(c => c.categoryId),
+                ...distinctFoodCats.map(c => c.categoryId)
+              ].filter(Boolean));
+
+              if (!activeCategories.has(Number(createData.categoryId)) && activeCategories.size >= maxCategoriesLimit) {
+                return res.status(403).json({
+                  success: false,
+                  code: 'CATEGORY_LIMIT_REACHED',
+                  message: `Your subscription plan allows a maximum of ${maxCategoriesLimit} categories. You are already listing items in ${activeCategories.size} categories. Please upgrade your plan.`
+                });
+              }
+            }
+          } catch (limitCheckErr) {
+            console.warn('[createFastFood] Subscription limit checks failed (non-blocking):', limitCheckErr.message);
+          }
+        }
 
         // Price Standardization Logic
         if (createData.discountPercentage === undefined) createData.discountPercentage = 0;
@@ -1454,5 +1533,118 @@ exports.permanentlyDeleteFastFood = async (req, res) => {
             message: 'Server error while permanently deleting item',
             error: error.message
         });
+    }
+};
+
+exports.toggleFastFoodBoost = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const vendorId = req.user.id;
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
+
+        const fastFood = await FastFood.findByPk(id);
+        if (!fastFood) return res.status(404).json({ success: false, message: 'Fast food item not found' });
+
+        if (!isPrivileged && fastFood.vendor !== vendorId) {
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
+
+        const currentBoosted = fastFood.isBoosted;
+        const newBoostedState = !currentBoosted;
+
+        if (newBoostedState) {
+            // Check subscription quota
+            const activeSubs = await Subscription.findAll({
+                where: { userId: fastFood.vendor, status: ['Active', 'Trial'] },
+                include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+            });
+
+            let boostLimit = null;
+            for (const sub of activeSubs) {
+                if (sub.plan?.type !== 'seller') continue;
+                const benefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'boosted_products');
+                if (benefit) {
+                    const val = benefit.value?.limit;
+                    if (val && val > 0) {
+                        boostLimit = Math.max(boostLimit || 0, val);
+                    }
+                }
+            }
+
+            if (boostLimit === null) {
+                return res.status(403).json({ success: false, message: 'Your plan does not support boosting items. Please upgrade your subscription.' });
+            }
+
+            // Count boosted products/fastfoods
+            const count = await Product.count({ where: { sellerId: fastFood.vendor, isBoosted: true } });
+            const fastFoodCount = await FastFood.count({ where: { vendor: fastFood.vendor, isBoosted: true, id: { [Op.ne]: fastFood.id } } });
+            const totalBoosted = count + fastFoodCount;
+
+            if (totalBoosted >= boostLimit) {
+                return res.status(403).json({ success: false, message: `Boosted item limit reached. Your plan allows boosting up to ${boostLimit} items. Currently boosted: ${totalBoosted}.` });
+            }
+        }
+
+        fastFood.isBoosted = newBoostedState;
+        await fastFood.save();
+
+        res.json({ success: true, message: `Fast food boost status updated to ${fastFood.isBoosted}`, isBoosted: fastFood.isBoosted });
+    } catch (error) {
+        console.error('Error toggling fast food boost:', error);
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    }
+};
+
+exports.toggleFastFoodFeature = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const vendorId = req.user.id;
+        const userRole = String(req.user?.role || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isPrivileged = userRole === 'superadmin' || userRole === 'admin';
+
+        const fastFood = await FastFood.findByPk(id);
+        if (!fastFood) return res.status(404).json({ success: false, message: 'Fast food item not found' });
+
+        if (!isPrivileged && fastFood.vendor !== vendorId) {
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
+
+        const currentFeatured = fastFood.isFeatured;
+        const newFeaturedState = !currentFeatured;
+
+        if (newFeaturedState) {
+            // Check featured_product benefit
+            const activeSubs = await Subscription.findAll({
+                where: { userId: fastFood.vendor, status: ['Active', 'Trial'] },
+                include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+            });
+
+            let hasFeatureBenefit = false;
+            for (const sub of activeSubs) {
+                if (sub.plan?.type !== 'seller') continue;
+                const benefit = (sub.plan.benefits || []).some(b => b.feature?.code === 'featured_product');
+                if (benefit) {
+                    hasFeatureBenefit = true;
+                    break;
+                }
+            }
+
+            if (!hasFeatureBenefit) {
+                return res.status(403).json({ success: false, message: 'Your plan does not support featuring items on the Hero banner. Please upgrade your subscription.' });
+            }
+
+            // De-feature all other items
+            await Product.update({ isFeatured: false }, { where: { sellerId: fastFood.vendor } });
+            await FastFood.update({ isFeatured: false }, { where: { vendor: fastFood.vendor } });
+        }
+
+        fastFood.isFeatured = newFeaturedState;
+        await fastFood.save();
+
+        res.json({ success: true, message: `Fast food feature status updated to ${fastFood.isFeatured}`, isFeatured: fastFood.isFeatured });
+    } catch (error) {
+        console.error('Error toggling fast food feature:', error);
+        res.status(500).json({ success: false, message: 'Server error', error: error.message });
     }
 };

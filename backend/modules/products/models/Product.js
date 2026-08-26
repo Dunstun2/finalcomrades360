@@ -415,6 +415,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false
     },
+    isBoosted: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
     flashSalePrice: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true

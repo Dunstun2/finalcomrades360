@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Helmet } from 'react-helmet-async';
+import SEO from '@/shared/components/SEO';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '@/shared/services/api';
 import { useCart } from '@/contexts/CartContext';
@@ -573,12 +573,28 @@ export default function ProductDetails() {
   const pageTitle = `${product.name} | Comrades360`;
   const ogDescription = product.shortDescription || product.description || 'Shop on Comrades360.';
 
+  // Build Product JSON-LD
+  const productImage = (product?.coverImage || (Array.isArray(product?.galleryImages) && product.galleryImages[0]) || (Array.isArray(product?.images) && product.images[0])) || null;
+  const productSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: product.name,
+    image: productImage,
+    description: ogDescription,
+    sku: product.sku || undefined,
+    brand: product.brand ? { '@type': 'Brand', name: product.brand } : undefined,
+    offers: {
+      '@type': 'Offer',
+      price: (displayPrice || 0).toString(),
+      priceCurrency: (process.env.VITE_CURRENCY || 'KES'),
+      availability: (Number(product.stock || 0) > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      url: (typeof window !== 'undefined' ? window.location.href : undefined)
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pt-0 md:pt-4">
-      <Helmet>
-        <title>{pageTitle}</title>
-        <meta name="description" content={ogDescription} />
-      </Helmet>
+      <SEO title={pageTitle} description={ogDescription} image={productImage} keywords={product.metaKeywords || product.keywords} schema={productSchema} />
 
       <div className="mx-auto px-0 md:px-4 lg:px-8 pt-0 pb-3 md:py-8 max-w-7xl lg:max-w-[95vw] xl:max-w-full">
         <button onClick={handleBack} className="flex items-center text-gray-600 hover:text-blue-600 mb-1 md:mb-6 transition-colors group">

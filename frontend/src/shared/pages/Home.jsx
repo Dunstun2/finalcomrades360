@@ -19,6 +19,7 @@ import { usePersistentFetch } from '@/hooks/usePersistentFetch';
 // Ensure we have the API base URL for constructing absolute endpoints
 import useRealtimeSync from '@/hooks/useRealtimeSync';
 import { useToast } from '@/shared/components/use-toast';
+import SEO from '@/shared/components/SEO';
 
 // Main Home component with performance optimizations
 function Home({ isMarketingMode: propMarketingMode }) {
@@ -56,6 +57,20 @@ function Home({ isMarketingMode: propMarketingMode }) {
       return 0;
     });
   }, [fastFoodData, currentTime]);
+
+  // SEO: page meta and LocalBusiness schema
+  const pageTitle = 'Comrades360 — Student Marketplace & Services';
+  const pageDescription = 'Comrades360 connects university students with products, services, gigs and campus delivery across Kenya. Buy, sell, or earn on campus.';
+
+  const localBusinessSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    name: 'Comrades360',
+    url: (typeof window !== 'undefined' ? window.location.origin : 'https://comrades360.shop'),
+    description: pageDescription,
+    serviceArea: [{ '@type': 'Place', 'name': 'Nairobi' }, { '@type': 'Place', 'name': 'Mombasa' }],
+    sameAs: ['https://www.facebook.com/comrades360', 'https://www.instagram.com/comrades360']
+  };
 
   // Helper function to filter items for marketing mode
   const filterMarketingItems = useCallback((items, type) => {
@@ -1006,6 +1021,13 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
   // Render main content
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO
+        title={pageTitle}
+        description={pageDescription}
+        keywords="student marketplace Kenya, student marketplace Nairobi, student services Kenya, campus delivery, student deals"
+        siteName="Comrades360"
+        schema={localBusinessSchema}
+      />
       <HeroBanner
         apiStatus={apiStatus}
         onRetry={retryLoadProducts}

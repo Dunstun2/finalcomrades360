@@ -68,10 +68,19 @@ const BlockedIP = require('../modules/users/models/BlockedIP')(sequelize, Sequel
 const VerifiedContact = require('../modules/users/models/VerifiedContact')(sequelize, Sequelize.DataTypes);
 const KnownLocation = require('../modules/delivery/models/KnownLocation')(sequelize, Sequelize.DataTypes);
 const PromoCode = require('../modules/marketing/models/PromoCode')(sequelize, Sequelize.DataTypes);
+const AboutPage = require('../models/AboutPage')(sequelize, Sequelize.DataTypes);
+const TeamMember = require('../models/TeamMember')(sequelize, Sequelize.DataTypes);
+const ContactPage = require('../models/ContactPage')(sequelize, Sequelize.DataTypes);
+const BlogPost = require('../models/BlogPost')(sequelize, Sequelize.DataTypes);
+const BlogComment = require('../models/BlogComment')(sequelize, Sequelize.DataTypes);
+const BlogLike = require('../models/BlogLike')(sequelize, Sequelize.DataTypes);
+const BlogRating = require('../models/BlogRating')(sequelize, Sequelize.DataTypes);
 
 // Subscription Module Models
 const Plan = require('../modules/subscriptions/models/Plan')(sequelize, Sequelize.DataTypes);
 const Feature = require('../modules/subscriptions/models/Feature')(sequelize, Sequelize.DataTypes);
+const BenefitPackage = require('../modules/subscriptions/models/BenefitPackage')(sequelize, Sequelize.DataTypes);
+const PackageBenefit = require('../modules/subscriptions/models/PackageBenefit')(sequelize, Sequelize.DataTypes);
 const PlanBenefit = require('../modules/subscriptions/models/PlanBenefit')(sequelize, Sequelize.DataTypes);
 const Subscription = require('../modules/subscriptions/models/Subscription')(sequelize, Sequelize.DataTypes);
 const SubscriptionUsage = require('../modules/subscriptions/models/SubscriptionUsage')(sequelize, Sequelize.DataTypes);
@@ -83,6 +92,13 @@ const SubscriptionEvent = require('../modules/subscriptions/models/SubscriptionE
 const models = {
   User,
   PromoCode,
+  AboutPage,
+  TeamMember,
+  ContactPage,
+  BlogPost,
+  BlogComment,
+  BlogLike,
+  BlogRating,
   AdminAuditLog,
   Product,
   Category,
@@ -148,6 +164,8 @@ const models = {
   BlockedIP,
   VerifiedContact,
   KnownLocation,
+  BenefitPackage,
+  PackageBenefit,
   Plan,
   Feature,
   PlanBenefit,
@@ -170,6 +188,13 @@ Object.values(models).forEach(model => {
 module.exports = {
   User,
   PromoCode,
+  AboutPage,
+  TeamMember,
+  ContactPage,
+  BlogPost,
+  BlogComment,
+  BlogLike,
+  BlogRating,
   Product,
   Category,
   Subcategory,
@@ -234,6 +259,8 @@ module.exports = {
   AdminAuditLog,
   BlockedIP,
   VerifiedContact,
+  BenefitPackage,
+  PackageBenefit,
   Plan,
   Feature,
   PlanBenefit,

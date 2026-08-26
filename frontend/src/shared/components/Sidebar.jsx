@@ -33,12 +33,58 @@ import {
   FaUtensils,
   FaUndo,
   FaPlus,
-  FaComments
+  FaComments,
+  FaClock,
+  FaBan,
+  FaImage,
+  FaPlay
 } from 'react-icons/fa';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Admin menu items with enhanced structure
 const adminMenuItems = [
+  {
+    name: 'Dunstun',
+    path: '/seller/products',
+    icon: <FaBox className="mr-3" />,
+    roles: ['admin', 'superadmin', 'super_admin'],
+    children: [
+      { name: 'Product Hub', path: '/seller/products', icon: <FaBox className="mr-2" /> },
+      { name: 'Add Product', path: '/seller/products/add', icon: <FaPlus className="mr-2" /> },
+      { name: 'Product List', path: '/dashboard/products/list', icon: <FaBoxes className="mr-2" /> },
+      { name: 'Create Product (Smart)', path: '/dashboard/products/smart-create', icon: <FaPlus className="mr-2" /> },
+      { name: 'Pending Products', path: '/dashboard/products/pending', icon: <FaClock className="mr-2" /> },
+      { name: 'Rejected Products', path: '/dashboard/products/rejected', icon: <FaTimes className="mr-2" /> },
+      { name: 'Product Directory', path: '/dashboard/products', icon: <FaBox className="mr-2" /> },
+      { name: 'Product Listing View', path: '/dashboard/products/product-listing', icon: <FaBoxes className="mr-2" /> },
+      { name: 'Seller Product View', path: '/seller/products', icon: <FaStore className="mr-2" /> },
+      { name: 'Inventory Management', path: '/seller/inventory', icon: <FaCubes className="mr-2" /> },
+      { name: 'Categories', path: '/dashboard/categories', icon: <FaBoxes className="mr-2" /> },
+      { name: 'Product Management', path: '/dashboard/product-management', icon: <FaTachometerAlt className="mr-2" /> },
+      { name: 'Comrades Products', path: '/dashboard/products/comrades', icon: <FaBox className="mr-2" /> },
+      { name: 'Comrades New Product', path: '/dashboard/products/comrades/new', icon: <FaPlus className="mr-2" /> },
+      { name: 'Comrades Pending', path: '/dashboard/products/comrades/pending', icon: <FaClock className="mr-2" /> },
+      { name: 'Comrades Rejected', path: '/dashboard/products/comrades/rejected', icon: <FaTimes className="mr-2" /> },
+      { name: 'Deletion Requests', path: '/dashboard/products/deletion-requests', icon: <FaTimes className="mr-2" /> },
+      { name: 'Recycle Bin', path: '/dashboard/products/recycle-bin', icon: <FaClipboardList className="mr-2" /> },
+      { name: 'Suspend Product', path: '/dashboard/suspend-product', icon: <FaBan className="mr-2" /> },
+      { name: 'On-Behalf Creation', path: '/dashboard/on-behalf-creation', icon: <FaPlus className="mr-2" /> },
+      { name: 'Product Analytics', path: '/dashboard/products/analytics', icon: <FaChartLine className="mr-2" /> },
+      { name: 'Product ID Demo', path: '/dashboard/products/id-demo', icon: <FaBox className="mr-2" /> },
+      { name: 'Seller Subscriptions', path: '/seller/subscriptions', icon: <FaClipboardList className="mr-2" /> },
+      { name: 'Customer Meal Plans', path: '/customer/meal-plans', icon: <FaUtensils className="mr-2" /> },
+      { name: 'Create Meal Plan', path: '/customer/meal-plans/create', icon: <FaPlus className="mr-2" /> },
+      { name: 'Customer Subscriptions', path: '/customer/subscriptions', icon: <FaClipboardList className="mr-2" /> },
+      { name: 'Subscription Benefits', path: '/customer/subscription-benefits', icon: <FaAward className="mr-2" /> },
+      { name: 'FastFood Form Test', path: '/dashboard/fastfood/form-test', icon: <FaUtensils className="mr-2" /> },
+      { name: 'Logistics Invoices', path: '/dashboard/delivery/logistics-invoices', icon: <FaFileAlt className="mr-2" /> },
+      { name: 'Station Wallet', path: '/station/wallet', icon: <FaMoneyBill className="mr-2" /> },
+      { name: 'Admin Config', path: '/dashboard/admin/config', icon: <FaCog className="mr-2" /> },
+      { name: 'Pricing Promotions', path: '/dashboard/marketing/pricing-promotions', icon: <FaTags className="mr-2" /> },
+      { name: 'Learning Resources', path: '/dashboard/finance/learning', icon: <FaFileAlt className="mr-2" /> },
+      { name: 'Test Dynamic Forms', path: '/dashboard/test/dynamic-forms', icon: <FaTools className="mr-2" /> },
+    ]
+  },
   {
     name: 'Dashboard',
     path: '/dashboard',
@@ -138,12 +184,27 @@ const adminMenuItems = [
       { name: 'Marketers', path: '/dashboard/users/marketers', icon: <FaBullhorn className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'Marketer Earning Verification', path: '/dashboard/users/marketers/earning-verification', icon: <FaMoneyBillWave className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'Product Promo Requests', path: '/dashboard/marketing/hero-promotions', icon: <FaAward className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+      { name: 'Video Banner Management', path: '/dashboard/marketing/video-banners', icon: <FaPlay className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'FastFood Promo Requests', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'Promo Codes', path: '/dashboard/marketing/promo-codes', icon: <FaTags className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'Available Promo Codes', path: '/marketing/promo-codes', icon: <FaTags className="mr-2" />, roles: ['marketer'] },
       { name: 'Daily Thank You Messages', path: '/dashboard/marketing/thank-you', icon: <FaComments className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'Create Promotion', path: '/dashboard/marketing/hero-promotions/create', icon: <FaPlus className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
       { name: 'FastFood Banner Config', path: '/dashboard/fastfood/hero-settings', icon: <FaUtensils className="mr-2" />, roles: ['admin', 'superadmin', 'super_admin'] },
+    ]
+  },
+  {
+    name: 'Banner Management',
+    path: '/dashboard/marketing/hero-promotions',
+    icon: <FaImage className="mr-3" />,
+    roles: ['admin', 'superadmin', 'super_admin'],
+    children: [
+      { name: 'Product Promotions', path: '/dashboard/marketing/hero-promotions', icon: <FaImage className="mr-2" /> },
+      { name: 'Create Product Banner', path: '/dashboard/marketing/hero-promotions/create', icon: <FaPlus className="mr-2" /> },
+      { name: 'Video Banners', path: '/dashboard/marketing/video-banners', icon: <FaPlay className="mr-2" /> },
+      { name: 'Create Video Banner', path: '/dashboard/marketing/video-banners/create', icon: <FaPlus className="mr-2" /> },
+      { name: 'FastFood Banners', path: '/dashboard/marketing/fastfood-promotions', icon: <FaUtensils className="mr-2" /> },
+      { name: 'FastFood Banner Settings', path: '/dashboard/fastfood/hero-settings', icon: <FaCog className="mr-2" /> },
     ]
   },
   {
@@ -169,6 +230,17 @@ const adminMenuItems = [
     path: '/dashboard/subscriptions',
     icon: <FaClipboardList className="mr-3" />,
     roles: ['admin', 'superadmin', 'super_admin'],
+  },
+  {
+    name: 'CMS',
+    path: '/dashboard/cms',
+    icon: <FaFileAlt className="mr-3" />,
+    roles: ['admin', 'superadmin', 'super_admin'],
+    children: [
+      { name: 'About Page', path: '/dashboard/cms/about', icon: <FaFileAlt className="mr-2" /> },
+      { name: 'Contact Page', path: '/dashboard/cms/contact', icon: <FaFileAlt className="mr-2" /> },
+      { name: 'Blog Page', path: '/dashboard/cms/blog', icon: <FaFileAlt className="mr-2" /> }
+    ]
   },
   {
     name: 'System Settings',
@@ -300,19 +372,41 @@ const Sidebar = ({ onClose }) => {
     return Array.isArray(user?.roles) ? user.roles : [user?.role || 'customer'];
   }, [user]);
 
-  const [expandedItems, setExpandedItems] = useState(new Set());
+  const [expandedItems, setExpandedItems] = useState(new Set(['CMS', 'Banner Management']));
   const productManagementClickRef = useRef({ lastClick: 0, timeout: null });
 
+  // List of routes that don't have components yet (placeholders)
+  const placeholderRoutes = new Set([
+    '/dashboard/analytics/advanced',
+    '/dashboard/analytics/business',
+    '/dashboard/analytics/custom',
+    '/dashboard/delivery',
+    '/dashboard/finance',
+    '/dashboard/manual',
+    '/dashboard/marketing',
+    '/dashboard/service-provider'
+  ]);
+
+  // Check if a path is a placeholder
+  const isPlaceholder = (path) => {
+    return placeholderRoutes.has(path);
+  };
+
   // Toggle expanded state for menu items with children
+  // On mobile, use accordion behavior (only one section open at a time)
   const toggleExpanded = (itemName) => {
     setExpandedItems(prev => {
-      const next = new Set(prev);
-      if (next.has(itemName)) {
+      const isMobile = window.innerWidth < 1024;
+      if (prev.has(itemName)) {
+        const next = new Set(prev);
         next.delete(itemName);
+        return next;
       } else {
+        // On mobile: collapse all others (accordion). On desktop: allow multiple.
+        const next = isMobile ? new Set() : new Set(prev);
         next.add(itemName);
+        return next;
       }
-      return next;
     });
   };
 
@@ -416,7 +510,7 @@ const Sidebar = ({ onClose }) => {
                     onClick={() => {
                       item.name === 'Product Management' ? handleProductManagementClick() : toggleExpanded(item.name);
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-sm lg:text-[14px] font-semibold tracking-tight w-full text-left ${isExactActive 
+                    className={`flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-sm lg:text-[14px] font-semibold tracking-tight w-full text-left ${isExactActive
                       ? 'text-blue-600 bg-blue-50/50 z-10'
                       : isChildActive
                         ? 'text-gray-900 bg-gray-50/50'
@@ -482,11 +576,14 @@ const Sidebar = ({ onClose }) => {
                                             onClick={onClose}
                                             className={`flex items-center py-1.5 px-3 rounded-lg text-[11px] lg:text-[12px] font-medium transition-all ${location.pathname === sub.path
                                               ? 'text-blue-600 bg-blue-50/30'
-                                              : 'text-gray-400 hover:bg-gray-50 hover:text-blue-600'
+                                              : isPlaceholder(sub.path)
+                                                ? 'text-red-500 hover:bg-red-50 hover:text-red-600'
+                                                : 'text-gray-400 hover:bg-gray-50 hover:text-blue-600'
                                               }`}
                                           >
                                             <span className="mr-2 opacity-60">{sub.icon}</span>
                                             {sub.name}
+                                            {isPlaceholder(sub.path) && <span className="ml-auto text-[9px] text-red-400">(WIP)</span>}
                                           </Link>
                                         </li>
                                       ))}
@@ -505,11 +602,14 @@ const Sidebar = ({ onClose }) => {
                                 }}
                                 className={`flex items-center py-2 px-3 rounded-lg text-xs lg:text-[13px] font-medium transition-all ${isChildExactActive
                                   ? 'text-blue-600 bg-blue-50/30'
-                                  : 'text-gray-500 hover:bg-gray-50 hover:text-blue-600'
+                                  : isPlaceholder(child.path)
+                                    ? 'text-red-500 hover:bg-red-50 hover:text-red-600'
+                                    : 'text-gray-500 hover:bg-gray-50 hover:text-blue-600'
                                   }`}
                               >
-                                <span className={`mr-2 transition-colors ${isChildExactActive ? 'text-blue-600' : 'opacity-70'}`}>{child.icon}</span>
+                                <span className={`mr-2 transition-colors ${isChildExactActive ? 'text-blue-600' : isPlaceholder(child.path) ? 'text-red-500' : 'opacity-70'}`}>{child.icon}</span>
                                 {child.name}
+                                {isPlaceholder(child.path) && <span className="ml-auto text-[10px] text-red-400">(WIP)</span>}
                               </Link>
                             </li>
                           );
@@ -523,11 +623,14 @@ const Sidebar = ({ onClose }) => {
                   onClick={onClose}
                   className={`flex items-center gap-2 px-4 py-2 lg:py-2.5 lg:px-4 rounded-xl transition-all duration-200 text-sm lg:text-[14px] font-semibold tracking-tight ${isExactActive
                     ? 'text-blue-600 bg-blue-50/50 z-10'
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-blue-600'
+                    : isPlaceholder(item.path)
+                      ? 'text-red-500 hover:bg-red-50 hover:text-red-600'
+                      : 'text-gray-500 hover:bg-gray-50 hover:text-blue-600'
                     }`}
                 >
-                  <span className={`text-sm lg:text-lg transition-colors ${isExactActive ? 'text-blue-600' : 'opacity-80'}`}>{item.icon}</span>
+                  <span className={`text-sm lg:text-lg transition-colors ${isExactActive ? 'text-blue-600' : isPlaceholder(item.path) ? 'text-red-500' : 'opacity-80'}`}>{item.icon}</span>
                   <span className="inline text-center">{item.name}</span>
+                  {isPlaceholder(item.path) && <span className="ml-auto text-[10px] text-red-400">(WIP)</span>}
                 </Link>
               )}
             </li>

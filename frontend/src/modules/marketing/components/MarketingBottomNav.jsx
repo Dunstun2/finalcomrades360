@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { 
-  FaChartLine, FaShoppingCart, FaBox, FaHistory, FaWallet, FaBars 
+import {
+    FaChartLine, FaShoppingCart, FaBox, FaHistory, FaWallet, FaBars
 } from 'react-icons/fa';
 
 /**
@@ -11,27 +11,27 @@ import {
 const MarketingBottomNav = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    
+
     // Determine active state based on current path and query params
     const params = new URLSearchParams(location.search);
     const activeTabParam = params.get('tab');
     const isDashboard = location.pathname.startsWith('/marketing');
-    
+
     // Highlight logic
     const getActiveTab = () => {
         if (location.pathname === '/') return 'new-order';
         if (!isDashboard) return null;
         return activeTabParam || 'overview';
     };
-    
+
     const activeTab = getActiveTab();
 
     const tabs = [
-        { id: 'overview',  icon: <FaChartLine size={18} />,    label: 'Overview',  path: '/marketing?tab=overview' },
-        { id: 'products',  icon: <FaShoppingCart size={18} />, label: 'Browse',    path: '/marketing?tab=products' },
-        { id: 'new-order', icon: <FaBox size={18} />,          label: 'New Order', path: '/marketing?tab=new-order' },
-        { id: 'orders',    icon: <FaHistory size={18} />,      label: 'My Sales',  path: '/marketing?tab=orders' },
-        { id: 'wallet',    icon: <FaWallet size={18} />,       label: 'Wallet',    path: '/marketing?tab=wallet' },
+        { id: 'overview', icon: <FaChartLine size={18} />, label: 'Overview', path: '/marketing?tab=overview' },
+        { id: 'products', icon: <FaShoppingCart size={18} />, label: 'Browse', path: '/marketing?tab=products' },
+        { id: 'new-order', icon: <FaBox size={18} />, label: 'New Order', path: '/marketing?tab=new-order' },
+        { id: 'orders', icon: <FaHistory size={18} />, label: 'My Sales', path: '/marketing?tab=orders' },
+        { id: 'wallet', icon: <FaWallet size={18} />, label: 'Wallet', path: '/marketing?tab=wallet' },
     ];
 
     return (
@@ -43,11 +43,10 @@ const MarketingBottomNav = () => {
                         localStorage.setItem('marketing_mode', 'true');
                         navigate(tab.path);
                     }}
-                    className={`flex-1 flex flex-col items-center justify-center py-1.5 gap-0.5 text-[10px] font-bold uppercase tracking-tighter transition-all active:scale-95 ${
-                        activeTab === tab.id
-                            ? 'text-indigo-600 bg-indigo-50/60'
-                            : 'text-gray-400 hover:text-gray-600'
-                    }`}
+                    className={`flex-1 flex flex-col items-center justify-center py-1.5 gap-0.5 text-[10px] font-bold uppercase tracking-tighter transition-all active:scale-95 ${activeTab === tab.id
+                        ? 'text-indigo-600 bg-indigo-50/60'
+                        : 'text-gray-400 hover:text-gray-600'
+                        }`}
                 >
                     <span className={activeTab === tab.id ? 'text-indigo-600' : 'text-gray-400'}>
                         {tab.icon}
@@ -57,7 +56,7 @@ const MarketingBottomNav = () => {
                     </span>
                 </button>
             ))}
-            
+
             <button
                 onClick={() => {
                     if (location.pathname.startsWith('/marketing')) {

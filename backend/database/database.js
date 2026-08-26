@@ -176,6 +176,19 @@ const testConnection = async () => {
       console.warn('⚠️ Warning: Could not seed roles:', roleErr.message);
     }
 
+    // Self-healing: Add firstPublishedAt column to Plan table if missing
+    try {
+      await sequelize.query(`ALTER TABLE Plan ADD COLUMN firstPublishedAt DATETIME NULL DEFAULT NULL`)
+        .catch(err => {
+          // Column already exists — safe to ignore
+          if (!err.message?.includes('duplicate column') && !err.message?.includes('already exists')) {
+            console.warn('⚠️ Could not add firstPublishedAt to Plan:', err.message);
+          }
+        });
+    } catch (colErr) {
+      console.warn('⚠️ Warning: firstPublishedAt column check failed:', colErr.message);
+    }
+
     // Self-healing: Enforce default platform configs
     try {
       const defaultConfigs = [
@@ -183,6 +196,7 @@ const testConnection = async () => {
           key: 'platform_settings', 
           value: JSON.stringify({
             siteName: 'Comrades360',
+            siteLogo: '',
             siteDescription: 'Your trusted marketplace',
             contactEmail: 'admin@comrades360.com',
             supportPhone: '+254700000000',

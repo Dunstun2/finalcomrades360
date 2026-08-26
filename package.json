@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
-    "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
+    "dev": "concurrently \"cd frontend && set BACKEND_PORT=6001&& npm run dev\" \"cd backend && npm run dev\"",
     "start": "node backend/server.js",
     "build": "cd frontend && npm run build",
+    "db:migrate": "cd backend && npx sequelize-cli db:migrate",
+    "db:migrate:prod": "cd backend && npx sequelize-cli db:migrate --env production",
+    "db:migrate:status": "cd backend && npx sequelize-cli db:migrate:status",
+    "db:migrate:status:prod": "cd backend && npx sequelize-cli db:migrate:status --env production",
     "wallet:release": "node backend/scripts/verify_and_release_funds.js"
   },
   "devDependencies": {

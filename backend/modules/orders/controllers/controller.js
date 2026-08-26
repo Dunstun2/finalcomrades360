@@ -1446,8 +1446,11 @@ const myOrders = async (req, res) => {
     } else {
       // Personal history: orders where user is the RECIPIENT (not the marketer)
       // Include marketing orders placed FOR this user by a marketer, but exclude orders where this user IS the marketer
+      // Also exclude subscription payment orders (subscriptionId IS NOT NULL) since those are
+      // tracked on the /customer/my-subscription page and are not real product orders.
       whereClause = {
         userId,
+        subscriptionId: { [Op.is]: null },
         [Op.or]: [
           { isMarketingOrder: false },
           { isMarketingOrder: true, marketerId: { [Op.ne]: userId } }

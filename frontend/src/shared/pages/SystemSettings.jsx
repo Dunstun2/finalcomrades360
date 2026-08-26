@@ -3,11 +3,14 @@ import api from '@/shared/services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import useRealtimeSync from '@/hooks/useRealtimeSync';
 import { toast } from 'react-toastify';
-import { FaSave, FaSyncAlt } from 'react-icons/fa';
+import { FaSave, FaSyncAlt, FaTimes } from 'react-icons/fa';
+import { resolveImageUrl } from '@/utils/imageUtils';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function SystemSettings() {
+  const { user } = useAuth();
   const [settings, setSettings] = useState({
-    platform: { siteName: 'Comrades360', siteDescription: 'Your trusted marketplace', contactEmail: 'admin@comrades360.com', supportPhone: '+254700000000', currency: 'KES', timezone: 'Africa/Nairobi' },
+    platform: { siteName: 'Comrades360', siteLogo: '', siteDescription: 'Your trusted marketplace', contactEmail: 'admin@comrades360.com', supportPhone: '+254700000000', currency: 'KES', timezone: 'Africa/Nairobi' },
     mpesa_config: { consumerKey: '', consumerSecret: '', passkey: '', shortcode: '174379', stkTimeout: 60, mockMode: false },
     mpesa_manual_instructions: { paybill: '714888', accountNumber: '223052' },
     airtel_config: { clientId: '', clientSecret: '', callbackUrl: '' },
@@ -35,7 +38,9 @@ export default function SystemSettings() {
         withdrawalSuccessEmailBody: 'Hi {name}, your withdrawal of {amount} has been processed successfully. It should reflect in your account shortly.',
         WELCOME_MARKETER_CREATED: 'Hello {name}, your account has been created by {marketerName}. Your temporary password is: {tempPassword}. Please login at {loginUrl} and change your password immediately.',
         idVerificationApproved: `Hello {name},\n\nGreat news! Your identity has been verified and your Comrades360 account is now fully activated.\n\nYou can now access all features including applying for seller, delivery, or service provider roles.\n\nWelcome to the verified community!\n\n— Comrades360 Team`,
-        idVerificationRejected: `Hello {name},\n\nWe regret to inform you that your identity verification was not successful.\n\nReason: {rejectionReason}\n\nPlease log in and re-upload a clear, valid National ID document to try again.\n\nIf you believe this is an error, contact our support team.\n\n— Comrades360 Team`
+        idVerificationRejected: `Hello {name},\n\nWe regret to inform you that your identity verification was not successful.\n\nReason: {rejectionReason}\n\nPlease log in and re-upload a clear, valid National ID document to try again.\n\nIf you believe this is an error, contact our support team.\n\n— Comrades360 Team`,
+        subscriptionPaymentApproved: `Hello {name}, great news! 🎉\n\nYour payment for the \"{planName}\" subscription plan has been verified and approved!\n\nYour subscription is now ACTIVE and you can start enjoying all the benefits immediately.\n\nThank you for choosing Comrades360!`,
+        subscriptionPaymentRejected: `Hello {name}, we regret to inform you that your payment for the \"{planName}\" subscription plan could not be verified. ❌\n\nReason: {reason}\n\nPlease re-submit a valid payment proof or try a different payment method. If you believe this is a mistake, please contact our support team.\n\n— Comrades360 Team`
       }
     },
     finance_settings: { 
@@ -67,7 +72,7 @@ export default function SystemSettings() {
     },
     security: { sessionTimeout: 30, passwordMinLength: 8, twoFactorEnabled: false, loginAttempts: 5, ipWhitelist: [] },
     notifications: { emailNotifications: true, smsNotifications: true, pushNotifications: false, orderConfirmations: true, deliveryUpdates: true },
-    system_env: { server: { port: 5001, nodeEnv: 'production', baseUrl: 'https://comrades360.shop', apiUrl: '/api' }, app: { frontendUrl: 'https://comrades360.shop', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } },
+    system_env: { server: { port: 5002, nodeEnv: 'production', baseUrl: 'https://comrades360.shop', apiUrl: '/api' }, app: { frontendUrl: 'https://comrades360.shop', supportEmail: 'support@comrades360.com' }, database: { dialect: 'sqlite', storage: './database.sqlite' } },
     delivery_fee_agent_share: 70,
     delivery_fee_station_share: 10,
     seller_delivery_handling_fee: 20,
@@ -83,6 +88,212 @@ export default function SystemSettings() {
 
   const [whatsappStatus, setWhatsappStatus] = useState({ isReady: false, status: 'initializing', qr: null });
   const [isRestarting, setIsRestarting] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const [showLogoDeleteDialog, setShowLogoDeleteDialog] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+
+  const handleConfirmLogoDelete = async () => {
+    if (!adminPasswordInput) {
+      setPasswordError('Please enter your password');
+      return;
+    }
+    
+    try {
+      setIsVerifyingPassword(true);
+      const identifier = user?.email || user?.phone || 'admin@comrades360.com';
+      await api.post('/auth/login', { 
+        identifier, 
+        password: adminPasswordInput 
+      });
+      
+      setSettings(p => ({...p, platform: {...p.platform, siteLogo: ''}}));
+      setShowLogoDeleteDialog(false);
+      setAdminPasswordInput('');
+      setPasswordError('');
+    } catch (error) {
+      setPasswordError('Incorrect password');
+    } finally {
+      setIsVerifyingPassword(false);
+    }
+  };
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File is too large. Max size is 10MB.');
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      let canvas;
+
+      if (file.type === 'application/pdf') {
+        // Load PDF.js dynamically
+        const pdfjsLib = await new Promise((resolve, reject) => {
+          if (window.pdfjsLib) {
+            resolve(window.pdfjsLib);
+            return;
+          }
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js';
+          script.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+            resolve(window.pdfjsLib);
+          };
+          script.onerror = () => reject(new Error('Failed to load PDF converter library.'));
+          document.head.appendChild(script);
+        });
+
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        if (pdf.numPages < 1) {
+          throw new Error('The PDF has no pages.');
+        }
+        const page = await pdf.getPage(1);
+        
+        // Render at 3.0 scale for high resolution
+        const viewport = page.getViewport({ scale: 3.0 });
+        canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        
+        await page.render({
+          canvasContext: ctx,
+          viewport: viewport
+        }).promise;
+      } else {
+        // Standard image load
+        canvas = await new Promise((resolve, reject) => {
+          const img = new Image();
+          const objectUrl = URL.createObjectURL(file);
+          img.onload = () => {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = img.naturalWidth;
+            tempCanvas.height = img.naturalHeight;
+            const ctx = tempCanvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(objectUrl);
+            resolve(tempCanvas);
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Failed to load image.'));
+          };
+          img.src = objectUrl;
+        });
+      }
+
+      // Autocrop / Trim white and transparent borders around the logo content
+      const trimmedCanvas = (() => {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+
+        let minX = width, minY = height, maxX = 0, maxY = 0;
+        let foundContent = false;
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const r = data[idx];
+            const g = data[idx+1];
+            const b = data[idx+2];
+            const a = data[idx+3];
+
+            // Content if not transparent and not close to pure white (r,g,b > 240)
+            const isTransparent = a < 10;
+            const isWhite = r > 240 && g > 240 && b > 240;
+
+            if (!isTransparent && !isWhite) {
+              foundContent = true;
+              if (x < minX) minX = x;
+              if (y < minY) minY = y;
+              if (x > maxX) maxX = x;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        if (!foundContent) {
+          return canvas; // Blank or fully white page
+        }
+
+        // Add padding around content
+        minX = Math.max(0, minX - 8);
+        minY = Math.max(0, minY - 8);
+        maxX = Math.min(width - 1, maxX + 8);
+        maxY = Math.min(height - 1, maxY + 8);
+
+        const trimW = maxX - minX + 1;
+        const trimH = maxY - minY + 1;
+
+        const tc = document.createElement('canvas');
+        tc.width = trimW;
+        tc.height = trimH;
+        const tCtx = tc.getContext('2d');
+        tCtx.drawImage(canvas, minX, minY, trimW, trimH, 0, 0, trimW, trimH);
+        return tc;
+      })();
+
+      // Scale logo to fit nicely within a high-res box (keeping correct aspect ratio)
+      const scaledCanvas = (() => {
+        const MAX_W = 600;
+        const MAX_H = 150;
+        const curW = trimmedCanvas.width;
+        const curH = trimmedCanvas.height;
+
+        const scale = Math.min(1, Math.min(MAX_W / curW, MAX_H / curH));
+        if (scale === 1) return trimmedCanvas;
+
+        const sc = document.createElement('canvas');
+        sc.width = Math.round(curW * scale);
+        sc.height = Math.round(curH * scale);
+        const sCtx = sc.getContext('2d');
+        sCtx.drawImage(trimmedCanvas, 0, 0, sc.width, sc.height);
+        return sc;
+      })();
+
+      const convertedFile = await new Promise((resolve, reject) => {
+        scaledCanvas.toBlob((blob) => {
+          if (!blob) return reject(new Error('Image conversion failed.'));
+          resolve(new File([blob], 'site-logo.png', { type: 'image/png' }));
+        }, 'image/png');
+      });
+
+      const fd = new FormData();
+      fd.append('file', convertedFile);
+      const { default: api } = await import('@/shared/services/api');
+      const res = await api.post('/upload?skipCompress=1', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const logoUrl = res.data.url;
+
+      setSettings(p => ({
+        ...p,
+        platform: {
+          ...p.platform,
+          siteLogo: logoUrl
+        }
+      }));
+      toast.success('Logo processed to transparent PNG and uploaded! Click "Apply Changes" to save.');
+    } catch (err) {
+      console.error('Failed to upload logo:', err);
+      toast.error(err.response?.data?.message || err.message || 'Failed to upload logo.');
+    } finally {
+      setUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
 
   useEffect(() => {
     fetchWhatsAppStatus();
@@ -179,6 +390,7 @@ export default function SystemSettings() {
         'finance_settings',
         'logistic_settings',
         'seo_settings',
+        'seo_pages',
         'maintenance_settings',
         'security_settings',
         'notification_settings',
@@ -205,6 +417,8 @@ export default function SystemSettings() {
             const stateKey = key === 'platform_settings' ? 'platform' 
                            : key === 'security_settings' ? 'security'
                            : key === 'notification_settings' ? 'notifications'
+                           : key === 'seo_settings' ? 'seo_settings'
+                           : key === 'seo_pages' ? 'seo_pages'
                            : key;
             
             const incomingData = typeof res.data.data === 'string' ? JSON.parse(res.data.data) : res.data.data;
@@ -261,6 +475,7 @@ export default function SystemSettings() {
         finance_settings: 'finance_settings',
         logistic_settings: 'logistic_settings',
         seo_settings: 'seo_settings',
+        seo_pages: 'seo_pages',
         maintenance_settings: 'maintenance_settings',
         security: 'security_settings',
         notifications: 'notification_settings',
@@ -298,6 +513,67 @@ export default function SystemSettings() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // SEO page editor state
+  const [selectedSeoPage, setSelectedSeoPage] = useState('');
+  const [customSeoUrl, setCustomSeoUrl] = useState('');
+  const [pageMeta, setPageMeta] = useState({});
+
+  const handleSelectSeoPage = (val) => {
+    setSelectedSeoPage(val);
+    if (val && settings.seo_pages && settings.seo_pages[val]) {
+      setPageMeta(settings.seo_pages[val]);
+      setCustomSeoUrl(settings.seo_pages[val].url || '');
+    } else {
+      setPageMeta({});
+      if (val !== 'custom') setCustomSeoUrl('');
+    }
+  };
+
+  const handleSaveSeoPage = async () => {
+    if (!selectedSeoPage) return;
+    const key = selectedSeoPage === 'custom' ? (customSeoUrl || '').trim() : selectedSeoPage;
+    if (!key) {
+      setError('Custom URL required for custom page');
+      return;
+    }
+
+    const newPages = { ...(settings.seo_pages || {}) };
+    newPages[key] = { ...pageMeta };
+    if (selectedSeoPage === 'custom') newPages[key].url = customSeoUrl;
+
+    await updateSettings('seo_pages', newPages);
+    setSettings(p => ({ ...p, seo_pages: newPages }));
+    setSuccess('Page SEO saved');
+  };
+
+  const handleClearSeoEditor = () => {
+    setSelectedSeoPage('');
+    setCustomSeoUrl('');
+    setPageMeta({});
+    setError('');
+  };
+
+  const loadSeoEntryIntoEditor = (key) => {
+    const meta = settings.seo_pages?.[key] || {};
+    // If the key looks like a URL path, consider it custom
+    if (key.startsWith('/')) {
+      setSelectedSeoPage('custom');
+      setCustomSeoUrl(key);
+    } else {
+      setSelectedSeoPage(key);
+    }
+    setPageMeta(meta);
+  };
+
+  const handleDeleteSeoEntry = async (key) => {
+    if (!confirm(`Delete SEO entry for "${key}"? This cannot be undone.`)) return;
+    const newPages = { ...(settings.seo_pages || {}) };
+    delete newPages[key];
+    await updateSettings('seo_pages', newPages);
+    setSettings(p => ({ ...p, seo_pages: newPages }));
+    setSuccess('Page SEO entry deleted');
   };
 
   const tabs = [
@@ -370,6 +646,64 @@ export default function SystemSettings() {
                   <FormInput label="Site Name" value={settings.platform.siteName} onChange={(v) => setSettings(p => ({...p, platform: {...p.platform, siteName: v}}))} />
                   <FormInput label="Support Phone" value={settings.platform.supportPhone} onChange={(v) => setSettings(p => ({...p, platform: {...p.platform, supportPhone: v}}))} />
                   <FormInput label="Contact Email" value={settings.platform.contactEmail} className="md:col-span-2" onChange={(v) => setSettings(p => ({...p, platform: {...p.platform, contactEmail: v}}))} />
+                </div>
+
+                <div className="mt-6">
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">Site Logo</label>
+                  <div className="flex flex-col sm:flex-row items-center gap-6 p-5 bg-gray-50 rounded-2xl border border-gray-250">
+                    {settings.platform.siteLogo ? (
+                      <div className="relative group flex-shrink-0 bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-center min-w-[150px] min-h-[80px]">
+                        <img 
+                          src={resolveImageUrl(settings.platform.siteLogo)} 
+                          alt="Site Logo Preview" 
+                          className="h-12 w-auto object-contain max-w-[200px]" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLogoDeleteDialog(true)}
+                          className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 shadow-md transition-all hover:scale-110 active:scale-95"
+                          title="Remove logo"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="h-20 w-40 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center bg-gray-100/50 text-xs font-semibold text-gray-400 select-none">
+                        No Logo Uploaded
+                      </div>
+                    )}
+                    
+                    <div className="flex-1 space-y-3 text-center sm:text-left">
+                      <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                        Upload a custom branding logo for Comrades360 headers (replaces site name text). <br />
+                        Any image format or PDF accepted — automatically converted and cropped to transparent PNG.
+                      </p>
+                      <div className="flex flex-wrap justify-center sm:justify-start items-center gap-3">
+                        <label className="relative cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition-all shadow-sm active:scale-95 inline-flex items-center gap-2">
+                          {uploadingLogo ? (
+                            <>
+                              <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                              Uploading...
+                            </>
+                          ) : (
+                            'Upload Brand Logo'
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*,application/pdf" 
+                            className="hidden" 
+                            disabled={uploadingLogo}
+                            onChange={handleLogoUpload} 
+                          />
+                        </label>
+                        {settings.platform.siteLogo && (
+                          <span className="text-xs text-green-600 font-bold bg-green-50 border border-green-200 px-3 py-1.5 rounded-xl flex items-center gap-1">
+                            ✓ Active Logo Selected
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-4">
                    <label className="block text-sm font-semibold text-gray-600 mb-1">Site Description</label>
@@ -503,6 +837,63 @@ export default function SystemSettings() {
                   </div>
                   <SaveButton onClick={() => updateSettings('seo_settings', settings.seo_settings)} loading={loading} />
                 </div>
+
+                <div className="mt-8 pt-6 border-t">
+                  <h4 className="text-md font-bold text-gray-800 mb-3">Per-Page SEO</h4>
+                  <p className="text-sm text-gray-500 mb-4">Create page-specific metadata overrides (title, keywords, description). Saved entries are stored as `seo_pages` and applied when rendering those pages.</p>
+
+                  {/* Editor */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-600 mb-1">Select Page</label>
+                      <select className="w-full border rounded-xl p-2.5 outline-none" value={selectedSeoPage} onChange={(e) => handleSelectSeoPage(e.target.value)}>
+                        <option value="">-- Choose Page --</option>
+                        <option value="homepage">Homepage</option>
+                        <option value="product">Product Page (template)</option>
+                        <option value="category">Category Page (template)</option>
+                        <option value="blog">Blog Post</option>
+                        <option value="about">About</option>
+                        <option value="contact">Contact</option>
+                        <option value="custom">Custom URL</option>
+                      </select>
+                    </div>
+                    {selectedSeoPage === 'custom' && (
+                      <FormInput label="Custom URL (path)" value={customSeoUrl} onChange={(v) => setCustomSeoUrl(v)} />
+                    )}
+
+                    <FormInput label="Meta Title" value={pageMeta.title || ''} onChange={(v) => setPageMeta(pm => ({...pm, title: v}))} />
+                    <FormInput label="Keywords (comma separated)" value={pageMeta.keywords || ''} onChange={(v) => setPageMeta(pm => ({...pm, keywords: v}))} />
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-semibold text-gray-600 mb-1">Meta Description</label>
+                      <textarea className="w-full border rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all" rows={3} value={pageMeta.description || ''} onChange={(e) => setPageMeta(pm => ({...pm, description: e.target.value}))} />
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center gap-3">
+                      <button onClick={handleSaveSeoPage} disabled={loading || !selectedSeoPage} className={`px-6 py-3 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 transition-all ${loading ? 'opacity-60' : ''}`}>Save Page SEO</button>
+                      <button onClick={handleClearSeoEditor} className="px-4 py-2 rounded-xl border border-gray-200 bg-white">Clear</button>
+                    </div>
+                  </div>
+
+                  {/* Existing entries */}
+                  <div className="mt-6">
+                    <h5 className="text-sm font-bold text-gray-700 mb-2">Existing Page SEO Entries</h5>
+                    <div className="space-y-3">
+                      {Object.keys(settings.seo_pages || {}).length === 0 && <div className="text-xs text-gray-400">No per-page SEO entries yet.</div>}
+                      {Object.entries(settings.seo_pages || {}).map(([key, meta]) => (
+                        <div key={key} className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-start justify-between">
+                          <div>
+                            <div className="text-sm font-bold text-gray-800">{key}{meta.url ? ` — ${meta.url}` : ''}</div>
+                            <div className="text-xs text-gray-500">{meta.title || meta.description}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button className="text-sm text-blue-600" onClick={() => loadSeoEntryIntoEditor(key)}>Edit</button>
+                            <button className="text-sm text-red-600" onClick={() => handleDeleteSeoEntry(key)}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </section>
             </div>
           )}
@@ -553,9 +944,19 @@ export default function SystemSettings() {
 
               <section>
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">💬 Payment Notifications</h3>
-                <div className="max-w-xl">
-                  <TemplateInput label="Order Received Template" templateKey="orderPlaced" value={settings.whatsapp_config.templates?.orderPlaced} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderPlaced: v}} }))} channels={settings.whatsapp_config.channels?.orderPlaced || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderPlaced', ch)} />
-                  <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {orderNumber}, {total}"}</p>
+                <div className="max-w-xl space-y-6">
+                  <div>
+                    <TemplateInput label="Order Received Template" templateKey="orderPlaced" value={settings.whatsapp_config.templates?.orderPlaced} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, orderPlaced: v}} }))} channels={settings.whatsapp_config.channels?.orderPlaced || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('orderPlaced', ch)} />
+                    <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {orderNumber}, {total}"}</p>
+                  </div>
+                  <div>
+                    <TemplateInput label="Subscription Payment Approved" templateKey="subscriptionPaymentApproved" value={settings.whatsapp_config.templates?.subscriptionPaymentApproved} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, subscriptionPaymentApproved: v}} }))} channels={settings.whatsapp_config.channels?.subscriptionPaymentApproved || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('subscriptionPaymentApproved', ch)} />
+                    <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {planName}"}</p>
+                  </div>
+                  <div>
+                    <TemplateInput label="Subscription Payment Rejected" templateKey="subscriptionPaymentRejected" value={settings.whatsapp_config.templates?.subscriptionPaymentRejected} onChange={(v) => setSettings(p => ({...p, whatsapp_config: {...p.whatsapp_config, templates: {...p.whatsapp_config.templates, subscriptionPaymentRejected: v}} }))} channels={settings.whatsapp_config.channels?.subscriptionPaymentRejected || { whatsapp: true, sms: true, email: true, in_app: true }} onChannelChange={(ch) => updateTemplateChannels('subscriptionPaymentRejected', ch)} />
+                    <p className="mt-2 text-xs text-blue-600">Placeholders: {"{name}, {planName}, {reason}"}</p>
+                  </div>
                 </div>
                 <SaveButton onClick={() => updateSettings('whatsapp_config', settings.whatsapp_config)} loading={loading} />
               </section>
@@ -1286,6 +1687,51 @@ export default function SystemSettings() {
 
         </div>
       </div>
+
+      {/* Password Modal for Logo Deletion */}
+      {showLogoDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-in fade-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Authorization Required</h3>
+            <p className="text-sm text-gray-600 mb-4">Please enter the admin password to remove the site logo.</p>
+            
+            <input 
+              type="password"
+              placeholder="Enter Admin Password"
+              className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+              value={adminPasswordInput}
+              onChange={(e) => {
+                setAdminPasswordInput(e.target.value);
+                setPasswordError('');
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleConfirmLogoDelete()}
+            />
+            
+            {passwordError && <p className="text-red-500 text-xs font-semibold mb-2">{passwordError}</p>}
+            
+            <div className="flex gap-3 mt-4">
+              <button 
+                onClick={() => {
+                  setShowLogoDeleteDialog(false);
+                  setAdminPasswordInput('');
+                  setPasswordError('');
+                }}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConfirmLogoDelete}
+                disabled={isVerifyingPassword}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors shadow-md disabled:opacity-50"
+              >
+                {isVerifyingPassword ? 'Verifying...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1381,7 +1827,6 @@ const TemplateInput = ({ label, value, onChange, templateKey, channels, onChanne
           ))}
         </div>
       )}
-
     </div>
   );
 };

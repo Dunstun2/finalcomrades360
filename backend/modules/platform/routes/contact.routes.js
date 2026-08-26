@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { ContactMessage, User } = require('../../../database/models.registry');
+const { ContactMessage, ContactReply, User } = require('../../../database/models.registry');
 const { auth, adminOnly, optionalAuth } = require('../../../middleware/auth');
 
 // @route   POST api/contact
@@ -174,6 +174,42 @@ router.post('/:id/reply', auth, async (req, res) => {
     // Update parent message status
     message.status = isAdmin ? 'replied' : 'pending';
     await message.save();
+
+    // Send email notification if admin is replying to a guest user (no userId)
+    if (isAdmin && !message.userId) {
+      try {
+        const { sendEmail } = require('../../../utils/email');
+        await sendEmail({
+          to: message.email,
+          subject: `Re: ${message.subject || 'Your Contact Message'}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #2563eb;">Response to Your Message</h2>
+              <p>Hello ${message.name},</p>
+              <p>Thank you for contacting us. We've responded to your inquiry:</p>
+              
+              <div style="background-color: #f3f4f6; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0;">
+                <p style="margin: 0; color: #374151;"><strong>Your Original Message:</strong></p>
+                <p style="margin: 10px 0 0 0; color: #6b7280;">${message.message}</p>
+              </div>
+
+              <div style="background-color: #ecfdf5; padding: 15px; border-left: 4px solid #10b981; margin: 20px 0;">
+                <p style="margin: 0; color: #065f46;"><strong>Our Response:</strong></p>
+                <p style="margin: 10px 0 0 0; color: #047857;">${content}</p>
+              </div>
+
+              <p>If you have any further questions, please don't hesitate to contact us again or reply to this email.</p>
+              
+              <p style="margin-top: 30px;">Best regards,<br/>The Support Team</p>
+            </div>
+          `
+        });
+        console.log(`[contact] Email notification sent to guest user: ${message.email}`);
+      } catch (emailError) {
+        console.error('[contact] Failed to send email notification:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
 
     res.status(201).json({
       success: true,

@@ -103,7 +103,19 @@ module.exports = (sequelize, DataTypes) => {
     deliveryTimePreference: { type: DataTypes.STRING, allowNull: true, comment: 'Customer preferred time of delivery' },
     cancelRequested: { type: DataTypes.BOOLEAN, defaultValue: false, comment: 'Whether a marketer or customer requested cancellation' },
     promoCode: { type: DataTypes.STRING, allowNull: true, comment: 'Promo code applied to the order' },
-    discountAmount: { type: DataTypes.FLOAT, defaultValue: 0, comment: 'Amount discounted via promo code' }
+    discountAmount: { type: DataTypes.FLOAT, defaultValue: 0, comment: 'Amount discounted via promo code' },
+    cashbackProcessed: { type: DataTypes.BOOLEAN, defaultValue: false, comment: 'Whether cashback has been processed for this order' },
+    cashbackAmount: { type: DataTypes.FLOAT, defaultValue: 0, comment: 'Amount of cashback credited for this order' },
+    // Payment verification fields for manual payment verification system
+    needsPaymentVerification: { type: DataTypes.BOOLEAN, defaultValue: false, comment: 'Whether this order requires manual payment verification' },
+    paymentVerificationStatus: { type: DataTypes.ENUM('pending', 'approved', 'rejected'), allowNull: true, comment: 'Status of payment verification' },
+    paymentVerifiedAt: { type: DataTypes.DATE, allowNull: true, comment: 'When payment was verified by admin' },
+    paymentVerifiedBy: { type: DataTypes.INTEGER, allowNull: true, comment: 'User ID of admin who verified payment' },
+    paymentRejectionReason: { type: DataTypes.TEXT, allowNull: true, comment: 'Reason for payment rejection' },
+    // Guest data for non-registered users
+    guestData: { type: DataTypes.JSON, allowNull: true, comment: 'Guest user information (name, email, phone) for subscription orders' },
+    // Subscription association
+    subscriptionId: { type: DataTypes.INTEGER, allowNull: true, comment: 'Associated subscription ID for subscription orders' }
   }, {
     freezeTableName: true,  // disables automatic pluralization
     timestamps: true,
@@ -135,6 +147,8 @@ module.exports = (sequelize, DataTypes) => {
     Order.belongsTo(models.User, { foreignKey: 'sellerConfirmedBy', as: 'sellerConfirmer' });
     // The order may have been confirmed by a super admin user
     Order.belongsTo(models.User, { foreignKey: 'superAdminConfirmedBy', as: 'superAdminConfirmer' });
+    // The order may have been verified by an admin for payment
+    Order.belongsTo(models.User, { foreignKey: 'paymentVerifiedBy', as: 'paymentVerifier' });
     // An order has many commission records
     Order.hasMany(models.Commission, { foreignKey: 'orderId' });
     // An order has many delivery tasks
@@ -154,6 +168,11 @@ module.exports = (sequelize, DataTypes) => {
     Order.belongsTo(models.Batch, {
       foreignKey: 'batchId',
       as: 'batch'
+    });
+    // Association with Subscription
+    Order.belongsTo(models.Subscription, {
+      foreignKey: 'subscriptionId',
+      as: 'subscription'
     });
   };
 

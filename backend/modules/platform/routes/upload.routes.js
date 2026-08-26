@@ -6,19 +6,23 @@ const { v4: uuidv4 } = require('uuid');
 const { compressUploadedImages } = require('../../../utils/imageCompression');
 
 // Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, "../uploads");
+const uploadsDir = path.join(__dirname, "../../../uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, "../uploads")),
+  destination: (req, file, cb) => cb(null, path.join(__dirname, "../../../uploads")),
   filename: (req, file, cb) => cb(null, uuidv4() + path.extname(file.originalname))
 });
 const upload = multer({ storage });
 
 const router = express.Router();
-router.post("/", upload.single("file"), compressUploadedImages, (req, res) => {
+router.post("/", upload.single("file"), (req, res, next) => {
+  // Skip compression for logo uploads (preserves PNG transparency & quality)
+  if (req.query.skipCompress === '1') return next();
+  compressUploadedImages(req, res, next);
+}, (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   const url = "/uploads/" + req.file.filename;
   res.json({ url });
@@ -45,8 +49,8 @@ router.delete("/file", (req, res) => {
        return res.status(403).json({ error: "Unauthorized path" });
     }
 
-    // Resolve absolute path
-    const filePath = path.join(__dirname, '..', normalizedUrl);
+    // Resolve absolute path (pointing to centralized backend/uploads)
+    const filePath = path.join(__dirname, '../../..', normalizedUrl);
     
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

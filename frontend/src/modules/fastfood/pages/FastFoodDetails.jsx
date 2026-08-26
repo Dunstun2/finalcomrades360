@@ -34,6 +34,7 @@ import Footer from '@/shared/components/Footer';
 import AdminInquiryModal from '@/modules/admin/components/AdminInquiryModal';
 import FastFoodCard from '@/modules/fastfood/components/FastFoodCard';
 import api from '@/shared/services/api';
+import SEO from '@/shared/components/SEO';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -955,8 +956,31 @@ const FastFoodDetails = () => {
 
   if (!item) return null;
 
+  // SEO meta and FastFood (Restaurant/MenuItem) schema
+  const pageTitle = `${item.name || item.title} — Comrades360`;
+  const pageDescription = item.description || item.summary || 'Delicious student-friendly meals and campus delivery on Comrades360.';
+  const itemImage = resolveImageUrl(activeImage || item.mainImage || (Array.isArray(item.galleryImages) ? item.galleryImages[0] : null));
+
+  const fastFoodSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'MenuItem',
+    name: item.name || item.title,
+    description: item.description,
+    image: itemImage,
+    offers: item.price ? { '@type': 'Offer', price: String(item.price), priceCurrency: item.currency || 'KES' } : undefined,
+    provider: { '@type': 'Organization', name: item.vendorName || item.vendor || 'Comrades360' }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50 via-white to-orange-50 pt-4">
+      <SEO
+        title={pageTitle}
+        description={pageDescription}
+        image={itemImage}
+        keywords={item.tags || item.keywords || 'student meals, campus food delivery, fast food near me'}
+        siteName="Comrades360"
+        schema={fastFoodSchema}
+      />
       <div className="w-full px-0 md:px-6 lg:px-12 py-2 lg:py-8">
         <div className="flex items-center justify-between mb-4 md:mb-6 px-4 md:px-0">
           <button

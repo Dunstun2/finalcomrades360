@@ -91,16 +91,21 @@ class RenewalService {
         invoice.status = 'failed';
         await invoice.save({ transaction: t });
 
-        const gracePeriodDays = sub.plan?.gracePeriodDays ?? 3;
-        const graceLimit = new Date(sub.expiryDate);
-        graceLimit.setDate(graceLimit.getDate() + gracePeriodDays);
-
-        const isGraceExpired = now >= graceLimit;
-
         const oldStatus = sub.status;
+        const isMealPlan = sub.plan?.type === 'meal';
 
-        if (sub.status === 'Active' || sub.status === 'Trial') {
-          // Transition to Grace (3 days remaining)
+        if (isMealPlan) {
+          sub.status = 'Past Due';
+          await sub.save({ transaction: t });
+
+          subscriptionEventBus.emit('SubscriptionExpired', {
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            reason: 'Payment failed, meal subscription requires immediate payment.'
+          });
+
+        } else if (sub.status === 'Active' || sub.status === 'Trial') {
+          // Transition to Grace (standard plans only)
           sub.status = 'Grace';
           await sub.save({ transaction: t });
           
@@ -110,7 +115,7 @@ class RenewalService {
             reason: 'Payment failed, entering grace period.'
           });
 
-        } else if (sub.status === 'Grace' && isGraceExpired) {
+        } else if (sub.status === 'Grace') {
           // Transition to Past Due (suspend benefits)
           sub.status = 'Past Due';
           await sub.save({ transaction: t });

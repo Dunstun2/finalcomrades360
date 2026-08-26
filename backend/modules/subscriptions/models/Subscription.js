@@ -66,6 +66,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.FLOAT,
       allowNull: true
     },
+    // Cost Projection Snapshot - stores the exact Schedule & Projected Cost table
+    // as calculated at subscription creation time (for customer display)
+    costProjectionSnapshot: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Stores the pre-calculated cost breakdown table data including delivery fees, benefits, and totals'
+    },
     // Guest Stateless Checkout Fields
     guestName: {
       type: DataTypes.STRING,
@@ -87,6 +94,22 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
       unique: true
+    },
+    // Subscription lifecycle fields
+    activatedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When subscription was activated after payment verification'
+    },
+    cancelledAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When subscription was cancelled'
+    },
+    cancellationReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Reason for subscription cancellation'
     }
   }, {
     sequelize,
@@ -118,28 +141,8 @@ module.exports = (sequelize, DataTypes) => {
       return;
     }
 
-    const { Op } = require('sequelize');
-    const existingActive = await Subscription.findOne({
-      where: {
-        userId: subscription.userId,
-        status: activeStatuses,
-        id: { [Op.ne]: subscription.id }
-      },
-      include: [{
-        model: Plan,
-        as: 'plan',
-        required: false // Custom plans might not have a plan template joined
-      }],
-      transaction: options.transaction
-    });
-
-    if (existingActive) {
-      // If the existing subscription is standard (has plan) and matches type, or if we are verifying meal type
-      const existingType = existingActive.plan ? existingActive.plan.type : 'meal';
-      if (existingType === planType) {
-        throw new Error(`User already has an active subscription of type '${planType}'`);
-      }
-    }
+    // Allow multiple subscriptions of the same type per user.
+    // Customers may purchase plans for others or maintain multiple schedules.
   });
 
   return Subscription;

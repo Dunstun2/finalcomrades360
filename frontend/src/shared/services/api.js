@@ -145,6 +145,10 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
       if (error.response.status === 401) {
+        // Allow explicitly public requests to fail without blowing away the session.
+        if (error.config?.skipAuthRedirect === true) {
+          return Promise.reject(error);
+        }
         // Don't redirect for password verification endpoint
         if (error.config?.url?.includes('/auth/verify-password')) {
           console.log('[api] Skipping 401 redirect for verify-password');

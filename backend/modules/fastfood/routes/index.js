@@ -9,7 +9,9 @@ const {
     getVendorFastFoods,
     getDeletedFastFoods,
     restoreFastFood,
-    permanentlyDeleteFastFood
+    permanentlyDeleteFastFood,
+    toggleFastFoodBoost,
+    toggleFastFoodFeature
 } = require('../controllers/controller');
 
 // Import authentication middleware if needed
@@ -35,6 +37,9 @@ router.get('/vendor/:vendorId', protect, getVendorFastFoods);
 router.get('/deleted', protect, getDeletedFastFoods);
 router.post('/restore/:id', protect, restoreFastFood);
 router.delete('/permanent/:id', protect, permanentlyDeleteFastFood);
+
+router.put('/:id/boost', protect, toggleFastFoodBoost);
+router.put('/:id/feature', protect, toggleFastFoodFeature);
 
 router.route('/:id')
     .get(optionalAuth, getFastFoodById)

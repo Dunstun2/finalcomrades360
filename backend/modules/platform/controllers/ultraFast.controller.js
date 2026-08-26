@@ -298,7 +298,7 @@ const getHomepageBatchData = async (req, res) => {
     const fetchServicesData = async () => {
       try {
         const whereClause = { status: { [Op.or]: ['approved', 'active'] } };
-        
+
         if (isMarketing) {
           whereClause.marketingEnabled = true;
           whereClause.marketingCommission = { [Op.gt]: 1 };
@@ -410,8 +410,8 @@ const getHomepageBatchData = async (req, res) => {
               startAt: { [Op.lte]: now },
               endAt: { [Op.gte]: now }
             },
-            order: [['startAt', 'ASC']],
-            limit: 8 // increased limit slightly to allow for some filtering
+            order: [['startAt', 'ASC']]
+            // No limit - fetch all active banners to allow rotation
           });
 
           const result = [];
@@ -428,7 +428,7 @@ const getHomepageBatchData = async (req, res) => {
                   'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
                 ]
               });
-              
+
               populatedItems = ffItems.map(item => {
                 const plain = item.get({ plain: true });
                 plain.coverImage = plain.mainImage;
@@ -465,8 +465,8 @@ const getHomepageBatchData = async (req, res) => {
             }
 
             // Keep the promotion if it has items OR if it's a priority system/default banner with custom image
-            const isFallback = p.isSystem || p.isDefault || !!p.customImageUrl;
-            
+            const isFallback = p.isSystem || p.isDefault || !!p.customImageUrl || !!p.videoUrl;
+
             if (populatedItems.length > 0 || isFallback) {
               result.push({
                 ...promoData,
@@ -474,9 +474,9 @@ const getHomepageBatchData = async (req, res) => {
               });
             }
           }
-          
-          // Limit to final 5 after filtering
-          return result.slice(0, 5);
+
+          // Return all filtered results - no limit for rotation
+          return result;
         } catch (err) {
           console.error('[HomepageBatch] HeroPromotions query failed:', err.message);
           return [];

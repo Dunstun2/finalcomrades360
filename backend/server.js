@@ -1,6 +1,4 @@
 console.error('🚀 SERVER STARTING - VERSION: ' + Date.now());
-console.log('--- RELOAD VERIFIED V6 ---'); // CRITICAL: loads User as-alias fix + sortBy sanitization
-
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -9,106 +7,32 @@ const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
-const errorHandler = require('./middleware/errorHandler');
 
-// Load environment variables with robust path detection
-const envPaths = [
-  path.resolve(__dirname, '..', '.env'),
-  path.resolve(__dirname, '.env')
-];
-
-envPaths.forEach(envPath => {
-  if (fs.existsSync(envPath)) {
-    console.error(`[Init] Loading env from: ${envPath}`);
-    // Use override: true to ensure local .env wins over OS environment variables
-    dotenv.config({ path: envPath, override: true });
-  }
-});
-
-// Determine environment AFTER loading .env
-const env = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-
-// Force process.env.NODE_ENV to be consistent with our detection
-process.env.NODE_ENV = env;
-
-// ONLY load .env.production if we are explicitly in production mode
-if (env === 'production') {
-  const prodEnvPaths = [
-    path.resolve(__dirname, '..', '.env.production'),
-    path.resolve(__dirname, '.env.production')
-  ];
-  prodEnvPaths.forEach(envPath => {
-    if (fs.existsSync(envPath)) {
-      console.error(`[Init] Loading production env from: ${envPath}`);
-      dotenv.config({ path: envPath, override: true });
-    }
-  });
-}
-
-// Redirect console logs to file for production debugging
-// PERFORMANCE: Use async writes and only write ERROR-level logs in production
-// to prevent disk I/O from blocking the Node.js event loop on every request.
-const logFile = path.join(__dirname, 'error.log');
-const logStream = fs.createWriteStream(logFile, { flags: 'a' });
-
-const originalLog = console.log;
-const originalError = console.error;
-
-// In production, suppress verbose console.log to avoid disk I/O on every request
-if (process.env.NODE_ENV === 'production') {
-  console.log = function(...args) {
-    // Silently drop noisy debug logs in production (no disk write)
-    // Only uncomment below for active debugging sessions:
-    // originalLog.apply(console, args);
-  };
-} else {
-  console.log = function(...args) {
-    const msg = `[${new Date().toISOString()}] [LOG] ${args.join(' ')}\n`;
-    logStream.write(msg); // async, non-blocking
-    originalLog.apply(console, args);
-  };
-}
-
-console.error = function(...args) {
-  const msg = `[${new Date().toISOString()}] [ERROR] ${args.join(' ')}\n`;
-  logStream.write(msg); // async, non-blocking
-  originalError.apply(console, args);
-};
-
-console.error('🚀 SERVER RESTARTED - LOGGING INITIALIZED');
+// Load environment variables
+dotenv.config();
 
 // DETECT STATIC PATHS GLOBALLY
 const IS_PROD = process.env.NODE_ENV === 'production';
+const rootStaticPath = path.resolve(__dirname, 'public');
+const cpanelPath = path.resolve(__dirname, '../public_html');
+const productionPath = path.join(__dirname, 'public');
+const developmentPath = path.join(__dirname, '../frontend/dist');
 
-// Common paths where frontend files might live in various deployment scenarios
-const possiblePaths = [
-  '/home/vdranjxy/public_html',
-  path.resolve(__dirname, '../public_html'),
-  path.resolve(__dirname, '../../public_html'), // cPanel: backend/ in a subfolder next to public_html/
-  path.resolve(__dirname, '../frontend/dist'),  // Local development structure
-  path.resolve(__dirname, 'public'),             // Generic production build folder
-  path.resolve(__dirname, '../public')          // Project root public folder
-];
-
-let GLOBAL_STATIC_PATH = '/home/vdranjxy/public_html';
-
-// Select the first path that actually contains an index.html
-for (const testPath of possiblePaths) {
-  const testIndex = path.join(testPath, 'index.html');
-  if (fs.existsSync(testIndex)) {
-    GLOBAL_STATIC_PATH = testPath;
-    console.error(`[Static] Found valid frontend at: ${testPath}`);
-    // EXCEPTION: If we found it in the 'production' folder but we are in 'comrades-master', 
-    // we should log a warning as it might mean a misconfiguration.
-    if (testPath.includes('/production/') && __dirname.includes('/comrades-master/')) {
-       console.error('⚠️ WARNING: App is in comrades-master but serving frontend from production folder!');
-    }
-    break;
+// PRODUCTION PRIORITY: In cPanel/Passenger, the backend is often in a peer folder to public_html
+let GLOBAL_STATIC_PATH = developmentPath;
+if (IS_PROD) {
+  if (fs.existsSync(cpanelPath)) {
+    GLOBAL_STATIC_PATH = cpanelPath;
+  } else if (fs.existsSync(productionPath)) {
+    GLOBAL_STATIC_PATH = productionPath;
+  } else if (fs.existsSync(rootStaticPath)) {
+    GLOBAL_STATIC_PATH = rootStaticPath;
+  } else if (fs.existsSync(path.resolve(__dirname, '../../public_html'))) {
+    // Extra fallback for deep structures
+    GLOBAL_STATIC_PATH = path.resolve(__dirname, '../../public_html');
   }
 }
-
-console.error(`[Init] GLOBAL_STATIC_PATH set to: ${GLOBAL_STATIC_PATH} (Mode: ${process.env.NODE_ENV || 'development'})`);
-
+console.log(`[server] Static System Initialized: ${GLOBAL_STATIC_PATH} (Mode: ${process.env.NODE_ENV || 'development'})`);
 if (!fs.existsSync(GLOBAL_STATIC_PATH)) {
   console.error(`⚠️ WARNING: GLOBAL_STATIC_PATH does not exist: ${GLOBAL_STATIC_PATH}`);
 }
@@ -126,16 +50,6 @@ const app = express();
 app.set('trust proxy', true);
 console.log('[Init] Express Trust Proxy set to:', app.get('trust proxy'));
 
-// IMMEDIATE HEALTH CHECK (Must be before any heavy middleware or routes)
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'Server is reachable',
-    timestamp: new Date().toISOString(),
-    version: '1.0.2-prod-stable'
-  });
-});
-
 // Set server timeout to 60 seconds (60000ms)
 app.set('timeout', 60000);
 
@@ -151,7 +65,7 @@ app.use(compression());
 // Rate Limiting — protect against brute-force and abuse
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 2000, // Increased from 300 to 2000 to allow rich SPA usage and avoid 429 errors on page load
+  max: 300, // 300 requests per 15min per IP for general routes
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -165,14 +79,11 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again in 15 minutes.' },
   validate: { trustProxy: false } // Acknowledge proxy trust to stop validation warnings
 });
-// DIAGNOSTIC LOGGING: Only enabled in development. In production this was
-// causing a disk write on EVERY API request, severely blocking the event loop.
-if (process.env.NODE_ENV !== 'production') {
-  app.use('/api', (req, res, next) => {
-    console.error(`[ROUTE-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path})`);
-    next();
-  });
-}
+// DIAGNOSTIC LOGGING: Enabled for ALL environments temporarily to debug 404s
+app.use('/api', (req, res, next) => {
+  console.error(`[ROUTE-DIAGNOSTIC] ${req.method} ${req.url} (Path: ${req.path})`);
+  next();
+});
 
 app.use('/api', globalLimiter); // Apply global rate limit to all API routes
 app.use('/api/auth/login', authLimiter); // Stricter limit on login
@@ -188,6 +99,8 @@ const allowedOrigins = [
   ...(IS_DEV ? [
     'http://localhost:4000',
     'http://127.0.0.1:4000',
+    'http://localhost:4500',
+    'http://127.0.0.1:4500',
     'http://localhost:3000',
     'http://127.0.0.1:3000'
   ] : [])
@@ -197,24 +110,13 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps/curl)
     if (!origin) return callback(null, true);
-    
-    const isAllowed = allowedOrigins.some(o => origin === o || origin.startsWith(o));
-    
-    // In development, also allow any local network IP addresses (mobile testing)
-    const isLocalIP = IS_DEV && (
-      origin.startsWith('http://192.168.') || 
-      origin.startsWith('http://10.') || 
-      origin.startsWith('http://172.') ||
-      origin.includes('localhost') || 
-      origin.includes('127.0.0.1')
-    );
 
-    if (isAllowed || isLocalIP) {
+    const isAllowed = allowedOrigins.some(o => origin === o || origin.startsWith(o));
+    if (isAllowed) {
       callback(null, true);
     } else {
-      // ALWAYS log blocked origins in production to debug CORS issues
-      console.error(`[CORS Blocked] Origin: ${origin} | Allowed: ${allowedOrigins.join(', ')}`);
-      callback(new Error(`CORS policy blockage: ${origin} is not allowed`));
+      if (IS_DEV) console.warn(`[CORS] Blocked: ${origin}`);
+      callback(new Error(`CORS policy blockage`));
     }
   },
   credentials: true,
@@ -238,102 +140,88 @@ if (process.env.NODE_ENV === 'development') {
 const { realtimeSyncMiddleware } = require('./middleware/realtimeSync');
 app.use(realtimeSyncMiddleware);
 
-// -----------------------------------------------------------------
-// 1. MAINTENANCE MODE (MUST BE BEFORE ROUTES)
-// -----------------------------------------------------------------
-let cachedMaintenanceSettings = null;
-let lastMaintenanceCheck = 0;
+// Import routes
+// Route Initialization Function (Lazy Loaded)
+function initializeRoutes(app) {
+  console.error('ℹ️ Registering core API routes...');
+  app.use('/api/auth', require('./modules/auth/routes'));
+  app.use('/api/password-reset', require('./modules/auth/routes/passwordReset.routes'));
+  app.use('/api/2fa', require('./modules/auth/routes/twoFactorAuth.routes'));
+  app.use('/api/users', require('./modules/users/routes'));
+  app.use('/api/categories', require('./modules/platform/routes/category.routes'));
+  app.use('/api/cart', require('./modules/orders/routes/cart.routes'));
+  app.use('/api/wishlist', require('./modules/orders/routes/wishlist.routes'));
+  app.use('/api/ultra-fast', require('./modules/platform/routes/ultraFast.routes'));
 
-app.use(async (req, res, next) => {
-  // EMERGENCY TOTAL BYPASS
-  return next();
-  
-  // Remaining maintenance logic is kept but bypassed above for stability
-});
+  console.error('ℹ️ Registering extended API modules...');
+  app.use('/api/platform', require('./modules/platform/routes'));
+  app.use('/api/products', require('./modules/products/routes'));
+  app.use('/api/role-management', require('./modules/users/routes/roles.routes'));
+  app.use('/api/hero-promotions', require('./modules/admin/routes/heroPromotion.routes'));
+  app.use('/api/admin/categories', require('./modules/admin/routes/category.routes'));
+  app.use('/api/orders', require('./modules/orders/routes'));
+  app.use('/api/returns', require('./modules/orders/routes/return.routes'));
+  app.use('/api/subscriptions', require('./modules/subscriptions/routes'));
+  app.use('/api/notifications', require('./modules/platform/routes/notification.routes'));
+  app.use('/api/upload', require('./modules/platform/routes/upload.routes'));
+  app.use('/api/admin/users', require('./modules/admin/routes/userManagement.routes'));
+  app.use('/api/role-applications', require('./modules/users/routes/roleApplications.routes'));
+  app.use('/api/admin', require('./modules/admin/routes'));
+  app.use('/api/admin-tools', require('./modules/admin/routes/tools.routes'));
+  app.use('/api/admin/marketing', require('./modules/admin/routes/marketing.routes'));
+  app.use('/api/superadmin', require('./modules/admin/routes/security.routes'));
+  app.use('/api/services', require('./modules/services/routes'));
+  app.use('/api/profile', require('./modules/users/routes/profile.routes'));
+  app.use('/api/social-media', require('./modules/marketing/routes/socialMedia.routes'));
+  app.use('/api/contact', require('./modules/platform/routes/contact.routes'));
+  app.use('/api/product-inquiries', require('./modules/products/routes/inquiry.routes'));
+  app.use('/api/cms', require('./routes/cmsRoutes'));
 
-// -----------------------------------------------------------------
-// 2. API ROUTES
-// -----------------------------------------------------------------
-const apiRouter = express.Router();
-apiRouter.use('/auth', require('./modules/auth/routes'));
-apiRouter.use('/users', require('./modules/users/routes'));
-apiRouter.use('/categories', require('./modules/platform/routes/category.routes'));
-apiRouter.use('/cart', require('./modules/orders/routes/cart.routes'));
-apiRouter.use('/wishlist', require('./modules/orders/routes/wishlist.routes'));
-apiRouter.use('/ultra-fast', require('./modules/platform/routes/ultraFast.routes'));
-apiRouter.use('/orders', require('./modules/orders/routes'));
-apiRouter.use('/products', require('./modules/products/routes'));
-// apiRouter.use('/stats', require('./routes/statsRoutes'));
-apiRouter.use('/marketing', require('./modules/marketing/routes'));
-apiRouter.use('/inventory', require('./modules/platform/routes/inventory.routes'));
-apiRouter.use('/services', require('./modules/services/routes'));
-apiRouter.use('/finance', require('./modules/finance/routes'));
-apiRouter.use('/promo-codes', require('./modules/finance/routes/promoCode.routes'));
-apiRouter.use('/payments', require('./modules/finance/routes/payment.routes'));
-apiRouter.use('/subscriptions', require('./modules/subscriptions/routes'));
-// apiRouter.use('/mpesa', require('./routes/mpesaRoutes'));
-apiRouter.use('/notifications', require('./modules/platform/routes/notification.routes'));
-apiRouter.use('/fastfood', require('./modules/fastfood/routes'));
-// apiRouter.use('/referrals', require('./routes/referralRoutes'));
-// apiRouter.use('/tickets', require('./routes/ticketRoutes'));
-// apiRouter.use('/config', require('./routes/configRoutes'));
-apiRouter.use('/warehouse', require('./modules/delivery/routes/warehouse.routes'));
-apiRouter.use('/warehouses', require('./modules/delivery/routes/warehouse.routes'));
-apiRouter.use('/pickup-stations', require('./modules/delivery/routes/pickupStation.routes'));
-apiRouter.use('/station-managers', require('./modules/delivery/routes/stationManager.routes'));
-apiRouter.use('/support', require('./modules/platform/routes/support.routes'));
-apiRouter.use('/hero-promotions', require('./modules/marketing/routes/heroPromotion.routes'));
-apiRouter.use('/delivery', require('./modules/delivery/routes'));
-// apiRouter.use('/payouts', require('./routes/payoutRoutes'));
-apiRouter.use('/commissions', require('./modules/finance/routes/commission.routes'));
-// apiRouter.use('/driver', require('./routes/driverRoutes'));
-apiRouter.use('/admin', require('./modules/admin/routes'));
-apiRouter.use('/verification', require('./modules/platform/routes/verification.routes'));
-apiRouter.use('/social-media-accounts', require('./modules/marketing/routes/socialMedia.routes'));
-apiRouter.use('/quick-action', require('./modules/platform/routes/quickAction.routes'));
+  // SUPPORT BOTH HYPHENATED AND NON-HYPHENATED FASTFOOD PATHS
+  const fastFoodRoutes = require('./modules/fastfood/routes');
+  app.use('/api/fast-food', fastFoodRoutes);
+  app.use('/api/fastfood', fastFoodRoutes);
 
-// 2. Secondary / Extended Modules
-apiRouter.use('/analytics', require('./modules/platform/routes/analytics.routes'));
-apiRouter.use('/admin/marketing', require('./modules/admin/routes/marketing.routes'));
-apiRouter.use('/password-reset', require('./modules/auth/routes/passwordReset.routes'));
-apiRouter.use('/platform', require('./modules/platform/routes'));
-apiRouter.use('/role-management', require('./modules/users/routes/roles.routes'));
-apiRouter.use('/admin/categories', require('./modules/admin/routes/category.routes'));
-apiRouter.use('/upload', require('./modules/platform/routes/upload.routes'));
-apiRouter.use('/admin/users', require('./modules/admin/routes/userManagement.routes'));
-apiRouter.use('/role-applications', require('./modules/users/routes/roleApplications.routes'));
-apiRouter.use('/admin-tools', require('./modules/admin/routes/tools.routes'));
-apiRouter.use('/profile', require('./modules/users/routes/profile.routes'));
-apiRouter.use('/contact', require('./modules/platform/routes/contact.routes'));
-apiRouter.use('/product-inquiries', require('./modules/products/routes/inquiry.routes'));
-apiRouter.use('/batches', require('./modules/platform/routes/batch.routes'));
-apiRouter.use('/image', require('./modules/platform/routes/image.routes'));
-apiRouter.use('/images', require('./modules/platform/routes/image.routes')); // Alias
-apiRouter.use('/job-openings', require('./modules/platform/routes/jobOpening.routes'));
-apiRouter.use('/seller', require('./modules/users/routes/seller.routes'));
-apiRouter.use('/cache', require('./modules/platform/routes/cache.routes'));
-apiRouter.use('/search', require('./modules/platform/routes/search.routes'));
-apiRouter.use('/wallet', require('./modules/finance/routes/wallet.routes'));
-apiRouter.use('/payment-enhancements', require('./modules/finance/routes/paymentEnhancements.routes'));
-apiRouter.use('/handover', require('./modules/delivery/routes/handover.routes'));
-apiRouter.use('/delivery-messages', require('./modules/delivery/routes/message.routes'));
-apiRouter.use('/returns', require('./modules/orders/routes/return.routes'));
-apiRouter.use('/sharing', require('./modules/marketing/routes/sharing.routes'));
-apiRouter.use('/superadmin', require('./modules/admin/routes/security.routes'));
-apiRouter.use('/2fa', require('./modules/auth/routes/twoFactorAuth.routes'));
-apiRouter.use('/fast-food', require('./modules/fastfood/routes')); // Alias
+  app.use('/api/marketing', require('./modules/marketing/routes'));
+  app.use('/api/hero-promotions', require('./modules/marketing/routes/heroPromotion.routes'));
+  app.use('/api/image', require('./modules/platform/routes/image.routes'));
+  app.use('/api/job-openings', require('./modules/platform/routes/jobOpening.routes'));
+  app.use('/api/seller', require('./modules/users/routes/seller.routes'));
+  app.use('/api/cache', require('./modules/platform/routes/cache.routes'));
+  app.use('/api/search', require('./modules/platform/routes/search.routes'));
+  app.use('/api/verification', require('./modules/platform/routes/verification.routes'));
+  app.use('/api/wallet', require('./modules/finance/routes/wallet.routes'));
+  app.use('/api/delivery', require('./modules/delivery/routes'));
+  app.use('/api/warehouse', require('./modules/delivery/routes/warehouse.routes'));
+  app.use('/api/pickup-station', require('./modules/delivery/routes/pickupStation.routes'));
+  app.use('/api/station-manager', require('./modules/delivery/routes/stationManager.routes'));
 
-// Mount the API router on both prefixes for maximum compatibility
-app.use('/api', apiRouter);
-app.use('/', apiRouter);
-  
+  // Final heavy route modules
+  app.use('/api/finance', require('./modules/finance/routes'));
+  app.use('/api/commissions', require('./modules/finance/routes/commission.routes'));
+  app.use('/api/promo-codes', require('./modules/finance/routes/promoCode.routes'));
+  app.use('/api/payments', require('./modules/finance/routes/payment.routes'));
+  app.use('/api/analytics', require('./modules/platform/routes/analytics.routes'));
+  app.use('/api/inventory', require('./modules/platform/routes/inventory.routes'));
+  app.use('/api/payment-enhancements', require('./modules/finance/routes/paymentEnhancements.routes'));
+  app.use('/api/handover', require('./modules/delivery/routes/handover.routes'));
+  app.use('/api/support', require('./modules/platform/routes/support.routes'));
+  app.use('/api/batches', require('./modules/platform/routes/batch.routes'));
+  app.use('/api/images', require('./modules/platform/routes/image.routes'));
 
-  console.error('✅ All route modules consolidated into apiRouter.');
+  // Sitemap and SEO-friendly routes
+  app.use('/', require('./routes/sitemapRoutes'));
+
+  console.error('✅ 35+ Route modules successfully lazy-loaded.');
+
+  // FINALIZE: Mount catch-all and 404 handlers AFTER all routes are ready
+  finalizeMiddleware(app);
+}
 
 // Final Middleware Function (Deferred to stay at end of stack)
 function finalizeMiddleware(app) {
   console.error('ℹ️ Finalizing middleware stack (Catch-all & 404)...');
-  
+
   // Health check endpoint (moved here for consistency)
   app.get('/api/health', (req, res) => {
     res.status(200).json({
@@ -351,7 +239,7 @@ function finalizeMiddleware(app) {
 
     // 2. Identify file extension
     const ext = path.extname(req.path);
-    
+
     // 3. For navigation requests (no extension) or index.html, serve the entry point
     if (!ext || ext === '.html') {
       const indexPath = path.join(GLOBAL_STATIC_PATH, 'index.html');
@@ -363,7 +251,7 @@ function finalizeMiddleware(app) {
         // maybe provide a simple fallback or let it next()
       }
     }
-    
+
     next();
   });
 
@@ -375,13 +263,109 @@ function finalizeMiddleware(app) {
       help: 'This route was not found among the 35+ lazy-loaded modules.'
     });
   });
-  
+
   console.error('✨ Server Middleware Finalized.');
 }
 // Initialize database connection
 const { testConnection } = require('./database/database');
 
-// Maintenance block moved up
+// Global Maintenance Mode Middleware with in-memory caching
+let cachedMaintenanceSettings = null;
+let lastMaintenanceCheck = 0;
+
+app.use(async (req, res, next) => {
+  // EMERGENCY TOTAL BYPASS
+  return next();
+
+  // Always allow critical/admin/auth paths (INSTANT BYPASS)
+  const path = req.path.toLowerCase();
+  const allowList = [
+    '/api/auth/login',
+    '/api/auth/me',
+    '/api/admin',
+    '/api/config',
+    '/api/platform',
+    '/api/users/me',
+    '/api/profile/dashboard-password'
+  ];
+
+  if (allowList.some(p => path.startsWith(p.toLowerCase()))) return next();
+
+  try {
+    // Refresh cache every 60 seconds
+    const now = Date.now();
+    if (!cachedMaintenanceSettings || (now - lastMaintenanceCheck > 60000)) {
+      const { PlatformConfig } = require('./models');
+      const config = await PlatformConfig.findOne({ where: { key: 'maintenance_settings' } });
+      if (config) {
+        cachedMaintenanceSettings = typeof config.value === 'string' ? JSON.parse(config.value) : config.value;
+      } else {
+        cachedMaintenanceSettings = { enabled: false };
+      }
+      lastMaintenanceCheck = now;
+    }
+
+    const settings = cachedMaintenanceSettings;
+    if (!settings) return next();
+
+    /* TEMPORARY EMERGENGY BYPASS: Maintenance Mode is forced to OFF
+    if (settings.enabled) {
+      console.error(`[MAINTENANCE] Blocking request to: ${req.path}`);
+      return res.status(503).json({ 
+        success: false, 
+        maintenance: true,
+        message: settings.message || 'System is currently under maintenance. Please try again later.' 
+      });
+    }
+    */
+
+    // 2. GRANULAR Check (for non-admins)
+    if (settings.dashboards || settings.sections) {
+      const path = req.path;
+      let block = null;
+
+      // Dashboard Mapping
+      if (path.startsWith('/api/admin')) block = settings.dashboards?.admin;
+      else if (path.startsWith('/api/seller')) block = settings.dashboards?.seller;
+      else if (path.startsWith('/api/marketing')) block = settings.dashboards?.marketer;
+      else if (path.startsWith('/api/delivery')) block = settings.dashboards?.delivery;
+      else if (path.startsWith('/api/station') || path.startsWith('/api/pickup-station') || path.startsWith('/api/warehouse')) block = settings.dashboards?.station;
+      else if (path.startsWith('/api/ops')) block = settings.dashboards?.ops;
+      else if (path.startsWith('/api/logistics')) block = settings.dashboards?.logistics;
+      else if (path.startsWith('/api/finance')) block = settings.dashboards?.finance;
+      else if (path.startsWith('/api/service-provider')) block = settings.dashboards?.provider;
+
+      // Public Section Mapping — handle both hyphenated and non-hyphenated formats
+      else if (path.startsWith('/api/products')) block = settings.sections?.products;
+      else if (path.startsWith('/api/services')) block = settings.sections?.services;
+      else if (path.startsWith('/api/fast-food') || path.startsWith('/api/fastfood')) block = settings.sections?.fastfood;
+
+      if (block?.enabled) {
+        // If it's a public section, return 404 to hide it "silently"
+        const isSection = path.startsWith('/api/products') || path.startsWith('/api/services') || path.startsWith('/api/fast-food') || path.startsWith('/api/fastfood');
+
+        if (isSection) {
+          return res.status(404).json({
+            success: false,
+            message: 'Section not available'
+          });
+        }
+
+        // Dashboards still return 503 for the proper redirect
+        return res.status(503).json({
+          success: false,
+          maintenance: true,
+          granular: true,
+          message: block.message || 'This section is currently under maintenance.'
+        });
+      }
+    }
+  } catch (err) {
+    // Fail silent to allow app startup
+    console.warn('[server] Maintenance check failed:', err.message);
+  }
+  next();
+});
 
 
 // Serve static files from uploads directory with aggressive caching
@@ -414,11 +398,6 @@ app.use('/uploads', (req, res, next) => {
 
 app.use(express.static(GLOBAL_STATIC_PATH));
 
-// -----------------------------------------------------------------
-// 4. FINAL CATCH-ALLS (MUST BE VERY LAST)
-// -----------------------------------------------------------------
-finalizeMiddleware(app);
-
 // SPA Fallback - Always serve index.html for non-API routes.
 // Maintenance enforcement happens at two levels:
 //   1. API middleware (above) — blocks /api/* calls with 503 for non-admins
@@ -450,12 +429,35 @@ if (sequelize.options.dialect === 'sqlite') {
 
 
 // Error handling middleware
-app.use(errorHandler);
+// Error handling middleware
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const errorDetail = `\n--- ${new Date().toISOString()} ---\n` +
+    `Request: ${req.method} ${req.url}\n` +
+    `Error: ${err.message}\n` +
+    `Stack: ${err.stack}\n` +
+    `Body: ${JSON.stringify(req.body || {})}\n`;
+
+  fs.appendFileSync(path.join(__dirname, 'error.log'), errorDetail);
+  console.error('Error middleware:', err.stack);
+
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && {
+      stack: err.stack,
+      detail: 'Check backend/error.log for more info'
+    })
+  });
+});
 
 
 // 404 handler - Registered later in finalizeMiddleware
 
-// Using fixed port 5001 for testing caching
+// Use a dedicated backend dev port so it does not collide with other workspaces.
 
 // Socket.IO setup
 const { createServer } = require('http');
@@ -467,8 +469,7 @@ const server = createServer(app);
 server.timeout = 60000;
 server.keepAliveTimeout = 65000;
 
-// Passenger/cPanel often provides process.env.PORT
-const DEFAULT_PORT = process.env.BACKEND_PORT || process.env.PORT || (process.env.NODE_ENV === 'production' ? 5000 : 4000);
+const DEFAULT_PORT = process.env.BACKEND_PORT || (process.env.NODE_ENV === 'production' ? (process.env.PORT || 5000) : 5002);
 
 // Socket.IO configuration
 const socketAllowedOrigins = [
@@ -478,6 +479,8 @@ const socketAllowedOrigins = [
   ...(process.env.NODE_ENV !== 'production' ? [
     'http://localhost:4000',
     'http://127.0.0.1:4000',
+    'http://localhost:4500',
+    'http://127.0.0.1:4500',
     'http://localhost:3000',
     'http://127.0.0.1:3000'
   ] : [])
@@ -496,132 +499,148 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  // Accept both polling and websocket — polling is the stable fallback for cPanel/Passenger
-  // which may not support WebSocket upgrades through the proxy layer
-  transports: ['polling', 'websocket'],
-  allowUpgrades: true,   // Allow upgrade from polling -> websocket when the proxy supports it
-  allowEIO3: true,       // Backwards-compatible with Socket.IO v2 / EIO3 clients
+  transports: ['websocket', 'polling'], // Prioritize WebSocket but allow fallback to prevent 400 errors
   pingTimeout: 60000,
   pingInterval: 25000
 });
 
 setIO(io);
 
-// Socket.IO Connection Handler
-function setupSocketHandlers(io) {
-  io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-
-    socket.on('join_user', (userId) => {
-      if (userId) {
-        socket.join(`user_${userId}`);
-        socket.join(`user:${userId}`);
-        console.log(`User ${userId} joined their room`);
-      }
-    });
-
-    socket.on('join_admin', () => {
-      socket.join('admin_room');
-      socket.join('admin');
-      console.log('Admin connected to admin room');
-    });
-
-    socket.on('join_room', (room) => {
-      if (room) {
-        socket.join(room);
-        console.log(`Socket ${socket.id} joined room: ${room}`);
-      }
-    });
-
-    socket.on('delivery_message_send', async (data) => {
-      const { receiverId } = data;
-      io.to(`user_${receiverId}`).emit('delivery_message_receive', data);
-    });
-
-    socket.on('delivery_typing', (data) => {
-      const { receiverId, orderId, isTyping } = data;
-      io.to(`user_${receiverId}`).emit('delivery_typing_receive', {
-        senderId: data.senderId,
-        orderId,
-        isTyping
-      });
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
-    });
-  });
-}
-
-// Common Background Services Initialization
-async function initializeServices(io) {
-  const step = (msg) => console.error(`[BOOT-STEP] ${msg}`);
-  try {
-    step('1/4: Beginning background service initialization...');
-    
-    // 1. Initialize Database Connection & Sync
-    const { testConnection } = require('./database/database');
-    try {
-      await testConnection();
-      step('2/4: Database connected and verified');
-    } catch (dbError) {
-      console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
-    }
-
-    // 2. Initialize Cache (Redis)
-    try {
-      const cache = require('./scripts/services/cacheService');
-      await cache.connect();
-      step('3/4: Cache service connected');
-    } catch (cacheErr) {
-      console.error('⚠️ Redis initialization skipped:', cacheErr.message);
-    }
-
-    // 3. Initialize OTP services (including WhatsApp Free Client)
-    require('./utils/messageService');
-    
-    // 4. Start Cron and Workers
-    const { initScheduledTasks } = require('./cron/scheduledTasks');
-    initScheduledTasks();
-    
-    const { startBatchAutomation } = require('./services/batchAutomation');
-    const { startMarketingAutomation } = require('./services/marketingAutomation');
-    const { runAutoHandoverWorker } = require('./services/autoHandoverService');
-    startBatchAutomation();
-    startMarketingAutomation();
-    runAutoHandoverWorker();
-    
-    step('4/4: ALL BACKGROUND SERVICES INITIALIZED.');
-  } catch (err) {
-    console.error('⚠️ Critical Error during service initialization:', err.message);
-  }
-}
-
 async function startServer() {
-  console.error(`🚀 BOOT: Starting server bind sequence...`);
+  const DEFAULT_PORT = process.env.BACKEND_PORT ||
+    (process.env.NODE_ENV === 'production'
+      ? (process.env.PORT || 5000)
+      : 6001);
 
-  // MANDATORY: Register Socket.IO handlers BEFORE anything else
-  setupSocketHandlers(io);
-  console.error('✅ Step 1: Socket.IO handlers registered.');
+  console.error(`🚀 ULTRA-FAST BOOT: Starting server bind sequence for port ${DEFAULT_PORT}...`);
 
-  // Official Phusion Passenger detection pattern
-  // When running under Passenger, PhusionPassenger global is injected automatically
-  // When running standalone (local dev / manual node), it is undefined
-  // ---- FORCE PM2 STANDALONE MODE ----
-// Always listen on the configured TCP port, ignoring Passenger.
-server.listen(DEFAULT_PORT, '0.0.0.0', () => {
-  console.error(`🚀 Server bound to port ${DEFAULT_PORT} (PM2 standalone) - SUCCESS`);
-  console.log('🚀 STANDALONE MODE: Server logic ready and listening via PM2.');
-  setImmediate(() => initializeServices(io));
-});
+  // Start the server ONLY if not already listening (prevents Passenger/Double-init crashes)
+  if (!server.listening) {
+    try {
+      server.listen(DEFAULT_PORT, () => {
+        console.error(`🚀 Server bound to port ${DEFAULT_PORT} - REBOOT SUCCESSFUL - Version: ${Date.now()}`);
+
+        // DEFERRED INITIALIZATION: Start heavy services after the port is open
+        setImmediate(async () => {
+          try {
+            console.error('🔄 [Init] Beginning deferred service initialization...');
+
+            // 1. Initialize Database Connection & Sync
+            const { testConnection } = require('./database/database');
+            try {
+              await testConnection();
+              console.error('✅ Database connected and verified successfully');
+            } catch (dbError) {
+              console.error('⚠️ Critical Database Initialization Failure:', dbError.message);
+            }
+
+            // 2. Initialize Routes (Lazy Loaded to prevent cPanel timeouts)
+            initializeRoutes(app);
+
+            // 3. Initialize Socket.IO connection handling
+            io.on('connection', (socket) => {
+              console.log('Client connected:', socket.id);
+
+              socket.on('join_user', (userId) => {
+                if (userId) {
+                  socket.join(`user_${userId}`);
+                  socket.join(`user:${userId}`);
+                  console.log(`User ${userId} joined their room`);
+                }
+              });
+
+              socket.on('join_admin', () => {
+                socket.join('admin_room');
+                socket.join('admin');
+                console.log('Admin connected to admin room');
+              });
+
+              socket.on('delivery_message_send', async (data) => {
+                const { receiverId } = data;
+                io.to(`user_${receiverId}`).emit('delivery_message_receive', data);
+              });
+
+              socket.on('delivery_typing', (data) => {
+                const { receiverId, orderId, isTyping } = data;
+                io.to(`user_${receiverId}`).emit('delivery_typing_receive', {
+                  senderId: data.senderId,
+                  orderId,
+                  isTyping
+                });
+              });
+
+              socket.on('disconnect', () => {
+                console.log('Client disconnected:', socket.id);
+              });
+            });
+
+            console.error('🔄 Initializing deferred services (WhatsApp, Redis, Workers, Cron)...');
+
+            // 4. Initialize Cache (Redis)
+            try {
+              const cache = require('./scripts/services/cacheService');
+              await cache.connect();
+            } catch (cacheErr) {
+              console.error('⚠️ Redis initialization skipped:', cacheErr.message);
+            }
+
+            // 5. Initialize OTP services (including WhatsApp Free Client)
+            require('./utils/messageService');
+
+            const { initScheduledTasks } = require('./cron/scheduledTasks');
+            initScheduledTasks();
+
+            // 6. Start Heavy Workers
+            const { startBatchAutomation } = require('./services/batchAutomation');
+            const { runAutoHandoverWorker } = require('./services/autoHandoverService');
+            startBatchAutomation();
+            runAutoHandoverWorker();
+
+            console.error('✨ ALL SERVICES INITIALIZED. Application is fully operational.');
+          } catch (deferredErr) {
+            console.error('⚠️ Critical Error during deferred initialization:', deferredErr.message);
+          }
+        });
+      });
+    } catch (listenError) {
+      if (listenError.message.includes('once') || listenError.code === 'EADDRINUSE') {
+        console.error('ℹ️ Server already listening or binding, skipping extra listen call.');
+      } else {
+        throw listenError;
+      }
+    }
+  } else {
+    console.error('ℹ️ Server already listening (Passenger managed), skipping manual listen call.');
+    // Defer initialization for managed environments
+    setImmediate(async () => {
+      try {
+        const { testConnection } = require('./database/database');
+        await testConnection();
+        initializeRoutes(app);
+
+        const cache = require('./scripts/services/cacheService');
+        await cache.connect();
+
+        require('./utils/messageService');
+        const { initScheduledTasks } = require('./cron/scheduledTasks');
+        initScheduledTasks();
+
+        const { startBatchAutomation } = require('./services/batchAutomation');
+        const { runAutoHandoverWorker } = require('./services/autoHandoverService');
+        startBatchAutomation();
+        runAutoHandoverWorker();
+        console.error('✨ Managed environment initialization complete.');
+      } catch (err) {
+        console.error('⚠️ Error in Passenger deferred init:', err.message);
+      }
+    });
+  }
 
   // Handle server errors
   server.on('error', (err) => {
+    console.error('❌ Server error:', err);
     if (err.code === 'EADDRINUSE') {
-       console.error(`[Runtime] Port ${DEFAULT_PORT} is already in use. Force exiting process so nodemon can retry or cleanly fail.`);
-       process.exit(1); // CRITICAL: Exit so it doesn't become a zombie process
-    } else {
-       console.error('❌ Server runtime error:', err);
+      console.error(`Port ${DEFAULT_PORT} is already in use.`);
     }
   });
 
@@ -630,28 +649,11 @@ server.listen(DEFAULT_PORT, '0.0.0.0', () => {
     console.error('UNHANDLED REJECTION! 💥', err.name, err.message);
   });
 
-  // Graceful shutdown helper
-  const gracefulShutdown = (signal) => {
-    console.error(`[Process] ${signal} received. Shutting down gracefully...`);
-    server.close(() => {
-      console.log('[Process] HTTP server closed.');
-      process.exit(0);
-    });
-    // Force shutdown after 3 seconds if connections are lingering
-    setTimeout(() => {
-      console.error('[Process] Forcing exit due to lingering connections.');
-      process.exit(0);
-    }, 3000).unref();
-  };
-
-  // Handle SIGTERM (Docker/Heroku/systemd)
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  
-  // Handle SIGINT (Ctrl+C)
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-  // Handle SIGUSR2 (Nodemon restarts)
-  process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2'));
+  // Handle SIGTERM
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down gracefully');
+    server.close(() => console.log('Process terminated'));
+  });
 }
 
 // Singleton Startup Protector
@@ -659,14 +661,8 @@ if (global.__serverStarted) {
   console.log('ℹ️ Module re-entry detected, skipping startup.');
 } else {
   global.__serverStarted = true;
-  
-  // Start the server (handles both Passenger and Standalone)
-  startServer().catch(err => {
-    console.error('❌ CRITICAL: startServer failed:', err);
-  });
+  startServer();
 }
 
 // Export for cPanel/Passenger
-module.exports = server;
-
-// Trigger nodemon restart
+module.exports = app;

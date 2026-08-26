@@ -68,7 +68,22 @@ const createHeroPromotion = async (req, res) => {
       targetUrl,
       isDefault,
       isSystem,
-      trustPoints
+      trustPoints,
+      // Video fields
+      videoUrl,
+      videoType,
+      videoAutoplay,
+      videoLoop,
+      videoMuted,
+      // Advanced scheduling fields
+      scheduleType,
+      recurringDays,
+      specificDates,
+      timeSlotStart,
+      timeSlotEnd,
+      timezone,
+      dateTimeMode,
+      dateSpecificTimes
     } = req.body || {}
 
     const effectiveIsSystem = !!(isSystem || !sellerId);
@@ -79,8 +94,8 @@ const createHeroPromotion = async (req, res) => {
       return res.status(400).json({ error: 'sellerId required for non-system promotions' })
     }
 
-    if (!customImageUrl && (!Array.isArray(ids) || ids.length === 0)) {
-      return res.status(400).json({ error: 'Either customImageUrl or item IDs required' })
+    if (!customImageUrl && !videoUrl && (!Array.isArray(ids) || ids.length === 0)) {
+      return res.status(400).json({ error: 'Either customImageUrl, videoUrl, or item IDs required' })
     }
 
     // verify items belong to seller and are approved (admin can bypass ownership for system promos)
@@ -130,7 +145,22 @@ const createHeroPromotion = async (req, res) => {
       targetUrl,
       isSystem: effectiveIsSystem,
       isDefault: !!isDefault,
-      trustPoints: Array.isArray(trustPoints) ? trustPoints : []
+      trustPoints: Array.isArray(trustPoints) ? trustPoints : [],
+      // Video fields
+      videoUrl: videoUrl || null,
+      videoType: videoType || 'background',
+      videoAutoplay: videoAutoplay !== undefined ? videoAutoplay : true,
+      videoLoop: videoLoop !== undefined ? videoLoop : true,
+      videoMuted: videoMuted !== undefined ? videoMuted : true,
+      // Advanced scheduling fields
+      scheduleType: scheduleType || 'continuous',
+      recurringDays: Array.isArray(recurringDays) ? recurringDays : [],
+      specificDates: Array.isArray(specificDates) ? specificDates : [],
+      timeSlotStart: timeSlotStart || null,
+      timeSlotEnd: timeSlotEnd || null,
+      timezone: timezone || 'Africa/Nairobi',
+      dateTimeMode: dateTimeMode || 'same',
+      dateSpecificTimes: dateSpecificTimes || {}
     }
 
     const item = await HeroPromotion.create(payload)
@@ -168,7 +198,34 @@ const createHeroPromotion = async (req, res) => {
 const editHeroPromotion = async (req, res) => {
   try {
     const id = Number(req.params.id)
-    const { productIds, fastFoodIds, durationDays, slotsCount, startAt, notes, title, subtitle, customImageUrl, targetUrl, trustPoints } = req.body || {}
+    const {
+      productIds,
+      fastFoodIds,
+      durationDays,
+      slotsCount,
+      startAt,
+      notes,
+      title,
+      subtitle,
+      customImageUrl,
+      targetUrl,
+      trustPoints,
+      // Video fields
+      videoUrl,
+      videoType,
+      videoAutoplay,
+      videoLoop,
+      videoMuted,
+      // Advanced scheduling fields
+      scheduleType,
+      recurringDays,
+      specificDates,
+      timeSlotStart,
+      timeSlotEnd,
+      timezone,
+      dateTimeMode,
+      dateSpecificTimes
+    } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
 
@@ -194,6 +251,23 @@ const editHeroPromotion = async (req, res) => {
     if (customImageUrl !== undefined) item.customImageUrl = customImageUrl
     if (targetUrl !== undefined) item.targetUrl = targetUrl
     if (trustPoints !== undefined) item.trustPoints = Array.isArray(trustPoints) ? trustPoints : []
+
+    // Video fields
+    if (videoUrl !== undefined) item.videoUrl = videoUrl
+    if (videoType !== undefined) item.videoType = videoType
+    if (videoAutoplay !== undefined) item.videoAutoplay = videoAutoplay
+    if (videoLoop !== undefined) item.videoLoop = videoLoop
+    if (videoMuted !== undefined) item.videoMuted = videoMuted
+
+    // Advanced scheduling fields
+    if (scheduleType !== undefined) item.scheduleType = scheduleType
+    if (recurringDays !== undefined) item.recurringDays = Array.isArray(recurringDays) ? recurringDays : []
+    if (specificDates !== undefined) item.specificDates = Array.isArray(specificDates) ? specificDates : []
+    if (timeSlotStart !== undefined) item.timeSlotStart = timeSlotStart
+    if (timeSlotEnd !== undefined) item.timeSlotEnd = timeSlotEnd
+    if (timezone !== undefined) item.timezone = timezone
+    if (dateTimeMode !== undefined) item.dateTimeMode = dateTimeMode
+    if (dateSpecificTimes !== undefined) item.dateSpecificTimes = dateSpecificTimes
 
     if (productIds || fastFoodIds || durationDays != null) {
       const { perDay, perProduct } = await getRateConfig()
@@ -254,12 +328,12 @@ const listHeroApplications = async (req, res) => {
     const sellerIds = [...new Set(items.map(i => i.sellerId))]
     const productIdsSet = new Set()
     const fastFoodIdsSet = new Set()
-    
+
     items.forEach(i => {
       if (i.promoType === 'fastfood') {
-         (i.fastFoodIds || []).forEach(pid => fastFoodIdsSet.add(pid))
+        (i.fastFoodIds || []).forEach(pid => fastFoodIdsSet.add(pid))
       } else {
-         (i.productIds || []).forEach(pid => productIdsSet.add(pid))
+        (i.productIds || []).forEach(pid => productIdsSet.add(pid))
       }
     })
 

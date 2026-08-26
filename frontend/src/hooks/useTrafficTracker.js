@@ -43,6 +43,8 @@ const useTrafficTracker = () => {
           browser,
           os,
           referrer: document.referrer
+        }, {
+          skipAuthRedirect: true
         });
       } catch (err) {
         // Silent fail for analytics

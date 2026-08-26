@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { usePlatform } from '@/contexts/PlatformContext';
+import SEO from './SEO';
 
 const PageLayout = ({ children, title, description, fluid = false }) => {
   const { settings } = usePlatform();
@@ -26,11 +27,8 @@ const PageLayout = ({ children, title, description, fluid = false }) => {
 
   return (
     <div className="page-container">
+      <SEO title={pageTitle} description={pageDescription} siteName={siteName} />
       <Helmet>
-        <title>{pageTitle}</title>
-        <meta name="description" content={pageDescription} />
-
-
         {/* Preconnect to external domains */}
         <link rel="preconnect" href="https://api.comrades360.com" />
         <link rel="dns-prefetch" href="https://api.comrades360.com" />

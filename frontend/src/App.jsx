@@ -1,27 +1,24 @@
-import React, { Suspense, lazy, useEffect, useState, useMemo } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
-import { initPerformanceMonitoring } from '@/utils/performance';
-import { CategoriesProvider } from '@/contexts/CategoriesContext';
-import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { CartProvider } from '@/contexts/CartContext';
-import { WishlistProvider } from '@/contexts/WishlistContext';
-import { PlatformProvider, usePlatform } from '@/contexts/PlatformContext';
-import ErrorBoundary from '@/shared/components/ErrorBoundary';
-import LoadingSpinner from '@/shared/components/LoadingSpinner';
-import ProtectedRoute from '@/shared/components/ProtectedRoute';
-import ReferrerBanner from '@/modules/marketing/components/ReferrerBanner';
-import VerificationNotice from '@/modules/auth/components/VerificationNotice';
-import ForcePasswordChangeModal from '@/modules/auth/components/ForcePasswordChangeModal';
-import api from '@/shared/services/api';
+import { initPerformanceMonitoring } from './utils/performance';
+import { CategoriesProvider } from './contexts/CategoriesContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { CartProvider } from './contexts/CartContext';
+import { WishlistProvider } from './contexts/WishlistContext';
+import ErrorBoundary from './shared/components/ErrorBoundary';
+import LoadingSpinner from './shared/components/LoadingSpinner';
+import ProtectedRoute from './shared/components/ProtectedRoute';
+import ReferrerBanner from './modules/marketing/components/ReferrerBanner';
+import ForcePasswordChangeModal from './modules/auth/components/ForcePasswordChangeModal';
+import api from './services/api';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import RealtimeSync from '@/shared/components/RealtimeSync';
-import DashboardGuard from '@/modules/dashboard/components/DashboardGuard';
-import useTrafficTracker from '@/hooks/useTrafficTracker';
-// import VerificationRequired from '@/modules/auth/components/VerificationRequired'; // Removed as per user request
-import Home from '@/shared/pages/Home';
-const MaintenancePage = React.lazy(() => import('@/shared/pages/MaintenancePage'));
+import RealtimeSync from './shared/components/RealtimeSync';
+import DashboardGuard from './modules/dashboard/components/DashboardGuard';
+// import VerificationRequired from './components/VerificationRequired'; // Removed as per user request
+import Home from './shared/pages/Home';
+const MaintenancePage = React.lazy(() => import('./shared/pages/MaintenancePage'));
 
 // Define a loading component
 const PageLoading = () => (
@@ -38,263 +35,293 @@ const components = import.meta.glob('./components/**/*.jsx');
 // render. Lazy-loading it puts it in a separate chunk that initializes before
 // React's internal dispatcher is ready, causing "Cannot read properties of null
 // (reading 'useEffect')" hook crashes.
-import PageLayout from '@/shared/components/PageLayout';
-const Navbar = lazy(() => import('@/shared/components/Navbar'));
-const MarketingNavbar = lazy(() => import('@/modules/marketing/components/MarketingNavbar'));
-import MarketingBottomNav from '@/modules/marketing/components/MarketingBottomNav';
-const Login = lazy(() => import('@/modules/auth/pages/Login'));
+import PageLayout from './shared/components/PageLayout';
+const Navbar = lazy(() => import('./shared/components/Navbar'));
+const MarketingNavbar = lazy(() => import('./modules/marketing/components/MarketingNavbar'));
+import MarketingBottomNav from './modules/marketing/components/MarketingBottomNav';
+const Login = lazy(() => import('./modules/auth/pages/Login'));
 
 
-const DashboardLogin = lazy(() => import('@/modules/auth/pages/DashboardLogin'));
-const Register = lazy(() => import('@/modules/auth/pages/Register'));
-const ForgotPassword = lazy(() => import('@/modules/auth/pages/ForgotPassword'));
-const AuthModal = lazy(() => import('@/modules/auth/components/AuthModal'));
-const Cart = lazy(() => import('@/modules/orders/pages/Cart'));
-const ProductDetails = lazy(() => import('@/modules/products/pages/ProductDetails'));
-const Search = lazy(() => import('@/shared/pages/Search'));
-const Category = lazy(() => import('@/modules/products/pages/Category'));
-const Services = lazy(() => import('@/modules/services/pages/Services'));
-const ServiceDetails = lazy(() => import('@/modules/services/pages/ServiceDetails'));
-const FastFood = lazy(() => import('@/modules/fastfood/pages/FastFood'));
-const FastFoodDetails = lazy(() => import('@/modules/fastfood/pages/FastFoodDetails'));
-const Products = lazy(() => import('@/modules/products/pages/Products'));
-const ComradesMenu = lazy(() => import('@/shared/pages/ComradesMenu'));
-const ServicesManagement = lazy(() => import('@/modules/services/pages/ServicesManagement'));
+const DashboardLogin = lazy(() => import('./modules/auth/pages/DashboardLogin'));
+const Register = lazy(() => import('./modules/auth/pages/Register'));
+const ForgotPassword = lazy(() => import('./modules/auth/pages/ForgotPassword'));
+const AuthModal = lazy(() => import('./modules/auth/components/AuthModal'));
+const Cart = lazy(() => import('./modules/orders/pages/Cart'));
+const ProductDetails = lazy(() => import('./modules/products/pages/ProductDetails'));
+const Search = lazy(() => import('./shared/pages/Search'));
+const Category = lazy(() => import('./modules/products/pages/Category'));
+const Services = lazy(() => import('./modules/services/pages/Services'));
+const ServiceDetails = lazy(() => import('./modules/services/pages/ServiceDetails'));
+const FastFood = lazy(() => import('./modules/fastfood/pages/FastFood'));
+const FastFoodDetails = lazy(() => import('./modules/fastfood/pages/FastFoodDetails'));
+const Products = lazy(() => import('./modules/products/pages/Products'));
+const ComradesMenu = lazy(() => import('./shared/pages/ComradesMenu'));
+const ServicesManagement = lazy(() => import('./modules/services/pages/ServicesManagement'));
 
 // Public Footer Pages
-const StaticContentPage = lazy(() => import('@/shared/pages/StaticContentPage'));
-const AppContentManager = lazy(() => import('@/shared/pages/AppContentManager'));
+const AboutPage = lazy(() => import('./pages/public/AboutPage'));
+const ContactPage = lazy(() => import('./pages/public/ContactPage'));
+const StaticContentPage = lazy(() => import('./shared/pages/StaticContentPage'));
+const AppContentManager = lazy(() => import('./shared/pages/AppContentManager'));
 
 // Marketing components
-const MarketingDashboard = lazy(pages['./pages/marketing/MarketerDashboard.jsx']);
-const MarketingOverview = lazy(pages['./pages/marketing/MarketingOverview.jsx']);
-const MarketingPerformance = lazy(pages['./pages/marketing/MarketingPerformance.jsx']);
-const ShareProducts = lazy(pages['./pages/marketing/ShareProducts.jsx']);
-const SharedLinks = lazy(pages['./pages/marketing/SharedLinks.jsx']);
-const Affiliates = lazy(pages['./pages/marketing/Affiliates.jsx']);
-const Commissions = lazy(pages['./pages/marketing/Commissions.jsx']);
-const MarketerWallet = lazy(pages['./pages/marketing/MarketerWallet.jsx']);
-const MarketerPromoCodes = lazy(() => import('@/modules/marketing/pages/MarketerPromoCodes'));
+const MarketingDashboard = lazy(() => import('./modules/dashboard/pages/MarketerDashboard'));
+const MarketingOverview = lazy(() => import('./modules/marketing/pages/MarketingOverview'));
+const MarketingPerformance = lazy(() => import('./modules/marketing/pages/MarketingPerformance'));
+const ShareProducts = lazy(() => import('./modules/products/pages/ShareProducts'));
+const SharedLinks = lazy(() => import('./shared/pages/SharedLinks'));
+const Affiliates = lazy(() => import('./shared/pages/Affiliates'));
+const Commissions = lazy(() => import('./shared/pages/Commissions'));
+const MarketerWallet = lazy(() => import('./modules/finance/pages/MarketerWallet'));
 // Lazy load account related components
-const Account = lazy(pages['./pages/Account.jsx']);
-const AccountVerification = lazy(pages['./pages/AccountVerification.jsx']);
-const AccountPage = lazy(pages['./pages/AccountPage.jsx']);
-const AccountSettings = lazy(pages['./pages/account/AccountSettings.jsx']);
-const Profile = lazy(pages['./pages/Profile.jsx']);
-const ProfileSettings = lazy(pages['./pages/account/ProfileSettings.jsx']);
-const Addresses = lazy(pages['./pages/account/Addresses.jsx']);
-const EditAccount = lazy(pages['./pages/EditAccount.jsx']);
-const NationalIdUpload = lazy(pages['./pages/NationalIdUpload.jsx']);
-const RequestDeletion = lazy(pages['./pages/RequestDeletion.jsx']);
-const Orders = lazy(pages['./pages/Orders.jsx']);
+const Account = lazy(() => import('./modules/users/pages/Account'));
+const AccountVerification = lazy(() => import('./modules/auth/pages/AccountVerification'));
+const AccountPage = lazy(() => import('./modules/users/pages/AccountPage'));
+const DeliveryAgentAccount = Account;
+const AccountSettings = lazy(() => import('./modules/users/pages/AccountSettings'));
+const Profile = lazy(() => import('./modules/users/pages/Profile'));
+const ProfileSettings = lazy(() => import('./modules/users/pages/ProfileSettings'));
+const Addresses = lazy(() => import('./shared/pages/Addresses'));
+const EditAccount = lazy(() => import('./modules/users/pages/EditAccount'));
+const NationalIdUpload = lazy(() => import('./modules/users/pages/NationalIdUpload'));
+const RequestDeletion = lazy(() => import('./shared/pages/RequestDeletion'));
+const Orders = lazy(() => import('./modules/orders/pages/Orders'));
 // Lazy load seller related components
-const Seller = lazy(pages['./pages/Seller.jsx']);
-const SellerOverview = lazy(pages['./pages/seller/SellerOverview.jsx']);
-const SellerProducts = lazy(pages['./pages/seller/SellerProducts.jsx']);
-const ProductForm = lazy(pages['./pages/seller/ProductForm.jsx']);
-const SellerOrders = lazy(pages['./pages/seller/SellerOrders.jsx']);
-const SellerEarnings = lazy(pages['./pages/seller/SellerEarnings.jsx']);
-const SellerAnalytics = lazy(pages['./pages/seller/SellerAnalytics.jsx']);
-const SellerWallet = lazy(pages['./pages/seller/SellerWallet.jsx']);
-const SellerReports = lazy(pages['./pages/seller/SellerReports.jsx']);
-const SellerHelp = lazy(pages['./pages/seller/SellerHelp.jsx']);
-const SellerHeroPromotions = lazy(pages['./pages/seller/SellerHeroPromotions.jsx']);
-const SellerFastFoodPromotions = lazy(pages['./pages/seller/SellerFastFoodPromotions.jsx']);
-const SellerProductView = lazy(pages['./pages/seller/SellerProductView.jsx']);
-const SellerFastFoodView = lazy(pages['./pages/seller/SellerFastFoodView.jsx']);
-const RecycleBin = lazy(pages['./pages/seller/RecycleBin.jsx']);
+const Seller = lazy(() => import('./modules/seller/pages/Seller'));
+const SellerOverview = lazy(() => import('./modules/seller/pages/SellerOverview'));
+const SellerProducts = lazy(() => import('./modules/products/pages/SellerProducts'));
+const ProductForm = lazy(() => import('./modules/products/pages/ProductForm'));
+const SellerOrders = lazy(() => import('./modules/orders/pages/SellerOrders'));
+const SellerEarnings = lazy(() => import('./modules/finance/pages/SellerEarnings'));
+const SellerAnalytics = lazy(() => import('./modules/seller/pages/SellerAnalytics'));
+const SellerWallet = lazy(() => import('./modules/finance/pages/SellerWallet'));
+const SellerReports = lazy(() => import('./modules/seller/pages/SellerReports'));
+const SellerHelp = lazy(() => import('./modules/seller/pages/SellerHelp'));
+const SellerHeroPromotions = lazy(() => import('./modules/seller/pages/SellerHeroPromotions'));
+const SellerFastFoodPromotions = lazy(() => import('./modules/fastfood/pages/SellerFastFoodPromotions'));
+const SellerProductView = lazy(() => import('./modules/products/pages/SellerProductView'));
+const SellerFastFoodView = lazy(() => import('./modules/fastfood/pages/SellerFastFoodView'));
+const RecycleBin = lazy(() => import('./shared/pages/RecycleBin'));
 // Lazy load admin related components
-const AdminMarketing = lazy(pages['./pages/admin/AdminMarketing.jsx']);
-const AdminHeroPromotions = lazy(pages['./pages/admin/AdminHeroPromotions.jsx']);
-const AdminFastFoodPromotions = lazy(pages['./pages/admin/AdminFastFoodPromotions.jsx']);
-const AdminCreateHeroPromotion = lazy(pages['./pages/admin/AdminCreateHeroPromotion.jsx']);
-const RoleApplicationsManager = lazy(pages['./pages/UserManagementComponents/RoleApplicationsManager.jsx']);
-const PendingApplications = lazy(pages['./pages/UserManagementComponents/PendingApplications.jsx']);
-const AdminIdVerification = lazy(pages['./pages/admin/AdminIdVerification.jsx']);
-const JobOpeningManagement = lazy(pages['./pages/admin/JobOpeningManagement.jsx']);
+const AdminMarketing = lazy(() => import('./modules/admin/pages/AdminMarketing'));
+const AdminHeroPromotions = lazy(() => import('./modules/admin/pages/AdminHeroPromotions'));
+const AdminVideoBanners = lazy(() => import('./modules/admin/pages/AdminVideoBanners'));
+const AdminFastFoodPromotions = lazy(() => import('./modules/fastfood/pages/AdminFastFoodPromotions'));
+const AdminCreateHeroPromotion = lazy(() => import('./modules/admin/pages/AdminCreateHeroPromotion'));
+const AdminCreateVideoBanner = lazy(() => import('./modules/admin/pages/AdminCreateVideoBanner'));
+const AdminOnBehalfCreation = lazy(() => import('./modules/admin/pages/AdminOnBehalfCreation'));
+const AdminTools = lazy(() => import('./modules/admin/pages/AdminTools'));
+const AdminSubscriptions = lazy(() => import('./modules/admin/pages/AdminSubscriptions'));
+const PromoCodes = lazy(() => import('./modules/marketing/pages/PromoCodes'));
+const MarketingNotifications = lazy(() => import('./modules/marketing/pages/MarketingNotifications'));
+const DirectOrders = lazy(() => import('./modules/orders/pages/DirectOrders'));
+const RoleEarningVerification = lazy(() => import('./modules/auth/pages/RoleEarningVerification'));
+const DeliveryEarningVerification = lazy(() => import('./modules/auth/pages/DeliveryEarningVerification'));
+const RoleApplicationsManager = lazy(() => import('./modules/admin/components/UserManagementComponents/RoleApplicationsManager'));
+const PendingApplications = lazy(() => import('./modules/admin/components/UserManagementComponents/PendingApplications'));
+const AdminIdVerification = lazy(() => import('./modules/auth/pages/AdminIdVerification'));
+const JobOpeningManagement = lazy(() => import('./shared/pages/JobOpeningManagement'));
 // Lazy load marketer dashboard
-const ServiceProviderWallet = lazy(pages['./pages/dashboard/ServiceProviderWallet.jsx']);
+const ServiceProviderWallet = lazy(() => import('./modules/services/pages/ServiceProviderWallet'));
 // Other components
-const RoleApplication = lazy(pages['./pages/RoleApplication.jsx']);
-const ProductShare = lazy(pages['./pages/ProductShare.jsx']);
-const DeliveryAgent = lazy(pages['./pages/DeliveryAgent.jsx']);
-const OpsManager = lazy(() => import('@/modules/admin/pages/OpsManager'));
-const WorkWithUs = lazy(() => import('@/shared/pages/WorkWithUs'));
-const RoleApplicationForm = lazy(() => import('@/modules/seller/pages/RoleApplicationForm'));
-const LogisticsManager = lazy(() => import('@/modules/delivery/pages/LogisticsManager'));
-const FinanceManager = lazy(() => import('@/modules/finance/pages/FinanceManager'));
-const Dashboard = lazy(() => import('@/modules/dashboard/pages/Dashboard'));
-const DeliveryFeeSettings = lazy(() => import('@/modules/delivery/pages/DeliveryFeeSettings'));
-const Overview = lazy(() => import('@/shared/pages/Overview'));
-const ProductManagement = lazy(() => import('@/modules/products/pages/ProductManagement'));
-const DashboardProducts = lazy(() => import('@/modules/products/pages/Products'));
-const StationManagerDashboard = lazy(() => import('@/modules/delivery/pages/StationManagerDashboard'));
-const StationLogin = lazy(() => import('@/modules/auth/pages/StationLogin'));
-const StationWallet = lazy(() => import('@/modules/delivery/pages/StationWallet'));
-const ProductList = lazy(() => import('@/modules/products/pages/ProductList'));
-const ComradesProducts = lazy(() => import('@/modules/products/pages/ComradesProducts'));
-const ComradesProductList = lazy(() => import('@/modules/products/pages/ComradesProductList'));
-const ComradesProductForm = lazy(() => import('@/modules/products/pages/ComradesProductForm'));
-const ProductListingMode = lazy(() => import('@/modules/products/pages/ProductListingMode'));
-import ScrollToTop from '@/shared/components/ScrollToTop';
+const RoleApplication = lazy(() => import('./modules/seller/pages/RoleApplication'));
+const ProductShare = lazy(() => import('./modules/products/pages/ProductShare'));
+const DeliveryAgent = lazy(() => import('./modules/delivery/pages/DeliveryAgent'));
+const OpsManager = lazy(() => import('./modules/admin/pages/OpsManager'));
+const WorkWithUs = lazy(() => import('./shared/pages/WorkWithUs'));
+const RoleApplicationForm = lazy(() => import('./modules/seller/pages/RoleApplicationForm'));
+const LogisticsManager = lazy(() => import('./modules/delivery/pages/LogisticsManager'));
+const FinanceManager = lazy(() => import('./modules/finance/pages/FinanceManager'));
+const Dashboard = lazy(() => import('./modules/dashboard/pages/Dashboard'));
+const DeliveryFeeSettings = lazy(() => import('./modules/delivery/pages/DeliveryFeeSettings'));
+const Overview = lazy(() => import('./shared/pages/Overview'));
+const ProductManagement = lazy(() => import('./modules/products/pages/ProductManagement'));
+const ProductHub = lazy(() => import('./modules/products/pages/ProductManagement')); // Product Hub for /dashboard/products (fallback to ProductManagement)
+const ProductHubFull = lazy(() => import('./modules/products/pages/ProductHubFull')); // Full Product Hub with all action cards
+const StationManagerDashboard = lazy(() => import('./modules/delivery/pages/StationManagerDashboard'));
+const StationLogin = lazy(() => import('./modules/auth/pages/StationLogin'));
+const ProductList = lazy(() => import('./modules/products/pages/ProductList'));
+const ComradesProducts = lazy(() => import('./modules/products/pages/ComradesProducts'));
+const ComradesProductList = lazy(() => import('./modules/products/pages/ComradesProductList'));
+const ComradesProductForm = lazy(() => import('./modules/products/pages/ComradesProductForm'));
+const ProductListingMode = lazy(() => import('./modules/products/pages/ProductListingMode'));
+const ProductListingView = lazy(() => import('./modules/products/pages/ProductListingView'));
+const ProductAnalytics = lazy(() => import('./modules/products/pages/ProductAnalytics'));
+const ProductIDDemo = lazy(() => import('./modules/products/pages/ProductIDDemo'));
+const SellerSubscriptions = lazy(() => import('./modules/seller/pages/SellerSubscriptions'));
+const CustomerMealPlans = lazy(() => import('./modules/users/pages/CustomerMealPlans'));
+const CreatePersonalMealPlan = lazy(() => import('./modules/users/pages/CreatePersonalMealPlan'));
+const EditPersonalMealPlan = lazy(() => import('./modules/users/pages/EditPersonalMealPlan'));
+const CustomerSubscriptions = lazy(() => import('./modules/users/pages/CustomerSubscriptions'));
+const SubscriptionBenefits = lazy(() => import('./modules/users/pages/SubscriptionBenefits'));
+const FastFoodFormTest = lazy(() => import('./modules/fastfood/pages/FastFoodFormTest'));
+const LogisticsInvoices = lazy(() => import('./modules/delivery/pages/LogisticsInvoices'));
+const StationWallet = lazy(() => import('./modules/delivery/pages/StationWallet'));
+const AdminConfig = lazy(() => import('./modules/admin/pages/AdminConfig'));
+const PricingPromotions = lazy(() => import('./modules/marketing/pages/PricingPromotions'));
+const LearningResources = lazy(() => import('./modules/finance/pages/LearningResources'));
+const CustomerWallet = lazy(() => import('./modules/finance/pages/CustomerWallet'));
+import ScrollToTop from './shared/components/ScrollToTop';
 
-// Subscription UI Pages
-const AdminSubscriptions = lazy(() => import('@/modules/admin/pages/AdminSubscriptions'));
-const SellerSubscriptions = lazy(() => import('@/modules/seller/pages/SellerSubscriptions'));
-const CustomerSubscriptions = lazy(() => import('@/modules/users/pages/CustomerSubscriptions'));
-const PricingPlans = lazy(() => import('@/shared/pages/PricingPlans'));
-const GuestSubscriptionManager = lazy(() => import('@/shared/pages/GuestSubscriptionManager'));
-
-const Customer = lazy(() => import('@/modules/users/pages/Customer'));
-const CustomerOverview = lazy(() => import('@/modules/users/pages/CustomerOverview'));
-const CustomerOrders = lazy(() => import('@/modules/orders/pages/CustomerOrders'));
-const MyInquiries = lazy(() => import('@/shared/pages/MyInquiries'));
-const SupportChat = lazy(() => import('@/shared/pages/SupportChat'));
-const CancelOrder = lazy(() => import('@/modules/orders/pages/CancelOrder'));
-const UpdateOrderAddress = lazy(() => import('@/modules/orders/pages/UpdateOrderAddress'));
-const OrderTracking = lazy(() => import('@/modules/orders/pages/OrderTracking'));
-const PublicTracking = lazy(() => import('@/modules/orders/pages/PublicTracking'));
-const CustomerWishlist = lazy(() => import('@/modules/products/pages/CustomerWishlist'));
-const CustomerAddresses = lazy(() => import('@/modules/users/pages/CustomerAddresses'));
-const CustomerNotifications = lazy(() => import('@/modules/users/pages/CustomerNotifications'));
-const NotificationsPage = lazy(() => import('@/shared/pages/NotificationsPage'));
-const CustomerUpgrade = lazy(() => import('@/modules/users/pages/CustomerUpgrade'));
-const MyApplications = lazy(() => import('@/shared/pages/MyApplications'));
-const Checkout = lazy(() => import('@/modules/orders/pages/Checkout'));
-const Wishlist = lazy(() => import('@/modules/products/pages/Wishlist'));
+const Customer = lazy(() => import('./modules/users/pages/Customer'));
+const CustomerOverview = lazy(() => import('./modules/users/pages/CustomerOverview'));
+const CustomerOrders = lazy(() => import('./modules/orders/pages/CustomerOrders'));
+const MyInquiries = lazy(() => import('./shared/pages/MyInquiries'));
+const CancelOrder = lazy(() => import('./modules/orders/pages/CancelOrder'));
+const UpdateOrderAddress = lazy(() => import('./modules/orders/pages/UpdateOrderAddress'));
+const OrderTracking = lazy(() => import('./modules/orders/pages/OrderTracking'));
+const PublicTracking = lazy(() => import('./modules/orders/pages/PublicTracking'));
+const CustomerWishlist = lazy(() => import('./modules/products/pages/CustomerWishlist'));
+const CustomerAddresses = lazy(() => import('./modules/users/pages/CustomerAddresses'));
+const CustomerNotifications = lazy(() => import('./modules/users/pages/CustomerNotifications'));
+const NotificationsPage = lazy(() => import('./shared/pages/NotificationsPage'));
+const CustomerUpgrade = lazy(() => import('./modules/users/pages/CustomerUpgrade'));
+const MyApplications = lazy(() => import('./shared/pages/MyApplications'));
+const Checkout = lazy(() => import('./modules/orders/pages/Checkout'));
+const Wishlist = lazy(() => import('./modules/products/pages/Wishlist'));
 
 // New dashboard pages (converted to lazy loading)
-const ReturnRequestPage = lazy(() => import('@/shared/pages/ReturnRequestPage'));
-const UserManagement = lazy(() => import('@/modules/users/pages/UserManagement'));
-const UserApplications = lazy(() => import('@/modules/users/pages/UserApplications'));
-const UserManagementOverview = lazy(() => import('@/modules/users/pages/UserManagementOverview'));
-const AuditLogViewer = lazy(() => import('@/shared/pages/AuditLogViewer'));
-const MarketerManagement = lazy(() => import('@/shared/pages/MarketerManagement'));
-const CreateService = lazy(() => import('@/modules/services/pages/CreateService'));
-const MyServices = lazy(() => import('@/modules/services/pages/MyServices'));
-const DeliveryAssignment = lazy(() => import('@/modules/delivery/pages/DeliveryAssignment'));
-const DeliveryAgents = lazy(() => import('@/modules/delivery/pages/DeliveryAgents'));
-const CommissionManagement = lazy(() => import('@/shared/pages/CommissionManagement'));
-const ReferralAnalytics = lazy(() => import('@/shared/pages/ReferralAnalytics'));
-const InventoryManagement = lazy(() => import('@/shared/pages/InventoryManagement'));
+const ReturnRequestPage = lazy(() => import('./shared/pages/ReturnRequestPage'));
+const UserManagement = lazy(() => import('./modules/users/pages/UserManagement'));
+const UserApplications = lazy(() => import('./modules/users/pages/UserApplications'));
+const UserManagementOverview = lazy(() => import('./modules/users/pages/UserManagementOverview'));
+const MarketerManagement = lazy(() => import('./shared/pages/MarketerManagement'));
+const CreateService = lazy(() => import('./modules/services/pages/CreateService'));
+const MyServices = lazy(() => import('./modules/services/pages/MyServices'));
+const DeliveryAssignment = lazy(() => import('./modules/delivery/pages/DeliveryAssignment'));
+const DeliveryAgents = lazy(() => import('./modules/delivery/pages/DeliveryAgents'));
+const CommissionManagement = lazy(() => import('./shared/pages/CommissionManagement'));
+const ReferralAnalytics = lazy(() => import('./shared/pages/ReferralAnalytics'));
+const InventoryManagement = lazy(() => import('./shared/pages/InventoryManagement'));
 // removed HeroPromotionManager import
-const EnhancedCategories = lazy(() => import('@/shared/pages/EnhancedCategories'));
-const SystemSettings = lazy(() => import('@/shared/pages/SystemSettings'));
-const SecuritySettings = lazy(() => import('@/shared/pages/SecuritySettings'));
-const AdvancedReports = lazy(() => import('@/shared/pages/AdvancedReports'));
-const BusinessAnalytics = lazy(() => import('@/shared/pages/BusinessAnalytics'));
-const AdminOrders = lazy(() => import('@/modules/orders/pages/AdminOrders'));
-const AdminReturnsList = lazy(() => import('@/modules/admin/pages/AdminReturnsList'));
-const SuperAdminOrders = lazy(() => import('@/modules/orders/pages/SuperAdminOrders'));
-const OrderAnalytics = lazy(() => import('@/modules/orders/pages/OrderAnalytics'));
-const AdminOverview = lazy(() => import('@/modules/admin/pages/AdminOverview'));
-const SuspendProduct = lazy(() => import('@/modules/products/pages/SuspendProduct'));
-const AdminServicesApproval = lazy(() => import('@/modules/services/pages/AdminServicesApproval'));
-const ServiceReviews = lazy(() => import('@/modules/services/pages/ServiceReviews'));
-const SupportTickets = lazy(() => import('@/shared/pages/SupportTickets'));
-const CustomerService = lazy(() => import('@/modules/services/pages/CustomerService'));
-const FastFoodForm = lazy(() => import('@/modules/fastfood/pages/FastFoodForm'));
-const FastFoodManagement = lazy(() => import('@/modules/fastfood/pages/FastFoodManagement'));
-const HeroSettingsConfig = lazy(() => import('@/modules/marketing/pages/HeroSettingsConfig'));
-const SmartProductForm = lazy(() => import('@/modules/products/pages/SmartProductForm'));
-const TestDynamicForms = lazy(() => import('@/shared/pages/TestDynamicForms'));
-const DeliveryAgentDashboard = lazy(() => import('@/modules/delivery/pages/DeliveryAgentDashboard'));
-const DeliveryRequests = lazy(() => import('@/modules/delivery/pages/DeliveryRequests'));
-const ServiceProviderDashboard = lazy(() => import('@/modules/services/pages/ServiceProviderDashboard'));
-const OtherDashboards = lazy(() => import('@/modules/dashboard/pages/OtherDashboards'));
-const SellerManagement = lazy(() => import('@/modules/seller/pages/SellerManagement'));
-const ServiceProviderManagement = lazy(() => import('@/modules/services/pages/ServiceProviderManagement'));
-const CustomerManagement = lazy(() => import('@/modules/users/pages/CustomerManagement'));
-const WarehouseManagement = lazy(() => import('@/shared/pages/WarehouseManagement'));
-const PickupStationManagement = lazy(() => import('@/modules/delivery/pages/PickupStationManagement'));
-const SellerBusinessLocation = lazy(() => import('@/modules/seller/pages/SellerBusinessLocation'));
-const ProductDeletionRequests = lazy(() => import('@/modules/products/pages/ProductDeletionRequests'));
-const SystemRevenue = lazy(() => import('@/shared/pages/SystemRevenue'));
-const PendingPayouts = lazy(() => import('@/modules/finance/pages/PendingPayouts'));
-const AdminLiveMap = lazy(() => import('@/modules/admin/pages/AdminLiveMap'));
-const DeliveryEarningVerification = lazy(() => import('@/modules/auth/pages/DeliveryEarningVerification'));
-const BatchSystem = lazy(() => import('@/shared/pages/BatchSystem'));
-const CustomerReturnsList = lazy(() => import('@/modules/users/pages/CustomerReturnsList'));
-const FastFoodPickupPoints = lazy(() => import('@/modules/fastfood/pages/FastFoodPickupPoints'));
-const ContactMessages = lazy(() => import('@/shared/pages/ContactMessages'));
-const AdminOnBehalfCreation = lazy(() => import('@/modules/admin/pages/AdminOnBehalfCreation'));
-const RoleTools = lazy(() => import('@/shared/pages/RoleTools'));
-const DirectOrders = lazy(() => import('@/modules/orders/pages/DirectOrders'));
-const MarketingNotifications = lazy(() => import('@/modules/marketing/pages/MarketingNotifications'));
-const PromoCodes = lazy(() => import('@/modules/marketing/pages/PromoCodes'));
-const AdminTools = lazy(() => import('@/modules/admin/pages/AdminTools'));
-const DashboardManual = lazy(() => import('@/modules/dashboard/components/DashboardManual'));
-const LogisticsInvoices = lazy(() => import('@/modules/delivery/pages/LogisticsInvoices'));
+const EnhancedCategories = lazy(() => import('./shared/pages/EnhancedCategories'));
+const SystemSettings = lazy(() => import('./shared/pages/SystemSettings'));
+const SecuritySettings = lazy(() => import('./shared/pages/SecuritySettings'));
+const AdvancedReports = lazy(() => import('./shared/pages/AdvancedReports'));
+const AdminOrders = lazy(() => import('./modules/orders/pages/AdminOrders'));
+const AdminReturnsList = lazy(() => import('./modules/admin/pages/AdminReturnsList'));
+const SuperAdminOrders = lazy(() => import('./modules/orders/pages/SuperAdminOrders'));
+const OrderAnalytics = lazy(() => import('./modules/orders/pages/OrderAnalytics'));
+const AdminOverview = lazy(() => import('./modules/admin/pages/AdminOverview'));
+const SuspendProduct = lazy(() => import('./modules/products/pages/SuspendProduct'));
+const AdminServicesApproval = lazy(() => import('./modules/services/pages/AdminServicesApproval'));
+const ServiceReviews = lazy(() => import('./modules/services/pages/ServiceReviews'));
+const SupportTickets = lazy(() => import('./shared/pages/SupportTickets'));
+const CustomerService = lazy(() => import('./modules/services/pages/CustomerService'));
+const FastFoodForm = lazy(() => import('./modules/fastfood/pages/FastFoodForm'));
+const FastFoodManagement = lazy(() => import('./modules/fastfood/pages/FastFoodManagement'));
+const HeroSettingsConfig = lazy(() => import('./modules/marketing/pages/HeroSettingsConfig'));
+const SmartProductForm = lazy(() => import('./modules/products/pages/SmartProductForm'));
+const TestDynamicForms = lazy(() => import('./shared/pages/TestDynamicForms'));
+const DeliveryAgentDashboard = lazy(() => import('./modules/delivery/pages/DeliveryAgentDashboard'));
+const DeliveryRequests = lazy(() => import('./modules/delivery/pages/DeliveryRequests'));
+const DeliveryAuditing = lazy(() => import('./modules/auth/pages/RoleEarningVerification'));
+const ServiceProviderDashboard = lazy(() => import('./modules/services/pages/ServiceProviderDashboard'));
+const OtherDashboards = lazy(() => import('./modules/dashboard/pages/OtherDashboards'));
+const SellerManagement = lazy(() => import('./modules/seller/pages/SellerManagement'));
+const ServiceProviderManagement = lazy(() => import('./modules/services/pages/ServiceProviderManagement'));
+const CustomerManagement = lazy(() => import('./modules/users/pages/CustomerManagement'));
+const WarehouseManagement = lazy(() => import('./shared/pages/WarehouseManagement'));
+const PickupStationManagement = lazy(() => import('./modules/delivery/pages/PickupStationManagement'));
+const SellerBusinessLocation = lazy(() => import('./modules/seller/pages/SellerBusinessLocation'));
+const ProductDeletionRequests = lazy(() => import('./modules/products/pages/ProductDeletionRequests'));
+const SystemRevenue = lazy(() => import('./shared/pages/SystemRevenue'));
+const PendingPayouts = lazy(() => import('./modules/finance/pages/PendingPayouts'));
+const AdminLiveMap = lazy(() => import('./modules/admin/pages/AdminLiveMap'));
+const BatchSystem = lazy(() => import('./shared/pages/BatchSystem'));
+const CMSManagement = lazy(() => import('./pages/dashboard/CMSManagement'));
+const AboutPageManagement = lazy(() => import('./pages/dashboard/cms/AboutPageManagement'));
+const AboutPageForm = lazy(() => import('./pages/dashboard/cms/AboutPageForm'));
+const ContactPageManagement = lazy(() => import('./pages/dashboard/cms/ContactPageManagement'));
+const TeamMemberForm = lazy(() => import('./pages/dashboard/cms/TeamMemberForm'));
+const CustomerReturnsList = lazy(() => import('./modules/users/pages/CustomerReturnsList'));
+const FastFoodPickupPoints = lazy(() => import('./modules/fastfood/pages/FastFoodPickupPoints'));
+const ContactMessages = lazy(() => import('./shared/pages/ContactMessages'));
+const MyContactMessages = lazy(() => import('./modules/users/pages/MyContactMessages'));
+const BlogManagement = lazy(() => import('./pages/dashboard/cms/BlogManagement'));
+const BlogForm = lazy(() => import('./pages/dashboard/cms/BlogForm'));
+const BlogComments = lazy(() => import('./pages/dashboard/cms/BlogComments'));
+const PublicBlog = lazy(() => import('./pages/public/Blog'));
+const PublicBlogPost = lazy(() => import('./pages/public/BlogPost'));
 
 // Delivery Agent Sub-components
-const DeliveryAgentOrders = lazy(() => import('@/modules/orders/pages/Orders'));
-const DeliveryAgentAvailable = lazy(() => import('@/shared/pages/Available'));
-const DeliveryLogistics = lazy(() => import('@/modules/delivery/pages/DeliveryLogistics'));
-const DeliveryAgentAccount = lazy(() => import('@/modules/users/pages/Account'));
+const DeliveryAgentOrders = lazy(() => import('./modules/orders/pages/Orders'));
+const DeliveryAgentAvailable = lazy(() => import('./shared/pages/Available'));
+const DeliveryLogistics = lazy(() => import('./modules/delivery/pages/DeliveryLogistics'));
 
-const DeliveryNotifications = lazy(() => import('@/shared/pages/Notifications'));
-const DeliverySupport = lazy(() => import('@/shared/pages/Support'));
-const DeliverySettings = lazy(() => import('@/shared/pages/Settings'));
-const DeliveryLiveMap = lazy(() => import('@/shared/pages/LiveMap'));
-const DeliveryWallet = lazy(() => import('@/modules/finance/pages/Wallet'));
+const DeliveryNotifications = lazy(() => import('./shared/pages/Notifications'));
+const DeliverySupport = lazy(() => import('./shared/pages/Support'));
+const DeliverySettings = lazy(() => import('./shared/pages/Settings'));
+const DeliveryLiveMap = lazy(() => import('./shared/pages/LiveMap'));
+const DeliveryWallet = lazy(() => import('./modules/finance/pages/Wallet'));
 
 // Main App component with providers
 const AppWithProviders = () => (
   <ErrorBoundary>
     <HelmetProvider>
-      <PlatformProvider>
-        <AuthProvider>
-          <RealtimeSync />
-          <CategoriesProvider>
-            <CartProvider>
-              <WishlistProvider>
-                <Suspense fallback={<PageLoading />}>
-                  <AppContent />
-                </Suspense>
-              </WishlistProvider>
-            </CartProvider>
-          </CategoriesProvider>
-        </AuthProvider>
-      </PlatformProvider>
+      <AuthProvider>
+        <RealtimeSync />
+        <CategoriesProvider>
+          <CartProvider>
+            <WishlistProvider>
+              <Suspense fallback={<PageLoading />}>
+                <AppContent />
+              </Suspense>
+            </WishlistProvider>
+          </CartProvider>
+        </CategoriesProvider>
+      </AuthProvider>
     </HelmetProvider>
   </ErrorBoundary>
 );
 
+// Main content component with auth context
 const AppContent = () => {
   const { user, loading, verificationRequired } = useAuth();
   const location = useLocation();
-  useTrafficTracker();
   const isStationUser = user?.role === 'station_manager' || user?.roles?.includes('station_manager') || user?.roles?.includes('warehouse_manager') || user?.roles?.includes('pickup_station_manager');
   const hideNavbar = ['/login', '/register', '/forgot-password', '/menu', '/station/login'].includes(location.pathname);
-  const [isMarketingMode, setIsMarketingMode] = useState(() => {
-    const isMode = localStorage.getItem('marketing_mode') === 'true' || window.location.pathname.startsWith('/marketing');
-    if (isMode) localStorage.setItem('marketing_mode', 'true');
-    return isMode;
-  });
+  const [isMarketingMode, setIsMarketingMode] = useState(localStorage.getItem('marketing_mode') === 'true');
   const [referrerName, setReferrerName] = useState(localStorage.getItem('referrerName') || '');
-  const [bannerDismissed, setBannerDismissed] = useState(localStorage.getItem('referrerBannerDismissed') === 'true');
-
-  const { settings, loading: settingsLoading } = usePlatform();
-  const isAdmin = useMemo(() => {
-    const adminRoles = ['admin', 'super_admin', 'superadmin'];
-    return adminRoles.includes(user?.role) || user?.roles?.some(r => adminRoles.includes(r));
-  }, [user]);
 
   // On app load, fire one quick API call; if we get 503+maintenance redirect immediately
   useEffect(() => {
     // Never redirect away from admin, maintenance, or login paths
+    const adminRoles = ['admin', 'super_admin', 'superadmin'];
     const adminPaths = ['/dashboard', '/dashboard-login', '/maintenance', '/login'];
     const isAdminPath = adminPaths.some(p => window.location.pathname.startsWith(p));
-    
     if (isAdminPath) return;
-
-    if (settings.maintenance?.enabled) {
-      if (!isAdmin) {
-        if (settings.maintenance?.message) sessionStorage.setItem('maintenance_message', settings.maintenance.message);
-        window.location.href = '/maintenance';
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (adminRoles.includes(u?.role) || u?.roles?.some(r => adminRoles.includes(r))) return;
       }
-    }
-  }, [settings.maintenance, isAdmin]);
+    } catch (_) { }
+
+    const fetchPlatformStatus = () => {
+      api.get('/platform/status').then(res => {
+        if (res.data.success) {
+          localStorage.setItem('maintenance_settings', JSON.stringify({
+            dashboards: res.data.dashboards || {},
+            sections: res.data.sections || {}
+          }));
+        }
+      }).catch(err => {
+        if (err.response?.status === 503 && err.response?.data?.maintenance) {
+          const msg = err.response.data?.message;
+          if (msg) sessionStorage.setItem('maintenance_message', msg);
+          window.location.href = '/maintenance';
+        }
+      });
+    };
+
+    fetchPlatformStatus();
+
+    // Listen for real-time maintenance updates to re-sync global state
+    window.addEventListener('maintenance-settings-updated', fetchPlatformStatus);
+    return () => window.removeEventListener('maintenance-settings-updated', fetchPlatformStatus);
+  }, []);
 
   // Handle referral links and marketing mode from URL
   useEffect(() => {
@@ -303,26 +330,17 @@ const AppContent = () => {
     const marketingParam = params.get('marketing');
 
     if (marketingParam === 'true' || location.pathname.startsWith('/marketing')) {
-      console.log('[App] Ensuring Marketing Mode Persistence');
       localStorage.setItem('marketing_mode', 'true');
-      if (!isMarketingMode) {
-        setIsMarketingMode(true);
-      }
-    } else if (marketingParam === 'false') {
-      console.log('[App] Explicitly Disabling Marketing Mode');
+      setIsMarketingMode(true);
+    } else if (refCode && marketingParam !== 'true') {
+
+      // If we have a referral code but NO marketing tag, ensure we are NOT in marketing mode
       localStorage.removeItem('marketing_mode');
       setIsMarketingMode(false);
     }
-    // Note: We NO LONGER disable marketing mode just because a ref code is present.
-    // This allows marketers to test their own links without losing their dashboard mode.
 
     if (refCode) {
-      console.log('[App] Referral code detected:', refCode);
       localStorage.setItem('referrerCode', refCode);
-      // When a new referral link is used, reset the dismissal flag so the banner shows again
-      localStorage.removeItem('referrerBannerDismissed');
-      setBannerDismissed(false);
-
       // Fetch marketer name
       api.get(`/marketing/ref-details/${refCode}`)
         .then(res => {
@@ -335,7 +353,7 @@ const AppContent = () => {
           console.error('Failed to fetch marketer details:', err);
         });
     }
-  }, [location.pathname, location.search]);
+  }, [location.search]);
 
   // Keep marketing mode in sync with localStorage after in-app transitions.
   useEffect(() => {
@@ -355,10 +373,9 @@ const AppContent = () => {
   }, [location.pathname, location.search]);
 
   const handleClearReferrer = () => {
-    // Only dismiss the banner UI, do NOT remove the referrerCode
-    // The referrerCode must persist for checkout as long as they entered via the link
-    localStorage.setItem('referrerBannerDismissed', 'true');
-    setBannerDismissed(true);
+    localStorage.removeItem('referrerCode');
+    localStorage.removeItem('referrerName');
+    setReferrerName('');
   };
 
   // Initialize performance monitoring after initial render
@@ -373,12 +390,8 @@ const AppContent = () => {
     return <PageLoading />;
   }
 
-  // Station accounts are restricted to station-only flows by default, 
-  // but must be allowed to access dashboard management routes for warehouses and pickup stations.
-  const isDashboardStationPath = location.pathname.startsWith('/dashboard/delivery/warehouses') || 
-                                 location.pathname.startsWith('/dashboard/delivery/pickup-stations');
-
-  if (isStationUser && !location.pathname.startsWith('/station') && !isDashboardStationPath && !['/dashboard-login', '/login'].includes(location.pathname)) {
+  // Station accounts are restricted to station-only flows, but must be allowed to log in and verify dashboard access.
+  if (isStationUser && !location.pathname.startsWith('/station') && !['/dashboard-login', '/login'].includes(location.pathname)) {
     return <Navigate to="/station" replace />;
   }
 
@@ -389,21 +402,18 @@ const AppContent = () => {
   const isDashboardRoute = location.pathname.startsWith('/dashboard') ||
     ['/marketing', '/seller', '/customer', '/ops', '/logistics', '/finance', '/station'].some(path => location.pathname.startsWith(path));
 
-  const isDetailRoute = location.pathname.startsWith('/product/') || 
-                       location.pathname.startsWith('/category/') ||
-                       location.pathname.startsWith('/fastfood/') || 
-                       location.pathname.startsWith('/service/');
+  const isDetailRoute = location.pathname.startsWith('/product/') ||
+    location.pathname.startsWith('/category/') ||
+    location.pathname.startsWith('/fastfood/') ||
+    location.pathname.startsWith('/service/');
 
-  // Simplified and robust padding logic
   let topPadding = "pt-[128px]"; // Default for home/search (Navbar + Search bar)
-  if (isDetailRoute || isDashboardRoute) {
-    topPadding = "pt-[50px] md:pt-16"; // Reduced from 56px to 50px to tighten mobile gaps
+  if (isDetailRoute) {
+    topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
+  } else if (isDashboardRoute) {
+    topPadding = "pt-14"; // 56px to clear Navbar (no search bar)
   }
-  
-  // If we have a referrer banner, we need extra space
-  const hasReferrerBanner = !hideNavbar && !isMarketingMode && referrerName && !bannerDismissed;
-  
-  let paddingClass = hideNavbar ? "" : topPadding;
+  let paddingClass = hideNavbar ? "" : `${topPadding} lg:pt-16`;
   if (isMarketingMode) {
     paddingClass += " pb-14 lg:pb-0";
   }
@@ -436,21 +446,17 @@ const AppContent = () => {
 
         {/* Catch-all route for Main App layout */}
         <Route path="*" element={
-          <div className="min-h-screen bg-gray-50 flex flex-col">
+          <div className="min-h-screen bg-gray-50">
             {!hideNavbar && (isMarketingMode ? <MarketingNavbar /> : <Navbar />)}
-            
-            <VerificationNotice />
-            
-            {hasReferrerBanner && (
+            {!hideNavbar && !isMarketingMode && referrerName && (
               <div className={paddingClass}>
                 <ReferrerBanner referrerName={referrerName} onClear={handleClearReferrer} />
               </div>
             )}
-            
-            <main className={(hasReferrerBanner) ? "flex-1" : `flex-1 ${paddingClass}`}>
+            <main className={!isMarketingMode && referrerName ? "" : paddingClass}>
               <Routes>
                 {/* Public Routes */}
-                <Route path="/" element={<Home isMarketingMode={isMarketingMode} />} />
+                <Route path="/" element={<Home />} />
                 <Route path="/category/:id" element={<Category />} />
                 <Route path="/product/:id" element={<ProductDetails />} />
                 <Route path="/search" element={<Search />} />
@@ -460,12 +466,12 @@ const AppContent = () => {
                 <Route path="/fastfood/:id" element={<FastFoodDetails />} />
                 <Route path="/menu" element={<ComradesMenu />} />
                 <Route path="/products" element={<Products />} />
-                <Route path="/pricing" element={<PricingPlans />} />
-                <Route path="/guest/subscriptions/:token" element={<GuestSubscriptionManager />} />
 
                 {/* Public Footer Pages */}
-                <Route path="/about" element={<StaticContentPage pageKey="content_page_about" title="About Us" />} />
-                <Route path="/contact" element={<StaticContentPage pageKey="content_page_contact" title="Contact Us" />} />
+                <Route path="/about" element={<AboutPage />} />
+                <Route path="/contact" element={<ContactPage />} />
+                <Route path="/blog" element={<PublicBlog />} />
+                <Route path="/blog/:slug" element={<PublicBlogPost />} />
                 <Route path="/terms" element={<StaticContentPage pageKey="content_page_terms" title="Terms of Service" />} />
                 <Route path="/privacy" element={<StaticContentPage pageKey="content_page_privacy" title="Privacy Policy" />} />
                 <Route path="/help" element={<StaticContentPage pageKey="content_page_help" title="Help Center" />} />
@@ -490,7 +496,7 @@ const AppContent = () => {
 
                 {/* Protected Dashboard Route */}
                 <Route path="/dashboard/*" element={
-                  <ProtectedRoute requiredRole={['admin', 'super_admin', 'superadmin', 'logistics_manager', 'delivery_agent', 'finance_manager', 'warehouse_manager', 'pickup_station_manager']}>
+                  <ProtectedRoute requiredRole={['admin', 'super_admin', 'superadmin', 'logistics_manager', 'delivery_agent', 'finance_manager']}>
                     <DashboardGuard>
                       <Dashboard />
                     </DashboardGuard>
@@ -502,11 +508,8 @@ const AppContent = () => {
                   <Route path="users/role-applications" element={<RoleApplicationsManager />} />
                   <Route path="users/role-applications/:tab" element={<RoleApplicationsManager />} />
                   <Route path="users/marketers" element={<MarketerManagement />} />
-                  <Route path="users/marketers/:tab" element={<MarketerManagement />} />
                   <Route path="users/delivery-agents" element={<DeliveryAgents />} />
-                  <Route path="users/delivery-agents/:tab" element={<DeliveryAgents />} />
                   <Route path="users/sellers" element={<SellerManagement />} />
-                  <Route path="users/sellers/:tab" element={<SellerManagement />} />
                   <Route path="users/service-providers" element={<ServiceProviderManagement />} />
                   <Route path="users/customers" element={<CustomerManagement />} />
                   <Route path="users/verifications" element={<AdminIdVerification />} />
@@ -516,17 +519,26 @@ const AppContent = () => {
                   <Route path="user-management" element={<UserManagement />} />
                   <Route path="user-management/:action" element={<UserManagement />} />
                   <Route path="product-management" element={<ProductManagement />} />
+                  <Route path="on-behalf-creation" element={<AdminOnBehalfCreation />} />
                   <Route path="products/recycle-bin" element={<RecycleBin />} />
-                  <Route path="products" element={<DashboardProducts />} />
-                  <Route path="products/suspend" element={<SuspendProduct />} />
-                  <Route path="products/:view" element={<DashboardProducts />} />
-                  <Route path="products/:view/:id" element={<DashboardProducts />} />
+                  <Route path="products" element={<ProductHubFull />} />
+                  <Route path="products/:view" element={<ProductHubFull />} />
+                  <Route path="products/:view/:id" element={<ProductHubFull />} />
+                  <Route path="products/list" element={<ProductList />} />
+                  <Route path="products/smart-create" element={<SmartProductForm />} />
+                  <Route path="products/add" element={<ProductForm />} />
+                  <Route path="products/:id/edit" element={<ProductForm mode="edit" />} />
+                  <Route path="products/pending" element={<ProductList status="pending" />} />
+                  <Route path="products/rejected" element={<ProductList status="rejected" />} />
                   <Route path="products/comrades" element={<ComradesProducts />} />
-                  <Route path="products/comrades/new" element={<ComradesProductForm />} />
+                  <Route path="products/comrades/new" element={<ComradesProductForm strictMode={true} taxonomyType="comrades" />} />
                   <Route path="products/comrades/pending" element={<ComradesProducts status="pending" />} />
                   <Route path="products/comrades/rejected" element={<ComradesProducts status="rejected" />} />
-                  <Route path="products/comrades/:id/edit" element={<ComradesProductForm mode="edit" />} />
+                  <Route path="products/comrades/:id/edit" element={<ComradesProductForm mode="edit" strictMode={true} taxonomyType="comrades" />} />
                   <Route path="products/comrades/list/:id" element={<ComradesProductList />} />
+                  <Route path="products/product-listing" element={<ProductListingView />} />
+                  <Route path="products/analytics" element={<ProductAnalytics />} />
+                  <Route path="products/id-demo" element={<ProductIDDemo />} />
 
                   <Route path="comrades-products" element={<Navigate to="products/comrades" replace />} />
 
@@ -553,23 +565,37 @@ const AppContent = () => {
                   <Route path="fastfood/edit/:id" element={<FastFoodForm mode="edit" />} />
                   <Route path="fastfood/pickup-points" element={<FastFoodPickupPoints />} />
                   <Route path="fastfood/edit/:id" element={<FastFoodForm mode="edit" />} />
+                  <Route path="fastfood/form-test" element={<FastFoodFormTest />} />
                   <Route path="delivery/warehouses" element={<WarehouseManagement />} />
                   <Route path="delivery/pickup-stations" element={<PickupStationManagement />} />
                   <Route path="delivery/settings" element={<DeliveryFeeSettings />} />
                   <Route path="delivery/metrics" element={<AdvancedReports />} />
-                  <Route path="analytics/business" element={<BusinessAnalytics />} />
+                  <Route path="delivery/logistics-invoices" element={<LogisticsInvoices />} />
                   <Route path="finance/dashboard" element={<FinanceManager />} />
                   <Route path="finance/commissions" element={<CommissionManagement />} />
                   <Route path="finance/referrals" element={<ReferralAnalytics />} />
                   <Route path="finance/reports" element={<AdvancedReports />} />
                   <Route path="finance/revenue" element={<SystemRevenue />} />
                   <Route path="finance/payouts" element={<PendingPayouts />} />
-                  <Route path="finance/logistics-invoices" element={<LogisticsInvoices />} />
+                  <Route path="finance/learning" element={<LearningResources />} />
                   <Route path="marketing/hero-promotions" element={<AdminHeroPromotions />} />
-                  <Route path="marketing/thank-you" element={<MarketingNotifications />} />
-                  <Route path="marketing/promo-codes" element={<PromoCodes />} />
                   <Route path="marketing/hero-promotions/create" element={<AdminCreateHeroPromotion />} />
+                  <Route path="marketing/video-banners" element={<AdminVideoBanners />} />
+                  <Route path="marketing/video-banners/create" element={<AdminCreateVideoBanner />} />
+                  <Route path="marketing/video-banners/edit/:id" element={<AdminCreateVideoBanner />} />
                   <Route path="marketing/fastfood-promotions" element={<AdminFastFoodPromotions />} />
+                  <Route path="marketing/promo-codes" element={<PromoCodes />} />
+                  <Route path="marketing/thank-you" element={<MarketingNotifications />} />
+                  <Route path="marketing/pricing-promotions" element={<PricingPromotions />} />
+                  <Route path="direct-orders" element={<DirectOrders />} />
+                  <Route path="users/sellers/earning-verification" element={<RoleEarningVerification userType="seller" />} />
+                  <Route path="users/marketers/earning-verification" element={<RoleEarningVerification userType="marketer" />} />
+                  <Route path="users/delivery-agents/earning-verification" element={<DeliveryEarningVerification />} />
+                  <Route path="delivery/earning-verification" element={<DeliveryEarningVerification />} />
+                  <Route path="admin-tools" element={<AdminTools />} />
+                  <Route path="admin/config" element={<AdminConfig />} />
+                  <Route path="subscriptions" element={<AdminSubscriptions />} />
+                  <Route path="test/dynamic-forms" element={<TestDynamicForms />} />
                   <Route path="settings/platform" element={<SystemSettings />} />
                   <Route path="settings/app-content" element={<AppContentManager />} />
                   <Route path="settings/security" element={<SecuritySettings />} />
@@ -578,14 +604,18 @@ const AppContent = () => {
                   <Route path="contact-messages" element={<ContactMessages />} />
                   <Route path="support/service" element={<CustomerService />} />
                   <Route path="delivery/live-map" element={<AdminLiveMap />} />
-                  <Route path="delivery/auditing" element={<DeliveryEarningVerification />} />
-                  <Route path="on-behalf-creation" element={<AdminOnBehalfCreation />} />
-                  <Route path="direct-orders" element={<DirectOrders />} />
+                  <Route path="delivery/auditing" element={<DeliveryAuditing />} />
                   <Route path="other-dashboards" element={<OtherDashboards />} />
-                  <Route path="admin-tools" element={<AdminTools />} />
-                  <Route path="subscriptions" element={<AdminSubscriptions />} />
-                  <Route path="admin-tools/audit-log" element={<AuditLogViewer />} />
-                  <Route path="manual" element={<DashboardManual role="admin" />} />
+                  <Route path="cms" element={<CMSManagement />} />
+                  <Route path="cms/about" element={<AboutPageManagement />} />
+                  <Route path="cms/about/form" element={<AboutPageForm />} />
+                  <Route path="cms/about/team/new" element={<TeamMemberForm />} />
+                  <Route path="cms/about/team/:memberId" element={<TeamMemberForm />} />
+                  <Route path="cms/contact" element={<ContactPageManagement />} />
+                  <Route path="cms/blog" element={<BlogManagement />} />
+                  <Route path="cms/blog/new" element={<BlogForm />} />
+                  <Route path="cms/blog/:id/edit" element={<BlogForm />} />
+                  <Route path="cms/blog/:slug/comments" element={<BlogComments />} />
                   {/* Logistics Manager entry point */}
                   <Route path="logistics" element={<Navigate to="/dashboard/orders" replace />} />
                 </Route>
@@ -605,9 +635,6 @@ const AppContent = () => {
                   <Route path="affiliates" element={<Affiliates />} />
                   <Route path="commissions" element={<Commissions />} />
                   <Route path="wallet" element={<MarketerWallet />} />
-                  <Route path="direct-orders" element={<DirectOrders />} />
-                  <Route path="promo-codes" element={<MarketerPromoCodes />} />
-                  <Route path="manual" element={<DashboardManual role="marketer" />} />
                 </Route>
 
                 {/* Seller Dashboard */}
@@ -620,13 +647,12 @@ const AppContent = () => {
                 }>
                   <Route index element={<SellerOverview />} />
                   <Route path="products" element={<SellerProducts />} />
-                  <Route path="products/add" element={isAdmin ? <ComradesProductForm /> : <ProductForm />} />
-                  <Route path="products/:id/edit" element={isAdmin ? <ComradesProductForm mode="edit" /> : <ProductForm mode="edit" />} />
+                  <Route path="products/add" element={<ProductForm />} />
+                  <Route path="products/:id/edit" element={<ProductForm mode="edit" />} />
                   <Route path="products/view/:id" element={<SellerProductView />} />
                   <Route path="orders" element={<SellerOrders />} />
                   <Route path="earnings" element={<SellerEarnings />} />
                   <Route path="analytics" element={<SellerAnalytics />} />
-                  <Route path="subscriptions" element={<SellerSubscriptions />} />
                   <Route path="wallet" element={<SellerWallet />} />
                   <Route path="reports" element={<SellerReports />} />
                   <Route path="recycle-bin" element={<RecycleBin />} />
@@ -634,9 +660,8 @@ const AppContent = () => {
                   <Route path="fastfood-promotions" element={<SellerFastFoodPromotions />} />
                   <Route path="business-location" element={<SellerBusinessLocation />} />
                   <Route path="inventory" element={<InventoryManagement onBack={() => window.history.back()} />} />
+                  <Route path="subscriptions" element={<SellerSubscriptions />} />
                   <Route path="help" element={<SellerHelp />} />
-                  <Route path="direct-orders" element={<DirectOrders />} />
-                  <Route path="manual" element={<DashboardManual role="seller" />} />
 
                   {/* Fast Food Management Routes for Sellers */}
                   <Route path="fast-food" element={<FastFoodManagement />} />
@@ -644,7 +669,6 @@ const AppContent = () => {
                   <Route path="fast-food/new" element={<FastFoodForm isSellerContext={true} />} />
                   <Route path="fast-food/edit/:id" element={<FastFoodForm mode="edit" isSellerContext={true} />} />
                   <Route path="fast-food/view/:id" element={<SellerFastFoodView />} />
-                  <Route path="tools" element={<RoleTools role="seller" />} />
                 </Route>
 
                 {/* Operations Dashboard */}
@@ -672,19 +696,10 @@ const AppContent = () => {
                   </ProtectedRoute>
                 } />
 
+                {/* Station Manager Dashboard */}
                 <Route path="/station" element={
                   <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
                     <StationManagerDashboard />
-                  </ProtectedRoute>
-                } />
-                <Route path="/station/manual" element={
-                  <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
-                    <DashboardManual role="station" />
-                  </ProtectedRoute>
-                } />
-                <Route path="/station/wallet" element={
-                  <ProtectedRoute requiredRole={['station_manager', 'warehouse_manager', 'pickup_station_manager']}>
-                    <StationWallet />
                   </ProtectedRoute>
                 } />
 
@@ -692,7 +707,7 @@ const AppContent = () => {
                 <Route path="/customer/*" element={<Customer />}>
                   <Route index element={<CustomerOverview />} />
                   <Route path="inquiries" element={<MyInquiries />} />
-                  <Route path="support" element={<SupportChat />} />
+                  <Route path="messages" element={<MyContactMessages />} />
                   <Route path="orders" element={<CustomerOrders />} />
                   <Route path="orders/:orderId/track" element={<OrderTracking />} />
                   <Route path="orders/:orderId/cancel" element={<CancelOrder />} />
@@ -700,8 +715,12 @@ const AppContent = () => {
                   <Route path="orders/:orderId/return" element={<ReturnRequestPage />} />
                   <Route path="returns" element={<CustomerReturnsList />} />
                   <Route path="wishlist" element={<Wishlist />} />
-                  <Route path="wallet" element={<div>Wallet</div>} />
+                  <Route path="wallet" element={<CustomerWallet />} />
+                  <Route path="meal-plans" element={<CustomerMealPlans />} />
+                  <Route path="meal-plans/create" element={<CreatePersonalMealPlan />} />
+                  <Route path="meal-plans/edit/:id" element={<EditPersonalMealPlan />} />
                   <Route path="subscriptions" element={<CustomerSubscriptions />} />
+                  <Route path="subscription-benefits" element={<SubscriptionBenefits />} />
                   <Route path="address" element={<CustomerAddresses />} />
                   <Route path="settings" element={<AccountSettings />} />
                   <Route path="account-page" element={<AccountPage />} />
@@ -710,7 +729,6 @@ const AppContent = () => {
                   <Route path="applications" element={<MyApplications />} />
                   <Route path="work-with-us" element={<WorkWithUs />} />
                   <Route path="apply/:role" element={<RoleApplicationForm />} />
-                  <Route path="manual" element={<DashboardManual role="customer" />} />
                 </Route>
 
                 {/* Redirects for legacy /work-with-us and /apply/:role links */}
@@ -726,7 +744,7 @@ const AppContent = () => {
                     </DashboardGuard>
                   </ProtectedRoute>
                 }>
-                  <Route index element={<Navigate to="orders" replace />} />
+                  <Route index element={<Navigate to="available" replace />} />
                   <Route path="orders" element={<DeliveryAgentOrders />} />
                   <Route path="available" element={<DeliveryAgentAvailable />} />
                   <Route path="logistics" element={<DeliveryLogistics />} />
@@ -738,10 +756,8 @@ const AppContent = () => {
                   <Route path="wallet" element={<DeliveryWallet />} />
                   <Route path="notifications" element={<DeliveryNotifications />} />
                   <Route path="support" element={<DeliverySupport />} />
-                   <Route path="settings" element={<DeliverySettings />} />
+                  <Route path="settings" element={<DeliverySettings />} />
                   <Route path="map" element={<DeliveryLiveMap />} />
-                  <Route path="tools" element={<RoleTools role="delivery" />} />
-                  <Route path="manual" element={<DashboardManual role="delivery" />} />
                 </Route>
 
                 {/* Service Provider Dashboard - Standalone route outside main dashboard */}
@@ -767,36 +783,35 @@ const AppContent = () => {
                   <Route path="reviews" element={<div>Reviews Page</div>} />
                   <Route path="revenue" element={<div>Revenue Page</div>} />
                   <Route path="wallet" element={<ServiceProviderWallet />} />
-                  <Route path="manual" element={<DashboardManual role="service_provider" />} />
                 </Route>
               </Routes>
             </main>
           </div>
         } />
       </Routes>
-      
+
       {/* Force Password Change Modal */}
       {user?.mustChangePassword && (
         <ForcePasswordChangeModal isOpen={true} user={user} />
       )}
 
-        {/* Global Marketing Mode Bottom Nav (Mobile Only inside component) */}
-        {isMarketingMode && <MarketingBottomNav />}
-        
-        {/* Global Toast Notifications */}
-        <ToastContainer 
-          position="top-right"
-          autoClose={5000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-          theme="light"
-        />
-      </PageLayout>
+      {/* Global Marketing Mode Bottom Nav (Mobile Only inside component) */}
+      {(isMarketingMode || ['/about', '/contact'].includes(location.pathname)) && <MarketingBottomNav />}
+
+      {/* Global Toast Notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
+    </PageLayout>
 
   );
 };

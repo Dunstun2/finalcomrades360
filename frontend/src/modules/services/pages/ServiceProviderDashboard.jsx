@@ -46,7 +46,7 @@ const ServiceProviderDashboard = () => {
   return (
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
       {/* Backdrop for mobile */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
@@ -58,7 +58,7 @@ const ServiceProviderDashboard = () => {
             <h2 className="text-xl font-extrabold text-blue-900 tracking-tight">Service Panel</h2>
             <p className="text-[10px] lg:text-xs text-gray-500 mt-1 uppercase tracking-widest font-bold">{user?.name || 'Provider'}</p>
           </div>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(false)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-full text-gray-400"
           >
@@ -103,7 +103,7 @@ const ServiceProviderDashboard = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-14 z-30 shadow-sm">
+        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-0 z-30 shadow-sm">
           <div className="flex items-center gap-3">
 
             <div className="flex items-center gap-2">
@@ -158,9 +158,9 @@ const ServiceProviderDashboard = () => {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <BottomNavbar 
-        items={serviceProviderBottomNavItems} 
-        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+      <BottomNavbar
+        items={serviceProviderBottomNavItems}
+        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)}
       />
       <style dangerouslySetInnerHTML={{
         __html: `

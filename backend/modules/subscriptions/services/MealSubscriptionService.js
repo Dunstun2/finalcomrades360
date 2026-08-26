@@ -10,6 +10,9 @@ const {
   sequelize 
 } = require('../../../database/models.registry');
 const BillingService = require('./BillingService');
+const BenefitService = require('./BenefitService');
+const UsageService = require('./UsageService');
+const CashbackService = require('./CashbackService');
 const subscriptionEventBus = require('../events/subscriptionEvents');
 const { Op } = require('sequelize');
 
@@ -30,19 +33,32 @@ class MealSubscriptionService {
         transaction: t
       });
 
-      // Insert new schedule list
+      // Insert new schedule list.
+      // Each incoming item may carry preferredFastFoodItemIds (array, new) or
+      // preferredFastFoodItemId (single integer, legacy). When multiple dishes
+      // are selected we expand them into one MealSchedule row each so the
+      // existing daily-occurrence generator can process them unchanged.
       const created = [];
       for (const item of scheduleList) {
-        const sched = await MealSchedule.create({
-          subscriptionId,
-          dayOfWeek: item.dayOfWeek.toLowerCase(),
-          mealTimeType: item.mealTimeType.toLowerCase(),
-          preferredTime: item.preferredTime,
-          pickupStationId: item.pickupStationId || null,
-          deliveryAddress: item.deliveryAddress || null,
-          preferredFastFoodItemId: item.preferredFastFoodItemId || null
-        }, { transaction: t });
-        created.push(sched);
+        // Normalise: collect all item IDs from either field
+        const foodIds = item.preferredFastFoodItemIds?.length
+          ? item.preferredFastFoodItemIds
+          : item.preferredFastFoodItemId
+            ? [item.preferredFastFoodItemId]
+            : [null]; // slot with no dish yet — store one row with null
+
+        for (const foodId of foodIds) {
+          const sched = await MealSchedule.create({
+            subscriptionId,
+            dayOfWeek: item.dayOfWeek.toLowerCase(),
+            mealTimeType: item.mealTimeType.toLowerCase(),
+            preferredTime: item.preferredTime,
+            pickupStationId: item.pickupStationId || null,
+            deliveryAddress: item.deliveryAddress || null,
+            preferredFastFoodItemId: foodId || null
+          }, { transaction: t });
+          created.push(sched);
+        }
       }
 
       return created;
@@ -52,17 +68,23 @@ class MealSubscriptionService {
   /**
    * Generates Meal Occurrence records and placing orders for a specific date (e.g., tomorrow)
    */
-  async generateDailyOccurrences(dateString) {
+  async generateDailyOccurrences(dateString, options = {}) {
     const targetDate = new Date(dateString);
     const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase(); // 'monday', etc.
 
-    console.log(`[MealGen] Generating occurrences for date: ${dateString} (${dayOfWeek})`);
+    console.log(`[MealGen] Generating occurrences for date: ${dateString} (${dayOfWeek}), options:`, options);
+
+    // Build query for active subscriptions
+    const subWhere = {
+      status: ['Active', 'Trial', 'Grace']
+    };
+    if (options.subscriptionId) {
+      subWhere.id = options.subscriptionId;
+    }
 
     // Find all active subscriptions (either meal templates or custom meal subscriptions)
     const activeSubs = await Subscription.findAll({
-      where: {
-        status: ['Active', 'Trial', 'Grace']
-      },
+      where: subWhere,
       include: [{
         model: Plan,
         as: 'plan',
@@ -75,6 +97,14 @@ class MealSubscriptionService {
 
     const results = [];
 
+    // Grab config for standard base delivery fee
+    const deliveryFeeConfig = await PlatformConfig.findOne({ where: { key: 'standard_fastfood_delivery_fee' } });
+    const fallbackDeliveryFee = deliveryFeeConfig ? parseFloat(deliveryFeeConfig.value) : 50.00;
+
+    // Grab config for same-day cutoff
+    const cutoffConfig = await PlatformConfig.findOne({ where: { key: 'meal_subscription_skip_cutoff_minutes' } });
+    const cutoffMinutes = cutoffConfig ? parseInt(cutoffConfig.value) : 40;
+
     for (const sub of mealSubs) {
       // Find matching schedules for this weekday or specific date
       const schedules = await MealSchedule.findAll({
@@ -86,6 +116,11 @@ class MealSubscriptionService {
         }
       });
 
+      if (schedules.length === 0) continue;
+
+      // Group schedules by delivery time & location to merge into single trips
+      const groupedSchedules = {};
+      
       for (const sched of schedules) {
         // Prevent duplicate generation
         const existing = await MealOccurrence.findOne({
@@ -101,32 +136,185 @@ class MealSubscriptionService {
           continue;
         }
 
+        const key = `${sched.preferredTime}_${sched.pickupStationId || 'del'}_${sched.deliveryAddress || 'noaddr'}`;
+        if (!groupedSchedules[key]) groupedSchedules[key] = [];
+        groupedSchedules[key].push(sched);
+      }
+
+      // Process each grouped slot (e.g., Friday 19:00 Delivery to Hostel A)
+      for (const key in groupedSchedules) {
+        const group = groupedSchedules[key];
+        
         await sequelize.transaction(async (t) => {
-          // Create Occurrence
-          const occurrence = await MealOccurrence.create({
-            subscriptionId: sub.id,
-            mealScheduleId: sched.id,
-            date: dateString,
-            status: 'scheduled',
-            deliveryAddress: sched.deliveryAddress,
-            pickupStationId: sched.pickupStationId
-          }, { transaction: t });
+          // Pre-load benefits
+          const freeMealsBenefit = await BenefitService.getActiveBenefit(sub, 'free_meals');
+          const freeDeliveryBenefit = await BenefitService.getActiveBenefit(sub, 'free_delivery') || await BenefitService.getActiveBenefit(sub, 'reduced_delivery_fee');
+          // Check for both 'meal_discount' and 'disc' feature codes
+          const mealDiscountBenefit = await BenefitService.getActiveBenefit(sub, 'meal_discount') || await BenefitService.getActiveBenefit(sub, 'disc');
 
-          // Generate zero-cost Order in Comrades360 Order system
-          let fastFoodItem = null;
-          if (sched.preferredFastFoodItemId) {
-            fastFoodItem = await FastFood.findByPk(sched.preferredFastFoodItemId, { transaction: t });
+          // Debug logging
+          console.log(`[MealGen] Subscription ${sub.id} benefits check:`);
+          console.log(`  - Free Meals: ${!!freeMealsBenefit}`);
+          console.log(`  - Free Delivery: ${!!freeDeliveryBenefit}`);
+          console.log(`  - Meal Discount: ${!!mealDiscountBenefit}`);
+          if (mealDiscountBenefit) {
+            console.log(`  - Meal Discount Details:`, JSON.stringify(mealDiscountBenefit.value));
           }
 
-          if (!fastFoodItem) {
-            console.warn(`[MealGen] No fast food item matched for Schedule #${sched.id}. Order creation deferred.`);
-            results.push({ occurrenceId: occurrence.id, orderCreated: false });
-            return;
+          const hasFreeDelivery = !!freeDeliveryBenefit;
+          const isFreeDeliveryUnlimited = !freeDeliveryBenefit?.value?.limit && !freeDeliveryBenefit?.value?.maxFreeDeliveries;
+          const freeDeliveryCode = freeDeliveryBenefit?.featureCode || freeDeliveryBenefit?.feature?.code || 'free_delivery';
+          const mealDiscountPct = mealDiscountBenefit?.value?.discountPercent || mealDiscountBenefit?.value?.amount || 0;
+
+          // Resolve items and base prices
+          let totalBaseFoodPrice = 0;
+          let finalFoodPrice = 0;
+          let calculatedDeliveryFee = 0;
+
+          const itemsData = [];
+          const vendorQuantities = {};
+          const vendorBaseFees = {};
+
+          for (const sched of group) {
+            let fastFoodItem = null;
+            if (sched.preferredFastFoodItemId) {
+              fastFoodItem = await FastFood.findByPk(sched.preferredFastFoodItemId, { transaction: t });
+            }
+
+            if (!fastFoodItem) {
+               console.warn(`[MealGen] No fast food item matched for Schedule #${sched.id}. Order creation deferred.`);
+               continue; // Defer if item missing
+            }
+
+            const basePrice = parseFloat(fastFoodItem.basePrice) || 0;
+            totalBaseFoodPrice += basePrice;
+            
+            itemsData.push({ sched, fastFoodItem, basePrice });
+
+            // Fast Food Delivery Fee Calculation prep
+            const vendorKey = fastFoodItem.sellerId || 'unknown';
+            vendorQuantities[vendorKey] = (vendorQuantities[vendorKey] || 0) + 1; // 1 qty per scheduled meal
+            if (vendorBaseFees[vendorKey] === undefined) {
+               vendorBaseFees[vendorKey] = parseFloat(fastFoodItem.deliveryFee || fallbackDeliveryFee);
+            }
           }
 
+          if (itemsData.length === 0) {
+            return; // Nothing valid to order in this group
+          }
+
+          // Apply fast food incremental fees
+          for (const vendorKey in vendorQuantities) {
+             const qty = vendorQuantities[vendorKey];
+             const baseFee = vendorBaseFees[vendorKey] || 0;
+             const incrementalFee = baseFee + (baseFee * 0.55 * Math.max(0, qty - 1));
+             calculatedDeliveryFee += incrementalFee;
+          }
+
+          let deliveryFee = calculatedDeliveryFee;
+
+          // 1. Calculate Food Price and Deduct Free Meals Usage
+          for (const item of itemsData) {
+            let itemPrice = item.basePrice;
+            let usedFreeMeal = false;
+            
+            // Try Free Meal
+            if (freeMealsBenefit) {
+               const remainingFreeMeals = await UsageService.getRemaining(sub.id, 'free_meals', { transaction: t });
+               if (remainingFreeMeals > 0) {
+                  const maxMealValue = parseFloat(freeMealsBenefit.value?.maxMealValue) || 0;
+                  let itemDiscount = 0;
+                  let mealsConsumed = 0;
+                  let tempRemaining = remainingFreeMeals;
+                  
+                  while (itemPrice > 0 && tempRemaining > 0) {
+                     const stepDiscount = maxMealValue > 0 ? Math.min(itemPrice, maxMealValue) : itemPrice;
+                     itemDiscount += stepDiscount;
+                     itemPrice -= stepDiscount;
+                     tempRemaining--;
+                     mealsConsumed++;
+                  }
+                  
+                  if (mealsConsumed > 0) {
+                     try {
+                       await UsageService.trackUsage(sub.id, 'free_meals', mealsConsumed, { transaction: t });
+                     } catch (err) {
+                       console.log(`[MealGen] Warning: Could not track free_meals usage: ${err.message}`);
+                     }
+                  }
+                  usedFreeMeal = true;
+               }
+            }
+            
+            // If didn't use free meal, try meal discount (with min order check)
+            if (!usedFreeMeal && mealDiscountPct > 0) {
+               const minOrderForDiscount = mealDiscountBenefit.value?.conditions?.minOrderValue || mealDiscountBenefit.value?.minOrderValue || 0;
+               console.log(`[MealGen] Discount check: totalBaseFoodPrice=${totalBaseFoodPrice}, minOrder=${minOrderForDiscount}, discountPct=${mealDiscountPct}`);
+               if (totalBaseFoodPrice >= minOrderForDiscount) {
+                  const discountAmount = (item.basePrice * mealDiscountPct) / 100;
+                  itemPrice = Math.max(0, item.basePrice - discountAmount);
+                  console.log(`[MealGen] Discount applied: ${item.basePrice} -> ${itemPrice} (saved ${discountAmount})`);
+               } else {
+                  console.log(`[MealGen] Discount NOT applied: order total below minimum`);
+               }
+            }
+
+            item.finalPrice = itemPrice;
+            finalFoodPrice += itemPrice;
+          }
+
+          // 2. Calculate Delivery Fee and Deduct Free Delivery Usage
+          if (hasFreeDelivery) {
+             const remainingFreeDeliveries = isFreeDeliveryUnlimited ? Infinity : await UsageService.getRemaining(sub.id, freeDeliveryCode, { transaction: t });
+             if (remainingFreeDeliveries > 0) {
+                 const minOrder = freeDeliveryBenefit.value?.conditions?.minOrderValue || freeDeliveryBenefit.value?.minOrderValue || 0;
+                 if (totalBaseFoodPrice >= minOrder) {
+                    // Support both 'discountPercent' and 'amount' field names for compatibility
+                    const discountPct = freeDeliveryBenefit.value?.discountPercent || freeDeliveryBenefit.value?.amount;
+                    if (discountPct !== undefined && discountPct > 0 && discountPct < 100) {
+                        const discountAmount = (deliveryFee * discountPct) / 100;
+                        deliveryFee = Math.max(0, deliveryFee - discountAmount);
+                        if (!isFreeDeliveryUnlimited) {
+                           try {
+                             await UsageService.trackUsage(sub.id, freeDeliveryCode, 1, { transaction: t });
+                           } catch (err) {
+                             console.log(`[MealGen] Warning: Could not track usage for ${freeDeliveryCode}: ${err.message}`);
+                           }
+                        }
+                    } else {
+                        deliveryFee = 0;
+                        if (!isFreeDeliveryUnlimited) {
+                           try {
+                             await UsageService.trackUsage(sub.id, freeDeliveryCode, 1, { transaction: t });
+                           } catch (err) {
+                             console.log(`[MealGen] Warning: Could not track usage for ${freeDeliveryCode}: ${err.message}`);
+                           }
+                        }
+                    }
+                 }
+             }
+          }
+
+          // 3. Create Grouped Order
           const orderNumber = `MEAL-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const firstSched = itemsData[0].sched; // Shared routing config
 
-          // Create the main Order
+          // Evaluate same-day delay
+          let trackingMessage = 'Subscription meal order generated';
+          if (options.isSameDay) {
+            const [hours, minutes] = firstSched.preferredTime.split(':').map(Number);
+            const deliveryTime = new Date();
+            deliveryTime.setHours(hours, minutes, 0, 0);
+            
+            const now = new Date();
+            const differenceMinutes = (deliveryTime.getTime() - now.getTime()) / (1000 * 60);
+            
+            if (differenceMinutes < cutoffMinutes) {
+               trackingMessage = 'Subscription activated near meal time. Delivery schedule adjusted by +1 hour to allow for preparation.';
+               console.log(`[MealGen] Same-day order delayed by 1 hour for Sub #${sub.id}`);
+            }
+          }
+
           const order = await Order.create({
             userId: sub.userId,
             orderNumber,
@@ -136,42 +324,53 @@ class MealSubscriptionService {
             paymentMethod: 'wallet',
             paymentType: 'subscription',
             paymentConfirmed: true,
-            deliveryMethod: sched.pickupStationId ? 'pick_station' : 'direct_delivery',
-            pickStation: sched.pickupStationId || null,
-            total: 0.00,
-            deliveryAddress: sched.deliveryAddress || 'Hostel Delivery',
+            deliveryMethod: firstSched.pickupStationId ? 'pick_station' : 'direct_delivery',
+            pickStation: firstSched.pickupStationId || null,
+            total: finalFoodPrice + deliveryFee,
+            deliveryFee: deliveryFee,
+            deliveryAddress: firstSched.deliveryAddress || 'Hostel Delivery',
             trackingUpdates: JSON.stringify([{
               status: 'order_placed',
-              message: 'Subscription meal order generated',
+              message: trackingMessage,
               timestamp: new Date().toISOString()
             }])
+            // Note: Cashback will be automatically processed when order status changes to 'delivered' or 'completed'
           }, { transaction: t });
 
-          // Create OrderItem (Prepaid subscription meal reference)
-          await OrderItem.create({
-            orderId: order.id,
-            fastFoodId: fastFoodItem.id,
-            name: fastFoodItem.name,
-            quantity: 1,
-            price: 0.00,
-            basePrice: fastFoodItem.basePrice || 0.00,
-            deliveryFee: 0.00
-          }, { transaction: t });
+          // 4. Create OrderItems & Occurrences
+          for (const item of itemsData) {
+            const { sched, fastFoodItem, basePrice, finalPrice } = item;
 
-          // Link order back to occurrence
-          occurrence.orderId = order.id;
-          await occurrence.save({ transaction: t });
+            await OrderItem.create({
+              orderId: order.id,
+              fastFoodId: fastFoodItem.id,
+              name: fastFoodItem.name,
+              quantity: 1,
+              price: finalPrice,
+              basePrice: basePrice,
+              deliveryFee: 0.00 // Represented at order level
+            }, { transaction: t });
 
-          // Emit Event
-          subscriptionEventBus.emit('MealRedeemed', {
-            subscriptionId: sub.id,
-            userId: sub.userId,
-            occurrenceId: occurrence.id,
-            orderId: order.id,
-            date: dateString
-          });
+            const occurrence = await MealOccurrence.create({
+              subscriptionId: sub.id,
+              mealScheduleId: sched.id,
+              date: dateString,
+              status: 'scheduled',
+              deliveryAddress: sched.deliveryAddress,
+              pickupStationId: sched.pickupStationId,
+              orderId: order.id // Linked to grouped order!
+            }, { transaction: t });
 
-          results.push({ occurrenceId: occurrence.id, orderCreated: true, orderId: order.id });
+            subscriptionEventBus.emit('MealRedeemed', {
+              subscriptionId: sub.id,
+              userId: sub.userId,
+              occurrenceId: occurrence.id,
+              orderId: order.id,
+              date: dateString
+            });
+
+            results.push({ occurrenceId: occurrence.id, orderCreated: true, orderId: order.id });
+          }
         });
       }
     }

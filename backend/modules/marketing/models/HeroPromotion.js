@@ -49,8 +49,47 @@ module.exports = (sequelize, DataTypes) => {
       },
       set(v) { this.setDataValue('trustPoints', JSON.stringify(v || [])) }
     },
-  }, { 
+    videoUrl: { type: DataTypes.TEXT, allowNull: true }, // URL to video file (MP4, WEBM, etc) or YouTube/Vimeo embed
+    videoType: { type: DataTypes.STRING, allowNull: true, defaultValue: 'background' }, // 'background' (full banner video), 'overlay' (replaces product image), 'embed' (YouTube/Vimeo)
+    videoAutoplay: { type: DataTypes.BOOLEAN, defaultValue: true },
+    videoLoop: { type: DataTypes.BOOLEAN, defaultValue: true },
+    videoMuted: { type: DataTypes.BOOLEAN, defaultValue: true },
+    // Advanced Scheduling Fields
+    scheduleType: { type: DataTypes.STRING, defaultValue: 'continuous' }, // 'continuous', 'recurring', 'specific_dates'
+    recurringDays: {
+      type: DataTypes.TEXT, // JSON array: [0,1,2,3,4,5,6] for Sun-Sat
+      allowNull: true,
+      get() {
+        const raw = this.getDataValue('recurringDays')
+        try { return JSON.parse(raw || '[]') } catch { return [] }
+      },
+      set(v) { this.setDataValue('recurringDays', JSON.stringify(v || [])) }
+    },
+    specificDates: {
+      type: DataTypes.TEXT, // JSON array of dates: ["2026-09-01", "2026-09-15"]
+      allowNull: true,
+      get() {
+        const raw = this.getDataValue('specificDates')
+        try { return JSON.parse(raw || '[]') } catch { return [] }
+      },
+      set(v) { this.setDataValue('specificDates', JSON.stringify(v || [])) }
+    },
+    timeSlotStart: { type: DataTypes.STRING, allowNull: true }, // "09:00" - show from this time
+    timeSlotEnd: { type: DataTypes.STRING, allowNull: true }, // "17:00" - show until this time
+    timezone: { type: DataTypes.STRING, defaultValue: 'Africa/Nairobi' }, // Timezone for time slots
+    dateTimeMode: { type: DataTypes.STRING, defaultValue: 'same' }, // 'same' (one time for all dates) or 'different' (per-date times)
+    dateSpecificTimes: {
+      type: DataTypes.TEXT, // JSON object: { "2026-09-01": { start: "09:00", end: "17:00" }, ... }
+      allowNull: true,
+      get() {
+        const raw = this.getDataValue('dateSpecificTimes')
+        try { return JSON.parse(raw || '{}') } catch { return {} }
+      },
+      set(v) { this.setDataValue('dateSpecificTimes', JSON.stringify(v || {})) }
+    },
+  }, {
     timestamps: true,
+    tableName: 'HeroPromotions',
     hooks: {
       afterSave: async () => { emitRealtimeUpdate('marketing'); },
       afterDestroy: async () => { emitRealtimeUpdate('marketing'); },

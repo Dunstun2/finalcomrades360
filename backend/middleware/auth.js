@@ -2,39 +2,75 @@ const jwt = require('jsonwebtoken');
 const { User, Warehouse, PickupStation } = require('../database/models.registry');
 
 /**
+ * Optional authentication middleware
+ * Attaches user to req if token exists, but doesn't block if token is missing
+ */
+const optionalAuth = async (req, res, next) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '') ||
+    req.header('x-access-token') ||
+    req.header('X-Access-Token') ||
+    req.query.token;
+
+  if (!token) {
+    // No token provided, continue as anonymous user
+    return next();
+  }
+
+  try {
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const decoded = jwt.verify(token, secret);
+
+    const user = await User.findByPk(decoded.id);
+    if (user) {
+      req.user = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        roles: user.roles || [user.role],
+        isVerified: user.isVerified
+      };
+    }
+    next();
+  } catch (error) {
+    // Invalid token, continue as anonymous user
+    next();
+  }
+};
+
+/**
  * Returns true if the user has been specifically suspended from a role dashboard.
  * Admins/Superadmins bypass role-level suspension.
  */
 const isRoleSuspended = (user, role) => {
   if (!user) return false;
-  
+
   const normalize = (r) => String(r || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const userRole = normalize(user.role);
   const userRoles = Array.isArray(user.roles) ? user.roles.map(normalize) : [userRole];
   const isAdmin = userRole === 'admin' || userRole === 'superadmin' || userRoles.includes('admin') || userRoles.includes('superadmin');
-  
+
   if (isAdmin) return false; // Admins are never suspended from roles they manage
 
   const suspendedRoles = Array.isArray(user.suspendedRoles) ? user.suspendedRoles.map(normalize) : [];
   const targetRole = normalize(role);
-  
+
   // Check new flexible array
   if (suspendedRoles.includes(targetRole)) return true;
-  
+
   // Fallback to legacy flags during migration
   if (targetRole === 'marketer' && user.isMarketerSuspended) return true;
   if (targetRole === 'seller' && user.isSellerSuspended) return true;
   if (targetRole === 'service_provider' && user.isServiceProviderSuspended) return true;
   if (['delivery', 'deliveryagent', 'driver'].includes(targetRole) && user.isDeliverySuspended) return true;
-  
+
   return false;
 };
 
 const auth = async (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '') || 
-                req.header('x-access-token') || 
-                req.header('X-Access-Token') ||
-                req.query.token;
+  const token = req.header('Authorization')?.replace('Bearer ', '') ||
+    req.header('x-access-token') ||
+    req.header('X-Access-Token') ||
+    req.query.token;
 
   if (!token) {
     // Allow unauthenticated guests to access checkout pages
@@ -244,28 +280,6 @@ const adminOrSeller = (req, res, next) => {
   next();
 };
 
-// Optional authentication (doesn't block if no token)
-const optionalAuth = async (req, res, next) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
-  if (!token) return next();
-
-  try {
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
-    const decoded = jwt.verify(token, secret);
-    const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ['password', 'emailChangeToken', 'phoneOtp'] }
-    });
-
-    if (user && !user.isDeactivated && !user.isFrozen) {
-      req.user = user;
-    }
-    next();
-  } catch (error) {
-    // If token invalid, just proceed as guest
-    next();
-  }
-};
-
 // Role-based access control
 const checkRole = (...roles) => {
   return (req, res, next) => {
@@ -308,7 +322,7 @@ const superAdminOnly = (req, res, next) => {
   const userRole = normalize(req.user.role);
   const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(normalize) : [userRole];
 
-  const isSuperAdmin = userRole === 'superadmin' || userRole === 'super_admin' || 
+  const isSuperAdmin = userRole === 'superadmin' || userRole === 'super_admin' ||
     userRoles.includes('superadmin') || userRoles.includes('super_admin');
 
   if (!isSuperAdmin) {

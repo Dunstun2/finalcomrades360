@@ -237,8 +237,12 @@ module.exports = (sequelize) => {
             type: DataTypes.JSON,
             defaultValue: []
         },
-        // NEW FIELD: Featured item toggle
         isFeatured: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
+        // NEW FIELD: Boosted item toggle
+        isBoosted: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },

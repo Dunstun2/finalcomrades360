@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
-const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood } = require('../../../database/models.registry');
+const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood, Subscription, Plan, PlanBenefit, Feature } = require('../../../database/models.registry');
+const { shouldShowPromotion } = require('../../../utils/scheduleChecker');
 
 const getRateConfig = async () => {
   const rows = await PlatformConfig.findAll({ where: { key: { [Op.in]: ['HERO_RATE_PER_DAY', 'HERO_RATE_PER_PRODUCT'] } }, raw: true })
@@ -169,21 +170,79 @@ const applyHeroPromotion = async (req, res) => {
       }
     }
 
+    let isCoveredBySubscription = false;
+    try {
+      const activeSubs = await Subscription.findAll({
+        where: { userId: sellerId, status: ['Active', 'Trial'] },
+        include: [{
+          model: Plan,
+          as: 'plan',
+          include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }]
+        }]
+      });
+
+      let marketingLimit = null;
+      for (const sub of activeSubs) {
+        if (sub.plan?.type !== 'seller') continue;
+        const benefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'marketing_items_limit');
+        if (benefit) {
+          const limitVal = benefit.value?.limit;
+          if (limitVal && limitVal > 0) {
+            marketingLimit = Math.max(marketingLimit || 0, limitVal);
+          }
+        }
+      }
+
+      if (marketingLimit !== null) {
+        // Find existing active/scheduled/approved promotions and get unique item count
+        const existingPromos = await HeroPromotion.findAll({
+          where: {
+            sellerId,
+            status: ['approved', 'scheduled', 'active', 'under_review']
+          }
+        });
+
+        const promotedItemIds = new Set();
+        for (const promo of existingPromos) {
+          const pIds = promo.productIds || [];
+          const fIds = promo.fastFoodIds || [];
+          pIds.forEach(id => promotedItemIds.add(`prod-${id}`));
+          fIds.forEach(id => promotedItemIds.add(`food-${id}`));
+        }
+
+        // Add incoming item IDs
+        const newEnrolledIds = ids.map(id => promoType === 'fastfood' ? `food-${id}` : `prod-${id}`);
+        newEnrolledIds.forEach(id => promotedItemIds.add(id));
+
+        if (promotedItemIds.size > marketingLimit) {
+          return res.status(403).json({
+            error: `Your subscription allows promoting a maximum of ${marketingLimit} unique items. You currently have ${promotedItemIds.size - newEnrolledIds.length} items promoted, and adding ${newEnrolledIds.length} more exceeds your plan limit. Please upgrade your plan.`
+          });
+        }
+
+        // Covered by subscription
+        isCoveredBySubscription = true;
+      }
+    } catch (subErr) {
+      console.warn('[applyHeroPromotion] Subscription check failed (falling back to payment):', subErr.message);
+    }
+
     const { perDay, perProduct } = await getRateConfig()
-    const amount = (Number(durationDays) || 0) * (perDay + (ids.length * perProduct))
+    const amount = isCoveredBySubscription ? 0 : (Number(durationDays) || 0) * (perDay + (ids.length * perProduct))
 
     const app = await HeroPromotion.create({
       sellerId,
       productIds: promoType === 'product' ? ids : [],
       fastFoodIds: promoType === 'fastfood' ? ids : [],
       promoType,
-      status: 'pending_payment',
-      paymentStatus: 'unpaid',
+      status: isCoveredBySubscription ? 'approved' : 'pending_payment',
+      paymentStatus: isCoveredBySubscription ? 'paid' : 'unpaid',
       amount,
       durationDays: Number(durationDays) || 7,
       slotsCount: Number(slotsCount) || 1,
       title,
-      subtitle
+      subtitle,
+      notes: isCoveredBySubscription ? 'Covered by Subscription Marketing Limit Benefit.' : null
     })
 
     return res.json({ ok: true, promotion: app })
@@ -213,15 +272,18 @@ const myHeroPromotions = async (req, res) => {
 const listActiveHeroPromotions = async (req, res) => {
   try {
     const now = new Date()
+
+    // Get all potentially active promotions
     let items = await HeroPromotion.findAll({
       where: {
         status: 'active',
-        startAt: { [Op.lte]: now },
-        endAt: { [Op.gte]: now },
         isDefault: false
       },
       order: [['priority', 'DESC'], ['startAt', 'ASC']]
     })
+
+    // Filter using advanced schedule checker
+    items = items.filter(item => shouldShowPromotion(item, now))
 
     // Fallback: If no active promotions, fetch default ones
     if (items.length === 0) {
@@ -232,6 +294,8 @@ const listActiveHeroPromotions = async (req, res) => {
         },
         order: [['priority', 'DESC'], ['createdAt', 'DESC']]
       })
+      // Apply schedule filter to defaults too
+      items = items.filter(item => shouldShowPromotion(item, now))
     }
 
     // hydrate with item details minimal

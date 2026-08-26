@@ -48,8 +48,10 @@ export default function AdminHeroPromotions() {
     setLoading(true)
     api.get('/admin/hero-promotions/applications')
       .then(r => {
-        const { items: newItems = [], users: newUsers = [], products: newProducts = [] } = r.data
-        setItems(newItems)
+        const { items: allItems = [], users: newUsers = [], products: newProducts = [] } = r.data
+        // Filter out video banners (only show product promotions)
+        const productPromotions = allItems.filter(item => !item.videoUrl)
+        setItems(productPromotions)
 
         // Merge enriched data into maps
         setUsersMap(prev => {
@@ -215,8 +217,8 @@ export default function AdminHeroPromotions() {
         </div>
         {/* Check for all admin role variations for consistent access */}
         {(['super_admin', 'superadmin', 'admin'].includes(me?.role) || me?.roles?.some(r => ['super_admin', 'superadmin', 'admin'].includes(r))) && (
-          <Link 
-            to="/dashboard/marketing/hero-promotions/create" 
+          <Link
+            to="/dashboard/marketing/hero-promotions/create"
             className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-800 text-white rounded-xl text-sm font-black shadow-lg shadow-emerald-100 hover:shadow-emerald-200 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
           >
             <span className="text-lg leading-none">+</span> Create Promotion
@@ -286,120 +288,127 @@ export default function AdminHeroPromotions() {
                 <h3 className="text-base font-semibold mb-2">Current</h3>
                 <div className="grid gap-4 mb-6">
                   {currentItems.map(x => <div key={x.id} className={`rounded-xl border-2 transition-all shadow-sm bg-white overflow-hidden ${x.isSystem ? 'border-emerald-100 ring-4 ring-emerald-50/50' : 'border-gray-100'}`}>
-                      {/* Mobile action strip — always visible at the very top on small screens */}
-                      <div className="flex flex-wrap gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 md:hidden">
-                        <button className="flex-1 min-w-[90px] px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-black shadow-sm active:scale-95" onClick={() => openApproveModal(x)}>Manage</button>
-                        <button className="flex-1 min-w-[70px] px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold" onClick={() => openStatusModal(x)}>Status</button>
-                        {x.status === 'active' && (
-                          <button className="px-3 py-1.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-black flex items-center gap-1" onClick={() => {
-                            if (window.confirm('Pause this promotion?')) {
-                              api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'paused', notes: 'Manually paused by admin' }).then(() => load())
-                            }
-                          }}><FaStopCircle /> Pause</button>
-                        )}
-                        {x.status === 'paused' && (
-                          <button className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-black flex items-center gap-1" onClick={() => {
-                            api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'active', notes: 'Reactivated by admin' }).then(() => load())
-                          }}><FaCheckCircle /> Activate</button>
-                        )}
-                        {me?.role === 'super_admin' && (
-                          <button className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-black" onClick={() => deletePromotion(x.id)}>Delete</button>
-                        )}
-                      </div>
+                    {/* Mobile action strip — always visible at the very top on small screens */}
+                    <div className="flex flex-wrap gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 md:hidden">
+                      <button className="flex-1 min-w-[90px] px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-black shadow-sm active:scale-95" onClick={() => openApproveModal(x)}>Manage</button>
+                      <button className="flex-1 min-w-[70px] px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold" onClick={() => openStatusModal(x)}>Status</button>
+                      {x.status === 'active' && (
+                        <button className="px-3 py-1.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-black flex items-center gap-1" onClick={() => {
+                          if (window.confirm('Pause this promotion?')) {
+                            api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'paused', notes: 'Manually paused by admin' }).then(() => load())
+                          }
+                        }}><FaStopCircle /> Pause</button>
+                      )}
+                      {x.status === 'paused' && (
+                        <button className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-black flex items-center gap-1" onClick={() => {
+                          api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'active', notes: 'Reactivated by admin' }).then(() => load())
+                        }}><FaCheckCircle /> Activate</button>
+                      )}
+                      {me?.role === 'super_admin' && (
+                        <button className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-black" onClick={() => deletePromotion(x.id)}>Delete</button>
+                      )}
+                    </div>
 
-                      <div className="p-4">
-                        <div className="flex flex-col md:flex-row gap-4">
-                          {/* Visual Preview */}
-                          <div className="w-full md:w-32 h-28 sm:h-32 rounded-lg bg-gray-50 overflow-hidden flex-shrink-0 border">
-                            {x.customImageUrl ? (
-                              <img src={resolveImageUrl(x.customImageUrl)} alt="" className="w-full h-full object-cover" />
-                            ) : (x.productIds || []).length > 0 && productsMap.get(x.productIds[0]) ? (
-                              <img src={resolveImageUrl(productsMap.get(x.productIds[0])?.coverImage)} alt="" className="w-full h-full object-cover" />
+                    <div className="p-4">
+                      <div className="flex flex-col md:flex-row gap-4">
+                        {/* Visual Preview */}
+                        <div className="w-full md:w-32 h-28 sm:h-32 rounded-lg bg-gray-50 overflow-hidden flex-shrink-0 border">
+                          {x.videoUrl ? (
+                            <div className="relative w-full h-full bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center">
+                              <div className="text-center">
+                                <div className="text-3xl mb-1">🎬</div>
+                                <div className="text-[10px] font-bold text-purple-700">Video Banner</div>
+                              </div>
+                            </div>
+                          ) : x.customImageUrl ? (
+                            <img src={resolveImageUrl(x.customImageUrl)} alt="" className="w-full h-full object-cover" />
+                          ) : (x.productIds || []).length > 0 && productsMap.get(x.productIds[0]) ? (
+                            <img src={resolveImageUrl(productsMap.get(x.productIds[0])?.coverImage)} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300"><FaImage size={32} /></div>
+                          )}
+                        </div>
+
+                        <div className="flex-grow space-y-1.5 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded tracking-widest uppercase">ID: {x.id}</span>
+                            {x.isSystem && <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
+                            {x.isDefault && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaInfoCircle /> Default</span>}
+                          </div>
+
+                          <div className="text-sm">
+                            <span className="font-bold text-gray-500 mr-1 uppercase text-[10px] tracking-wider">Context:</span>
+                            {x.isSystem ? (
+                              <span className="font-bold text-emerald-700 italic">Platform-Wide Banner</span>
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-300"><FaImage size={32} /></div>
-                            )}
-                          </div>
-
-                          <div className="flex-grow space-y-1.5 min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                              <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded tracking-widest uppercase">ID: {x.id}</span>
-                              {x.isSystem && <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
-                              {x.isDefault && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaInfoCircle /> Default</span>}
-                            </div>
-
-                            <div className="text-sm">
-                              <span className="font-bold text-gray-500 mr-1 uppercase text-[10px] tracking-wider">Context:</span>
-                              {x.isSystem ? (
-                                <span className="font-bold text-emerald-700 italic">Platform-Wide Banner</span>
-                              ) : (
-                                <span className="font-bold text-gray-900 text-xs">
-                                  Seller: {usersMap.has(x.sellerId) ? (
-                                    <a href="/superadmin" className="text-blue-700 underline">
-                                      {usersMap.get(x.sellerId)?.name || 'Unknown'}
-                                    </a>
-                                  ) : `#${x.sellerId}`}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="text-xs flex flex-wrap gap-x-2 gap-y-0.5">
-                              <span><span className="font-bold text-gray-400 uppercase text-[9px]">Status: </span><span className="font-black text-gray-900 uppercase bg-gray-100 px-1.5 py-0.5 rounded">{x.status}</span></span>
-                              <span><span className="font-bold text-gray-400 uppercase text-[9px]">Payment: </span><span className="font-bold text-emerald-600">{x.paymentStatus}</span></span>
-                            </div>
-
-                            <div className="text-xs">
-                              <span className="font-bold text-gray-400 uppercase text-[9px] mr-1">Content:</span>
-                              {x.customImageUrl ? (
-                                <span className="text-gray-700 italic">Custom Image</span>
-                              ) : (x.productIds || []).length ? (
-                                (x.productIds || []).map(pid => (
-                                  <a key={pid} href={`/product/${pid}`} className="text-blue-700 underline mr-1 font-bold">
-                                    {productsMap.get(pid)?.name || `#${pid}`}
+                              <span className="font-bold text-gray-900 text-xs">
+                                Seller: {usersMap.has(x.sellerId) ? (
+                                  <a href="/superadmin" className="text-blue-700 underline">
+                                    {usersMap.get(x.sellerId)?.name || 'Unknown'}
                                   </a>
-                                ))
-                              ) : (
-                                <span className="text-red-500 font-bold italic">No Content</span>
-                              )}
-                            </div>
-
-                            <div className="text-[10px] font-bold text-gray-400">
-                              {x.durationDays}d • {x.slotsCount} slots • KES {x.amount}
-                              {x.startAt && <span className="ml-1">• {new Date(x.startAt).toLocaleDateString()}</span>}
-                            </div>
+                                ) : `#${x.sellerId}`}
+                              </span>
+                            )}
                           </div>
 
-                          {/* Desktop-only action column */}
-                          <div className="hidden md:flex flex-col gap-2 w-44 flex-shrink-0">
-                            <button className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black shadow-sm transition-all active:scale-95" onClick={() => openApproveModal(x)}>Manage / Review</button>
-                            <button className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all" onClick={() => openStatusModal(x)}>Set Status</button>
-                            {x.status === 'active' && (
-                              <button className="w-full px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-xs font-black flex items-center justify-center gap-1" onClick={() => {
-                                if (window.confirm('Pause this promotion?')) {
-                                  api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'paused', notes: 'Manually paused by admin' }).then(() => load())
-                                }
-                              }}><FaStopCircle /> Pause</button>
+                          <div className="text-xs flex flex-wrap gap-x-2 gap-y-0.5">
+                            <span><span className="font-bold text-gray-400 uppercase text-[9px]">Status: </span><span className="font-black text-gray-900 uppercase bg-gray-100 px-1.5 py-0.5 rounded">{x.status}</span></span>
+                            <span><span className="font-bold text-gray-400 uppercase text-[9px]">Payment: </span><span className="font-bold text-emerald-600">{x.paymentStatus}</span></span>
+                          </div>
+
+                          <div className="text-xs">
+                            <span className="font-bold text-gray-400 uppercase text-[9px] mr-1">Content:</span>
+                            {x.customImageUrl ? (
+                              <span className="text-gray-700 italic">Custom Image</span>
+                            ) : (x.productIds || []).length ? (
+                              (x.productIds || []).map(pid => (
+                                <a key={pid} href={`/product/${pid}`} className="text-blue-700 underline mr-1 font-bold">
+                                  {productsMap.get(pid)?.name || `#${pid}`}
+                                </a>
+                              ))
+                            ) : (
+                              <span className="text-red-500 font-bold italic">No Content</span>
                             )}
-                            {x.status === 'paused' && (
-                              <button className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center justify-center gap-1 shadow-sm" onClick={() => {
-                                api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'active', notes: 'Reactivated by admin' }).then(() => load())
-                              }}><FaCheckCircle /> Activate</button>
-                            )}
-                            {me?.role === 'super_admin' && (
-                              <button className="w-full px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-black transition-all" onClick={() => deletePromotion(x.id)}>Delete Permanently</button>
-                            )}
+                          </div>
+
+                          <div className="text-[10px] font-bold text-gray-400">
+                            {x.durationDays}d • {x.slotsCount} slots • KES {x.amount}
+                            {x.startAt && <span className="ml-1">• {new Date(x.startAt).toLocaleDateString()}</span>}
                           </div>
                         </div>
 
-                        {x.paymentProofUrl && (
-                          <div className="mt-3 pt-2 border-t border-dashed flex items-center justify-between">
-                            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Proof</div>
-                            <a href={resolveFileUrl(x.paymentProofUrl)} target="_blank" rel="noreferrer" className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1">
-                              <FaImage /> View
-                            </a>
-                          </div>
-                        )}
+                        {/* Desktop-only action column */}
+                        <div className="hidden md:flex flex-col gap-2 w-44 flex-shrink-0">
+                          <button className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black shadow-sm transition-all active:scale-95" onClick={() => openApproveModal(x)}>Manage / Review</button>
+                          <button className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all" onClick={() => openStatusModal(x)}>Set Status</button>
+                          {x.status === 'active' && (
+                            <button className="w-full px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-xs font-black flex items-center justify-center gap-1" onClick={() => {
+                              if (window.confirm('Pause this promotion?')) {
+                                api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'paused', notes: 'Manually paused by admin' }).then(() => load())
+                              }
+                            }}><FaStopCircle /> Pause</button>
+                          )}
+                          {x.status === 'paused' && (
+                            <button className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center justify-center gap-1 shadow-sm" onClick={() => {
+                              api.patch(`/admin/hero-promotions/applications/${x.id}/status`, { status: 'active', notes: 'Reactivated by admin' }).then(() => load())
+                            }}><FaCheckCircle /> Activate</button>
+                          )}
+                          {me?.role === 'super_admin' && (
+                            <button className="w-full px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-black transition-all" onClick={() => deletePromotion(x.id)}>Delete Permanently</button>
+                          )}
+                        </div>
                       </div>
+
+                      {x.paymentProofUrl && (
+                        <div className="mt-3 pt-2 border-t border-dashed flex items-center justify-between">
+                          <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Proof</div>
+                          <a href={resolveFileUrl(x.paymentProofUrl)} target="_blank" rel="noreferrer" className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1">
+                            <FaImage /> View
+                          </a>
+                        </div>
+                      )}
                     </div>
+                  </div>
                   )}
                   {!loading && currentItems.length === 0 && <div className="text-sm text-gray-500">No current applications.</div>}
                 </div>
@@ -627,7 +636,7 @@ export default function AdminHeroPromotions() {
                     <div className="space-y-4 pt-4 border-t border-dashed">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-bold text-gray-700 uppercase tracking-widest">Trust & Speed Markers</div>
-                        <button 
+                        <button
                           type="button"
                           className="text-xs font-black text-emerald-600 hover:underline flex items-center gap-1"
                           onClick={() => setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }])}
@@ -638,26 +647,26 @@ export default function AdminHeroPromotions() {
                       <div className="grid grid-cols-1 gap-2">
                         {trustPoints.map((tp, idx) => (
                           <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
-                            <input 
+                            <input
                               className="w-10 text-center border-b outline-none focus:border-emerald-500"
-                              value={tp.icon} 
+                              value={tp.icon}
                               onChange={e => {
                                 const next = [...trustPoints];
                                 next[idx].icon = e.target.value;
                                 setTrustPoints(next);
                               }}
                             />
-                            <input 
+                            <input
                               className="flex-1 text-xs font-medium outline-none border-b focus:border-emerald-500"
                               placeholder="Marker text..."
-                              value={tp.text} 
+                              value={tp.text}
                               onChange={e => {
                                 const next = [...trustPoints];
                                 next[idx].text = e.target.value;
                                 setTrustPoints(next);
                               }}
                             />
-                            <button 
+                            <button
                               type="button"
                               className="text-gray-400 hover:text-red-500 transition-colors"
                               onClick={() => setTrustPoints(trustPoints.filter((_, i) => i !== idx))}

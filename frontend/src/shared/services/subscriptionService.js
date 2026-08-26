@@ -8,15 +8,36 @@ const subscriptionService = {
     return response.data;
   },
 
-  subscribe: async (payload) => {
-    // payload can include planId and optional guest fields (guestName, guestEmail, etc)
-    const response = await api.post('/subscriptions/subscribe', payload);
+  // Enhanced subscription flow with validation and confirmation
+  validateSubscriptionEligibility: async (planId, guestData = null) => {
+    const response = await api.post('/subscriptions/validate-eligibility', { 
+      planId, 
+      guestData 
+    });
+    return response.data;
+  },
+
+  createSubscriptionPayment: async (planId, paymentMethod, guestData = null) => {
+    const response = await api.post('/subscriptions/create-payment', { 
+      planId,
+      paymentMethod,
+      guestData
+    });
+    return response.data;
+  },
+
+  confirmSubscriptionPayment: async (paymentId, subscriptionData = null) => {
+    const response = await api.post('/subscriptions/confirm-payment', { 
+      paymentId,
+      subscriptionData
+    });
     return response.data;
   },
 
   // --- CUSTOMER / SELLER ---
-  getMySubscriptions: async () => {
-    const response = await api.get('/subscriptions/my');
+  getMySubscriptions: async (type = null) => {
+    const params = type ? { type } : {};
+    const response = await api.get('/subscriptions/my', { params });
     return response.data;
   },
 
@@ -25,8 +46,8 @@ const subscriptionService = {
     return response.data;
   },
 
-  cancel: async (subscriptionId) => {
-    const response = await api.post(`/subscriptions/${subscriptionId}/cancel`);
+  cancel: async (subscriptionId, data = {}) => {
+    const response = await api.post(`/subscriptions/${subscriptionId}/cancel`, data);
     return response.data;
   },
 
@@ -77,6 +98,58 @@ const subscriptionService = {
 
   updatePlan: async (planId, payload) => {
     const response = await api.put(`/subscriptions/plans/${planId}`, payload);
+    return response.data;
+  },
+
+  deletePlan: async (planId) => {
+    const response = await api.delete(`/subscriptions/plans/${planId}`);
+    return response.data;
+  },
+
+  checkPlanDeletion: async (planId) => {
+    const response = await api.get(`/subscriptions/plans/${planId}/check-deletion`);
+    return response.data;
+  },
+
+  // --- BENEFIT PACKAGES (ADMIN) ---
+  getBenefitPackages: async () => {
+    const response = await api.get('/subscriptions/benefit-packages');
+    return response.data;
+  },
+
+  createBenefitPackage: async (payload) => {
+    const response = await api.post('/subscriptions/benefit-packages', payload);
+    return response.data;
+  },
+
+  updateBenefitPackage: async (packageId, payload) => {
+    const response = await api.put(`/subscriptions/benefit-packages/${packageId}`, payload);
+    return response.data;
+  },
+
+  deleteBenefitPackage: async (packageId) => {
+    const response = await api.delete(`/subscriptions/benefit-packages/${packageId}`);
+    return response.data;
+  },
+
+  checkPackageDeletion: async (packageId) => {
+    const response = await api.get(`/subscriptions/benefit-packages/${packageId}/check-deletion`);
+    return response.data;
+  },
+
+  // --- CUSTOMER-FACING ENDPOINTS ---
+  getAvailablePackages: async () => {
+    const response = await api.get('/subscriptions/benefit-packages/available');
+    return response.data;
+  },
+
+  createUserPlan: async (payload) => {
+    const response = await api.post('/subscriptions/my/plans', payload);
+    return response.data;
+  },
+
+  getSubscriptionBenefits: async (subscriptionId) => {
+    const response = await api.get(`/subscriptions/${subscriptionId}/benefits`);
     return response.data;
   }
 };

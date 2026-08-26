@@ -24,6 +24,97 @@ export default function SellerProducts() {
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, product: null });
   const { toast } = useToast();
 
+  // Subscription state
+  const [boostLimit, setBoostLimit] = useState(null);
+  const [hasFeatureBenefit, setHasFeatureBenefit] = useState(false);
+  const [boostedCount, setBoostedCount] = useState(0);
+
+  useEffect(() => {
+    fetchSubscriptionLimits();
+  }, []);
+
+  const fetchSubscriptionLimits = async () => {
+    try {
+      const activeSubs = await api.get('/subscriptions/my');
+      const subs = activeSubs.data || [];
+      const activeSellerSubs = subs.filter(s => (s.status === 'Active' || s.status === 'Trial') && s.plan?.type === 'seller');
+
+      let maxBoost = null;
+      let featureAllowed = false;
+
+      for (const sub of activeSellerSubs) {
+        const benefits = sub.plan?.benefits || [];
+        const boostBenefit = benefits.find(b => b.feature?.code === 'boosted_products');
+        if (boostBenefit?.value?.limit) {
+          maxBoost = Math.max(maxBoost || 0, boostBenefit.value.limit);
+        }
+        const featBenefit = benefits.some(b => b.feature?.code === 'featured_product');
+        if (featBenefit) {
+          featureAllowed = true;
+        }
+      }
+
+      setBoostLimit(maxBoost);
+      setHasFeatureBenefit(featureAllowed);
+    } catch (err) {
+      console.warn('Failed to load subscription benefits:', err.message);
+    }
+  };
+
+  const handleToggleProductBoost = async (productId, isMeal = false) => {
+    try {
+      const endpoint = isMeal ? `/fastfood/${productId}/boost` : `/products/${productId}/boost`;
+      const res = await api.put(endpoint);
+      
+      toast({
+        title: 'Success',
+        description: res.data.message || 'Product boost toggled successfully'
+      });
+
+      // Update UI state
+      if (isMeal) {
+        setFastFoods(prev => prev.map(item => item.id === productId ? { ...item, isBoosted: res.data.isBoosted } : item));
+      } else {
+        setProducts(prev => prev.map(item => item.id === productId ? { ...item, isBoosted: res.data.isBoosted } : item));
+      }
+      fetchSubscriptionLimits();
+    } catch (err) {
+      toast({
+        title: 'Upgrade Required',
+        description: err.response?.data?.message || 'Failed to toggle product boost. Check your subscription plan.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleToggleProductFeature = async (productId, isMeal = false) => {
+    try {
+      const endpoint = isMeal ? `/fastfood/${productId}/feature` : `/products/${productId}/feature`;
+      const res = await api.put(endpoint);
+      
+      toast({
+        title: 'Success',
+        description: res.data.message || 'Product featured status updated'
+      });
+
+      // Since only 1 product can be featured at a time, clear others of this seller
+      if (isMeal) {
+        setFastFoods(prev => prev.map(item => item.id === productId ? { ...item, isFeatured: res.data.isFeatured } : { ...item, isFeatured: false }));
+        setProducts(prev => prev.map(item => ({ ...item, isFeatured: false })));
+      } else {
+        setProducts(prev => prev.map(item => item.id === productId ? { ...item, isFeatured: res.data.isFeatured } : { ...item, isFeatured: false }));
+        setFastFoods(prev => prev.map(item => ({ ...item, isFeatured: false })));
+      }
+      fetchSubscriptionLimits();
+    } catch (err) {
+      toast({
+        title: 'Upgrade Required',
+        description: err.response?.data?.message || 'Failed to feature product. Check your subscription plan.',
+        variant: 'destructive'
+      });
+    }
+  };
+
   // Optimistic Update Helper
   const optimisticUpdate = async (id, updates, successMsg) => {
     const previousFoods = [...fastFoods];
@@ -174,7 +265,7 @@ export default function SellerProducts() {
 
   const renderProductCard = (p, isPending = false) => {
     return (
-      <div key={p.id} className="group w-full bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden flex flex-col h-full border border-gray-100">
+      <div key={p.id} className="group w-full bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden flex flex-col h-full border border-gray-100 relative">
         <div className="relative h-28 sm:h-40 md:h-48 overflow-hidden bg-gray-100">
           <img
             src={resolveImageUrl((p.images || [])[0])}
@@ -182,6 +273,19 @@ export default function SellerProducts() {
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = resolveImageUrl(null); }}
           />
+          {/* Status and Visibility Badges */}
+          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+            {p.isBoosted && (
+              <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full bg-yellow-400 text-yellow-950 font-extrabold shadow-sm flex items-center gap-1">
+                🚀 Boosted
+              </span>
+            )}
+            {p.isFeatured && (
+              <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold shadow-sm flex items-center gap-1">
+                ⭐ Featured
+              </span>
+            )}
+          </div>
           {isPending ? (
             <div className="absolute top-2 right-2 z-10">
               {p.reviewStatus === 'rejected' ? (
@@ -210,6 +314,34 @@ export default function SellerProducts() {
               <span className="font-bold">Note:</span> {p.reviewNotes}
             </div>
           ) : null}
+
+          {/* Inline Boost/Feature actions for approved products */}
+          {!isPending && p.approved && (
+            <div className="mt-2 pt-2 border-t border-dashed border-gray-150 flex gap-2 justify-between">
+              <button
+                type="button"
+                onClick={() => handleToggleProductBoost(p.id, false)}
+                className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                  p.isBoosted 
+                    ? 'bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200' 
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {p.isBoosted ? '🚀 Boosted' : '🚀 Boost'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleProductFeature(p.id, false)}
+                className={`flex-1 py-1 rounded text-[10px] font-bold border transition-colors ${
+                  p.isFeatured 
+                    ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200' 
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {p.isFeatured ? '⭐ Featured' : '⭐ Feature'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-1 p-2 mt-auto pt-3 border-t border-gray-100">
@@ -251,69 +383,99 @@ export default function SellerProducts() {
               clickable={false}
               showBasePrice={true}
               renderActions={() => (
-                <div className={`grid ${isPending ? 'grid-cols-3' : 'grid-cols-4'} gap-1 mt-2 pt-2 border-t border-gray-100`}>
-                  {/* View Button */}
-                  <Link
-                    to={`/seller/fast-food/view/${item.id}`}
-                    className="flex items-center justify-center p-2 text-blue-600 hover:bg-blue-50 rounded border border-blue-200 transition-colors"
-                    title="View Details"
-                  >
-                    <Eye size={16} />
-                  </Link>
-
-                  {/* Edit Button - Only for Pending */}
-                  {isPending && (
+                <div>
+                  <div className={`grid ${isPending ? 'grid-cols-3' : 'grid-cols-4'} gap-1 mt-2 pt-2 border-t border-gray-100`}>
+                    {/* View Button */}
                     <Link
-                      to={`/seller/fast-food/edit/${item.id}`}
-                      className="flex items-center justify-center p-2 text-green-600 hover:bg-green-50 rounded border border-green-200 transition-colors"
-                      title="Edit Fast Food Item"
+                      to={`/seller/fast-food/view/${item.id}`}
+                      className="flex items-center justify-center p-2 text-blue-600 hover:bg-blue-50 rounded border border-blue-200 transition-colors"
+                      title="View Details"
                     >
-                      <Edit size={16} />
+                      <Eye size={16} />
                     </Link>
-                  )}
 
-                  {/* Availability Toggle - Only for Approved */}
-                  {!isPending && (
+                    {/* Edit Button - Only for Pending */}
+                    {isPending && (
+                      <Link
+                        to={`/seller/fast-food/edit/${item.id}`}
+                        className="flex items-center justify-center p-2 text-green-600 hover:bg-green-50 rounded border border-green-200 transition-colors"
+                        title="Edit Fast Food Item"
+                      >
+                        <Edit size={16} />
+                      </Link>
+                    )}
+
+                    {/* Availability Toggle - Only for Approved */}
+                    {!isPending && (
+                      <button
+                        onClick={() => {
+                          const modes = ['AUTO', 'OPEN', 'CLOSED'];
+                          const currentMode = item.availabilityMode || 'AUTO';
+                          const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
+                          optimisticUpdate(item.id, { availabilityMode: nextMode }, `Mode: ${nextMode}`);
+                        }}
+                        className={`flex items-center justify-center p-2 rounded border transition-colors ${item.availabilityMode === 'OPEN' ? 'bg-green-50 text-green-600 border-green-200' :
+                          item.availabilityMode === 'CLOSED' ? 'bg-red-50 text-red-600 border-red-200' :
+                            'bg-blue-50 text-blue-600 border-blue-200'
+                          }`}
+                        title={`Current: ${item.availabilityMode || 'AUTO'}`}
+                      >
+                        {item.availabilityMode === 'OPEN' ? <Utensils size={16} /> :
+                          item.availabilityMode === 'CLOSED' ? <Ban size={16} /> :
+                            <Clock size={16} />}
+                      </button>
+                    )}
+
+                    {/* Visibility Toggle - Only for Approved */}
+                    {!isPending && (
+                      <button
+                        onClick={() => optimisticUpdate(item.id, { isActive: !item.isActive }, item.isActive ? 'Item Hidden' : 'Item Visible')}
+                        className={`flex items-center justify-center p-2 rounded border transition-colors ${!item.isActive ? 'bg-gray-100 text-gray-500 border-gray-300' :
+                          'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100'
+                          }`}
+                        title={item.isActive ? 'Hide from Menu' : 'Show on Menu'}
+                      >
+                        {item.isActive ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </button>
+                    )}
+
+                    {/* Delete Button */}
                     <button
-                      onClick={() => {
-                        const modes = ['AUTO', 'OPEN', 'CLOSED'];
-                        const currentMode = item.availabilityMode || 'AUTO';
-                        const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
-                        optimisticUpdate(item.id, { availabilityMode: nextMode }, `Mode: ${nextMode}`);
-                      }}
-                      className={`flex items-center justify-center p-2 rounded border transition-colors ${item.availabilityMode === 'OPEN' ? 'bg-green-50 text-green-600 border-green-200' :
-                        item.availabilityMode === 'CLOSED' ? 'bg-red-50 text-red-600 border-red-200' :
-                          'bg-blue-50 text-blue-600 border-blue-200'
-                        }`}
-                      title={`Current: ${item.availabilityMode || 'AUTO'}`}
+                      onClick={() => handleDeleteFastFood(item.id)}
+                      className="flex items-center justify-center p-2 text-red-600 hover:bg-red-50 rounded border border-red-200 transition-colors"
+                      title="Delete"
                     >
-                      {item.availabilityMode === 'OPEN' ? <Utensils size={16} /> :
-                        item.availabilityMode === 'CLOSED' ? <Ban size={16} /> :
-                          <Clock size={16} />}
+                      <FaTrash size={14} />
                     </button>
-                  )}
+                  </div>
 
-                  {/* Visibility Toggle - Only for Approved */}
+                  {/* Inline Boost/Feature actions for approved meals */}
                   {!isPending && (
-                    <button
-                      onClick={() => optimisticUpdate(item.id, { isActive: !item.isActive }, item.isActive ? 'Item Hidden' : 'Item Visible')}
-                      className={`flex items-center justify-center p-2 rounded border transition-colors ${!item.isActive ? 'bg-gray-100 text-gray-500 border-gray-300' :
-                        'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100'
+                    <div className="mt-2 flex gap-1 justify-between">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleProductBoost(item.id, true)}
+                        className={`flex-1 py-1 rounded text-[9px] font-bold border transition-colors ${
+                          item.isBoosted 
+                            ? 'bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200' 
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                         }`}
-                      title={item.isActive ? 'Hide from Menu' : 'Show on Menu'}
-                    >
-                      {item.isActive ? <Eye size={16} /> : <EyeOff size={16} />}
-                    </button>
+                      >
+                        {item.isBoosted ? '🚀 Boosted' : '🚀 Boost'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleProductFeature(item.id, true)}
+                        className={`flex-1 py-1 rounded text-[9px] font-bold border transition-colors ${
+                          item.isFeatured 
+                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200' 
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        {item.isFeatured ? '⭐ Featured' : '⭐ Feature'}
+                      </button>
+                    </div>
                   )}
-
-                  {/* Delete Button */}
-                  <button
-                    onClick={() => handleDeleteFastFood(item.id)}
-                    className="flex items-center justify-center p-2 text-red-600 hover:bg-red-50 rounded border border-red-200 transition-colors"
-                    title="Delete"
-                  >
-                    <FaTrash size={14} />
-                  </button>
                 </div>
               )}
             />

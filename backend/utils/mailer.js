@@ -34,18 +34,14 @@ async function sendEmail(to, subject, text) {
   const { SMTP_USER, SMTP_FROM } = process.env || {};
 
   if (transporter) {
-    try {
-      const info = await transporter.sendMail({
-        from: SMTP_FROM || `Comrades360 <${SMTP_USER}>`,
-        to,
-        subject,
-        text
-      });
-      console.log(`✅ [EMAIL SENT] To: ${to} | Subject: ${subject} | MessageId: ${info.messageId}`);
-      return { success: true, method: 'smtp', messageId: info.messageId };
-    } catch (e) {
-      console.warn('⚠️ [EMAIL FAILED] SMTP send failed, falling back to console log:', e.message);
-    }
+    const info = await transporter.sendMail({
+      from: SMTP_FROM || `Comrades360 <${SMTP_USER}>`,
+      to,
+      subject,
+      text
+    });
+    console.log(`✅ [EMAIL SENT] To: ${to} | Subject: ${subject} | MessageId: ${info.messageId}`);
+    return { success: true, method: 'smtp', messageId: info.messageId };
   }
 
   // Fallback: console log (SIMULATION MODE)

@@ -23,7 +23,7 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto sm:pt-16 pt-10">
+        <div className="fixed inset-0 z-[9999] flex items-start sm:items-center justify-center sm:p-4 overflow-y-auto sm:pt-16 p-0">
             {/* Backdrop */}
             <div
                 className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
@@ -32,9 +32,9 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-md' }) => {
             />
 
             {/* Modal Content */}
-            <div className={`relative bg-white rounded-lg shadow-xl w-full ${maxWidth} transform transition-all my-auto`}>
+            <div className={`relative bg-white sm:rounded-lg shadow-xl w-full ${maxWidth} transform transition-all sm:my-auto min-h-screen sm:min-h-0`}>
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b">
+                <div className="flex items-center justify-between p-4 sm:p-4 border-b">
                     <h3 className="text-xl font-semibold text-gray-900">
                         {title}
                     </h3>

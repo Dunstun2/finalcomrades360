@@ -6,6 +6,7 @@ import { useCategories } from "@/contexts/CategoriesContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatform } from "@/contexts/PlatformContext";
 import api from '@/shared/services/api';
+import { resolveImageUrl } from '@/utils/imageUtils';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -106,6 +107,7 @@ export default function Navbar() {
   // Maintenance Visibility Logic (now using global context)
   const maintenance = platformSettings.maintenance;
   const siteName = platformSettings.platform?.siteName || 'Comrades360';
+  const siteLogo = platformSettings.platform?.siteLogo;
 
   const isAdmin = (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'));
   
@@ -143,6 +145,36 @@ export default function Navbar() {
     { to: "/seller/wallet", label: "Earnings" },
   ];
 
+  const customerSubLinks = [
+    { to: "/customer", label: "Overview" },
+    { to: "/customer/orders", label: "My Orders" },
+    { to: "/customer/returns", label: "My Returns" },
+    { to: "/customer/wishlist", label: "Wishlist" },
+    { to: "/customer/wallet", label: "Wallet" },
+    {
+      label: "Subscriptions",
+      isParent: true,
+      id: "subscriptions",
+      children: [
+        { to: "/customer/meal-plans", label: "Meal Plans" },
+        { to: "/customer/my-subscription", label: "My Subscription" },
+        { to: "/customer/subscriptions/create", label: "Create Meal Plan" },
+      ]
+    },
+    { to: "/customer/applications", label: "Applications" },
+    {
+      label: "Support Center",
+      isParent: true,
+      id: "support",
+      children: [
+        { to: "/customer/inquiries", label: "Support Inquiries" },
+        { to: "/customer/support", label: "Live Chat & Messages" },
+      ]
+    },
+    { to: "/customer/settings", label: "Settings" },
+    { to: "/customer/work-with-us", label: "Work with Us" },
+  ];
+
   const marketerSubLinks = [
     { id: 'overview', to: "/marketing?tab=overview", label: "Overview" },
     { id: 'products', to: "/marketing?tab=products", label: "Browse Items" },
@@ -159,6 +191,7 @@ export default function Navbar() {
   ];
 
   const [activeSubMenu, setActiveSubMenu] = useState(null); // 'seller', 'marketer', 'provider', etc.
+  const [activeNestedMenu, setActiveNestedMenu] = useState(null); // 'subscriptions', 'support', etc.
   
 
   useEffect(() => {
@@ -277,22 +310,28 @@ export default function Navbar() {
         </div>
       )}
 
-      <nav className="bg-white border-b shadow-sm fixed top-0 left-0 w-full z-50">
+      <nav className="bg-white border-b border-gray-200 shadow-sm fixed top-0 left-0 w-full z-50">
         <div className="max-w-7xl mx-auto px-0 md:px-4">
 
-          {/* DESKTOP NAVIGATION (>= lg) - Exact original appearance restored */}
-          <div className="hidden lg:flex justify-between items-center h-16">
+          {/* DESKTOP NAVIGATION (>= lg) - Height driven by logo */}
+          <div className="hidden lg:flex justify-between items-center py-0">
             {/* Left side: Logo + Categories */}
             <div className="flex items-center space-x-6">
               <div className="text-2xl font-bold">
-                <Link to={isStationUser ? "/station" : "/"} className="text-blue-600 hover:text-blue-800 cursor-pointer">{siteName}</Link>
+                <Link to={isStationUser ? "/station" : "/"} className="text-[#1B2A4A] hover:opacity-80 cursor-pointer flex items-center">
+                  {siteLogo ? (
+                    <img src={resolveImageUrl(siteLogo)} alt={siteName} className="max-h-[66px] w-auto object-contain py-1" />
+                  ) : (
+                    siteName
+                  )}
+                </Link>
               </div>
 
               {!isStationUser && (
               <div className="relative" ref={categoriesRef}>
                 <button
                   onClick={() => setShowCategories(!showCategories)}
-                  className="px-3 py-2 hover:bg-gray-100 rounded flex items-center"
+                  className="px-3 py-2 text-[#1B2A4A] hover:text-[#FF6600] hover:bg-gray-50 rounded flex items-center transition-colors font-medium"
                 >
                   <span>Category</span>
                   <span className="ml-1">▾</span>
@@ -368,8 +407,11 @@ export default function Navbar() {
 
             {/* Center: Search */}
             {!isStationUser ? (
-            <div className="flex-1 flex justify-center px-4">
-              <div className="flex w-full max-w-xl">
+            <div className="flex-1 flex justify-center px-6">
+              <div className="flex w-full max-w-xl relative items-center">
+                <div className="absolute left-4 text-gray-400 z-10">
+                  <FaSearch className="text-lg" />
+                </div>
                 <input
                   type="text"
                   value={searchQuery}
@@ -380,11 +422,11 @@ export default function Navbar() {
                     }
                   }}
                   placeholder={searchPlaceholder}
-                  className="w-full px-4 py-2 border rounded-l focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full h-12 pl-12 pr-28 border border-gray-300 bg-gray-50 text-gray-800 placeholder-gray-400 rounded-full focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-[#FF6600] focus:bg-white text-sm shadow-sm transition-all"
                 />
                 <button
                   onClick={handleSearch}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-r hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="absolute right-1.5 top-1.5 bottom-1.5 px-6 bg-[#FF6600] hover:bg-[#E65C00] text-[#1B2A4A] text-sm font-bold rounded-full shadow transition-all active:scale-95"
                 >
                   Search
                 </button>
@@ -392,7 +434,7 @@ export default function Navbar() {
             </div>
             ) : (
             <div className="flex-1 flex justify-center px-4">
-              <div className="text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+              <div className="text-sm font-semibold text-[#FF6600] bg-[#FF6600]/10 border border-[#FF6600]/20 rounded-lg px-4 py-2">
                 Station account mode
               </div>
             </div>
@@ -405,13 +447,13 @@ export default function Navbar() {
                 <div className="relative" ref={notificationsRef}>
                   <button
                     onClick={() => setShowNotifications(!showNotifications)}
-                    className="relative flex items-center space-x-1 p-2 text-gray-600 hover:text-blue-600"
+                    className="relative flex items-center space-x-1 p-2 text-blue-600 hover:text-[#FF6600] transition-colors"
                   >
                     <FaBell className="text-xl" />
                     <span className="relative">
                       <span className="text-sm font-medium">Notifications</span>
                       {unreadCount > 0 && (
-                        <span className="absolute -top-2 -right-4 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                        <span className="absolute -top-2 -right-4 bg-[#FF6600] text-[#1B2A4A] text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                           {unreadCount > 9 ? '9+' : unreadCount}
                         </span>
                       )}
@@ -454,12 +496,12 @@ export default function Navbar() {
 
               {/* Cart */}
               {!isStationUser && (
-              <Link to={cartLink} className="relative flex items-center space-x-1 p-2 text-gray-600 hover:text-blue-600">
+              <Link to={cartLink} className="relative flex items-center space-x-1 p-2 text-blue-600 hover:text-[#FF6600] transition-colors">
                 <FaShoppingCart className="text-xl" />
                 <span className="relative">
                   <span className="text-sm font-medium">Cart</span>
                   {cartBadgeCount > 0 && (
-                    <span className="absolute -top-2 -right-4 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    <span className="absolute -top-2 -right-4 bg-[#FF6600] text-[#1B2A4A] text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                       {cartBadgeCount > 9 ? '9+' : cartBadgeCount}
                     </span>
                   )}
@@ -473,7 +515,7 @@ export default function Navbar() {
                   <>
                     <button
                       onClick={() => setShowUserDropdown(!showUserDropdown)}
-                      className="flex items-center space-x-2 hover:text-blue-600 focus:outline-none"
+                      className="flex items-center space-x-2 text-[#1B2A4A] hover:text-[#FF6600] focus:outline-none transition-colors"
                     >
                       <span className="text-sm font-medium">Hi, {firstName}</span>
                       <span className="text-[10px]">▼</span>
@@ -582,7 +624,7 @@ export default function Navbar() {
                     )}
                   </>
                 ) : (
-                  <Link to="/account" className="flex items-center space-x-1 px-3 py-2 text-gray-600 hover:text-blue-600">
+                  <Link to="/account" className="flex items-center space-x-1 px-3 py-2 text-[#1B2A4A] hover:text-[#FF6600] transition-colors">
                     <FaUser className="text-lg" />
                     <span className="text-sm font-medium">Account</span>
                   </Link>
@@ -593,31 +635,37 @@ export default function Navbar() {
 
           {/* MOBILE NAVIGATION (< lg) */}
           <div className="lg:hidden">
-            <div className="h-14 flex flex-row items-center justify-between">
+            <div className="py-1 flex flex-row items-center justify-between">
               {/* Left: hamburger + brand */}
               <div className="flex flex-row items-center gap-2">
                 <button
                   onClick={() => { setMobileMenuType('navigation'); setIsMobileMenuOpen(true); }}
-                  className="hamburger-btn flex items-center justify-center w-12 h-12 text-gray-700 hover:bg-gray-100 rounded-full -ml-2"
+                  className="hamburger-btn flex items-center justify-center w-12 h-12 text-[#1B2A4A] hover:bg-gray-100 rounded-full -ml-2"
                   aria-label="Open menu"
                 >
                   <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                 </button>
-                <Link to={isStationUser ? "/station" : "/"} className="flex items-center text-base font-bold text-blue-600 tracking-tight leading-none">{siteName}</Link>
+                <Link to={isStationUser ? "/station" : "/"} className="flex items-center text-base font-bold text-[#1B2A4A] tracking-tight leading-none">
+                  {siteLogo ? (
+                    <img src={resolveImageUrl(siteLogo)} alt={siteName} className="max-h-[54px] w-auto object-contain py-1" />
+                  ) : (
+                    siteName
+                  )}
+                </Link>
               </div>
 
               {/* Right: cart + notifications + user */}
               <div className="flex flex-row items-center gap-1">
                 {!isStationUser && (
-                <Link to={cartLink} className="relative flex items-center justify-center w-9 h-9 text-gray-500">
+                <Link to={cartLink} className="relative flex items-center justify-center w-9 h-9 text-blue-600">
                   <FaShoppingCart size={18} />
-                  {cartBadgeCount > 0 && <span className="absolute top-0.5 right-0 bg-red-500 text-white text-[8px] rounded-full h-4 w-4 flex items-center justify-center border border-white">{cartBadgeCount}</span>}
+                  {cartBadgeCount > 0 && <span className="absolute top-0.5 right-0 bg-[#FF6600] text-[#1B2A4A] text-[8px] font-bold rounded-full h-4 w-4 flex items-center justify-center border border-white">{cartBadgeCount}</span>}
                 </Link>
                 )}
                 {isLoggedIn && !isStationUser && (
-                <Link to="/notifications" className="relative flex items-center justify-center w-9 h-9 text-gray-500">
+                <Link to="/notifications" className="relative flex items-center justify-center w-9 h-9 text-blue-600">
                   <FaBell size={18} />
-                  {unreadCount > 0 && <span className="absolute top-0.5 right-0 bg-red-500 text-white text-[8px] rounded-full h-4 w-4 flex items-center justify-center border border-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+                  {unreadCount > 0 && <span className="absolute top-0.5 right-0 bg-[#FF6600] text-[#1B2A4A] text-[8px] font-bold rounded-full h-4 w-4 flex items-center justify-center border border-white">{unreadCount > 9 ? '9+' : unreadCount}</span>}
                 </Link>
                 )}
                 {isLoggedIn ? (
@@ -626,14 +674,14 @@ export default function Navbar() {
                     className="user-mobile-btn flex items-center justify-center w-9 h-9"
                     aria-label="My Account"
                   >
-                    <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border border-blue-200 text-xs font-black">
+                    <div className="w-7 h-7 rounded-full bg-[#1B2A4A] text-white flex items-center justify-center border border-[#1B2A4A] text-xs font-black">
                       {firstName[0]}
                     </div>
                   </button>
                 ) : (
                   <button
                     onClick={() => { setMobileMenuType('account'); setIsMobileMenuOpen(true); }}
-                    className="user-mobile-btn flex items-center justify-center w-9 h-9 text-gray-500"
+                    className="user-mobile-btn flex items-center justify-center w-9 h-9 text-[#1B2A4A]"
                     aria-label="Account options"
                   >
                     <FaUser size={18} />
@@ -658,7 +706,7 @@ export default function Navbar() {
                 <button
                   onClick={handleSearch}
                   aria-label="Search"
-                  className="ml-1 p-1.5 rounded-lg bg-blue-600 text-white flex-shrink-0 active:bg-blue-700 transition-colors"
+                  className="ml-1 p-1.5 rounded-lg bg-[#FF6600] text-[#1B2A4A] flex-shrink-0 active:bg-[#E65C00] transition-colors"
                 >
                   <FaSearch size={11} />
                 </button>
@@ -671,11 +719,11 @@ export default function Navbar() {
         {isMobileMenuOpen && (
           <div className="fixed inset-0 z-[60] lg:hidden">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)}></div>
-            <div ref={mobileMenuRef} className="absolute inset-y-0 left-0 w-72 bg-white shadow-2xl flex flex-col transition-transform duration-300 overflow-hidden">
+            <div ref={mobileMenuRef} className="absolute inset-y-0 left-0 w-60 bg-white shadow-2xl flex flex-col transition-transform duration-300 overflow-hidden">
               
               {/* Header logic depends on menu type */}
               {mobileMenuType === 'account' ? (
-                <div className="p-4 bg-gradient-to-br from-blue-700 to-blue-900 text-white shadow-xl">
+                <div className="p-4 bg-gradient-to-br from-[#1B2A4A] to-[#0f1a30] text-white shadow-xl">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-xl font-black italic tracking-tighter">My Account</span>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
@@ -685,18 +733,18 @@ export default function Navbar() {
 
                   {isLoggedIn ? (
                     <div className="flex items-center space-x-3 mt-4">
-                      <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold border-2 border-blue-400 shadow-lg">
+                      <div className="w-12 h-12 rounded-full bg-[#FF6600] text-[#1B2A4A] flex items-center justify-center text-xl font-bold border-2 border-[#FF6600]/60 shadow-lg">
                         {firstName[0]}
                       </div>
                       <div>
-                        <h4 className="font-bold text-base leading-none mb-1">Hi, {firstName}</h4>
-                        <p className="text-gray-400 text-[10px] font-medium opacity-80">{user?.email}</p>
+                        <h4 className="font-bold text-base leading-none mb-1 text-white">Hi, {firstName}</h4>
+                        <p className="text-gray-200 text-[10px] font-medium opacity-80">{user?.email}</p>
                       </div>
                     </div>
                   ) : null}
                 </div>
               ) : (
-                <div className="p-4 bg-blue-600 text-white">
+                <div className="p-4 bg-[#1B2A4A] text-white">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-xl font-black italic tracking-tighter">{siteName}</span>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
@@ -806,6 +854,9 @@ export default function Navbar() {
                            <span className="mr-3">🛠️</span> Student Services
                         </Link>
                       )}
+                       <Link to="/about" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
+                         <span className="mr-3">ℹ️</span> About Us
+                       </Link>
                     </nav>
 
                     <div className="mt-8">
@@ -827,29 +878,72 @@ export default function Navbar() {
                       <>
                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-4">My Account</span>
                         <nav className="space-y-1">
-                          <Link to="/customer" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <FaUser className="mr-3 text-blue-600" size={16} /> Profile Overiew
-                          </Link>
-                          <Link to="/customer/orders" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <FaTruck className="mr-3 text-blue-600" size={16} /> My Orders
-                          </Link>
-                          <Link to="/customer/wishlist" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <FaHeart className="mr-3 text-blue-600" size={16} /> Wishlist
-                          </Link>
-                          <Link to="/customer/address" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <FaChevronRight className="mr-3 text-blue-600" size={14} /> My Addresses
-                          </Link>
-                          <Link to="/customer/settings" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <FaCog className="mr-3 text-blue-600" size={16} /> Account Settings
-                          </Link>
-                          <Link to="/customer/applications" className="flex items-center px-4 py-3 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-100" onClick={() => setIsMobileMenuOpen(false)}>
-                            <span className="mr-3">📄</span> My Applications
-                          </Link>
+                          <div className="rounded-xl overflow-hidden bg-white border border-gray-100 shadow-sm">
+                            <div className="flex items-center">
+                              <Link to="/customer" className="flex-1 flex items-center px-3 py-2 text-sm font-bold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors" onClick={() => setIsMobileMenuOpen(false)}>
+                                <FaUser className="mr-2 text-blue-600" size={16} /> My Account
+                              </Link>
+                              <button 
+                                onClick={(e) => { e.preventDefault(); setActiveSubMenu(activeSubMenu === 'customer' ? null : 'customer'); }}
+                                className={`p-2 border-l border-gray-50 text-gray-400 hover:text-blue-600 transition-transform duration-200 ${activeSubMenu === 'customer' ? 'rotate-180 text-blue-600' : ''}`}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                              </button>
+                            </div>
+                            {activeSubMenu === 'customer' && (
+                              <div className="bg-blue-50/30 border-t border-blue-50 py-1 px-2 space-y-0.5">
+                                {customerSubLinks.map(sub => {
+                                  if (sub.isParent) {
+                                    const isNestedExpanded = activeNestedMenu === sub.id;
+                                    return (
+                                      <div key={sub.label} className="space-y-0.5">
+                                        <button
+                                          onClick={(e) => { e.preventDefault(); setActiveNestedMenu(isNestedExpanded ? null : sub.id); }}
+                                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-600 hover:bg-gray-100 hover:text-blue-600 rounded-lg transition-colors font-medium"
+                                        >
+                                          <span className="flex items-center">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"></span>
+                                            {sub.label}
+                                          </span>
+                                          <span className={`text-[8px] transition-transform duration-200 ${isNestedExpanded ? 'rotate-180' : ''}`}>▼</span>
+                                        </button>
+                                        {isNestedExpanded && (
+                                          <div className="pl-4 space-y-0.5 border-l border-gray-200 ml-3.5 mt-0.5">
+                                            {sub.children.map(child => (
+                                              <Link
+                                                key={child.to}
+                                                to={child.to}
+                                                className="flex items-center px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 hover:text-blue-500 rounded-lg"
+                                                onClick={() => setIsMobileMenuOpen(false)}
+                                              >
+                                                {child.label}
+                                              </Link>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <Link
+                                      key={sub.to}
+                                      to={sub.to}
+                                      className="flex items-center px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 rounded-lg"
+                                      onClick={() => setIsMobileMenuOpen(false)}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 mr-2"></span>
+                                      {sub.label}
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </nav>
                         {dashboardLinks.length > 0 && (
-                          <div className="mt-6">
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-4">Management & Roles</span>
-                            <div className="space-y-2">
+                          <div className="mt-4">
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-3">Management & Roles</span>
+                            <div className="space-y-1.5">
                               {dashboardLinks.map((item) => {
                                 const roleId = item.to.includes('seller') ? 'seller' : item.to.includes('marketing') ? 'marketer' : item.to.includes('service-provider') ? 'provider' : null;
                                 const hasSub = roleId && (roleId === 'seller' || roleId === 'marketer' || roleId === 'provider');
@@ -861,18 +955,18 @@ export default function Navbar() {
                                     <div className="flex items-center">
                                       <Link
                                         to={item.to}
-                                        className="flex-1 flex items-center px-4 py-3 text-sm font-bold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                                        className="flex-1 flex items-center px-3 py-2 text-sm font-bold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
                                         onClick={() => setIsMobileMenuOpen(false)}
                                       >
-                                        <span className="mr-3 text-neutral-400">{item.icon}</span>
+                                        <span className="mr-2 text-neutral-400">{item.icon}</span>
                                         {item.label}
                                       </Link>
                                       {hasSub && (
                                         <button 
                                           onClick={(e) => { e.preventDefault(); setActiveSubMenu(isExpanded ? null : roleId); }}
-                                          className={`p-3 border-l border-gray-50 text-gray-400 hover:text-blue-600 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`}
+                                          className={`p-2 border-l border-gray-50 text-gray-400 hover:text-blue-600 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-blue-600' : ''}`}
                                         >
-                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                                         </button>
                                       )}
                                     </div>
@@ -900,7 +994,7 @@ export default function Navbar() {
                         </>
                       ) : (
                         <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-                           <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 text-blue-600 shadow-inner">
+                           <div className="w-24 h-24 bg-[#FF6600]/10 rounded-full flex items-center justify-center mb-6 text-[#FF6600] shadow-inner">
                               <FaUser size={44} />
                            </div>
                            <h3 className="text-xl font-black text-gray-900 mb-3">Hi there!</h3>
@@ -909,7 +1003,7 @@ export default function Navbar() {
                            <div className="w-full space-y-4">
                               <Link 
                                 to="/login" 
-                                className="inline-block w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-700 active:scale-95 transition-all" 
+                                className="inline-block w-full py-4 bg-[#1B2A4A] text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-[#243658] active:scale-95 transition-all" 
                                 onClick={() => setIsMobileMenuOpen(false)}
                               >
                                 Sign In Now
@@ -917,7 +1011,7 @@ export default function Navbar() {
                               
                               <Link 
                                 to="/register" 
-                                className="inline-block w-full py-4 bg-white text-blue-600 border-2 border-blue-600/20 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-50 active:scale-95 transition-all" 
+                                className="inline-block w-full py-4 bg-white text-[#1B2A4A] border-2 border-[#FF6600]/30 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#FF6600]/5 active:scale-95 transition-all" 
                                 onClick={() => setIsMobileMenuOpen(false)}
                               >
                                 Create Account

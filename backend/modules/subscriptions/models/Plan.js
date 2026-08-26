@@ -5,14 +5,32 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       Plan.hasMany(models.PlanBenefit, { foreignKey: 'planId', as: 'benefits' });
       Plan.hasMany(models.Subscription, { foreignKey: 'planId', as: 'subscriptions' });
+      Plan.belongsTo(models.BenefitPackage, { foreignKey: 'benefitPackageId', as: 'benefitPackage' });
+      Plan.belongsTo(models.User, { foreignKey: 'creatorId', as: 'creator' });
     }
   }
 
   Plan.init({
+    benefitPackageId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'BenefitPackage',
+        key: 'id'
+      }
+    },
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true
+    },
+    creatorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'User',
+        key: 'id'
+      }
     },
     name: {
       type: DataTypes.STRING,
@@ -38,7 +56,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     billingCycle: {
       type: DataTypes.ENUM('weekly', 'monthly', 'daily'),
-      allowNull: false
+      allowNull: true
     },
     currency: {
       type: DataTypes.STRING,
@@ -75,6 +93,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: []
+    },
+    // Set once the first time status changes to 'Published'. Never reset.
+    // Used to prevent reverting a published plan back to Draft.
+    firstPublishedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null
     }
   }, {
     sequelize,

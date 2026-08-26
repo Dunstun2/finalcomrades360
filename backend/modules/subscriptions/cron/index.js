@@ -49,8 +49,17 @@ const initSubscriptionCrons = () => {
       });
 
       for (const sub of expiredGraceSubs) {
+        if (sub.plan?.type === 'meal') {
+          console.log(`[Subscription Cron] Meal subscription #${sub.id} should not use grace; suspending immediately.`);
+          await sequelize.transaction(async (t) => {
+            sub.status = 'Past Due';
+            await sub.save({ transaction: t });
+          });
+          continue;
+        }
+
         const graceLimit = new Date(sub.expiryDate);
-        graceLimit.setDate(graceLimit.getDate() + (sub.plan.gracePeriodDays || 3));
+        graceLimit.setDate(graceLimit.getDate() + ((sub.plan?.gracePeriodDays || 3)));
 
         if (now >= graceLimit) {
           console.log(`[Subscription Cron] Expiry date + grace period passed for Sub #${sub.id}. Suspending benefits.`);

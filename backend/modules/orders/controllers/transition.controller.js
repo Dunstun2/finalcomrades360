@@ -9,6 +9,7 @@ const {
 const { upsertDeliveryChargeForTask } = require('../../../utils/deliveryChargeHelpers');
 const { Op } = require('sequelize');
 const autoDispatchService = require('../../../services/autoDispatchService');
+const CashbackService = require('../../subscriptions/services/CashbackService');
 
 const DELIVERY_TASK_CREATION_STATUSES = new Set([
   'seller_confirmed',
@@ -435,6 +436,39 @@ const transitionOrderStatus = async (req, res) => {
     } catch (notifyErr) {
       logNotify(`⚠️ [Transition Notif] Failure: ${notifyErr.message}`);
       console.warn('[orderTransitionController] Notification failed:', notifyErr.message);
+    }
+
+    // Process cashback for delivered or completed orders
+    if (['delivered', 'completed'].includes(newStatus)) {
+      try {
+        const cashbackResult = await CashbackService.processCashbackForOrder(updatedOrder.id);
+        if (cashbackResult.applied) {
+          console.log(`[orderTransitionController] ${cashbackResult.message}`);
+          // Optionally add cashback info to tracking updates
+          const updatedTracking = (() => {
+            try {
+              const raw = updatedOrder.trackingUpdates;
+              if (!raw) return [];
+              if (Array.isArray(raw)) return raw;
+              if (typeof raw === 'string') return JSON.parse(raw);
+            } catch (_) {
+              return [];
+            }
+          })();
+          
+          updatedTracking.push({
+            status: newStatus,
+            message: `Cashback of ${cashbackResult.cashbackAmount} KES credited to wallet`,
+            timestamp: new Date().toISOString(),
+            type: 'cashback'
+          });
+          
+          await updatedOrder.update({ trackingUpdates: JSON.stringify(updatedTracking) });
+        }
+      } catch (cashbackErr) {
+        console.error('[orderTransitionController] Cashback processing failed:', cashbackErr);
+        // Don't fail the transition if cashback fails
+      }
     }
 
     return res.json({

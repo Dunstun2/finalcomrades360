@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import useScrollLock from '@/hooks/useScrollLock';
 
 // Delete Confirmation Modal Component
 const DeleteConfirmationModal = ({ isOpen, onClose, product, onConfirm }) => {
+    useScrollLock(isOpen);
     const [step, setStep] = useState(1)
     const [reason, setReason] = useState('')
     const [password, setPassword] = useState('')

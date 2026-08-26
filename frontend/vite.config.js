@@ -5,7 +5,7 @@ import path from 'path';
 const rootEnv = loadEnv('', path.resolve(__dirname, '..'));
 // Use a dedicated backend port env variable so Vite's own server PORT does not
 // accidentally override the backend target.
-const backendPort = process.env.BACKEND_PORT || rootEnv.BACKEND_PORT || rootEnv.PORT || '5001';
+const backendPort = process.env.BACKEND_PORT || rootEnv.BACKEND_PORT || '6001';
 const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
 
 // Custom plugin to manage preloads
@@ -36,14 +36,14 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     host: '0.0.0.0',
-    port: 4000,
+    port: 4500,
     strictPort: true,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     },
     hmr: {
       protocol: 'ws',
-      clientPort: 4000,
+      clientPort: 4500,
       timeout: 25000,
       overlay: false,
     },

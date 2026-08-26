@@ -42,7 +42,7 @@ exports.getConfig = async (req, res) => {
         
         // Define system defaults
         const defaults = {
-            platform_settings: { siteName: 'Comrades360', siteDescription: 'Your trusted marketplace', contactEmail: 'admin@comrades360.com', supportPhone: '+254700000000', currency: 'KES', timezone: 'Africa/Nairobi' },
+            platform_settings: { siteName: 'Comrades360', siteLogo: '', siteDescription: 'Your trusted marketplace', contactEmail: 'admin@comrades360.com', supportPhone: '+254700000000', currency: 'KES', timezone: 'Africa/Nairobi' },
             mpesa_config: { consumerKey: '', consumerSecret: '', passkey: '', shortcode: '174379', stkTimeout: 60, mockMode: false },
             mpesa_manual_instructions: { paybill: '714888', accountNumber: '223052' },
             airtel_config: { clientId: '', clientSecret: '', callbackUrl: '' },
@@ -66,7 +66,8 @@ exports.getConfig = async (req, res) => {
                     phoneVerification: 'Your Comrades360 verification OTP is {otp}. It expires in 10 minutes.',
                     passwordReset: 'Your Comrades360 password reset code is {otp}. It expires in {minutes} minutes.',
                     withdrawalStatus: 'Your withdrawal of KES {amount} has been processed successfully! 💰',
-                    googleWelcome: `Welcome to Comrades360! 🌟\n\nHello {name}, you have successfully joined our community using Google.\n\nIf you ever want to log in without Google, your temporary password is:\n\n  {tempPassword}\n\nWe recommend changing this in your account settings after your first login.\n\nThank you for choosing Comrades360!`
+                    googleWelcome: `Welcome to Comrades360! 🌟\n\nHello {name}, you have successfully joined our community using Google.\n\nIf you ever want to log in without Google, your temporary password is:\n\n  {tempPassword}\n\nWe recommend changing this in your account settings after your first login.\n\nThank you for choosing Comrades360!`,
+                    subscriptionCancelled: `Your subscription #{subscriptionId} has been successfully cancelled.\n\n{refundMessage}Reason: {reason}.`
                 },
                 channels: {
                     passwordReset: { whatsapp: false, sms: true, email: true, in_app: false }

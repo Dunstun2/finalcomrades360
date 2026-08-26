@@ -1,48 +1,68 @@
 const Joi = require('joi');
 
+// Reusable: one slot in a meal plan template — supports multi-dish via fastFoodItemIds[]
+const templateSlotSchema = Joi.object({
+  dayOfWeek: Joi.string().required(),
+  mealTimeType: Joi.string().valid('breakfast', 'lunch', 'dinner').required(),
+  preferredTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(),
+  // fastFoodItemIds is required — array of food ids (repeated for qty > 1)
+  fastFoodItemIds: Joi.array().items(Joi.number().integer()).min(1).required(),
+  // Legacy single id — optional, kept for backwards compat with old stored data
+  fastFoodItemId: Joi.number().integer().optional(),
+});
+
 const planSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
   type: Joi.string().valid('seller', 'meal', 'service', 'laundry', 'delivery', 'premium_customer').required(),
   status: Joi.string().valid('Draft', 'Published', 'Archived', 'Disabled').default('Draft'),
   price: Joi.number().min(0).required(),
-  billingCycle: Joi.string().valid('weekly', 'monthly', 'daily').required(),
   currency: Joi.string().default('KES'),
   gracePeriodDays: Joi.number().integer().min(0).default(3),
   trialPeriodDays: Joi.number().integer().min(0).default(0),
   isVisible: Joi.boolean().default(true),
   imageUrl: Joi.string().uri().allow(null, '').optional(),
   tags: Joi.array().items(Joi.string()).optional().default([]),
-  // Meal plan template schedule — array of food item slots
-  templateSchedule: Joi.array().items(
+  benefits: Joi.array().items(
     Joi.object({
-      dayOfWeek: Joi.string().required(),
-      mealTimeType: Joi.string().valid('breakfast','lunch','dinner').required(),
-      preferredTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(),
-      fastFoodItemId: Joi.number().integer().required()
+      featureCode: Joi.string().required(),
+      featureName: Joi.string().allow('').optional(),
+      description: Joi.string().allow('').optional(),
+      category: Joi.string().allow('').optional(),
+      limitType: Joi.string().valid('boolean', 'counter', 'rate').required(),
+      value: Joi.object().required(),
+      startDate: Joi.date().allow(null, '').optional(),
+      endDate: Joi.date().allow(null, '').optional()
     })
-  ).optional().allow(null)
+  ).optional().default([]),
+  // Meal plan template schedule — each slot can hold 1 or more dishes
+  templateSchedule: Joi.array().items(templateSlotSchema).optional().allow(null)
 });
+
 const updatePlanSchema = Joi.object({
   name: Joi.string().optional(),
   description: Joi.string().allow('').optional(),
   status: Joi.string().valid('Draft', 'Published', 'Archived', 'Disabled').optional(),
   price: Joi.number().min(0).optional(),
-  billingCycle: Joi.string().valid('weekly', 'monthly', 'daily').optional(),
   currency: Joi.string().optional(),
   gracePeriodDays: Joi.number().integer().min(0).optional(),
   trialPeriodDays: Joi.number().integer().min(0).optional(),
   isVisible: Joi.boolean().optional(),
   imageUrl: Joi.string().uri().allow(null, '').optional(),
   tags: Joi.array().items(Joi.string()).optional(),
-  templateSchedule: Joi.array().items(
+  benefits: Joi.array().items(
     Joi.object({
-      dayOfWeek: Joi.string().required(),
-      mealTimeType: Joi.string().valid('breakfast','lunch','dinner').required(),
-      preferredTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(),
-      fastFoodItemId: Joi.number().integer().required()
+      featureCode: Joi.string().required(),
+      featureName: Joi.string().allow('').optional(),
+      description: Joi.string().allow('').optional(),
+      category: Joi.string().allow('').optional(),
+      limitType: Joi.string().valid('boolean', 'counter', 'rate').required(),
+      value: Joi.object().required(),
+      startDate: Joi.date().allow(null, '').optional(),
+      endDate: Joi.date().allow(null, '').optional()
     })
-  ).optional().allow(null)
+  ).optional(),
+  templateSchedule: Joi.array().items(templateSlotSchema).optional().allow(null)
 });
 
 const subscribeSchema = Joi.object({
@@ -64,12 +84,12 @@ const subscribeSchema = Joi.object({
       dayOfWeek: Joi.string().required(),
       mealTimeType: Joi.string().valid('breakfast', 'lunch', 'dinner').required(),
       preferredTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(),
-      fastFoodItemId: Joi.number().integer().required(), // Food item the customer chose
+      fastFoodItemIds: Joi.array().items(Joi.number().integer()).min(1).optional(),
+      fastFoodItemId: Joi.number().integer().optional(), // legacy single-item support
       deliveryAddress: Joi.string().allow(null, '').optional(),
       pickupStationId: Joi.number().integer().allow(null).optional()
     })
-  ).optional(),
-  billingCycle: Joi.string().valid('weekly', 'monthly', 'daily').optional().default('weekly')
+  ).optional()
 });
 
 
@@ -81,6 +101,8 @@ const scheduleSchema = Joi.object({
       preferredTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(), // Matches "12:30", "08:15", "9:00", etc.
       pickupStationId: Joi.number().integer().allow(null).optional(),
       deliveryAddress: Joi.string().allow(null, '').optional(),
+      // Accept 1-or-more preferred items; single id kept for backwards compat
+      preferredFastFoodItemIds: Joi.array().items(Joi.number().integer()).min(1).optional(),
       preferredFastFoodItemId: Joi.number().integer().allow(null).optional()
     })
   ).min(1).required()
@@ -91,10 +113,28 @@ const updateAddressSchema = Joi.object({
   pickupStationId: Joi.number().integer().allow(null).optional()
 });
 
+// Customer-facing: Create personal meal plan (can only select from existing packages)
+const userPlanSchema = Joi.object({
+  name: Joi.string().required(),
+  description: Joi.string().allow('').optional(),
+  benefitPackageId: Joi.number().integer().allow(null).optional(), // Can only select existing package
+  templateSchedule: Joi.array().items(templateSlotSchema).min(1).required()
+});
+
+// Customer-facing: Update personal meal plan
+const updateUserPlanSchema = Joi.object({
+  name: Joi.string().optional(),
+  description: Joi.string().allow('').optional(),
+  benefitPackageId: Joi.number().integer().allow(null).optional(),
+  templateSchedule: Joi.array().items(templateSlotSchema).min(1).optional()
+});
+
 module.exports = {
   planSchema,
   updatePlanSchema,
   subscribeSchema,
   scheduleSchema,
-  updateAddressSchema
+  updateAddressSchema,
+  userPlanSchema,
+  updateUserPlanSchema
 };

@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { Product, ProductReview, User, Category, Subcategory, ProductDeletionRequest, sequelize } = require('../../../database/models.registry');
+const { Subscription, Plan, PlanBenefit, Feature } = require('../../../database/models.registry');
 const relatedProductsModule = require('../../relatedProducts');
 const { validateAndNormalizeImages, validateImageFile, generateUniqueFilename, cleanupOrphanedImages, ensureImagesExist, optimizeImage } = require('../../../utils/imageValidation');
 const cacheService = require('../../../scripts/services/cacheService');
@@ -268,6 +269,69 @@ const createProduct = async (req, res, next) => {
     const seller = await User.findByPk(sellerId);
     if (!seller) {
       return res.status(400).json({ code: 'INVALID_SELLER', message: 'Authenticated seller does not exist.' });
+    }
+
+    // --- Subscription Limit Check: max_products ---
+    if (!isAdmin && !isDraft) {
+      try {
+        const activeSubs = await Subscription.findAll({
+          where: { userId: sellerId, status: ['Active', 'Trial'] },
+          include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+        });
+
+        let maxProductsLimit = null; // null means unlimited (no subscription or no limit set)
+        for (const sub of activeSubs) {
+          if (sub.plan?.type !== 'seller') continue;
+          const maxProdBenefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'max_products');
+          if (maxProdBenefit) {
+            const limitVal = maxProdBenefit.value?.limit;
+            if (limitVal && limitVal > 0) {
+              maxProductsLimit = Math.max(maxProductsLimit || 0, limitVal);
+            }
+          }
+        }
+
+        if (maxProductsLimit !== null) {
+          const currentCount = await Product.count({ where: { sellerId, status: { [Op.ne]: 'deleted' } } });
+          if (currentCount >= maxProductsLimit) {
+            return res.status(403).json({
+              code: 'PRODUCT_LIMIT_REACHED',
+              message: `Your subscription plan allows a maximum of ${maxProductsLimit} products. You currently have ${currentCount}. Please upgrade your plan to list more products.`
+            });
+          }
+        }
+        // --- Subscription Limit Check: max_categories ---
+        let maxCategoriesLimit = null;
+        for (const sub of activeSubs) {
+          if (sub.plan?.type !== 'seller') continue;
+          const maxCatBenefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'max_categories');
+          if (maxCatBenefit) {
+            const limitVal = maxCatBenefit.value?.limit;
+            if (limitVal && limitVal > 0) {
+              maxCategoriesLimit = Math.max(maxCategoriesLimit || 0, limitVal);
+            }
+          }
+        }
+
+        if (maxCategoriesLimit !== null && categoryId) {
+          // Get distinct categoryIds seller has products in
+          const distinctCats = await Product.findAll({
+            where: { sellerId, status: { [Op.ne]: 'deleted' } },
+            attributes: [[sequelize.fn('DISTINCT', sequelize.col('categoryId')), 'categoryId']],
+            raw: true
+          });
+          const activeCategories = new Set(distinctCats.map(c => c.categoryId).filter(Boolean));
+
+          if (!activeCategories.has(Number(categoryId)) && activeCategories.size >= maxCategoriesLimit) {
+            return res.status(403).json({
+              code: 'CATEGORY_LIMIT_REACHED',
+              message: `Your subscription plan allows a maximum of ${maxCategoriesLimit} product categories. You are already listing items in ${activeCategories.size} categories. Please upgrade your plan.`
+            });
+          }
+        }
+      } catch (limitCheckErr) {
+        console.warn('[createProduct] Subscription limit checks failed (non-blocking):', limitCheckErr.message);
+      }
     }
 
     // Validate category exists
@@ -585,7 +649,7 @@ const getHomepageProducts = async (req, res) => {
           required: false
         }
       ],
-      order: [['createdAt', 'DESC']],
+      order: [['isBoosted', 'DESC'], ['createdAt', 'DESC']],
       limit: limit,
       offset: offset
     });
@@ -743,8 +807,8 @@ const getAllProducts = async (req, res) => {
       }
     }
 
-    // Performance: Simplify ordering for marketing queries
-    const orderBy = [['createdAt', 'DESC']];
+    // Performance: Simplify ordering for marketing queries, but prioritize boosted products
+    const orderBy = [['isBoosted', 'DESC'], ['createdAt', 'DESC']];
 
     // Optimized query with reduced includes and better performance
     const findOptions = {
@@ -2705,6 +2769,117 @@ const getProductDebug = async (req, res) => {
   }
 };
 
+const toggleProductBoost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sellerId = req.user.id;
+    const isAdmin = ['admin', 'super_admin', 'superadmin'].includes(req.user.role);
+
+    const product = await Product.findByPk(id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    if (!isAdmin && product.sellerId !== sellerId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const currentBoosted = product.isBoosted;
+    const newBoostedState = !currentBoosted;
+
+    if (newBoostedState) {
+      // Check subscription quota
+      const activeSubs = await Subscription.findAll({
+        where: { userId: product.sellerId, status: ['Active', 'Trial'] },
+        include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+      });
+
+      let boostLimit = null;
+      for (const sub of activeSubs) {
+        if (sub.plan?.type !== 'seller') continue;
+        const benefit = (sub.plan.benefits || []).find(b => b.feature?.code === 'boosted_products');
+        if (benefit) {
+          const val = benefit.value?.limit;
+          if (val && val > 0) {
+            boostLimit = Math.max(boostLimit || 0, val);
+          }
+        }
+      }
+
+      if (boostLimit === null) {
+        return res.status(403).json({ message: 'Your plan does not support boosting products. Please upgrade your subscription.' });
+      }
+
+      // Count boosted products (excluding this one if it is somehow already counted)
+      const count = await Product.count({ where: { sellerId: product.sellerId, isBoosted: true, id: { [Op.ne]: product.id } } });
+      const fastFoodCount = await FastFood.count({ where: { vendor: product.sellerId, isBoosted: true } });
+      const totalBoosted = count + fastFoodCount;
+
+      if (totalBoosted >= boostLimit) {
+        return res.status(403).json({ message: `Boosted product limit reached. Your plan allows boosting up to ${boostLimit} items. Currently boosted: ${totalBoosted}.` });
+      }
+    }
+
+    product.isBoosted = newBoostedState;
+    await product.save();
+
+    res.json({ message: `Product boost status updated to ${product.isBoosted}`, isBoosted: product.isBoosted });
+  } catch (error) {
+    console.error('Error toggling product boost:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const toggleProductFeature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sellerId = req.user.id;
+    const isAdmin = ['admin', 'super_admin', 'superadmin'].includes(req.user.role);
+
+    const product = await Product.findByPk(id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    if (!isAdmin && product.sellerId !== sellerId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const currentFeatured = product.isFeatured;
+    const newFeaturedState = !currentFeatured;
+
+    if (newFeaturedState) {
+      // Check if seller has featured_product benefit
+      const activeSubs = await Subscription.findAll({
+        where: { userId: product.sellerId, status: ['Active', 'Trial'] },
+        include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+      });
+
+      let hasFeatureBenefit = false;
+      for (const sub of activeSubs) {
+        if (sub.plan?.type !== 'seller') continue;
+        const benefit = (sub.plan.benefits || []).some(b => b.feature?.code === 'featured_product');
+        if (benefit) {
+          hasFeatureBenefit = true;
+          break;
+        }
+      }
+
+      if (!hasFeatureBenefit) {
+        return res.status(403).json({ message: 'Your plan does not support featuring products on the Hero banner. Please upgrade your subscription.' });
+      }
+
+      // De-feature all other products and fastfoods for this seller
+      await Product.update({ isFeatured: false }, { where: { sellerId: product.sellerId } });
+      await FastFood.update({ isFeatured: false }, { where: { vendor: product.sellerId } });
+    }
+
+    product.isFeatured = newFeaturedState;
+    await product.save();
+
+    res.json({ message: `Product feature status updated to ${product.isFeatured}`, isFeatured: product.isFeatured });
+  } catch (error) {
+    console.error('Error toggling product feature:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   createProduct,
   getAllProducts,
@@ -2725,7 +2900,9 @@ module.exports = {
   restoreProduct,
   permanentlyDeleteProduct,
   getHomepageProducts,
-  getProductDebug
+  getProductDebug,
+  toggleProductBoost,
+  toggleProductFeature
 };
 
 

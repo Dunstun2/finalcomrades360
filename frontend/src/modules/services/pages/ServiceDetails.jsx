@@ -8,6 +8,7 @@ import serviceApi from '@/modules/services/services/serviceApi';
 import { resolveImageUrl, getResizedImageUrl } from '@/utils/imageUtils';
 import Footer from '@/shared/components/Footer';
 import { usePersistentFetch } from '@/hooks/usePersistentFetch';
+import SEO from '@/shared/components/SEO';
 
 const ServiceDetails = () => {
     const { id } = useParams();
@@ -88,8 +89,34 @@ const ServiceDetails = () => {
 
     const hasDiscount = discountPercentage > 0 && finalPrice < originalPrice;
 
+    // SEO meta and Service schema
+    const pageTitle = `${service.title} — Comrades360`;
+    const pageDescription = service.description || `Professional ${service.subcategory?.name || 'service'} for students on Comrades360`;
+    const serviceImage = resolveImageUrl(activeImage || service.coverImage || (service.images && service.images[0]));
+
+    const serviceSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'Service',
+        name: service.title,
+        description: service.description,
+        provider: {
+            '@type': 'Organization',
+            name: service.provider?.name || 'Comrades360'
+        },
+        areaServed: service.location || 'Nairobi, Kenya',
+        image: serviceImage
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 pt-20">
+            <SEO
+                title={pageTitle}
+                description={pageDescription}
+                image={serviceImage}
+                keywords={service.metaKeywords || (service.keywords && service.keywords.join(', ')) || service.subcategory?.name}
+                siteName="Comrades360"
+                schema={serviceSchema}
+            />
             <div className="container mx-auto px-0 md:px-4 py-8">
                 <button
                     onClick={() => {

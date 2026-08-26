@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://comrades360.shop/sitemap.xml

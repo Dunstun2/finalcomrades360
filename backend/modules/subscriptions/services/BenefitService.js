@@ -1,4 +1,4 @@
-const { Subscription, Plan, PlanBenefit, Feature } = require('../../../database/models.registry');
+const { Subscription, Plan, PlanBenefit, Feature, PackageBenefit } = require('../../../database/models.registry');
 const { Op } = require('sequelize');
 
 class BenefitService {
@@ -28,8 +28,8 @@ class BenefitService {
 
     const now = new Date();
 
-    // Query benefits for this plan and feature
-    return await PlanBenefit.findOne({
+    // Query benefits for this plan specifically (overrides)
+    let benefit = await PlanBenefit.findOne({
       where: {
         planId: subscription.planId,
         featureCode,
@@ -45,6 +45,28 @@ class BenefitService {
         ]
       }
     });
+
+    if (!benefit && subscription.plan && subscription.plan.benefitPackageId) {
+      // Query from the attached benefit package
+      benefit = await PackageBenefit.findOne({
+        where: {
+          packageId: subscription.plan.benefitPackageId,
+          featureCode,
+          [Op.or]: [
+            {
+              startDate: { [Op.lte]: now },
+              endDate: { [Op.gte]: now }
+            },
+            {
+              startDate: null,
+              endDate: null
+            }
+          ]
+        }
+      });
+    }
+
+    return benefit;
   }
 
   /**

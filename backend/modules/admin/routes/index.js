@@ -1,4 +1,7 @@
 const express = require('express');
+const { Op } = require('sequelize');
+const { User, Order, Subscription, Plan } = require('../../../database/models.registry');
+const { createNotification, sendCustomerNotificationAcrossChannels } = require('../../../utils/notificationHelpers');
 const {
   getAllUsers,
   getPendingProducts,
@@ -81,6 +84,8 @@ const {
 } = require('../../delivery/controllers/controller');
 const { getConfig, updateConfig } = require('../../platform/controllers/config.controller');
 const adminHeroPromotionRoutes = require('./heroPromotion.routes');
+
+// Import payment verification functions
 
 const router = express.Router();
 
@@ -200,5 +205,275 @@ router.get('/analytics/revenue', adminOrFinance, getRevenueAnalytics);
 router.get('/finance/platform-wallet', adminOrFinance, getPlatformWalletDetails);
 router.post('/finance/platform-wallet/withdraw', adminOnly, withdrawPlatformFunds); // Ensure adminOnly (we will check super_admin in controller)
 router.post('/verify-password', adminOnly, verifyAdminPassword);
+
+// ============================================
+// PAYMENT VERIFICATION ROUTES
+// ============================================
+
+// Get pending payment verifications
+router.get('/payments/pending-verification', adminOnly, async (req, res) => {
+  try {
+    const pendingOrders = await Order.findAll({
+      where: {
+        paymentType: 'prepay',
+        needsPaymentVerification: true,
+        paymentVerificationStatus: {
+          [Op.or]: [null, 'pending']
+        }
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'email', 'phone']
+        },
+        {
+          model: Subscription,
+          as: 'subscription',
+          include: [
+            {
+              model: Plan,
+              as: 'plan',
+              attributes: ['id', 'name', 'description']
+            }
+          ]
+        }
+      ],
+      order: [['createdAt', 'ASC']]
+    });
+
+    const formattedOrders = pendingOrders.map(order => {
+      // Prioritize guestData for display (which includes registered user info stored during order creation)
+      let customerInfo = null;
+      if (order.guestData) {
+        customerInfo = {
+          name: order.guestData.name,
+          email: order.guestData.email,
+          phone: order.guestData.phone,
+          userId: order.guestData.userId || order.userId
+        };
+      } else if (order.user) {
+        customerInfo = {
+          name: order.user.name,
+          email: order.user.email,
+          phone: order.user.phone,
+          userId: order.user.id
+        };
+      }
+
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        subscriptionId: order.subscriptionId,
+        amount: order.total,
+        paymentSubType: order.paymentSubType,
+        paymentProofUrl: order.paymentProofUrl,
+        createdAt: order.createdAt,
+        customerInfo: customerInfo,
+        user: order.user, // Keep for backward compatibility
+        planName: order.subscription?.plan?.name || 'Unknown Plan',
+        planDescription: order.subscription?.plan?.description || ''
+      };
+    });
+
+    res.json(formattedOrders);
+  } catch (error) {
+    console.error('Error fetching pending payments:', error);
+    res.status(500).json({ error: 'Failed to fetch pending payments' });
+  }
+});
+
+// Approve payment
+router.post('/payments/approve', adminOnly, async (req, res) => {
+  try {
+    const { orderId, subscriptionId } = req.body;
+
+    // Update order status
+    await Order.update({
+      paymentVerificationStatus: 'approved',
+      paymentVerifiedAt: new Date(),
+      paymentVerifiedBy: req.user.id
+    }, {
+      where: { id: orderId }
+    });
+
+    // Activate subscription
+    await Subscription.update({
+      status: 'Active',
+      activatedAt: new Date()
+    }, {
+      where: { id: subscriptionId }
+    });
+
+    // Get subscription details for notification
+    const subscription = await Subscription.findByPk(subscriptionId, {
+      include: [
+        {
+          model: Plan,
+          as: 'plan'
+        },
+        {
+          model: User,
+          as: 'user'
+        }
+      ]
+    });
+
+    const order = await Order.findByPk(orderId);
+
+    // Send notification to user
+    try {
+      const planName = subscription.plan?.name || 'your subscription';
+      const customerName = subscription.user?.name || 'Customer';
+
+      if (subscription.user) {
+        const defaultTemplate = `Hello {name}, great news! 🎉\n\nYour payment for the \"{planName}\" subscription plan has been verified and approved!\n\nYour subscription is now ACTIVE and you can start enjoying all the benefits immediately.\n\nThank you for choosing Comrades360!`;
+
+        await sendCustomerNotificationAcrossChannels('subscriptionPaymentApproved', {
+          name: customerName,
+          planName,
+          title: 'Payment Approved! 🎉',
+          type: 'success',
+          defaultTemplate
+        }, subscription.user);
+      }
+    } catch (notificationError) {
+      console.error('Failed to send approval notification:', notificationError);
+    }
+
+    // Attempt same-day generation
+    try {
+      const MealSubscriptionService = require('../subscriptions/services/MealSubscriptionService');
+      const todayDateStr = new Date().toISOString().split('T')[0];
+      MealSubscriptionService.generateDailyOccurrences(todayDateStr, {
+        isSameDay: true,
+        subscriptionId
+      }).catch(err => {
+        console.error(`[Admin] Failed to generate same-day occurrences for Sub #${subscriptionId}:`, err);
+      });
+    } catch (mealErr) {
+      console.error('Error triggering same-day meal generation:', mealErr);
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Payment approved and subscription activated',
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        planName: subscription.plan?.name
+      }
+    });
+  } catch (error) {
+    console.error('Error approving payment:', error);
+    res.status(500).json({ error: 'Failed to approve payment' });
+  }
+});
+
+// Reject payment
+router.post('/payments/reject', adminOnly, async (req, res) => {
+  try {
+    const { orderId, subscriptionId, reason } = req.body;
+
+    // Update order status
+    await Order.update({
+      paymentVerificationStatus: 'rejected',
+      paymentRejectionReason: reason,
+      paymentVerifiedAt: new Date(),
+      paymentVerifiedBy: req.user.id
+    }, {
+      where: { id: orderId }
+    });
+
+    // Cancel subscription
+    await Subscription.update({
+      status: 'Cancelled',
+      cancelledAt: new Date(),
+      cancellationReason: `Payment rejected: ${reason}`
+    }, {
+      where: { id: subscriptionId }
+    });
+
+    // Get subscription details for notification
+    const subscription = await Subscription.findByPk(subscriptionId, {
+      include: [
+        {
+          model: Plan,
+          as: 'plan'
+        },
+        {
+          model: User,
+          as: 'user'
+        }
+      ]
+    });
+
+    const order = await Order.findByPk(orderId);
+
+    // Send rejection notification to user
+    try {
+      const planName = subscription.plan?.name || 'your subscription';
+      const customerName = subscription.user?.name || 'Customer';
+
+      if (subscription.user) {
+        const defaultTemplate = `Hello {name}, we regret to inform you that your payment for the \"{planName}\" subscription plan could not be verified. ❌\n\nReason: {reason}\n\nPlease re-submit a valid payment proof or try a different payment method. If you believe this is a mistake, please contact our support team.\n\n— Comrades360 Team`;
+
+        await sendCustomerNotificationAcrossChannels('subscriptionPaymentRejected', {
+          name: customerName,
+          planName,
+          reason: reason || 'Payment could not be verified.',
+          title: 'Payment Rejected ❌',
+          type: 'alert',
+          defaultTemplate
+        }, subscription.user);
+      }
+    } catch (notificationError) {
+      console.error('Failed to send rejection notification:', notificationError);
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Payment rejected and user notified',
+      reason
+    });
+  } catch (error) {
+    console.error('Error rejecting payment:', error);
+    res.status(500).json({ error: 'Failed to reject payment' });
+  }
+});
+
+// Send admin notification about new payment submission
+router.post('/payments/notify-admin', auth, async (req, res) => {
+  try {
+    const { orderId, subscriptionId, amount, paymentMethod, customerInfo } = req.body;
+
+    // Here you would implement your admin notification system
+    // This could be:
+    // 1. Real-time notification via WebSocket
+    // 2. Email to admin
+    // 3. SMS to admin
+    // 4. Push notification
+    // 5. Slack/Teams notification
+
+    console.log('🔔 New payment verification needed:', {
+      orderId,
+      subscriptionId,
+      amount,
+      paymentMethod,
+      customerInfo
+    });
+
+    // TODO: Implement your preferred admin notification method
+    // Examples:
+    // await sendEmailToAdmin(orderDetails);
+    // await sendSlackNotification(orderDetails);
+    // await createInAppNotification(orderDetails);
+
+    res.json({ success: true, message: 'Admin notified' });
+  } catch (error) {
+    console.error('Error notifying admin:', error);
+    res.status(500).json({ error: 'Failed to notify admin' });
+  }
+});
 
 module.exports = router;

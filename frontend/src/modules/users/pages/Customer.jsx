@@ -10,7 +10,7 @@ export default function Customer() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const customerBottomNavItems = [
-    { icon: '🏠', label: 'Home', path: '/customer', end: true },
+    { icon: '👤', label: 'My Account', path: '/customer', end: true },
     { icon: '📦', label: 'Orders', path: '/customer/orders' },
     { icon: '💰', label: 'Wallet', path: '/customer/wallet' },
     { icon: '🔄', label: 'Returns', path: '/customer/returns' },
@@ -25,7 +25,7 @@ export default function Customer() {
   const userRoles = user?.roles || [user?.role];
   const isAdmin = userRoles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
   const isVerified = isAdmin || (user?.emailVerified === true && user?.phoneVerified === true && user?.nationalIdStatus === 'approved');
-  
+
   // Handle Work with Us click with verification check
   const handleWorkWithUsClick = (e) => {
     // Also close sidebar on mobile
@@ -64,13 +64,24 @@ export default function Customer() {
     { to: "/customer/returns", label: "My Returns", icon: "🔄" },
     { to: "/customer/wishlist", label: "Wishlist", icon: "❤️" },
     { to: "/customer/wallet", label: "Wallet", icon: "💰" },
+    {
+      label: "Subscriptions",
+      icon: "🍽️",
+      isParent: true,
+      children: [
+        { to: "/customer/meal-plans", label: "Meal Plans", icon: "🍽️" },
+        { to: "/customer/my-subscription", label: "My Subscription", icon: "📋" },
+        { to: "/customer/subscriptions/create", label: "Create Meal Plan", icon: "➕" },
+      ]
+    },
     { to: "/customer/applications", label: "Applications", icon: "📄" },
-    { 
-      label: "Support Center", 
-      icon: "🎧", 
+    {
+      label: "Support Center",
+      icon: "🎧",
       isParent: true,
       children: [
         { to: "/customer/inquiries", label: "Support Inquiries", icon: "🎫" },
+        { to: "/customer/messages", label: "Contact Messages", icon: "✉️" },
         { to: "/customer/support", label: "Live Chat & Messages", icon: "💬" },
       ]
     },
@@ -81,7 +92,7 @@ export default function Customer() {
   return (
     <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden lg:h-screen bg-gray-100 relative min-h-screen">
       {/* Backdrop for mobile */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
@@ -93,7 +104,7 @@ export default function Customer() {
             <h2 className="text-xl font-extrabold text-blue-900 tracking-tight">My Account</h2>
             <p className="text-[10px] lg:text-xs text-gray-500 mt-1 uppercase tracking-widest font-bold">Personal Dashboard</p>
           </div>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(false)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-full text-gray-400"
           >
@@ -169,17 +180,6 @@ export default function Customer() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
-        {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between p-3 border-b border-gray-100 bg-white sticky top-14 z-30 shadow-sm">
-          <div className="flex items-center gap-3">
-
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse"></div>
-              <h2 className="text-sm font-black text-gray-800 tracking-tight uppercase">My Account</h2>
-            </div>
-          </div>
-        </header>
-
         {/* Dynamic Content */}
         <main className="flex-1 lg:h-full lg:overflow-y-auto bg-gray-50 relative custom-scrollbar pb-20 lg:pb-0">
           <div className="max-w-6xl mx-auto w-full p-2 lg:p-8 min-h-full">
@@ -191,9 +191,9 @@ export default function Customer() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <BottomNavbar 
-        items={customerBottomNavItems} 
-        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+      <BottomNavbar
+        items={customerBottomNavItems}
+        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)}
       />
       <style dangerouslySetInnerHTML={{
         __html: `

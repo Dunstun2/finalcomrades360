@@ -1,4 +1,4 @@
-const { User, Wallet, Transaction, PlatformConfig, sequelize } = require('../../../database/models.registry');
+const { User, Wallet, Transaction, PlatformConfig, sequelize, Subscription, Plan, PlanBenefit, Feature } = require('../../../database/models.registry');
 const { calculateWithdrawalFee } = require('../../../utils/walletHelpers');
 
 const getWallet = async (req, res) => {
@@ -182,6 +182,25 @@ const withdraw = async (req, res) => {
       metaLabels.nameKey = 'providerName';
     }
 
+    // 5.5 Check express_payout subscription benefit
+    let isExpress = false;
+    try {
+      const activeSubs = await Subscription.findAll({
+        where: { userId, status: ['Active', 'Trial'] },
+        include: [{ model: Plan, as: 'plan', include: [{ model: PlanBenefit, as: 'benefits', include: [{ model: Feature, as: 'feature' }] }] }]
+      });
+
+      for (const sub of activeSubs) {
+        const benefit = (sub.plan?.benefits || []).some(b => b.feature?.code === 'express_payout');
+        if (benefit) {
+          isExpress = true;
+          break;
+        }
+      }
+    } catch (subErr) {
+      console.warn('[Withdrawal] Subscription check failed (non-blocking):', subErr.message);
+    }
+
     // 6. Build Metadata
     const metaObj = {
       method: paymentMethod || 'mpesa',
@@ -191,6 +210,7 @@ const withdraw = async (req, res) => {
       requestedAmount: amount,
       withdrawalFee: fee,
       netAmountToPay: netAmount,
+      isExpress: isExpress,
       ...(paymentMeta || {})
     };
 
@@ -202,8 +222,8 @@ const withdraw = async (req, res) => {
       amount,
       type: "debit",
       status: "pending",
-      description: `Withdrawal Request (${paymentMethod === 'bank' ? 'Bank Transfer' : 'M-Pesa'})`,
-      note: `${userRole.charAt(0).toUpperCase() + userRole.slice(1).replace('_', ' ')} requested payout of KES ${amount}. Fee: KES ${fee}. Net to Pay: KES ${netAmount}.`,
+      description: `${isExpress ? '[EXPRESS] ' : ''}Withdrawal Request (${paymentMethod === 'bank' ? 'Bank Transfer' : 'M-Pesa'})`,
+      note: `${isExpress ? '⭐️ EXPRESS PAYOUT ⭐️ ' : ''}${userRole.charAt(0).toUpperCase() + userRole.slice(1).replace('_', ' ')} requested payout of KES ${amount}. Fee: KES ${fee}. Net to Pay: KES ${netAmount}.`,
       metadata: JSON.stringify(metaObj),
       fee: fee,
       walletType: walletType
