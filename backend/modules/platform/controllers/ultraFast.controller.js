@@ -408,7 +408,13 @@ const getHomepageBatchData = async (req, res) => {
             where: {
               status: { [Op.in]: ['active', 'scheduled'] },
               startAt: { [Op.lte]: now },
-              endAt: { [Op.gte]: now }
+              endAt: { [Op.gte]: now },
+              [Op.or]: [
+                { bannerLocation: 'homepage' },
+                { bannerLocation: 'all' },
+                { bannerLocation: null },
+                { bannerLocation: '' }
+              ]
             },
             order: [['startAt', 'ASC']]
             // No limit - fetch all active banners to allow rotation

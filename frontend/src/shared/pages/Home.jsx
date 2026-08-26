@@ -20,6 +20,7 @@ import { usePersistentFetch } from '@/hooks/usePersistentFetch';
 import useRealtimeSync from '@/hooks/useRealtimeSync';
 import { useToast } from '@/shared/components/use-toast';
 import SEO from '@/shared/components/SEO';
+import useHeroPromotions from '@/hooks/useHeroPromotions';
 
 // Main Home component with performance optimizations
 function Home({ isMarketingMode: propMarketingMode }) {
@@ -32,12 +33,13 @@ function Home({ isMarketingMode: propMarketingMode }) {
   const { categories: allCategories } = useCategories();
   const { toggleWishlist, isInWishlist: checkWishlist } = useWishlist();
   const { toast } = useToast();
+  const { heroPromotions: dynamicHeroPromotions, loading: heroLoading } = useHeroPromotions('homepage');
+  const [batchHeroPromotions, setBatchHeroPromotions] = useState([]);
 
   // Services and categories state
   const [services, setServices] = useState([]);
   const [categories, setCategories] = useState([]);
   const [fastFoodData, setFastFoodData] = useState([]);
-  const [heroPromotions, setHeroPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiStatus, setApiStatus] = useState('checking'); // checking, connected, failed
@@ -665,17 +667,17 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
     const initialFastFood = sortedFastFood.slice(0, Math.max(fastFoodLimit, 12));
     setFastFoodData(initialFastFood);
 
-    // 4. Set Hero Promotions — allow those with marketing-eligible products OR those with a custom banner image
+    // 4. Set Hero Promotions — allow those with marketing-eligible products OR custom banner image / video
     const validPromos = (heroPromotions || []).filter(p => {
       // If we're in marketing mode, the backend already filters p.products 
       // but we apply additional safety check here for consistency.
       const products = p.products || [];
       const hasValidItems = products.length > 0;
-      const isSystemBanner = p.isSystem || p.isDefault || (p.customImageUrl && p.customImageUrl.length > 0);
+      const isSystemBanner = p.isSystem || p.isDefault || (p.customImageUrl && p.customImageUrl.length > 0) || Boolean(p.videoUrl);
       
       return hasValidItems || isSystemBanner;
     });
-    setHeroPromotions(validPromos);
+    setBatchHeroPromotions(validPromos);
 
 
     // 5. Initialize Product Category Sections (with marketing filter if needed)
@@ -1031,8 +1033,9 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
       <HeroBanner
         apiStatus={apiStatus}
         onRetry={retryLoadProducts}
-        promotions={heroPromotions}
+        promotions={dynamicHeroPromotions && dynamicHeroPromotions.length > 0 ? dynamicHeroPromotions : batchHeroPromotions}
         onAddToCart={handleAddToCart}
+        loading={heroLoading && (!batchHeroPromotions || batchHeroPromotions.length === 0)}
       />
 
 

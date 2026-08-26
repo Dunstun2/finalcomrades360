@@ -185,6 +185,7 @@ export default function AdminVideoBanners() {
                           <div className="flex-grow space-y-1.5 min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5 mb-1">
                               <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded tracking-widest uppercase">ID: {x.id}</span>
+                              <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded uppercase">📍 {x.bannerLocation || 'homepage'}</span>
                               {x.isSystem && <span className="text-[10px] font-black bg-purple-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
                             </div>
 

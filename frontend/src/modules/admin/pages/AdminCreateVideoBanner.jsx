@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
-import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaVideo, FaPlay } from 'react-icons/fa'
+import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaVideo, FaPlay, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools } from 'react-icons/fa'
 import AdvancedScheduler from '@/modules/admin/components/AdvancedScheduler'
 
 const formatKES = (n) => `KES ${Number(n || 0).toLocaleString()}`
@@ -37,6 +37,8 @@ export default function AdminCreateVideoBanner() {
     subtitle: '',
     customImageUrl: '',
     targetUrl: '',
+    ctaText: '',
+    eyebrow: '',
     type: 'system',
     promoType: 'product',
     fastFoodIds: [],
@@ -55,15 +57,14 @@ export default function AdminCreateVideoBanner() {
     timezone: 'Africa/Nairobi',
     dateTimeMode: 'same',
     dateSpecificTimes: {},
-    trustPoints: [
-      { icon: '🚀', text: 'Fast Delivery' },
-      { icon: '✅', text: 'Verified' },
-      { icon: '🎓', text: 'Student Choice' }
-    ]
+    trustPoints: [],
+    bannerLocation: 'homepage'
   })
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadingVideo, setUploadingVideo] = useState(false)
+  const [newTrustIcon, setNewTrustIcon] = useState('📍')
+  const [newTrustText, setNewTrustText] = useState('')
 
   const [rates, setRates] = useState({ perDay: 500, perProduct: 100 })
   useEffect(() => {
@@ -95,7 +96,9 @@ export default function AdminCreateVideoBanner() {
             title: banner.title || '',
             subtitle: banner.subtitle || '',
             customImageUrl: banner.customImageUrl || '',
-            targetUrl: banner.targetUrl || '',
+            targetUrl: banner.targetUrl || banner.link || '',
+            ctaText: banner.ctaText || banner.buttonText || '',
+            eyebrow: banner.eyebrow || banner.promoBadge || banner.badge || '',
             type: banner.isSystem ? 'system' : 'seller',
             promoType: banner.promoType || 'product',
             fastFoodIds: banner.fastFoodIds || [],
@@ -112,11 +115,8 @@ export default function AdminCreateVideoBanner() {
             timezone: banner.timezone || 'Africa/Nairobi',
             dateTimeMode: banner.dateTimeMode || 'same',
             dateSpecificTimes: banner.dateSpecificTimes || {},
-            trustPoints: banner.trustPoints || [
-              { icon: '🚀', text: 'Fast Delivery' },
-              { icon: '✅', text: 'Verified' },
-              { icon: '🎓', text: 'Student Choice' }
-            ]
+            trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints : [],
+            bannerLocation: banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
           }))
 
           // If it's a seller banner, load sellers
@@ -314,6 +314,11 @@ export default function AdminCreateVideoBanner() {
         subtitle: form.subtitle,
         customImageUrl: form.customImageUrl,
         targetUrl: form.targetUrl,
+        link: form.targetUrl,
+        ctaText: form.ctaText,
+        buttonText: form.ctaText,
+        eyebrow: form.eyebrow,
+        promoBadge: form.eyebrow,
         isDefault: form.isDefault,
         isSystem: form.type === 'system',
         promoType: form.promoType,
@@ -334,7 +339,9 @@ export default function AdminCreateVideoBanner() {
         timeSlotEnd: form.timeSlotEnd,
         timezone: form.timezone,
         dateTimeMode: form.dateTimeMode,
-        dateSpecificTimes: form.dateSpecificTimes
+        dateSpecificTimes: form.dateSpecificTimes,
+        bannerLocation: form.bannerLocation || 'homepage',
+        status: form.status || 'active'
       }
       if (form.startAt) payload.startAt = new Date(form.startAt)
 
@@ -408,13 +415,57 @@ export default function AdminCreateVideoBanner() {
             </div>
           )}
 
+          {/* Banner Placement / Page Location */}
+          <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                <FaGlobe className="text-purple-600" /> Target Placement / Page Location
+              </label>
+              <span className="text-xs text-purple-700 font-bold bg-purple-100 px-2.5 py-0.5 rounded-full">
+                Active on: {form.bannerLocation === 'all' ? 'All Platform Pages' : form.bannerLocation.toUpperCase()}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Select which page header this hero video banner should appear on:
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {[
+                { value: 'homepage', label: 'Homepage', icon: <FaHome />, desc: 'Main Landing Hero', color: 'blue' },
+                { value: 'fastfood', label: 'Fast Food', icon: <FaUtensils />, desc: 'Fast Food Section', color: 'amber' },
+                { value: 'products', label: 'Products', icon: <FaShoppingBag />, desc: 'Products Catalog', color: 'emerald' },
+                { value: 'services', label: 'Services', icon: <FaTools />, desc: 'Campus Services', color: 'indigo' },
+                { value: 'all', label: 'All Pages', icon: <FaGlobe />, desc: 'Global Hero Banner', color: 'purple' },
+              ].map(loc => (
+                <button
+                  type="button"
+                  key={loc.value}
+                  onClick={() => setForm(p => ({ ...p, bannerLocation: loc.value }))}
+                  className={`flex flex-col items-center text-center p-3.5 rounded-xl border-2 transition-all ${
+                    form.bannerLocation === loc.value
+                      ? 'border-purple-600 bg-purple-50/80 shadow-md ring-2 ring-purple-400/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-2 ${
+                    form.bannerLocation === loc.value ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {loc.icon}
+                  </div>
+                  <span className="font-black text-xs text-slate-900">{loc.label}</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">{loc.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Video Preview - Only show in edit mode */}
           {isEditMode && form.videoUrl && (
             <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-6 rounded-2xl border-2 border-purple-200">
               <label className="block text-xs font-black text-purple-600 mb-4 uppercase tracking-widest flex items-center gap-2">
                 <FaPlay /> Current Video Preview
               </label>
-              <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-2xl" style={{ paddingBottom: '56.25%' }}>
+              <div className="relative w-full bg-white p-2.5 rounded-2xl border-2 border-slate-900/90 shadow-2xl overflow-hidden">
+                <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-inner" style={{ paddingBottom: '56.25%' }}>
                 {(() => {
                   const url = form.videoUrl;
 
@@ -518,7 +569,7 @@ export default function AdminCreateVideoBanner() {
                   return (
                     <video
                       src={url}
-                      className="absolute inset-0 w-full h-full object-cover"
+                      className="absolute inset-0 w-full h-full object-contain bg-black"
                       controls
                       autoPlay={form.videoAutoplay}
                       loop={form.videoLoop}
@@ -527,7 +578,8 @@ export default function AdminCreateVideoBanner() {
                   );
                 })()}
               </div>
-              <div className="mt-3 flex items-center justify-between text-xs">
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs">
                 <div className="flex gap-2">
                   <span className={`px-2 py-1 rounded ${form.videoAutoplay ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                     {form.videoAutoplay ? '✓ Autoplay' : '✗ Autoplay'}
@@ -674,6 +726,107 @@ export default function AdminCreateVideoBanner() {
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Video Description</label>
                   <textarea className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 h-20 resize-none" placeholder="Short description of the video banner..." value={form.subtitle} onChange={e => setForm(p => ({ ...p, subtitle: e.target.value }))} />
+                </div>
+              </div>
+
+              {/* Custom Banner Buttons, Eyebrow & Badges */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+                <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                  <FaUserTag className="text-purple-600" /> Custom Buttons, Eyebrow & Badges (Optional)
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Eyebrow Pill Badge</label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-purple-500 bg-white"
+                      placeholder="e.g. 🎬 WATCH DEMO or 🔥 EXCLUSIVE DEAL"
+                      value={form.eyebrow}
+                      onChange={e => setForm(p => ({ ...p, eyebrow: e.target.value }))}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Leave empty to hide top badge</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">CTA Button Text</label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-purple-500 bg-white"
+                      placeholder="e.g. Order Now, Explore Options, Learn More"
+                      value={form.ctaText}
+                      onChange={e => setForm(p => ({ ...p, ctaText: e.target.value }))}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Text displayed inside action button</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
+                    <FaLink className="text-gray-400" /> CTA Target Link URL
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-purple-500 bg-white"
+                    placeholder="e.g. /fastfood, /products, /services or https://..."
+                    value={form.targetUrl}
+                    onChange={e => setForm(p => ({ ...p, targetUrl: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Destination page URL opened when CTA button is clicked</p>
+                </div>
+
+                {/* Custom Trust Points */}
+                <div className="pt-2 border-t border-slate-200 space-y-2">
+                  <label className="block text-xs font-bold text-gray-600">Custom Trust Badges</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {form.trustPoints.map((tp, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border text-xs font-semibold shadow-sm">
+                        <span>{tp.icon}</span>
+                        <span>{tp.text || tp}</span>
+                        <button
+                          type="button"
+                          onClick={() => setForm(p => ({ ...p, trustPoints: p.trustPoints.filter((_, i) => i !== idx) }))}
+                          className="text-red-500 hover:text-red-700 font-bold ml-1"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    {form.trustPoints.length === 0 && (
+                      <span className="text-xs text-gray-400 italic">No custom badges. Badges section will be hidden.</span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="w-16 p-2 border rounded-lg text-center text-sm bg-white"
+                      placeholder="Icon"
+                      value={newTrustIcon}
+                      onChange={e => setNewTrustIcon(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      className="flex-grow p-2 border rounded-lg text-sm bg-white"
+                      placeholder="Badge label e.g. Fast Delivery, Verified"
+                      value={newTrustText}
+                      onChange={e => setNewTrustText(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newTrustText.trim()) return
+                        setForm(p => ({
+                          ...p,
+                          trustPoints: [...p.trustPoints, { icon: newTrustIcon || '📍', text: newTrustText.trim() }]
+                        }))
+                        setNewTrustText('')
+                      }}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs"
+                    >
+                      + Add
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

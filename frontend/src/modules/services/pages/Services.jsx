@@ -27,7 +27,7 @@ const Services = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const observerSentinel = useRef(null);
-  const { heroPromotions } = useHeroPromotions();
+  const { heroPromotions } = useHeroPromotions('services');
 
   const servicesPerPage = 12;
 

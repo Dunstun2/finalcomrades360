@@ -5,6 +5,7 @@ const PUBLIC_KEYS = [
     'platform_settings',
     'maintenance_settings',
     'seo_settings',
+    'seo_pages',
     'finance_settings',
     'logistic_settings',
     'delivery_route_fees',

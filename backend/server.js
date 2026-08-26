@@ -65,11 +65,20 @@ app.use(compression());
 // Rate Limiting — protect against brute-force and abuse
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // 300 requests per 15min per IP for general routes
+  max: 1000, // Increased from 300 to 1000 requests per 15min per IP (modern SPAs make many parallel requests)
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
-  validate: { trustProxy: false } // Acknowledge proxy trust to stop validation warnings
+  validate: { trustProxy: false }, // Acknowledge proxy trust to stop validation warnings
+  // Skip rate limiting for config endpoints that are safe and needed for app initialization
+  skip: (req) => {
+    const configEndpoints = [
+      '/api/platform/config/',
+      '/api/categories',
+      '/api/auth/me'
+    ];
+    return configEndpoints.some(endpoint => req.path.startsWith(endpoint));
+  }
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -157,7 +166,6 @@ function initializeRoutes(app) {
   app.use('/api/platform', require('./modules/platform/routes'));
   app.use('/api/products', require('./modules/products/routes'));
   app.use('/api/role-management', require('./modules/users/routes/roles.routes'));
-  app.use('/api/hero-promotions', require('./modules/admin/routes/heroPromotion.routes'));
   app.use('/api/admin/categories', require('./modules/admin/routes/category.routes'));
   app.use('/api/orders', require('./modules/orders/routes'));
   app.use('/api/returns', require('./modules/orders/routes/return.routes'));

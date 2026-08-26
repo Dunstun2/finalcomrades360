@@ -580,6 +580,7 @@ const AppContent = () => {
                   <Route path="finance/learning" element={<LearningResources />} />
                   <Route path="marketing/hero-promotions" element={<AdminHeroPromotions />} />
                   <Route path="marketing/hero-promotions/create" element={<AdminCreateHeroPromotion />} />
+                  <Route path="marketing/hero-promotions/edit/:id" element={<AdminCreateHeroPromotion />} />
                   <Route path="marketing/video-banners" element={<AdminVideoBanners />} />
                   <Route path="marketing/video-banners/create" element={<AdminCreateVideoBanner />} />
                   <Route path="marketing/video-banners/edit/:id" element={<AdminCreateVideoBanner />} />

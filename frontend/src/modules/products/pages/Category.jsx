@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWishlist } from '@/contexts/WishlistContext';
 import HomeProductCard from '@/modules/products/components/HomeProductCard';
 import HeroBanner from '@/modules/marketing/components/HeroBanner';
+import useHeroPromotions from '@/hooks/useHeroPromotions';
 
 export default function Category() {
   const { id } = useParams(); // App.jsx route uses :id for Category page
@@ -16,6 +17,7 @@ export default function Category() {
   const { user } = useAuth();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const navigate = useNavigate();
+  const { heroPromotions, loading: heroLoading } = useHeroPromotions('products');
 
   useEffect(() => {
     let alive = true;
@@ -91,6 +93,9 @@ export default function Category() {
         <HeroBanner
           title="Category Products"
           subtitle={`Discover quality items available in this section`}
+          promotions={heroPromotions}
+          loading={heroLoading}
+          onAddToCart={handleAddToCart}
         />
       </div>
       <div className="mt-8"></div>

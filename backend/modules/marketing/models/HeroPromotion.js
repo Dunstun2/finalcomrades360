@@ -23,6 +23,7 @@ module.exports = (sequelize, DataTypes) => {
       set(v) { this.setDataValue('fastFoodIds', JSON.stringify(v || [])) }
     },
     promoType: { type: DataTypes.STRING, allowNull: false, defaultValue: 'product' }, // 'product' or 'fastfood'
+    bannerLocation: { type: DataTypes.STRING, allowNull: false, defaultValue: 'homepage' }, // 'homepage', 'products', 'fastfood', 'services', 'all'
     status: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending_payment' }, // pending_payment, under_review, approved, scheduled, active, rejected, cancelled, expired
     paymentStatus: { type: DataTypes.STRING, allowNull: false, defaultValue: 'unpaid' }, // unpaid, paid, refunded
     amount: { type: DataTypes.REAL, allowNull: false, defaultValue: 0 },
@@ -37,6 +38,8 @@ module.exports = (sequelize, DataTypes) => {
     subtitle: { type: DataTypes.STRING, allowNull: true },
     customImageUrl: { type: DataTypes.TEXT, allowNull: true },
     targetUrl: { type: DataTypes.TEXT, allowNull: true },
+    ctaText: { type: DataTypes.STRING, allowNull: true },
+    eyebrow: { type: DataTypes.STRING, allowNull: true },
     isSystem: { type: DataTypes.BOOLEAN, defaultValue: false },
     isDefault: { type: DataTypes.BOOLEAN, defaultValue: false },
     priority: { type: DataTypes.INTEGER, defaultValue: 0 },

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '@/shared/services/api';
 import useRealtimeSync from '@/hooks/useRealtimeSync';
+import { loadPlatformConfigs, invalidateConfigCache } from '@/utils/configLoader';
 
 const PlatformContext = createContext();
 
@@ -83,41 +84,25 @@ export const PlatformProvider = ({ children }) => {
 
     const loadSettings = useCallback(async () => {
         try {
-            const keys = [
-                'platform_settings', 
-                'maintenance_settings', 
-                    'seo_settings',
-                    'seo_pages',
-                'finance_settings',
-                'logistic_settings'
-            ];
-
-            const results = await Promise.all(
-                keys.map(key => api.get(`/platform/config/${key}`).catch(() => ({ data: { success: false } })))
-            );
+            // Use the batched config loader to reduce parallel requests
+            const config = await loadPlatformConfigs();
 
             setSettings(prev => {
-                const next = { ...prev };
-                keys.forEach((key, index) => {
-                    const res = results[index];
-                    if (res.data?.success && res.data?.data) {
-                        const stateKey = key === 'platform_settings' ? 'platform' 
-                                       : key === 'maintenance_settings' ? 'maintenance'
-                                       : key === 'seo_settings' ? 'seo'
-                                       : key === 'seo_pages' ? 'seo_pages'
-                                       : key === 'finance_settings' ? 'finance'
-                                       : key === 'logistic_settings' ? 'logistic'
-                                       : key;
-                        
-                        const incomingData = typeof res.data.data === 'string' ? JSON.parse(res.data.data) : res.data.data;
-                        next[stateKey] = { ...prev[stateKey], ...incomingData };
-                        
-                        // Sync maintenance to localStorage for hard-refresh fallback
-                        if (stateKey === 'maintenance') {
-                            localStorage.setItem('maintenance_settings', JSON.stringify(incomingData));
-                        }
-                    }
-                });
+                const next = {
+                    ...prev,
+                    platform: { ...prev.platform, ...config.platform },
+                    maintenance: { ...prev.maintenance, ...config.maintenance },
+                    seo: { ...prev.seo, ...config.seo },
+                    seo_pages: { ...prev.seo_pages, ...config.seo_pages },
+                    finance: { ...prev.finance, ...config.finance },
+                    logistic: { ...prev.logistic, ...config.logistic }
+                };
+
+                // Sync maintenance to localStorage for hard-refresh fallback
+                if (config.maintenance) {
+                    localStorage.setItem('maintenance_settings', JSON.stringify(config.maintenance));
+                }
+
                 // Persist to localStorage for instant load on next visit
                 try {
                     localStorage.setItem('platform_settings_cache', JSON.stringify(next));
@@ -154,22 +139,22 @@ export const PlatformProvider = ({ children }) => {
     // Handle real-time updates from WebSockets
     const handleRealtimeUpdate = useCallback((payload) => {
         if (!payload || !payload.key) return;
-        
+
         const key = payload.key;
         const value = payload.settings;
 
         setSettings(prev => {
-            const stateKey = key === 'platform_settings' ? 'platform' 
-                           : key === 'maintenance_settings' ? 'maintenance'
-                           : key === 'seo_settings' ? 'seo'
-                           : key === 'finance_settings' ? 'finance'
-                           : key === 'logistic_settings' ? 'logistic'
-                           : null;
-            
+            const stateKey = key === 'platform_settings' ? 'platform'
+                : key === 'maintenance_settings' ? 'maintenance'
+                    : key === 'seo_settings' ? 'seo'
+                        : key === 'finance_settings' ? 'finance'
+                            : key === 'logistic_settings' ? 'logistic'
+                                : null;
+
             if (!stateKey) return prev;
 
             console.log(`[PlatformContext] Real-time update for ${stateKey}:`, value);
-            
+
             if (stateKey === 'maintenance') {
                 localStorage.setItem('maintenance_settings', JSON.stringify(value));
                 // Dispatch legacy event for components still using the old event listener

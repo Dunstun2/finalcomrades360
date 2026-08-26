@@ -48,7 +48,7 @@ const Products = () => {
   const [filtering, setFiltering] = useState(false);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const observerSentinel = useRef(null);
-  const { heroPromotions } = useHeroPromotions();
+  const { heroPromotions } = useHeroPromotions('products');
 
   const productsPerPage = 24;
 

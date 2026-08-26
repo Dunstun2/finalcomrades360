@@ -272,30 +272,70 @@ const myHeroPromotions = async (req, res) => {
 const listActiveHeroPromotions = async (req, res) => {
   try {
     const now = new Date()
+    const { location, bannerLocation } = req.query || {}
+    const loc = (bannerLocation || location || '').toLowerCase().trim()
+
+    // Build location where clause
+    const buildLocationFilter = () => {
+      if (!loc) return {}
+      if (loc === 'homepage') {
+        return {
+          [Op.or]: [
+            { bannerLocation: 'homepage' },
+            { bannerLocation: 'all' },
+            { bannerLocation: null },
+            { bannerLocation: '' }
+          ]
+        }
+      }
+      return {
+        [Op.or]: [
+          { bannerLocation: loc },
+          { bannerLocation: 'all' }
+        ]
+      }
+    }
+
+    const where = {
+      status: 'active',
+      isDefault: false,
+      ...buildLocationFilter()
+    }
 
     // Get all potentially active promotions
     let items = await HeroPromotion.findAll({
-      where: {
-        status: 'active',
-        isDefault: false
-      },
+      where,
       order: [['priority', 'DESC'], ['startAt', 'ASC']]
     })
 
     // Filter using advanced schedule checker
     items = items.filter(item => shouldShowPromotion(item, now))
 
-    // Fallback: If no active promotions, fetch default ones
+    // Fallback: If no active promotions for this location, fetch default ones
     if (items.length === 0) {
+      const defaultWhere = {
+        status: 'active',
+        isDefault: true,
+        ...buildLocationFilter()
+      }
       items = await HeroPromotion.findAll({
-        where: {
-          status: 'active',
-          isDefault: true
-        },
+        where: defaultWhere,
         order: [['priority', 'DESC'], ['createdAt', 'DESC']]
       })
       // Apply schedule filter to defaults too
       items = items.filter(item => shouldShowPromotion(item, now))
+
+      // If still empty for this specific page, fallback to general defaults
+      if (items.length === 0 && loc) {
+        items = await HeroPromotion.findAll({
+          where: {
+            status: 'active',
+            isDefault: true
+          },
+          order: [['priority', 'DESC'], ['createdAt', 'DESC']]
+        })
+        items = items.filter(item => shouldShowPromotion(item, now))
+      }
     }
 
     // hydrate with item details minimal

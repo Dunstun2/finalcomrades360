@@ -148,10 +148,12 @@ export default function MarketingNavbar() {
 
                     {/* Left: Branding & Categories */}
                     <div className="flex items-center space-x-1 sm:space-x-4">
-                        {/* Mobile Hamburger */}
+                        {/* Hamburger Button (All Screen Sizes) */}
                         <button 
                             onClick={() => setIsDrawerOpen(true)}
-                            className="p-2 -ml-2 text-blue-100 hover:text-white sm:hidden"
+                            className="p-2 -ml-2 text-blue-100 hover:text-white transition-colors"
+                            aria-label="Open menu"
+                            title="Open menu"
                         >
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
@@ -335,14 +337,14 @@ export default function MarketingNavbar() {
                 </div>
             )}
 
-            {/* Mobile Sidebar Drawer Overlay */}
+            {/* Sidebar Drawer Overlay */}
             {isDrawerOpen && (
                 <>
                     <div 
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] sm:hidden transition-opacity duration-300"
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] transition-opacity duration-300"
                         onClick={() => setIsDrawerOpen(false)}
                     />
-                    <div className="fixed inset-y-0 left-0 w-[280px] bg-white text-gray-900 shadow-2xl z-[70] sm:hidden transform transition-transform duration-300 p-0 flex flex-col">
+                    <div className="fixed inset-y-0 left-0 w-[280px] max-w-[85vw] bg-white text-gray-900 shadow-2xl z-[70] transform transition-transform duration-300 p-0 flex flex-col">
                         <div className="p-6 bg-blue-900 text-white flex justify-between items-center">
                             <div>
                                 <h3 className="text-xl font-bold">Marketing</h3>

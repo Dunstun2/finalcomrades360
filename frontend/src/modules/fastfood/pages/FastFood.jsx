@@ -107,11 +107,11 @@ export default function FastFood() {
                     console.warn('Could not load fast_food_hero platform config:', e.message);
                 }
 
-                // 2. Always load hero promotions from the API (promoType === 'fastfood')
+                // 2. Always load hero promotions from the API (promoType === 'fastfood' or bannerLocation === 'fastfood')
                 try {
-                    const promoRes = await api.get('/hero-promotions/active');
+                    const promoRes = await api.get('/hero-promotions/active', { params: { location: 'fastfood' } });
                     const promos = Array.isArray(promoRes.data?.items) ? promoRes.data.items : (Array.isArray(promoRes.data) ? promoRes.data : []);
-                    const fastFoodPromos = promos.filter(p => p.promoType === 'fastfood' && (p.customImageUrl || (Array.isArray(p.fastfoods) && p.fastfoods.length > 0)));
+                    const fastFoodPromos = promos.filter(p => (p.promoType === 'fastfood' || p.bannerLocation === 'fastfood') && (p.customImageUrl || p.videoUrl || (Array.isArray(p.fastfoods) && p.fastfoods.length > 0)));
                     
                     fastFoodPromos.forEach(p => {
                         const fastFoodItem = Array.isArray(p.fastfoods) && p.fastfoods.length > 0 ? p.fastfoods[0] : null;
@@ -122,10 +122,13 @@ export default function FastFood() {
                                 id: campId,
                                 active: true,
                                 priority: p.priority || 10,
-                                type: p.customImageUrl ? 'manual_image_only' : 'featured_item',
+                                type: p.videoUrl ? 'video' : (p.customImageUrl ? 'manual_image_only' : 'featured_item'),
                                 title: p.title || '',
                                 subtitle: p.subtitle || '',
                                 image: p.customImageUrl || fastFoodItem?.mainImage,
+                                videoUrl: p.videoUrl || null,
+                                videoType: p.videoType || 'background',
+                                videoAutoplay: p.videoAutoplay,
                                 itemId: fastFoodItem?.id || 'none',
                                 trustPoints: p.trustPoints || undefined
                             });

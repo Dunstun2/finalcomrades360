@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
-import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle } from 'react-icons/fa'
+import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools } from 'react-icons/fa'
+import AdvancedScheduler from '@/modules/admin/components/AdvancedScheduler'
 
 const formatKES = (n) => `KES ${Number(n || 0).toLocaleString()}`
 
@@ -17,8 +18,12 @@ const calcEndDate = (startAt, durationDays) => {
 
 export default function AdminCreateHeroPromotion() {
   const navigate = useNavigate()
+  const { id } = useParams()
+  const isEditMode = Boolean(id)
+
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [loadingBanner, setLoadingBanner] = useState(false)
 
   const [form, setForm] = useState({
     sellerId: '',
@@ -32,15 +37,29 @@ export default function AdminCreateHeroPromotion() {
     subtitle: '',
     customImageUrl: '',
     targetUrl: '',
+    ctaText: '',
+    eyebrow: '',
     type: 'system',
     promoType: 'product',
     fastFoodIds: [],
+    bannerLocation: 'homepage',
+    // Advanced scheduling
+    scheduleType: 'continuous',
+    recurringDays: [],
+    specificDates: [],
+    timeSlotStart: '',
+    timeSlotEnd: '',
+    timezone: 'Africa/Nairobi',
+    dateTimeMode: 'same',
+    dateSpecificTimes: {},
     trustPoints: [
       { icon: '🚀', text: 'Fast Delivery' },
       { icon: '✅', text: 'Verified' },
       { icon: '🎓', text: 'Student Choice' }
     ]
   })
+  const [newTrustIcon, setNewTrustIcon] = useState('📍')
+  const [newTrustText, setNewTrustText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
 
@@ -51,6 +70,62 @@ export default function AdminCreateHeroPromotion() {
       if (r.data) setRates({ perDay: r.data.perDay || 500, perProduct: r.data.perProduct || 100 })
     }).catch(() => { })
   }, [])
+
+  // Load existing promotion data in edit mode
+  useEffect(() => {
+    if (!isEditMode || !id) return
+
+    setLoadingBanner(true)
+    api.get(`/admin/hero-promotions/applications`)
+      .then(r => {
+        const allItems = r.data?.items || []
+        const banner = allItems.find(item => item.id === Number(id))
+
+        if (banner) {
+          setForm(prev => ({
+            ...prev,
+            sellerId: banner.sellerId || '',
+            productIds: banner.productIds || [],
+            durationDays: String(banner.durationDays || 7),
+            slotsCount: String(banner.slotsCount || 1),
+            startAt: banner.startAt ? new Date(banner.startAt).toISOString().slice(0, 16) : '',
+            mode: banner.free ? 'free' : 'charged',
+            isDefault: banner.isDefault || false,
+            title: banner.title || '',
+            subtitle: banner.subtitle || '',
+            customImageUrl: banner.customImageUrl || '',
+            targetUrl: banner.targetUrl || banner.link || '',
+            ctaText: banner.ctaText || banner.buttonText || '',
+            eyebrow: banner.eyebrow || banner.promoBadge || banner.badge || '',
+            type: banner.isSystem ? 'system' : 'seller',
+            promoType: banner.promoType || 'product',
+            fastFoodIds: banner.fastFoodIds || [],
+            scheduleType: banner.scheduleType || 'continuous',
+            recurringDays: banner.recurringDays || [],
+            specificDates: banner.specificDates || [],
+            timeSlotStart: banner.timeSlotStart || '',
+            timeSlotEnd: banner.timeSlotEnd || '',
+            timezone: banner.timezone || 'Africa/Nairobi',
+            dateTimeMode: banner.dateTimeMode || 'same',
+            dateSpecificTimes: banner.dateSpecificTimes || {},
+            trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints : [],
+            bannerLocation: banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
+          }))
+
+          if (!banner.isSystem && banner.sellerId) {
+            loadSellers()
+          }
+        } else {
+          setError('Promotion not found')
+        }
+      })
+      .catch(e => {
+        setError(e?.response?.data?.error || 'Failed to load promotion data')
+      })
+      .finally(() => {
+        setLoadingBanner(false)
+      })
+  }, [isEditMode, id, loadSellers])
 
   // ── Lazy: sellers only loaded when switching to Seller type ──
   const [sellers, setSellers] = useState([])
@@ -200,20 +275,40 @@ export default function AdminCreateHeroPromotion() {
         subtitle: form.subtitle,
         customImageUrl: form.customImageUrl,
         targetUrl: form.targetUrl,
+        link: form.targetUrl,
+        ctaText: form.ctaText,
+        buttonText: form.ctaText,
+        eyebrow: form.eyebrow,
+        promoBadge: form.eyebrow,
         isDefault: form.isDefault,
         isSystem: form.type === 'system',
         promoType: form.promoType,
         fastFoodIds: form.fastFoodIds,
+        bannerLocation: form.bannerLocation || 'homepage',
         free: form.mode === 'free' || form.type === 'system',
-        trustPoints: form.trustPoints
+        trustPoints: form.trustPoints,
+        // Advanced scheduling
+        scheduleType: form.scheduleType,
+        recurringDays: form.recurringDays,
+        specificDates: form.specificDates,
+        timeSlotStart: form.timeSlotStart,
+        timeSlotEnd: form.timeSlotEnd,
+        timezone: form.timezone,
+        dateTimeMode: form.dateTimeMode,
+        dateSpecificTimes: form.dateSpecificTimes
       }
       if (form.startAt) payload.startAt = new Date(form.startAt)
 
-      await api.post('/admin/hero-promotions/manage', payload)
-      setSuccess('Hero promotion created!')
+      if (isEditMode) {
+        await api.patch(`/admin/hero-promotions/manage/${id}`, payload)
+        setSuccess('Hero promotion updated successfully!')
+      } else {
+        await api.post('/admin/hero-promotions/manage', payload)
+        setSuccess('Hero promotion created successfully!')
+      }
       setTimeout(() => navigate('/dashboard/marketing/hero-promotions'), 700)
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to create promotion')
+      setError(e.response?.data?.error || `Failed to ${isEditMode ? 'update' : 'create'} promotion`)
     } finally {
       setSubmitting(false)
     }
@@ -224,16 +319,25 @@ export default function AdminCreateHeroPromotion() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8 pb-4 border-b">
         <div>
-          <h2 className="text-2xl font-black text-gray-900">Create Hero Promotion</h2>
-          <p className="text-gray-500 text-sm">Design a new feature banner for the marketplace</p>
+          <h2 className="text-2xl font-black text-gray-900">{isEditMode ? 'Edit Hero Promotion' : 'Create Hero Promotion'}</h2>
+          <p className="text-gray-500 text-sm">{isEditMode ? 'Update your banner details and settings' : 'Design a new feature banner for the marketplace'}</p>
         </div>
         <button className="px-4 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 font-bold transition-colors" onClick={() => navigate('/dashboard/marketing/hero-promotions')}>
           ← Back
         </button>
       </div>
 
+      {loadingBanner && (
+        <div className="mb-6 flex items-center justify-center p-12">
+          <FaSpinner className="animate-spin text-emerald-600 text-3xl" />
+          <span className="ml-3 text-gray-600 font-medium">Loading promotion data...</span>
+        </div>
+      )}
+
       {error && <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm font-bold flex items-center gap-2">⚠️ {error}</div>}
       {success && <div className="mb-6 p-4 rounded-xl bg-green-50 border border-green-100 text-green-700 text-sm font-bold flex items-center gap-2"><FaCheckCircle /> {success}</div>}
+
+      {!loadingBanner && (
 
       <form className="space-y-8" onSubmit={submit}>
 
@@ -255,6 +359,49 @@ export default function AdminCreateHeroPromotion() {
                   </div>
                 </div>
               </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Banner Placement / Page Location */}
+        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+              <FaGlobe className="text-purple-600" /> Target Placement / Page Location
+            </label>
+            <span className="text-xs text-purple-700 font-bold bg-purple-100 px-2.5 py-0.5 rounded-full">
+              Active on: {form.bannerLocation === 'all' ? 'All Platform Pages' : form.bannerLocation.toUpperCase()}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">
+            Select which page header this hero banner should appear on:
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {[
+              { value: 'homepage', label: 'Homepage', icon: <FaHome />, desc: 'Main Landing Hero', color: 'blue' },
+              { value: 'fastfood', label: 'Fast Food', icon: <FaUtensils />, desc: 'Fast Food Section', color: 'amber' },
+              { value: 'products', label: 'Products', icon: <FaShoppingBag />, desc: 'Products Catalog', color: 'emerald' },
+              { value: 'services', label: 'Services', icon: <FaTools />, desc: 'Campus Services', color: 'indigo' },
+              { value: 'all', label: 'All Pages', icon: <FaGlobe />, desc: 'Global Hero Banner', color: 'purple' },
+            ].map(loc => (
+              <button
+                type="button"
+                key={loc.value}
+                onClick={() => setForm(p => ({ ...p, bannerLocation: loc.value }))}
+                className={`flex flex-col items-center text-center p-3.5 rounded-xl border-2 transition-all ${
+                  form.bannerLocation === loc.value
+                    ? 'border-purple-600 bg-purple-50/80 shadow-md ring-2 ring-purple-400/20'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-2 ${
+                  form.bannerLocation === loc.value ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {loc.icon}
+                </div>
+                <span className="font-black text-xs text-slate-900">{loc.label}</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">{loc.desc}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -329,57 +476,105 @@ export default function AdminCreateHeroPromotion() {
                 <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Subheading</label>
                 <textarea className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 h-20 resize-none" placeholder="Short description of this promotion..." value={form.subtitle} onChange={e => setForm(p => ({ ...p, subtitle: e.target.value }))} />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase flex gap-1 items-center"><FaLink /> Target URL <span className="font-normal normal-case text-[10px] text-gray-400 ml-1">(optional — where does clicking go?)</span></label>
-                <input type="text" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. /products or https://..." value={form.targetUrl} onChange={e => setForm(p => ({ ...p, targetUrl: e.target.value }))} />
+            </div>
+
+            {/* Custom Buttons, Eyebrow & Badges */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+              <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <FaUserTag className="text-emerald-600" /> Custom Buttons, Eyebrow & Badges (Optional)
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Eyebrow Pill Badge</label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                    placeholder="e.g. 🔥 EXCLUSIVE DEAL or ✨ NEW LAUNCH"
+                    value={form.eyebrow}
+                    onChange={e => setForm(p => ({ ...p, eyebrow: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Leave empty to hide top badge</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">CTA Button Text</label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                    placeholder="e.g. Shop Now, Explore Options, Learn More"
+                    value={form.ctaText}
+                    onChange={e => setForm(p => ({ ...p, ctaText: e.target.value }))}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Text displayed inside action button</p>
+                </div>
               </div>
 
-              {/* Trust Markers Section */}
-              <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-black text-gray-500 uppercase tracking-widest">Trust & Speed Markers</label>
-                  <button 
-                    type="button"
-                    className="text-xs font-black text-emerald-600 hover:underline"
-                    onClick={() => setForm(p => ({ ...p, trustPoints: [...p.trustPoints, { icon: '✨', text: 'New Marker' }] }))}
-                  >
-                    + Add Marker
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                  {(form.trustPoints || []).map((tp, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
-                      <input 
-                        className="w-10 text-center border-b outline-none focus:border-emerald-500"
-                        value={tp.icon} 
-                        onChange={e => {
-                          const next = [...form.trustPoints];
-                          next[idx].icon = e.target.value;
-                          setForm(p => ({ ...p, trustPoints: next }));
-                        }}
-                      />
-                      <input 
-                        className="flex-1 text-xs font-medium outline-none border-b focus:border-emerald-500"
-                        placeholder="Marker text..."
-                        value={tp.text} 
-                        onChange={e => {
-                          const next = [...form.trustPoints];
-                          next[idx].text = e.target.value;
-                          setForm(p => ({ ...p, trustPoints: next }));
-                        }}
-                      />
-                      <button 
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1 flex items-center gap-1">
+                  <FaLink className="text-gray-400" /> CTA Target Link URL
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder="e.g. /fastfood, /products, /services or https://..."
+                  value={form.targetUrl}
+                  onChange={e => setForm(p => ({ ...p, targetUrl: e.target.value }))}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Destination page URL opened when CTA button is clicked</p>
+              </div>
+
+              {/* Custom Trust Points */}
+              <div className="pt-2 border-t border-slate-200 space-y-2">
+                <label className="block text-xs font-bold text-gray-600">Custom Trust Badges</label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {form.trustPoints.map((tp, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border text-xs font-semibold shadow-sm">
+                      <span>{tp.icon}</span>
+                      <span>{tp.text || tp}</span>
+                      <button
                         type="button"
-                        className="text-gray-400 hover:text-red-500 transition-colors"
-                        onClick={() => {
-                          const next = form.trustPoints.filter((_, i) => i !== idx);
-                          setForm(p => ({ ...p, trustPoints: next }));
-                        }}
+                        onClick={() => setForm(p => ({ ...p, trustPoints: p.trustPoints.filter((_, i) => i !== idx) }))}
+                        className="text-red-500 hover:text-red-700 font-bold ml-1"
                       >
-                        <FaTimesCircle size={14} />
+                        ×
                       </button>
-                    </div>
+                    </span>
                   ))}
+                  {form.trustPoints.length === 0 && (
+                    <span className="text-xs text-gray-400 italic">No custom badges. Badges section will be hidden.</span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="w-16 p-2 border rounded-lg text-center text-sm bg-white"
+                    placeholder="Icon"
+                    value={newTrustIcon}
+                    onChange={e => setNewTrustIcon(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className="flex-grow p-2 border rounded-lg text-sm bg-white"
+                    placeholder="Badge label e.g. Fast Delivery, Verified"
+                    value={newTrustText}
+                    onChange={e => setNewTrustText(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newTrustText.trim()) return
+                      setForm(p => ({
+                        ...p,
+                        trustPoints: [...p.trustPoints, { icon: newTrustIcon || '📍', text: newTrustText.trim() }]
+                      }))
+                      setNewTrustText('')
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs"
+                  >
+                    + Add
+                  </button>
                 </div>
               </div>
             </div>
@@ -491,9 +686,9 @@ export default function AdminCreateHeroPromotion() {
               </div>
             )}
 
-            {/* Duration, Schedule & Charge — shared */}
+            {/* Duration & Charge */}
             <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
-              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest">Schedule & Duration</label>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest">Duration & Slots</label>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -504,11 +699,6 @@ export default function AdminCreateHeroPromotion() {
                   <label className="block text-xs font-bold text-gray-500 mb-1">Slots</label>
                   <input type="number" min="1" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-gray-400 font-bold" value={form.slotsCount} onChange={e => setForm(p => ({ ...p, slotsCount: e.target.value }))} />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Start Date & Time <span className="font-normal text-gray-400">(blank = now)</span></label>
-                <input type="datetime-local" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-gray-400" value={form.startAt} onChange={e => setForm(p => ({ ...p, startAt: e.target.value }))} />
               </div>
 
               {/* Calculated end date */}
@@ -546,19 +736,39 @@ export default function AdminCreateHeroPromotion() {
                 </div>
               )}
             </div>
+
+            {/* Advanced Scheduler */}
+            <AdvancedScheduler
+              value={{
+                scheduleType: form.scheduleType,
+                recurringDays: form.recurringDays,
+                specificDates: form.specificDates,
+                timeSlotStart: form.timeSlotStart,
+                timeSlotEnd: form.timeSlotEnd,
+                dateTimeMode: form.dateTimeMode,
+                dateSpecificTimes: form.dateSpecificTimes
+              }}
+              onChange={(schedule) => {
+                setForm(prev => ({
+                  ...prev,
+                  ...schedule
+                }))
+              }}
+            />
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex gap-4 pt-6 border-t">
-          <button type="submit" className="flex-grow py-4 rounded-xl bg-gray-900 hover:bg-black text-white font-black text-lg transition-all shadow-xl active:scale-[0.98] disabled:opacity-50" disabled={submitting || uploading}>
-            {submitting ? <span className="flex items-center justify-center gap-2"><FaSpinner className="animate-spin" /> Creating...</span> : 'Launch Hero Promotion'}
+          <button type="submit" className="flex-grow py-4 rounded-xl bg-gray-900 hover:bg-black text-white font-black text-lg transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2" disabled={submitting || uploading}>
+            {submitting ? <><FaSpinner className="animate-spin" /> {isEditMode ? 'Updating...' : 'Creating...'}</> : (isEditMode ? 'Update Hero Promotion' : 'Launch Hero Promotion')}
           </button>
           <button type="button" className="px-8 py-4 rounded-xl bg-gray-100 font-bold text-gray-600 hover:bg-gray-200 transition-colors" onClick={() => navigate('/dashboard/marketing/hero-promotions')}>
             Cancel
           </button>
         </div>
       </form>
+      )}
     </div>
   )
 }

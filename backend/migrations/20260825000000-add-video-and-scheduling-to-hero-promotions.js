@@ -35,7 +35,8 @@ module.exports = {
     await addColumnIfMissing('timeSlotEnd', { type: DataTypes.STRING, allowNull: true });
     await addColumnIfMissing('timezone', { type: DataTypes.STRING, defaultValue: 'Africa/Nairobi' });
     await addColumnIfMissing('dateTimeMode', { type: DataTypes.STRING, defaultValue: 'same' });
-    await addColumnIfMissing('dateSpecificTimes', { type: DataTypes.TEXT, allowNull: true });
+    await addColumnIfMissing('ctaText', { type: DataTypes.STRING, allowNull: true });
+    await addColumnIfMissing('eyebrow', { type: DataTypes.STRING, allowNull: true });
 
     console.log(`✅ Added video and scheduling columns to ${targetTable} table`);
   },

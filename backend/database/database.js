@@ -189,6 +189,18 @@ const testConnection = async () => {
       console.warn('⚠️ Warning: firstPublishedAt column check failed:', colErr.message);
     }
 
+    // Self-healing: Add ctaText, eyebrow, and bannerLocation columns to HeroPromotions table if missing
+    try {
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255) NULL`)
+        .catch(() => {});
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255) NULL`)
+        .catch(() => {});
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(50) DEFAULT 'homepage'`)
+        .catch(() => {});
+    } catch (heroColErr) {
+      console.warn('⚠️ Warning: HeroPromotions column self-healing check failed:', heroColErr.message);
+    }
+
     // Self-healing: Enforce default platform configs
     try {
       const defaultConfigs = [
@@ -383,6 +395,28 @@ const testConnection = async () => {
       }
     } catch (configErr) {
       console.warn('⚠️ Warning: Could not seed platform configs:', configErr.message);
+    }
+
+    // Self-healing columns for HeroPromotions
+    try {
+      if (dbConfig.dialect === 'sqlite') {
+        const [cols] = await sequelize.query("PRAGMA table_info(HeroPromotions);");
+        const colNames = cols.map(c => c.name);
+        if (!colNames.includes('bannerLocation')) {
+          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(255) DEFAULT 'homepage';");
+          console.log('✅ Added bannerLocation column to HeroPromotions');
+        }
+        if (!colNames.includes('ctaText')) {
+          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255);");
+          console.log('✅ Added ctaText column to HeroPromotions');
+        }
+        if (!colNames.includes('eyebrow')) {
+          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255);");
+          console.log('✅ Added eyebrow column to HeroPromotions');
+        }
+      }
+    } catch (hpErr) {
+      console.warn('⚠️ Warning: HeroPromotions column self-healing check:', hpErr.message);
     }
 
 

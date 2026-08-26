@@ -57,8 +57,42 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
         return backgroundThemes[index] || backgroundThemes[0];
     };
 
-    // Split layout: item linked OR manual campaign with title
-    if ((item || (settings.type === 'manual' && settings.title)) && settings.type !== 'manual_image_only') {
+    const rawVideoUrl = settings.videoUrl && settings.videoUrl !== 'null' && settings.videoUrl !== 'undefined' ? settings.videoUrl.trim() : null;
+    const videoEmbed = rawVideoUrl ? (() => {
+        const cleanUrl = rawVideoUrl;
+        const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+        const youtubeMatch = cleanUrl.match(youtubeRegex);
+        if (youtubeMatch && youtubeMatch[1]) {
+            return {
+                type: 'youtube',
+                url: `https://www.youtube.com/embed/${youtubeMatch[1]}?autoplay=1&mute=1&loop=1&playlist=${youtubeMatch[1]}&controls=1`
+            };
+        }
+        const tiktokRegex = /tiktok\.com\/.*\/video\/(\d+)/;
+        const tiktokMatch = cleanUrl.match(tiktokRegex);
+        if (tiktokMatch && tiktokMatch[1]) {
+            return {
+                type: 'tiktok',
+                url: `https://www.tiktok.com/embed/v2/${tiktokMatch[1]}?autoplay=1`
+            };
+        }
+        const vimeoRegex = /vimeo\.com\/(\d+)/;
+        const vimeoMatch = cleanUrl.match(vimeoRegex);
+        if (vimeoMatch && vimeoMatch[1]) {
+            return {
+                type: 'vimeo',
+                url: `https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&loop=1&muted=1&controls=1`
+            };
+        }
+        let directUrl = cleanUrl;
+        if (!directUrl.startsWith('http://') && !directUrl.startsWith('https://')) {
+            directUrl = directUrl.startsWith('/') ? directUrl : `/${directUrl}`;
+        }
+        return { type: 'direct', url: directUrl };
+    })() : null;
+
+    // Split layout: item linked OR manual campaign with title OR video
+    if ((item || (settings.type === 'manual' && settings.title) || rawVideoUrl) && settings.type !== 'manual_image_only') {
         const activeTheme = getTheme(item?.id || settings.id);
 
         const handleViewDetails = () => {
@@ -123,7 +157,7 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                                 className="text-white text-sm sm:text-xl md:text-3xl font-extrabold leading-snug tracking-tight cursor-pointer hover:text-amber-100 transition-colors flex-shrink-0"
                                 style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
                             >
-                                {item?.name || settings.title}
+                                {item?.name || settings.title || 'Special Feature'}
                             </h2>
 
                             {/* Subtitle */}
@@ -158,45 +192,19 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                             )}
 
                             {/* Social Proof Indicator */}
-                            <div className="flex mt-0 sm:mt-2 items-center gap-1 sm:gap-4 bg-black/20 w-fit p-1 sm:p-2.5 rounded-lg sm:rounded-2xl backdrop-blur-md border border-white/10 shadow-xl flex-shrink-0">
-                                <div className="flex -space-x-1.5 sm:-space-x-3">
+                            <div className="mt-1 sm:mt-2 flex items-center gap-1.5 sm:gap-3">
+                                <div className="flex -space-x-1.5 sm:-space-x-2">
                                     {(() => {
-                                        let displayItems = trendingItems.length > 0 ? [...trendingItems] : [];
-                                        
-                                        // Fallback if no trending items are found yet
-                                        if (displayItems.length === 0) {
-                                            const fallbackImgs = [];
-                                            if (item?.mainImage) fallbackImgs.push(item.mainImage);
-                                            if (Array.isArray(item?.images)) {
-                                                item.images.forEach(img => {
-                                                    if (img && !fallbackImgs.includes(img)) fallbackImgs.push(img);
-                                                });
-                                            }
-                                            while (fallbackImgs.length < 4) {
-                                                fallbackImgs.push(item?.mainImage || settings.image || '/logo192.png');
-                                            }
-                                            displayItems = fallbackImgs.map(img => ({ mainImage: img, name: item?.name || '' }));
-                                        }
-                                        
-                                        // Ensure exactly 4 items for the UI by looping if needed
-                                        while (displayItems.length > 0 && displayItems.length < 4) {
-                                            displayItems.push(displayItems[displayItems.length - 1]);
-                                        }
-                                        
-                                        return displayItems.slice(0, 4).map((tItem, i) => (
-                                            <div 
-                                                key={i} 
-                                                title={tItem.name || 'Trending Item'}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (tItem.name && setSearchTerm) {
-                                                        setSearchTerm(tItem.name);
-                                                        // Scroll to results slightly down the page
-                                                        window.scrollTo({ top: window.innerHeight * 0.5, behavior: 'smooth' });
-                                                    }
-                                                }}
-                                                className="w-3 h-3 sm:w-10 sm:h-10 rounded-full border sm:border-4 border-white shadow-xl overflow-hidden bg-white flex-shrink-0 cursor-pointer hover:scale-110 hover:border-amber-400 transition-all z-20 relative"
-                                            >
+                                        const displayTrending = trendingItems.length > 0
+                                            ? trendingItems
+                                            : [
+                                                { id: 'f1', mainImage: '/uploads/products/default-food.png' },
+                                                { id: 'f2', mainImage: '/uploads/products/default-food.png' },
+                                                { id: 'f3', mainImage: '/uploads/products/default-food.png' }
+                                            ];
+
+                                        return displayTrending.map((tItem, idx) => (
+                                            <div key={tItem.id || idx} className="w-4 h-4 sm:w-8 sm:h-8 rounded-full border border-white sm:border-2 overflow-hidden shadow-sm flex-shrink-0 bg-orange-100">
                                                 <img src={resolveImageUrl(tItem.mainImage)} alt={tItem.name || 'trending'} className="w-full h-full object-cover" />
                                             </div>
                                         ));
@@ -212,15 +220,39 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
 
                     </div>
 
-                    {/* ── RIGHT: Image + Price + Buy Now ── */}
+                    {/* ── RIGHT: Video / Image + Price + Buy Now ── */}
                     <div className="relative w-[45%] sm:w-2/5 h-full flex flex-col overflow-hidden">
-                        {/* Image fills the top */}
-                        <div className="relative flex-1 overflow-hidden">
-                            <img
-                                src={displayImage}
-                                alt={item?.name || settings.title || 'Campaign'}
-                                className="absolute inset-0 w-full h-full object-cover object-center"
-                            />
+                        {/* Media fills the top */}
+                        <div className="relative flex-1 overflow-hidden bg-slate-950">
+                            {rawVideoUrl ? (
+                                <div className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden">
+                                    {videoEmbed && videoEmbed.type !== 'direct' ? (
+                                        <iframe
+                                            src={videoEmbed.url}
+                                            className="w-full h-full object-cover"
+                                            style={{ width: '100%', height: '100%', border: 'none' }}
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                                            title="Fast Food Video"
+                                        />
+                                    ) : (
+                                        <video
+                                            src={videoEmbed ? videoEmbed.url : rawVideoUrl}
+                                            className="w-full h-full object-cover"
+                                            controls
+                                            autoPlay
+                                            muted
+                                            playsInline
+                                            loop
+                                        />
+                                    )}
+                                </div>
+                            ) : (
+                                <img
+                                    src={displayImage}
+                                    alt={item?.name || settings.title || 'Campaign'}
+                                    className="absolute inset-0 w-full h-full object-cover object-center"
+                                />
+                            )}
                             {/* Discount badge over image */}
                             {hasDiscount && (
                                 <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 bg-[#f59e0b] text-white px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg sm:rounded-xl text-[9px] sm:text-xs font-black shadow-lg rotate-6">

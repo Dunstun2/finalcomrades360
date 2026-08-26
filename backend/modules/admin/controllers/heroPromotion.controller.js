@@ -66,6 +66,11 @@ const createHeroPromotion = async (req, res) => {
       subtitle,
       customImageUrl,
       targetUrl,
+      ctaText,
+      buttonText,
+      eyebrow,
+      promoBadge,
+      link,
       isDefault,
       isSystem,
       trustPoints,
@@ -83,7 +88,8 @@ const createHeroPromotion = async (req, res) => {
       timeSlotEnd,
       timezone,
       dateTimeMode,
-      dateSpecificTimes
+      dateSpecificTimes,
+      bannerLocation = 'homepage'
     } = req.body || {}
 
     const effectiveIsSystem = !!(isSystem || !sellerId);
@@ -142,7 +148,9 @@ const createHeroPromotion = async (req, res) => {
       title,
       subtitle,
       customImageUrl,
-      targetUrl,
+      targetUrl: targetUrl || link || null,
+      ctaText: ctaText || buttonText || null,
+      eyebrow: eyebrow || promoBadge || null,
       isSystem: effectiveIsSystem,
       isDefault: !!isDefault,
       trustPoints: Array.isArray(trustPoints) ? trustPoints : [],
@@ -160,7 +168,8 @@ const createHeroPromotion = async (req, res) => {
       timeSlotEnd: timeSlotEnd || null,
       timezone: timezone || 'Africa/Nairobi',
       dateTimeMode: dateTimeMode || 'same',
-      dateSpecificTimes: dateSpecificTimes || {}
+      dateSpecificTimes: dateSpecificTimes || {},
+      bannerLocation: bannerLocation || (promoType === 'fastfood' ? 'fastfood' : 'homepage')
     }
 
     const item = await HeroPromotion.create(payload)
@@ -199,16 +208,26 @@ const editHeroPromotion = async (req, res) => {
   try {
     const id = Number(req.params.id)
     const {
+      sellerId,
       productIds,
       fastFoodIds,
       durationDays,
       slotsCount,
       startAt,
+      endAt,
+      status,
+      isSystem,
+      isDefault,
       notes,
       title,
       subtitle,
       customImageUrl,
       targetUrl,
+      ctaText,
+      buttonText,
+      eyebrow,
+      promoBadge,
+      link,
       trustPoints,
       // Video fields
       videoUrl,
@@ -224,10 +243,20 @@ const editHeroPromotion = async (req, res) => {
       timeSlotEnd,
       timezone,
       dateTimeMode,
-      dateSpecificTimes
+      dateSpecificTimes,
+      bannerLocation
     } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
+
+    if (sellerId !== undefined) item.sellerId = sellerId ? Number(sellerId) : null
+    if (isSystem !== undefined) item.isSystem = !!isSystem
+    if (isDefault !== undefined) item.isDefault = !!isDefault
+    if (status !== undefined) item.status = status
+
+    if (item.isSystem) {
+      item.paymentStatus = 'paid'
+    }
 
     if (item.promoType === 'fastfood') {
       if (Array.isArray(fastFoodIds) && fastFoodIds.length) {
@@ -249,8 +278,11 @@ const editHeroPromotion = async (req, res) => {
     if (title !== undefined) item.title = title
     if (subtitle !== undefined) item.subtitle = subtitle
     if (customImageUrl !== undefined) item.customImageUrl = customImageUrl
-    if (targetUrl !== undefined) item.targetUrl = targetUrl
+    if (targetUrl !== undefined || link !== undefined) item.targetUrl = targetUrl || link
+    if (ctaText !== undefined || buttonText !== undefined) item.ctaText = ctaText || buttonText
+    if (eyebrow !== undefined || promoBadge !== undefined) item.eyebrow = eyebrow || promoBadge
     if (trustPoints !== undefined) item.trustPoints = Array.isArray(trustPoints) ? trustPoints : []
+    if (bannerLocation !== undefined) item.bannerLocation = bannerLocation
 
     // Video fields
     if (videoUrl !== undefined) item.videoUrl = videoUrl
@@ -277,14 +309,27 @@ const editHeroPromotion = async (req, res) => {
       item.amount = (Number(item.durationDays) || 0) * (perDay + (ids.length * perProduct))
     }
 
+    if (endAt) {
+      item.endAt = new Date(endAt)
+    }
+
     if (startAt) {
       const start = new Date(startAt)
       item.startAt = start
-      const end = new Date(start)
       const days = Number(item.durationDays) || 7
-      end.setDate(end.getDate() + days)
-      item.endAt = end
-      item.status = (start <= new Date()) ? 'active' : 'scheduled'
+      let calculatedEnd = new Date(start)
+      calculatedEnd.setDate(calculatedEnd.getDate() + days)
+      // If the calculated end date would already be in the past, extend it from now so it stays active
+      if (calculatedEnd < new Date() && !endAt) {
+        calculatedEnd = new Date()
+        calculatedEnd.setDate(calculatedEnd.getDate() + days)
+      }
+      if (!endAt) {
+        item.endAt = calculatedEnd
+      }
+      if (!status) {
+        item.status = (start <= new Date()) ? 'active' : 'scheduled'
+      }
     }
 
     await item.save()
@@ -311,11 +356,16 @@ const listHeroApplications = async (req, res) => {
   try {
     const { status, sellerId, promoType } = req.query
     // Auto-expire any past-due promotions to keep history accurate
+    // Skip banners with continuous scheduling (they should stay active regardless of endAt)
     try {
       const now = new Date()
       await HeroPromotion.update(
         { status: 'expired' },
-        { where: { endAt: { [Op.lt]: now }, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
+        { where: {
+          endAt: { [Op.lt]: now },
+          status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] },
+          scheduleType: { [Op.or]: [{ [Op.eq]: null }, { [Op.ne]: 'continuous' }] }
+        } }
       )
     } catch { }
     const where = {}

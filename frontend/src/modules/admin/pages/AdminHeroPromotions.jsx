@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
 import Modal from '@/shared/components/Modal'
-import { FaStore, FaBox, FaClock, FaCheckCircle, FaTimesCircle, FaInfoCircle, FaCalendarAlt, FaMoneyBillWave, FaStopCircle, FaCog, FaImage, FaLink } from 'react-icons/fa'
+import { FaStore, FaBox, FaClock, FaCheckCircle, FaTimesCircle, FaInfoCircle, FaCalendarAlt, FaMoneyBillWave, FaStopCircle, FaCog, FaImage, FaLink, FaEdit, FaGlobe } from 'react-icons/fa'
 import { resolveImageUrl } from '@/utils/imageUtils'
 import { formatPrice } from '@/utils/currency'
 
@@ -132,6 +132,11 @@ export default function AdminHeroPromotions() {
       alert(e?.response?.data?.error || 'Failed to mark as paid')
     }
   }
+  const [promoEyebrow, setPromoEyebrow] = useState('')
+  const [promoCtaText, setPromoCtaText] = useState('')
+  const [promoTargetUrl, setPromoTargetUrl] = useState('')
+  const [promoBannerLocation, setPromoBannerLocation] = useState('homepage')
+
   const openApproveModal = (app) => {
     setSelectedApp(app)
     setModalAction('approve')
@@ -139,6 +144,10 @@ export default function AdminHeroPromotions() {
     setNotes('')
     setPromoTitle(app.title || '')
     setPromoSubtitle(app.subtitle || '')
+    setPromoEyebrow(app.eyebrow || app.promoBadge || app.badge || '')
+    setPromoCtaText(app.ctaText || app.buttonText || '')
+    setPromoTargetUrl(app.targetUrl || app.link || '')
+    setPromoBannerLocation(app.bannerLocation || 'homepage')
     setTrustPoints(app.trustPoints || [
       { icon: '🚀', text: 'Fast Delivery' },
       { icon: '✅', text: 'Verified' },
@@ -161,6 +170,13 @@ export default function AdminHeroPromotions() {
         const body = {
           title: promoTitle,
           subtitle: promoSubtitle,
+          eyebrow: promoEyebrow,
+          promoBadge: promoEyebrow,
+          ctaText: promoCtaText,
+          buttonText: promoCtaText,
+          targetUrl: promoTargetUrl,
+          link: promoTargetUrl,
+          bannerLocation: promoBannerLocation,
           trustPoints: trustPoints
         }
         if (startAt) body.startAt = new Date(startAt)
@@ -290,6 +306,9 @@ export default function AdminHeroPromotions() {
                   {currentItems.map(x => <div key={x.id} className={`rounded-xl border-2 transition-all shadow-sm bg-white overflow-hidden ${x.isSystem ? 'border-emerald-100 ring-4 ring-emerald-50/50' : 'border-gray-100'}`}>
                     {/* Mobile action strip — always visible at the very top on small screens */}
                     <div className="flex flex-wrap gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 md:hidden">
+                      <Link to={`/dashboard/marketing/hero-promotions/edit/${x.id}`} className="flex-1 min-w-[70px] px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-black shadow-sm flex items-center justify-center gap-1">
+                        <FaEdit /> Edit
+                      </Link>
                       <button className="flex-1 min-w-[90px] px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-black shadow-sm active:scale-95" onClick={() => openApproveModal(x)}>Manage</button>
                       <button className="flex-1 min-w-[70px] px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold" onClick={() => openStatusModal(x)}>Status</button>
                       {x.status === 'active' && (
@@ -332,6 +351,7 @@ export default function AdminHeroPromotions() {
                         <div className="flex-grow space-y-1.5 min-w-0">
                           <div className="flex flex-wrap items-center gap-1.5 mb-1">
                             <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded tracking-widest uppercase">ID: {x.id}</span>
+                            <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded uppercase">📍 {x.bannerLocation || 'homepage'}</span>
                             {x.isSystem && <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
                             {x.isDefault && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaInfoCircle /> Default</span>}
                           </div>
@@ -379,6 +399,9 @@ export default function AdminHeroPromotions() {
 
                         {/* Desktop-only action column */}
                         <div className="hidden md:flex flex-col gap-2 w-44 flex-shrink-0">
+                          <Link to={`/dashboard/marketing/hero-promotions/edit/${x.id}`} className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black shadow-sm transition-all text-center flex items-center justify-center gap-1 active:scale-95">
+                            <FaEdit /> Edit Banner
+                          </Link>
                           <button className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black shadow-sm transition-all active:scale-95" onClick={() => openApproveModal(x)}>Manage / Review</button>
                           <button className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all" onClick={() => openStatusModal(x)}>Set Status</button>
                           {x.status === 'active' && (
@@ -595,6 +618,18 @@ export default function AdminHeroPromotions() {
               <div className="pt-4 border-t">
                 {modalAction === 'approve' && (
                   <div className="space-y-4">
+                    <div className="flex items-center justify-between bg-purple-50 p-3 rounded-xl border border-purple-100 mb-2">
+                      <div className="text-xs font-black text-purple-800 flex items-center gap-2">
+                        <FaEdit /> Need detailed configuration?
+                      </div>
+                      <Link
+                        to={`/dashboard/marketing/hero-promotions/edit/${selectedApp.id}`}
+                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black shadow-sm flex items-center gap-1 transition-all"
+                      >
+                        Open Full Edit Form →
+                      </Link>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">Banner Heading</label>
@@ -616,6 +651,54 @@ export default function AdminHeroPromotions() {
                           onChange={e => setPromoSubtitle(e.target.value)}
                         />
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Target Placement</label>
+                        <select
+                          className="w-full p-2 border rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                          value={promoBannerLocation}
+                          onChange={e => setPromoBannerLocation(e.target.value)}
+                        >
+                          <option value="homepage">Homepage</option>
+                          <option value="fastfood">Fast Food</option>
+                          <option value="products">Products</option>
+                          <option value="services">Services</option>
+                          <option value="all">All Pages</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Eyebrow Pill</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="e.g. 🔥 EXCLUSIVE DEAL"
+                          value={promoEyebrow}
+                          onChange={e => setPromoEyebrow(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">CTA Button Text</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="e.g. Shop Now"
+                          value={promoCtaText}
+                          onChange={e => setPromoCtaText(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">CTA Target Link URL</label>
+                      <input
+                        type="text"
+                        className="w-full p-2 border rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="e.g. /products, /fastfood or https://..."
+                        value={promoTargetUrl}
+                        onChange={e => setPromoTargetUrl(e.target.value)}
+                      />
                     </div>
 
                     <div>

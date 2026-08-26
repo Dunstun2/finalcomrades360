@@ -163,8 +163,14 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || window.__GOOGLE_CLIENT_ID__;
+      if (!clientId) {
+        reject(new Error('Google Client ID is missing. Please set VITE_GOOGLE_CLIENT_ID in your frontend/.env file.'));
+        return;
+      }
+
       const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+        client_id: clientId,
         scope: 'email profile openid',
         callback: async (response) => {
           if (response.error) {

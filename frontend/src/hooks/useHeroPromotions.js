@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import api from '@/shared/services/api';
 
 /**
- * Shared hook to fetch active hero promotions.
- * Used by Products and Services pages to power the dynamic banner.
+ * Shared hook to fetch active hero promotions for a specific page/location.
+ * Supports locations: 'homepage', 'products', 'services', 'fastfood', etc.
  * Handles both `{ items: [] }` and bare array response shapes.
  */
-const useHeroPromotions = () => {
+const useHeroPromotions = (location = '') => {
     const [heroPromotions, setHeroPromotions] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -14,7 +14,8 @@ const useHeroPromotions = () => {
         let cancelled = false;
         const load = async () => {
             try {
-                const res = await api.get('/hero-promotions/active');
+                const params = location ? { location } : {};
+                const res = await api.get('/hero-promotions/active', { params });
                 if (cancelled) return;
                 let items = [];
                 if (Array.isArray(res.data)) {
@@ -24,8 +25,19 @@ const useHeroPromotions = () => {
                 } else if (Array.isArray(res.data?.promotions)) {
                     items = res.data.promotions;
                 }
-                // Only keep promotions that have at least one product to display
-                setHeroPromotions(items.filter(p => Array.isArray(p.products) && p.products.length > 0));
+
+                // Keep promotions that have either products, fast foods, a custom image, a video, or are system/default banners
+                const validItems = items.filter(p =>
+                    (Array.isArray(p.products) && p.products.length > 0) ||
+                    (Array.isArray(p.fastfoods) && p.fastfoods.length > 0) ||
+                    Boolean(p.customImageUrl) ||
+                    Boolean(p.videoUrl) ||
+                    Boolean(p.isSystem) ||
+                    Boolean(p.isDefault) ||
+                    Boolean(p.title)
+                );
+
+                setHeroPromotions(validItems);
             } catch (err) {
                 // Silently fail – page will show its static fallback banner
             } finally {
@@ -34,7 +46,7 @@ const useHeroPromotions = () => {
         };
         load();
         return () => { cancelled = true; };
-    }, []);
+    }, [location]);
 
     return { heroPromotions, loading };
 };

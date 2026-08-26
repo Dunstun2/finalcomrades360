@@ -315,8 +315,19 @@ export default function Navbar() {
 
           {/* DESKTOP NAVIGATION (>= lg) - Height driven by logo */}
           <div className="hidden lg:flex justify-between items-center py-0">
-            {/* Left side: Logo + Categories */}
-            <div className="flex items-center space-x-6">
+            {/* Left side: Hamburger + Logo + Categories */}
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => { setMobileMenuType('navigation'); setIsMobileMenuOpen(true); }}
+                className="hamburger-btn flex items-center justify-center w-10 h-10 text-[#1B2A4A] hover:bg-gray-100 rounded-full transition-colors"
+                aria-label="Open menu"
+                title="Open menu"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+
               <div className="text-2xl font-bold">
                 <Link to={isStationUser ? "/station" : "/"} className="text-[#1B2A4A] hover:opacity-80 cursor-pointer flex items-center">
                   {siteLogo ? (
@@ -715,11 +726,11 @@ export default function Navbar() {
             )}
           </div>
         </div>
-                {/* MOBILE SIDE DRAWER */}
+        {/* SIDE DRAWER (ALL SCREEN SIZES) */}
         {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-[60] lg:hidden">
+          <div className="fixed inset-0 z-[60]">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)}></div>
-            <div ref={mobileMenuRef} className="absolute inset-y-0 left-0 w-60 bg-white shadow-2xl flex flex-col transition-transform duration-300 overflow-hidden">
+            <div ref={mobileMenuRef} className="absolute inset-y-0 left-0 w-64 max-w-[85vw] bg-white shadow-2xl flex flex-col transition-transform duration-300 overflow-hidden">
               
               {/* Header logic depends on menu type */}
               {mobileMenuType === 'account' ? (
