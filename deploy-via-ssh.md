@@ -21,7 +21,7 @@ ssh username@yourdomain.com
 ### Step 2: Copy and Paste This Entire Block
 ```bash
 # Navigate to repository
-cd /home/vdranjxy/repositories/finalcomrades360
+cd /home/vdranjxy/production/finalcomrades360
 
 # Pull latest changes
 echo "Pulling latest code..."
@@ -211,7 +211,7 @@ cat /home/vdranjxy/comrades-master/server.js | grep "max: 1000"
 ```bash
 # Quick 3-step deployment
 ssh username@yourdomain.com
-cd /home/vdranjxy/repositories/finalcomrades360 && git pull origin main && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude 'node_modules' backend/ /home/vdranjxy/comrades-master/ && cd /home/vdranjxy/comrades-master && npm install --production
+cd /home/vdranjxy/production/finalcomrades360 && git pull origin main && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude 'node_modules' backend/ /home/vdranjxy/comrades-master/ && cd /home/vdranjxy/comrades-master && npm install --production
 # Then restart Node.js app in cPanel
 ```
 
@@ -219,7 +219,7 @@ Or just save this as an alias:
 
 ```bash
 # Add to ~/.bashrc
-alias deploy='cd /home/vdranjxy/repositories/finalcomrades360 && git pull && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude node_modules backend/ /home/vdranjxy/comrades-master/ && cd /home/vdranjxy/comrades-master && npm install --production && echo "Done! Restart Node.js app in cPanel"'
+alias deploy='cd /home/vdranjxy/production/finalcomrades360 && git pull && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude node_modules backend/ /home/vdranjxy/comrades-master/ && cd /home/vdranjxy/comrades-master && npm install --production && echo "Done! Restart Node.js app in cPanel"'
 
 # Then just run:
 deploy

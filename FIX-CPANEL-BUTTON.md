@@ -20,7 +20,7 @@ at index.cmb.min.js
 ### Step 2: Pull Latest Code
 In the terminal, paste:
 ```bash
-cd /home/vdranjxy/repositories/finalcomrades360
+cd /home/vdranjxy/production/finalcomrades360
 git pull origin main
 ```
 
@@ -145,18 +145,18 @@ tail -n 20 /home/vdranjxy/logs/git-deploy.log
 
 ### Manual Deploy (One Command)
 ```bash
-cd /home/vdranjxy/repositories/finalcomrades360 && git pull origin main && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude 'node_modules' backend/ /home/vdranjxy/comrades-master/
+cd /home/vdranjxy/production/finalcomrades360 && git pull origin main && rsync -avz frontend/dist/ /home/vdranjxy/public_html/ && rsync -avz --exclude 'node_modules' backend/ /home/vdranjxy/comrades-master/
 ```
 
 ### View Recent Commits
 ```bash
-cd /home/vdranjxy/repositories/finalcomrades360
+cd /home/vdranjxy/production/finalcomrades360
 git log --oneline -5
 ```
 
 ### Force Update Everything
 ```bash
-cd /home/vdranjxy/repositories/finalcomrades360
+cd /home/vdranjxy/production/finalcomrades360
 git fetch --all
 git reset --hard origin/main
 ./deploy.sh

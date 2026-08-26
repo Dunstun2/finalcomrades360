@@ -1,7 +1,7 @@
 {
   "log_path": "/home/vdranjxy/logs/git-deploy.log",
   "repository": {
-    "path": "/home/vdranjxy/repositories/finalcomrades360",
+    "path": "/home/vdranjxy/production/finalcomrades360",
     "branch": "main"
   },
   "deployment": {

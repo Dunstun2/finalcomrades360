@@ -10,7 +10,7 @@ echo "================================"
 echo ""
 
 # Configuration
-REPO_PATH="/home/vdranjxy/repositories/finalcomrades360"
+REPO_PATH="/home/vdranjxy/production/finalcomrades360"
 PUBLIC_HTML="/home/vdranjxy/public_html"
 BACKEND_PATH="/home/vdranjxy/comrades-master"
 BACKUP_DIR="/home/vdranjxy/backups"

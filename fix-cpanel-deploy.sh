@@ -24,7 +24,7 @@ echo "✓ Deployment directories ready"
 
 # Initialize git repository configuration
 echo "Checking repository..."
-REPO_PATH="/home/vdranjxy/repositories/finalcomrades360"
+REPO_PATH="/home/vdranjxy/production/finalcomrades360"
 if [ -d "$REPO_PATH" ]; then
     cd "$REPO_PATH"
     
