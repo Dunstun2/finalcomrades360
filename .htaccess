@@ -4,6 +4,12 @@
 # PassengerAppType node
 # PassengerStartupFile server.js
 
+<IfModule mod_setenvif.c>
+  # Disable compression and buffering for Socket.IO polling to prevent 503 timeouts
+  SetEnvIf Request_URI "^/socket\.io" no-gzip 1
+  SetEnvIf Request_URI "^/socket\.io" proxy-initial-not-pooled 1
+</IfModule>
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
