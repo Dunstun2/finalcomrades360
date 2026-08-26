@@ -4,7 +4,6 @@ const { v4: uuidv4 } = require('uuid');
 const { User, Referral, Order, LoginHistory, Warehouse, PickupStation, Otp } = require('../../../database/models.registry');
 const { generateUniqueReferralCode } = require('../../../utils/referralUtils');
 const { Op } = require('sequelize');
-const geoip = require('geoip-lite');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(); // Audience verified in method
@@ -368,8 +367,12 @@ const login = async (req, res, next) => {
       try {
         await user.update({ lastLogin: new Date() });
         const { browser, os, device } = parseUA(userAgent);
-        const geo = geoip.lookup(ipAddress);
-        const location = geo ? `${geo.city}, ${geo.region}, ${geo.country}` : 'Unknown';
+        let location = 'Unknown';
+        try {
+          const geoip = require('geoip-lite');
+          const geo = geoip ? geoip.lookup(ipAddress) : null;
+          if (geo) location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country || ''}`.replace(/^, |, $/g, '');
+        } catch (geoErr) {}
         await LoginHistory.create({
           userId: user.id,
           ipAddress,
