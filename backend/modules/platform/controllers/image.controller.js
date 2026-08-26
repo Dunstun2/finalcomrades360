@@ -2,11 +2,19 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 
-const CACHE_DIR = path.join(__dirname, '../cache/images');
+// Limit sharp memory usage on shared hosting
+try {
+    sharp.concurrency(1);
+    sharp.cache({ memory: 20, items: 50, files: 20 });
+} catch (e) {}
+
+const CACHE_DIR = path.resolve(__dirname, '../../../cache/images');
 
 // Ensure cache directory exists
 if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    try {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+    } catch (e) {}
 }
 
 exports.resizeImage = async (req, res) => {
@@ -18,21 +26,31 @@ exports.resizeImage = async (req, res) => {
         }
 
         // Clean up the image path to prevent directory traversal
-        // Remove leading/trailing slashes and 'uploads/' prefix if present twice
         let cleanPath = imagePath.replace(/^(\.\.(\/|\\|$))+/, '');
-
-        // Construct absolute path to the original image
-        // Assuming images are in 'uploads' directory at root of backend
-        // If imagePath starts with /uploads, remove the leading slash for path.join
         const normalizedPath = cleanPath.startsWith('/') ? cleanPath.substring(1) : cleanPath;
-        const originalFilePath = path.join(__dirname, '../', normalizedPath);
+        const relativeSub = normalizedPath.replace(/^uploads[\/\\]?/, '');
 
-        // Security check: ensure the resolved path is within the uploads directory (or intended root)
-        // For now, assuming all valid images are somewhere in the backend folder structure or specific uploads folder
-        // Adjust this check based on where your images actually live.
-        // if (!originalFilePath.startsWith(path.join(__dirname, '../uploads'))) {
-        //     return res.status(403).json({ message: 'Access denied' });
-        // }
+        // Resolve absolute path to the original image across possible upload locations
+        const candidatePaths = [
+            path.resolve(__dirname, '../../../', normalizedPath),
+            path.resolve(__dirname, '../../../uploads', relativeSub),
+            path.resolve(__dirname, '../../../../public_html', normalizedPath),
+            path.resolve(__dirname, '../../../../public_html/uploads', relativeSub),
+            path.resolve('/home/vdranjxy/comrades-master/uploads', relativeSub),
+            path.resolve('/home/vdranjxy/public_html/uploads', relativeSub)
+        ];
+
+        let originalFilePath = null;
+        for (const candidate of candidatePaths) {
+            if (fs.existsSync(candidate)) {
+                try {
+                    if (fs.statSync(candidate).isFile()) {
+                        originalFilePath = candidate;
+                        break;
+                    }
+                } catch (statErr) {}
+            }
+        }
 
         if (!fs.existsSync(originalFilePath)) {
             // Serve a proper SVG placeholder so <img> tags show something instead of broken icon
