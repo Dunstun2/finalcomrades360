@@ -9,9 +9,9 @@
   RewriteBase /
 
   # 1. Proxy WebSockets for Socket.IO when Upgrade header is present (mod_proxy_wstunnel)
-  RewriteCond %{HTTP:Upgrade} =websocket [NC]
+  RewriteCond %{HTTP:Upgrade} websocket [NC]
   RewriteCond %{HTTP:Connection} upgrade [NC]
-  RewriteRule ^socket\.io/(.*) ws://127.0.0.1:5000/socket.io/$1 [P,L]
+  RewriteRule ^socket\.io/?(.*) ws://127.0.0.1:5000/socket.io/$1 [P,L]
 
   # 2. Proxy API, Socket.IO polling, and Uploads to PM2 Node.js app on port 5000
   RewriteCond %{REQUEST_URI} ^/api [OR]

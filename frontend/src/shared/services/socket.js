@@ -37,7 +37,7 @@ const connectSocket = () => {
 
   // Create new socket connection
   socket = io(WS_URL, {
-    transports: ['websocket', 'polling'], 
+    transports: ['polling', 'websocket'], 
     upgrade: true,
     rememberUpgrade: true,
     autoConnect: true,
