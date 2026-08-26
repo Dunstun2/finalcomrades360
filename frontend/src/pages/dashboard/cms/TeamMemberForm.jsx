@@ -34,7 +34,7 @@ export default function TeamMemberForm() {
         name: member.name || '',
         position: member.position || '',
         description: member.description || '',
-        photo: null
+        photo: member.photo || null
       });
       if (member.photo) {
         setPhotoPreview(member.photo);

@@ -205,15 +205,26 @@ export default function AboutPageManagement() {
                 className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
               >
                 {/* Team Member Image */}
-                {member.photo && (
-                  <div className="w-full h-48 bg-gray-200 overflow-hidden">
+                <div className="w-full h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
+                  {member.photo ? (
                     <img
                       src={member.photo}
                       alt={member.name}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name || 'User')}&background=3b82f6&color=fff&size=200`;
+                      }}
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 text-blue-600">
+                      <div className="w-16 h-16 rounded-full bg-blue-200/70 flex items-center justify-center font-bold text-2xl text-blue-700 mb-1">
+                        {member.name ? member.name.charAt(0).toUpperCase() : '👤'}
+                      </div>
+                      <span className="text-xs font-medium text-gray-500">No Photo</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Team Member Info */}
                 <div className="p-4">

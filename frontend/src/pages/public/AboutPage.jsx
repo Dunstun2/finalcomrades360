@@ -221,34 +221,41 @@ const AboutPage = () => {
               </h2>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {teamMembers.map((member, idx) => (
                 <div
                   key={member.id}
-                  className="group relative bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:scale-105"
+                  className="group relative bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   {/* Photo */}
-                  <div className="aspect-square overflow-hidden bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-slate-700 dark:to-slate-600">
+                  <div className="w-full h-48 bg-gray-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
                     {member.photo ? (
                       <img
                         src={member.photo}
                         alt={member.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name || 'User')}&background=3b82f6&color=fff&size=200`;
+                        }}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="text-4xl font-bold text-blue-300">👤</span>
+                      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-700 dark:to-slate-600 text-blue-600 dark:text-blue-400">
+                        <div className="w-16 h-16 rounded-full bg-blue-200/70 dark:bg-slate-600 flex items-center justify-center font-bold text-2xl text-blue-700 dark:text-blue-300 mb-1">
+                          {member.name ? member.name.charAt(0).toUpperCase() : '👤'}
+                        </div>
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">No Photo</span>
                       </div>
                     )}
                   </div>
 
                   {/* Info */}
-                  <div className="p-3 bg-white dark:bg-slate-800">
-                    <h3 className="font-bold text-gray-900 dark:text-white text-sm line-clamp-2">{member.name}</h3>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 font-semibold mt-1 line-clamp-1">{member.position}</p>
+                  <div className="p-5">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">{member.name}</h3>
+                    <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2">{member.position}</p>
                     {member.description && (
-                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-2 line-clamp-2 leading-tight">
+                      <p className="text-gray-600 dark:text-gray-300 text-sm line-clamp-3 leading-relaxed">
                         {member.description}
                       </p>
                     )}
