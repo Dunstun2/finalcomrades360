@@ -542,9 +542,9 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  transports: ['websocket', 'polling'], // Prioritize WebSocket but allow fallback to prevent 400 errors
-  pingTimeout: 60000,
-  pingInterval: 25000
+  transports: ['polling', 'websocket'], // Prioritize WebSocket but allow fallback to prevent 400 errors
+  pingTimeout: 20000,
+  pingInterval: 10000
 });
 
 setIO(io);

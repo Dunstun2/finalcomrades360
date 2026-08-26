@@ -37,9 +37,8 @@ const connectSocket = () => {
 
   // Create new socket connection
   socket = io(WS_URL, {
-    transports: ['polling', 'websocket'], 
-    upgrade: true,
-    rememberUpgrade: true,
+    transports: ['polling'], 
+    upgrade: false,
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
@@ -48,7 +47,7 @@ const connectSocket = () => {
     randomizationFactor: 0.5,
     withCredentials: true,
     path: '/socket.io/',
-    timeout: 60000
+    timeout: 20000
   });
 
   // Connection event handlers

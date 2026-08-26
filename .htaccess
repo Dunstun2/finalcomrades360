@@ -17,7 +17,7 @@
   RewriteCond %{REQUEST_URI} ^/api [OR]
   RewriteCond %{REQUEST_URI} ^/socket.io [OR]
   RewriteCond %{REQUEST_URI} ^/uploads
-  RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]
+  RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
 
   # 0. Force HTTPS
   RewriteCond %{HTTPS} off
