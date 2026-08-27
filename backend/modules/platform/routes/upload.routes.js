@@ -15,12 +15,53 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, "../../../uploads")),
   filename: (req, file, cb) => cb(null, uuidv4() + path.extname(file.originalname))
 });
-const upload = multer({ storage });
+
+// File filter to allow images and videos
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Invalid file type: ${file.mimetype}. Only images and videos are allowed.`), false);
+  }
+};
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100MB limit for videos
+  }
+});
 
 const router = express.Router();
-router.post("/", upload.single("file"), (req, res, next) => {
+
+// Error handling middleware for multer errors
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large. Maximum file size is 100MB.' });
+    }
+    return res.status(400).json({ error: `Upload error: ${err.message}` });
+  } else if (err) {
+    return res.status(400).json({ error: err.message || 'File upload failed' });
+  }
+  next();
+};
+
+router.post("/", upload.single("file"), handleMulterError, (req, res, next) => {
   // Skip compression for logo uploads (preserves PNG transparency & quality)
   if (req.query.skipCompress === '1') return next();
+
+  // Skip compression for video files
+  if (req.file && req.file.mimetype.startsWith('video/')) {
+    return next();
+  }
+
   compressUploadedImages(req, res, next);
 }, (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
@@ -46,12 +87,12 @@ router.delete("/file", (req, res) => {
     // and doesn't contain traversal attempts
     const normalizedUrl = url.replace(/^\/+/, '');
     if (!normalizedUrl.startsWith('uploads/')) {
-       return res.status(403).json({ error: "Unauthorized path" });
+      return res.status(403).json({ error: "Unauthorized path" });
     }
 
     // Resolve absolute path (pointing to centralized backend/uploads)
     const filePath = path.join(__dirname, '../../..', normalizedUrl);
-    
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       console.log(`[Upload] Deleted file: ${filePath}`);
