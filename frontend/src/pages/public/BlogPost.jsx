@@ -15,7 +15,11 @@ import {
   Linkedin,
   Link as LinkIcon,
   Tag,
-  ChevronRight
+  ChevronRight,
+  Instagram,
+  Mail,
+  Phone,
+  MapPin
 } from 'lucide-react';
 import api from '../../shared/services/api';
 import { toast } from 'react-toastify';
@@ -734,6 +738,134 @@ const BlogPost = () => {
             </div>
           </section>
         )}
+
+        {/* Footer Section */}
+        <footer className="bg-gray-900 text-gray-300">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+              {/* About Section */}
+              <div>
+                <h3 className="text-white text-lg font-bold mb-4">About Comrades360</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Empowering university students in Kenya with opportunities to earn, learn, and grow through our innovative marketplace platform.
+                </p>
+                <div className="flex items-center gap-3">
+                  <a
+                    href="https://facebook.com/comrades360"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
+                  >
+                    <Facebook className="w-5 h-5" />
+                  </a>
+                  <a
+                    href="https://twitter.com/comrades360"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-400 transition-colors"
+                  >
+                    <Twitter className="w-5 h-5" />
+                  </a>
+                  <a
+                    href="https://instagram.com/comrades360"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-pink-600 transition-colors"
+                  >
+                    <Instagram className="w-5 h-5" />
+                  </a>
+                  <a
+                    href="https://linkedin.com/company/comrades360"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors"
+                  >
+                    <Linkedin className="w-5 h-5" />
+                  </a>
+                </div>
+              </div>
+
+              {/* Quick Links */}
+              <div>
+                <h3 className="text-white text-lg font-bold mb-4">Quick Links</h3>
+                <ul className="space-y-2 text-sm">
+                  <li>
+                    <Link to="/" className="hover:text-white transition-colors">Home</Link>
+                  </li>
+                  <li>
+                    <Link to="/about" className="hover:text-white transition-colors">About Us</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Blog</Link>
+                  </li>
+                  <li>
+                    <Link to="/marketplace" className="hover:text-white transition-colors">Marketplace</Link>
+                  </li>
+                  <li>
+                    <Link to="/contact" className="hover:text-white transition-colors">Contact</Link>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Popular Tags */}
+              <div>
+                <h3 className="text-white text-lg font-bold mb-4">Popular Topics</h3>
+                <ul className="space-y-2 text-sm">
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Student Entrepreneurship</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Campus Life</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Career Tips</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Business Ideas</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog" className="hover:text-white transition-colors">Student Opportunities</Link>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Contact Info */}
+              <div>
+                <h3 className="text-white text-lg font-bold mb-4">Get In Touch</h3>
+                <ul className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    <Mail className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <a href="mailto:info@comrades360.shop" className="hover:text-white transition-colors">
+                      info@comrades360.shop
+                    </a>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Phone className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <a href="tel:+254757588395" className="hover:text-white transition-colors">
+                      +254 757 588 395
+                    </a>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <span>Nairobi, Kenya</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Bottom Bar */}
+            <div className="pt-8 border-t border-gray-800">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-gray-400">
+                <p>© {new Date().getFullYear()} Comrades360. All rights reserved.</p>
+                <div className="flex items-center gap-6">
+                  <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+                  <Link to="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
+                  <Link to="/cookies" className="hover:text-white transition-colors">Cookie Policy</Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
 
       {/* Thank You Dialog */}
