@@ -27,7 +27,8 @@ export default function Footer() {
                 setContactData(response.data.content);
             }
         } catch (error) {
-            console.error('Error fetching contact data:', error);
+            // Silently fail - use fallback data
+            // console.error('Error fetching contact data:', error);
         }
     };
 
@@ -98,7 +99,7 @@ export default function Footer() {
                         </p>
 
                         {/* Social Media Links - Dynamic from CMS */}
-                        {socialLinks.length > 0 ? (
+                        {socialLinks.length > 0 && (
                             <div className="flex items-center gap-3 flex-wrap">
                                 {socialLinks.map((item, index) => {
                                     const IconComponent = getIconComponent(item.platform);
@@ -118,42 +119,6 @@ export default function Footer() {
                                         </a>
                                     );
                                 })}
-                            </div>
-                        ) : (
-                            // Fallback social links if CMS data not available
-                            <div className="flex items-center gap-3">
-                                <a
-                                    href="https://facebook.com/comrades360"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-600 transition-colors"
-                                >
-                                    <Facebook className="w-5 h-5" />
-                                </a>
-                                <a
-                                    href="https://twitter.com/comrades360"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-400 transition-colors"
-                                >
-                                    <Twitter className="w-5 h-5" />
-                                </a>
-                                <a
-                                    href="https://instagram.com/comrades360"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-pink-600 transition-colors"
-                                >
-                                    <Instagram className="w-5 h-5" />
-                                </a>
-                                <a
-                                    href="https://linkedin.com/company/comrades360"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors"
-                                >
-                                    <Linkedin className="w-5 h-5" />
-                                </a>
                             </div>
                         )}
                     </div>

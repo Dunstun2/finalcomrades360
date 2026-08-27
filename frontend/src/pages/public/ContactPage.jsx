@@ -92,8 +92,8 @@ const ContactPage = () => {
           setContactInfo(response.data.content);
         }
       } catch (error) {
-        console.error('Error fetching contact info:', error);
-        // Use defaults if CMS data not available
+        // Silently fail - use fallback data
+        // console.error('Error fetching contact info:', error);
       } finally {
         setCmsLoading(false);
       }
@@ -340,38 +340,9 @@ const ContactPage = () => {
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-4">
-                  {/* Fallback to hardcoded links if no CMS data */}
-                  <a
-                    href="https://tiktok.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-white"
-                  >
-                    <FaTiktok className="w-5 h-5" />
-                    <span className="font-medium">TikTok</span>
-                  </a>
-
-                  <a
-                    href="https://facebook.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-white"
-                  >
-                    <FaFacebook className="w-5 h-5" />
-                    <span className="font-medium">Facebook</span>
-                  </a>
-
-                  <a
-                    href={`https://wa.me/${supportPhone.replace(/\+/g, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-white"
-                  >
-                    <FaWhatsapp className="w-5 h-5" />
-                    <span className="font-medium">WhatsApp</span>
-                  </a>
-                </div>
+                <p className="text-gray-400 text-sm italic">
+                  No social media links configured yet. Check back soon!
+                </p>
               )}
             </div>
 
