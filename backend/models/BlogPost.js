@@ -108,7 +108,22 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: [],
-      comment: "Array of tags"
+      comment: "Array of tags",
+      get() {
+        const rawValue = this.getDataValue('tags');
+        // Ensure tags is always an array
+        if (!rawValue) return [];
+        if (Array.isArray(rawValue)) return rawValue;
+        if (typeof rawValue === 'string') {
+          try {
+            const parsed = JSON.parse(rawValue);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        }
+        return [];
+      }
     },
 
     // Analytics

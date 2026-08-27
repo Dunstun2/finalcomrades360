@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { 
-  Search, 
-  Calendar, 
-  Clock, 
-  User, 
+import {
+  Search,
+  Calendar,
+  Clock,
+  User,
   Star,
   Filter,
   ChevronRight,
@@ -75,12 +75,25 @@ const Blog = () => {
   };
 
   const getUniqueTags = () => {
-    const tags = posts.flatMap(post => Array.isArray(post.tags) ? post.tags : []);
+    const tags = posts.flatMap(post => {
+      // Handle tags that might be strings, arrays, or null
+      if (!post.tags) return [];
+      if (Array.isArray(post.tags)) return post.tags;
+      if (typeof post.tags === 'string') {
+        try {
+          const parsed = JSON.parse(post.tags);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    });
     return [...new Set(tags.filter(Boolean))].slice(0, 10);
   };
 
   const BlogCard = ({ post }) => (
-    <Link 
+    <Link
       to={`/blog/${post.slug}`}
       className="group block bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1"
     >
@@ -99,7 +112,7 @@ const Blog = () => {
             </div>
           </div>
         )}
-        
+
         {/* Featured Badge */}
         {post.isFeatured && (
           <div className="absolute top-3 left-3">
@@ -138,7 +151,7 @@ const Blog = () => {
             )}
             <span className="text-sm font-medium text-gray-700">{post.authorName}</span>
           </div>
-          
+
           <div className="flex items-center gap-1 text-sm text-gray-500">
             <Clock className="w-4 h-4" />
             <span>{post.readingTime} min read</span>
@@ -161,7 +174,7 @@ const Blog = () => {
             <Calendar className="w-4 h-4" />
             <span>{formatDate(post.publishedAt || post.createdAt)}</span>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1 text-sm text-gray-500">
               <Eye className="w-4 h-4" />
@@ -318,37 +331,36 @@ const Blog = () => {
                     >
                       Previous
                     </button>
-                    
+
                     <div className="flex items-center gap-1">
                       {[...Array(pagination.pages)].map((_, i) => {
                         const page = i + 1;
                         const isActive = page === pagination.page;
-                        const showPage = page === 1 || page === pagination.pages || 
-                                        (page >= pagination.page - 1 && page <= pagination.page + 1);
-                        
+                        const showPage = page === 1 || page === pagination.pages ||
+                          (page >= pagination.page - 1 && page <= pagination.page + 1);
+
                         if (!showPage) {
                           if (page === pagination.page - 2 || page === pagination.page + 2) {
                             return <span key={page} className="px-2 text-gray-500">...</span>;
                           }
                           return null;
                         }
-                        
+
                         return (
                           <button
                             key={page}
                             onClick={() => setPagination(prev => ({ ...prev, page }))}
-                            className={`px-4 py-2 rounded-lg transition-colors ${
-                              isActive 
-                                ? 'bg-blue-600 text-white' 
+                            className={`px-4 py-2 rounded-lg transition-colors ${isActive
+                                ? 'bg-blue-600 text-white'
                                 : 'border border-gray-300 hover:bg-gray-50'
-                            }`}
+                              }`}
                           >
                             {page}
                           </button>
                         );
                       })}
                     </div>
-                    
+
                     <button
                       onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
                       disabled={pagination.page === pagination.pages}
