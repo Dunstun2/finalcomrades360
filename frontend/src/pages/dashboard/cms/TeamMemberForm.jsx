@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaArrowLeft, FaSave, FaTimes, FaCamera, FaTrash } from 'react-icons/fa';
+import { FaArrowLeft, FaSave, FaTimes, FaCamera, FaTrash, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { cmsApi } from '../../../services/api';
+import { uploadFile } from '../../../shared/services/upload';
 
 export default function TeamMemberForm() {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ export default function TeamMemberForm() {
 
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -56,31 +58,41 @@ export default function TeamMemberForm() {
     }));
   };
 
-  const handlePhotoChange = (e) => {
+  const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size must be less than 5MB');
-        return;
-      }
+    if (!file) return;
 
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast.error('Please select a valid image file');
-        return;
-      }
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
 
-      // Create preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result);
-        setFormData(prev => ({
-          ...prev,
-          photo: reader.result
-        }));
-      };
-      reader.readAsDataURL(file);
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select a valid image file');
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+
+      // Upload file to server
+      const uploadedUrl = await uploadFile(file);
+
+      // Set preview and form data
+      setPhotoPreview(uploadedUrl);
+      setFormData(prev => ({
+        ...prev,
+        photo: uploadedUrl
+      }));
+
+      toast.success('Photo uploaded successfully!');
+    } catch (error) {
+      console.error('Photo upload error:', error);
+      toast.error('Failed to upload photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -180,7 +192,8 @@ export default function TeamMemberForm() {
               <button
                 type="button"
                 onClick={handleRemovePhoto}
-                className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+                disabled={uploadingPhoto}
+                className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors disabled:opacity-50"
               >
                 <FaTrash size={16} />
               </button>
@@ -188,16 +201,26 @@ export default function TeamMemberForm() {
           ) : (
             <label className="flex flex-col items-center justify-center w-full h-48 px-4 transition bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50">
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <FaCamera className="w-8 h-8 text-gray-400 mb-2" />
-                <p className="mb-2 text-sm text-gray-500">
-                  <span className="font-semibold">Click to upload</span> or drag and drop
-                </p>
-                <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</p>
+                {uploadingPhoto ? (
+                  <>
+                    <FaSpinner className="w-8 h-8 text-blue-500 mb-2 animate-spin" />
+                    <p className="text-sm text-blue-600 font-semibold">Uploading photo...</p>
+                  </>
+                ) : (
+                  <>
+                    <FaCamera className="w-8 h-8 text-gray-400 mb-2" />
+                    <p className="mb-2 text-sm text-gray-500">
+                      <span className="font-semibold">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</p>
+                  </>
+                )}
               </div>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handlePhotoChange}
+                disabled={uploadingPhoto}
                 className="hidden"
               />
             </label>
@@ -263,7 +286,7 @@ export default function TeamMemberForm() {
         <div className="flex gap-4 pt-6 border-t border-gray-200">
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || uploadingPhoto}
             className="flex items-center justify-center gap-2 flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             <FaSave size={18} />
@@ -272,7 +295,8 @@ export default function TeamMemberForm() {
           <button
             type="button"
             onClick={() => navigate('/dashboard/cms/about')}
-            className="flex items-center justify-center gap-2 flex-1 px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-bold"
+            disabled={submitting || uploadingPhoto}
+            className="flex items-center justify-center gap-2 flex-1 px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <FaTimes size={18} />
             Cancel
