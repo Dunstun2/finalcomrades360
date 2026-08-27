@@ -2,7 +2,10 @@
 // Add missing columns to ContactPage table in production
 
 const { Sequelize, DataTypes } = require('sequelize');
-require('dotenv').config();
+const path = require('path');
+
+// Load .env from the comrades-master directory
+require('dotenv').config({ path: path.join(__dirname, '../../comrades-master/.env') });
 
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -18,6 +21,12 @@ const sequelize = new Sequelize(
 async function fixContactPageSchema() {
   try {
     console.log('🔄 Connecting to database...');
+    console.log('📋 DB Config:', {
+      host: process.env.DB_HOST,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      hasPassword: !!process.env.DB_PASSWORD
+    });
     await sequelize.authenticate();
     console.log('✅ Connected to database');
 
@@ -31,7 +40,7 @@ async function fixContactPageSchema() {
 
     if (tables.length === 0) {
       console.log('⚠️ ContactPage table does not exist. Creating it...');
-      
+
       // Create the table with all columns
       await sequelize.query(`
         CREATE TABLE ContactPage (
@@ -56,11 +65,11 @@ async function fixContactPageSchema() {
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
       `);
-      
+
       console.log('✅ ContactPage table created');
     } else {
       console.log('✅ ContactPage table exists');
-      
+
       // Get existing columns
       const [columns] = await sequelize.query(`
         SELECT COLUMN_NAME 
@@ -68,7 +77,7 @@ async function fixContactPageSchema() {
         WHERE TABLE_SCHEMA = '${process.env.DB_NAME}' 
         AND TABLE_NAME = 'ContactPage';
       `);
-      
+
       const existingColumns = columns.map(col => col.COLUMN_NAME);
       console.log('📋 Existing columns:', existingColumns);
 
