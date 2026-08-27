@@ -14,18 +14,7 @@
   RewriteEngine On
   RewriteBase /
 
-  # 1. Proxy WebSockets for Socket.IO when Upgrade header is present (mod_proxy_wstunnel)
-  RewriteCond %{HTTP:Upgrade} websocket [NC]
-  RewriteCond %{HTTP:Connection} upgrade [NC]
-  RewriteRule ^socket\.io/?(.*) ws://127.0.0.1:5000/socket.io/$1 [P,L]
-
-  # 2. Proxy API, Socket.IO polling, and Uploads to PM2 Node.js app on port 5000
-  RewriteCond %{REQUEST_URI} ^/api [OR]
-  RewriteCond %{REQUEST_URI} ^/socket.io [OR]
-  RewriteCond %{REQUEST_URI} ^/uploads
-  RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
-
-  # 0. Force HTTPS
+  # 0. Force HTTPS first (before proxying)
   RewriteCond %{HTTPS} off
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
@@ -33,7 +22,21 @@
   RewriteCond %{HTTP_HOST} ^www\.comrades360\.shop$ [NC]
   RewriteRule ^ https://comrades360.shop%{REQUEST_URI} [L,R=301]
 
-  # 2. React Router SPA Routing
+  # 1. Proxy WebSockets for Socket.IO when Upgrade header is present (mod_proxy_wstunnel)
+  RewriteCond %{HTTP:Upgrade} websocket [NC]
+  RewriteCond %{HTTP:Connection} upgrade [NC]
+  RewriteRule ^socket\.io/?(.*) ws://127.0.0.1:5000/socket.io/$1 [P,L]
+
+  # 2. Proxy Socket.IO polling with special timeout handling
+  RewriteCond %{REQUEST_URI} ^/socket\.io
+  RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA,E=proxy-initial-not-pooled:1,E=proxy-nokeepalive:1]
+
+  # 3. Proxy API and Uploads to PM2 Node.js app on port 5000
+  RewriteCond %{REQUEST_URI} ^/api [OR]
+  RewriteCond %{REQUEST_URI} ^/uploads
+  RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
+
+  # 4. React Router SPA Routing (serve index.html for all other requests)
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^(.*)$ /index.html [L]
