@@ -2,15 +2,24 @@
 const { DataTypes } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const idConfig = isProduction ? {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true
+  } : {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  };
+
+  const foreignKeyType = isProduction ? DataTypes.INTEGER : DataTypes.UUID;
+
   const BlogRating = sequelize.define("BlogRating", {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true
-    },
-    
+    id: idConfig,
+
     blogPostId: {
-      type: DataTypes.UUID,
+      type: foreignKeyType,
       allowNull: false,
       references: {
         model: 'BlogPost',
@@ -18,9 +27,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       comment: "Blog post that was rated"
     },
-    
+
     userId: {
-      type: DataTypes.UUID,
+      type: foreignKeyType,
       allowNull: true,
       references: {
         model: 'User',
@@ -28,7 +37,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       comment: "User who rated (null for anonymous)"
     },
-    
+
     rating: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -38,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       comment: "Rating value (1-5 stars)"
     },
-    
+
     ipAddress: {
       type: DataTypes.STRING(45),
       allowNull: true,

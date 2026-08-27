@@ -2,12 +2,20 @@
 const { DataTypes } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
+  // Determine ID type based on dialect (int for MySQL production, UUID for SQLite dev)
+  const isProduction = process.env.NODE_ENV === 'production';
+  const idConfig = isProduction ? {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true
+  } : {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  };
+
   const BlogPost = sequelize.define("BlogPost", {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true
-    },
+    id: idConfig,
 
     // Basic Info
     title: {
@@ -110,9 +118,9 @@ module.exports = (sequelize, DataTypes) => {
       comment: "Number of views"
     },
 
-    // Audit fields
+    // Audit fields (use INTEGER for production MySQL, UUID for dev SQLite)
     createdBy: {
-      type: DataTypes.UUID,
+      type: isProduction ? DataTypes.INTEGER : DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'User',
@@ -121,7 +129,7 @@ module.exports = (sequelize, DataTypes) => {
       comment: "Admin user who created this post"
     },
     updatedBy: {
-      type: DataTypes.UUID,
+      type: isProduction ? DataTypes.INTEGER : DataTypes.UUID,
       allowNull: true,
       references: {
         model: 'User',
