@@ -10,7 +10,7 @@ const envPaths = [
   path.resolve(__dirname, '.env')
 ];
 
-// Load primary .env
+// Load primary .env (always required)
 envPaths.forEach(envPath => {
   if (fs.existsSync(envPath)) {
     // Use override: true to ensure local .env wins over OS environment variables
@@ -24,18 +24,24 @@ const env = process.env.NODE_ENV === 'production' ? 'production' : 'development'
 // Force process.env.NODE_ENV to be consistent with our detection
 process.env.NODE_ENV = env;
 
-// ONLY load .env.production if we are explicitly in production mode
+// OPTIONALLY load .env.production if it exists (for environment-specific overrides)
+// This is optional - if not present, .env is sufficient
 if (env === 'production') {
   const prodEnvPaths = [
     path.resolve(__dirname, '..', '..', '.env.production'),
     path.resolve(__dirname, '..', '.env.production'),
     path.resolve(__dirname, '.env.production')
   ];
+  let prodEnvFound = false;
   prodEnvPaths.forEach(envPath => {
     if (fs.existsSync(envPath)) {
       dotenv.config({ path: envPath, override: true });
+      prodEnvFound = true;
     }
   });
+  if (!prodEnvFound) {
+    console.log(`[Database] Using .env (no .env.production found - this is OK)`);
+  }
 }
 
 console.log(`[Database] Final Operating Mode: ${env}`);
@@ -144,7 +150,7 @@ const testConnection = async () => {
 
     // Self-healing: Enforce default roles
     try {
-      const Role = sequelize.models.Role || sequelize.define('Role', { 
+      const Role = sequelize.models.Role || sequelize.define('Role', {
         id: { type: Sequelize.STRING, primaryKey: true },
         name: Sequelize.STRING,
         isSystem: { type: Sequelize.BOOLEAN, defaultValue: true }
@@ -168,7 +174,7 @@ const testConnection = async () => {
               SELECT id FROM Roles WHERE id = '${r.id}'
           ) LIMIT 1;
         `.replace(/NOW\(\)/g, dbConfig.dialect === 'sqlite' ? "datetime('now')" : "NOW()")
-         .replace('OR IGNORE', '') // Cleanup any legacy attempts
+          .replace('OR IGNORE', '') // Cleanup any legacy attempts
         );
       }
       console.error('✅ Default roles verified/seeded.');
@@ -192,11 +198,11 @@ const testConnection = async () => {
     // Self-healing: Add ctaText, eyebrow, and bannerLocation columns to HeroPromotions table if missing
     try {
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255) NULL`)
-        .catch(() => {});
+        .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255) NULL`)
-        .catch(() => {});
+        .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(50) DEFAULT 'homepage'`)
-        .catch(() => {});
+        .catch(() => { });
     } catch (heroColErr) {
       console.warn('⚠️ Warning: HeroPromotions column self-healing check failed:', heroColErr.message);
     }
@@ -204,8 +210,8 @@ const testConnection = async () => {
     // Self-healing: Enforce default platform configs
     try {
       const defaultConfigs = [
-        { 
-          key: 'platform_settings', 
+        {
+          key: 'platform_settings',
           value: JSON.stringify({
             siteName: 'Comrades360',
             siteLogo: '',
@@ -249,7 +255,7 @@ const testConnection = async () => {
         },
         {
           key: 'whatsapp_config',
-          value: JSON.stringify({ 
+          value: JSON.stringify({
             method: 'cloud',
             metaAccessToken: '',
             metaPhoneNumberId: '',
@@ -285,9 +291,9 @@ const testConnection = async () => {
           key: 'finance_settings',
           value: JSON.stringify({
             referralSplit: { primary: 0.6, secondary: 0.4 },
-            minPayout: { 
-              seller: 1000, 
-              marketer: 500, 
+            minPayout: {
+              seller: 1000,
+              marketer: 500,
               delivery_agent: 200,
               station_manager: 500,
               warehouse_manager: 1000,
@@ -387,7 +393,7 @@ const testConnection = async () => {
         if (config.length === 0) {
           const now = new Date().toISOString();
           await sequelize.query(
-            "INSERT INTO PlatformConfig (`key`, value, createdAt, updatedAt) VALUES ('" + 
+            "INSERT INTO PlatformConfig (`key`, value, createdAt, updatedAt) VALUES ('" +
             cfg.key + "', '" + cfg.value.replace(/'/g, "''") + "', '" + now + "', '" + now + "')"
           );
           console.log(`🌱 Seeded default config: ${cfg.key}`);
