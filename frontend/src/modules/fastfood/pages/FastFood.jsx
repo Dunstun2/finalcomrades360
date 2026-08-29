@@ -234,11 +234,25 @@ export default function FastFood() {
 
     useEffect(() => {
         if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-                (error) => console.warn('📍 Geolocation tracking failed/denied:', error.message),
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-            );
+            const requestLocation = () => {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
+                    () => {}, // Silent fallback on denial/timeout
+                    { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+                );
+            };
+
+            if (navigator.permissions && navigator.permissions.query) {
+                navigator.permissions.query({ name: 'geolocation' })
+                    .then((result) => {
+                        if (result.state === 'granted' || result.state === 'prompt') {
+                            requestLocation();
+                        }
+                    })
+                    .catch(() => requestLocation());
+            } else {
+                requestLocation();
+            }
         }
     }, []);
 
