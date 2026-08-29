@@ -90,7 +90,7 @@ function HomeProductCard({
 
   const productImageUrl = useMemo(() => {
     const originalUrl = resolveImageUrl(imageUrls?.[0] || FALLBACK_IMAGE);
-    return getVersionedUrl(getResizedImageUrl(originalUrl, { width: 400, quality: 80 }));
+    return getVersionedUrl(originalUrl);
   }, [imageUrls, getVersionedUrl]);
 
   const logAction = async (actionType) => {
@@ -318,6 +318,7 @@ function HomeProductCard({
           alt={product.name}
           className="w-full h-full object-cover object-center transition-transform duration-500"
           loading="lazy"
+          decoding="async"
           onError={(e) => {
             if (e.target.src !== FALLBACK_IMAGE) {
               e.target.src = FALLBACK_IMAGE;

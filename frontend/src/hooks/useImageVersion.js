@@ -12,9 +12,9 @@ export const useImageVersion = (imageUrls, productId = null) => {
     // Get current version from the first image URL or product ID
     const url = Array.isArray(imageUrls) ? imageUrls[0] : imageUrls;
     if (url) {
-      return getImageVersion(url) || Date.now();
+      return getImageVersion(url) || null;
     }
-    return Date.now();
+    return null;
   });
 
   // Update version when image URLs change

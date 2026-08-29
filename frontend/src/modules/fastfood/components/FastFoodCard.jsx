@@ -187,10 +187,7 @@ export default function FastFoodCard({
         style={isBannerCard ? { flexBasis: '66.666%' } : {}}
       >
         <img
-          src={(() => {
-            const url = getResizedImageUrl(resolveImageUrl(item.mainImage, null, item.updatedAt), { width: 400, quality: 80 });
-            return url;
-          })()}
+          src={resolveImageUrl(item.mainImage, null, item.updatedAt)}
           alt={item.name}
           loading="lazy"
           decoding="async"

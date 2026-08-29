@@ -42,13 +42,12 @@ export const generateCacheBustedUrl = (imageUrl, version = null) => {
     return cleanUrl;
   }
 
-  // Keep version stable per image URL so rerenders don't cause endless refetches.
   const baseUrlKey = cleanUrl.split('?')[0];
-  let versionParam = version ?? imageVersions.get(baseUrlKey) ?? imageVersions.get(cleanUrl) ?? null;
+  const versionParam = version ?? imageVersions.get(baseUrlKey) ?? imageVersions.get(cleanUrl) ?? null;
 
+  // Only append version if an explicit version is specified (e.g. forced refresh by user)
   if (!versionParam) {
-    versionParam = Date.now();
-    imageVersions.set(baseUrlKey, versionParam);
+    return cleanUrl;
   }
 
   const separator = cleanUrl.includes('?') ? '&' : '?';
