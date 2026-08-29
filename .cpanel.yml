@@ -18,6 +18,10 @@ deployment:
     - /bin/cp -rf backend/* /home/vdranjxy/comrades-master/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
     - /bin/cp -f backend/.sequelizerc /home/vdranjxy/comrades-master/.sequelizerc >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
     
+    # 3. Auto-restart PM2 and save process list
+    - cd /home/vdranjxy/comrades-master && ./node_modules/.bin/pm2 restart comrades360 --update-env >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
+    - cd /home/vdranjxy/comrades-master && ./node_modules/.bin/pm2 save >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
+
     # Log completion
     - echo "=== Deployment completed at $(date) ===" >> /home/vdranjxy/logs/git-deploy.log
     - echo "" >> /home/vdranjxy/logs/git-deploy.log
