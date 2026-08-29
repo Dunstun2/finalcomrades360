@@ -23,6 +23,7 @@ function optimizePreloads() {
 }
 
 export default defineConfig(({ mode }) => ({
+  base: '/',
   plugins: [
     react(),
     optimizePreloads() // Add our custom preload optimization
@@ -137,12 +138,6 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: 0,
     // Disable CSS code splitting to prevent FOUC
     cssCodeSplit: false,
-  },
-  // Disable preloading of all assets
-  experimental: {
-    renderBuiltUrl(filename) {
-      return { relative: true };
-    },
   },
   define: {
     'process.env': {},

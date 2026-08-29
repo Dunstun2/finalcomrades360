@@ -514,7 +514,7 @@ const ContactPage = () => {
                 ></iframe>
               ) : contactInfo?.latitude && contactInfo?.longitude ? (
                 <iframe
-                  src={`https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d15000!2d${contactInfo.longitude}!3d${contactInfo.latitude}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1sen!2s!4v1234567890`}
+                  src={`https://maps.google.com/maps?q=${contactInfo.latitude},${contactInfo.longitude}&z=15&output=embed`}
                   width="100%"
                   height="450"
                   style={{ border: 0 }}
