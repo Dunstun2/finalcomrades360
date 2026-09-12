@@ -58,7 +58,7 @@ const initWhatsApp = async () => {
         return;
     }
     isInitializing = true;
-    log('🔄 Initializing Baileys Socket...');
+    log('🔄 Initializing Baileys Socket (Ultra-Fast Connection Mode)...');
     whatsappStatus = 'initializing';
     latestQr = null;
 
@@ -68,7 +68,8 @@ const initWhatsApp = async () => {
             useMultiFileAuthState,
             fetchLatestBaileysVersion,
             makeCacheableSignalKeyStore,
-            DisconnectReason
+            DisconnectReason,
+            Browsers
         } = await getBaileys();
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
@@ -76,11 +77,15 @@ const initWhatsApp = async () => {
         let version = [2, 3000, 1015901307];
         try {
             const fetched = await fetchLatestBaileysVersion();
-            version = fetched.version;
+            if (fetched?.version) version = fetched.version;
         } catch (vErr) {
             log(`Using fallback version: ${version.join('.')}`);
         }
 
+        // ULTRA-FAST PRODUCTION CONFIG:
+        // 1. shouldSyncHistoryMessage = false prevents downloading gigabytes of old chats on phone pairing
+        // 2. Browsers.ubuntu('Chrome') ensures immediate server handshake without UA rejection
+        // 3. Keepalive and timeout configs prevent cPanel network drops
         sock = makeWASocket({
             version,
             auth: {
@@ -89,10 +94,17 @@ const initWhatsApp = async () => {
             },
             printQRInTerminal: true,
             logger: P({ level: 'silent' }),
-            browser: ['Comrades360', 'Chrome', '120.0.0'],
+            browser: Browsers ? Browsers.ubuntu('Chrome') : ['Comrades360', 'Chrome', '122.0.0'],
             syncFullHistory: false,
+            shouldSyncHistoryMessage: () => false,      // CRITICAL: Skips history sync so scan pairs in 1-2s!
+            fireInitQueries: false,                     // Skips heavy initial query flood
             markOnlineOnConnect: false,
-            generateHighQualityLinkPreview: false
+            generateHighQualityLinkPreview: false,
+            qrTimeout: 60000,                           // 60s per QR code
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000,
+            keepAliveIntervalMs: 25000,
+            retryRequestDelayMs: 300
         });
 
         // Connection Update
@@ -111,7 +123,7 @@ const initWhatsApp = async () => {
             }
 
             if (connection === 'open') {
-                log('✅ WhatsApp Connected & Ready!');
+                log('✅ WhatsApp Connected & Ready (Authenticated successfully)!');
                 isWhatsAppReady = true;
                 whatsappStatus = 'ready';
                 latestQr = null;
@@ -133,7 +145,7 @@ const initWhatsApp = async () => {
                 isInitializing = false;
 
                 if (shouldReconnect) {
-                    const delay = 15000;
+                    const delay = 10000;
                     log(`⏳ Retrying connection in ${delay / 1000}s...`);
                     if (reconnectTimeout) clearTimeout(reconnectTimeout);
                     reconnectTimeout = setTimeout(() => {
@@ -141,6 +153,9 @@ const initWhatsApp = async () => {
                             initWhatsApp();
                         }
                     }, delay);
+                } else {
+                    log('⚠️ Logged out from WhatsApp. Clear session and scan again.');
+                    latestQr = null;
                 }
             }
         });
@@ -231,7 +246,7 @@ app.post('/restart', async (req, res) => {
     res.json({ success: true, message: 'WhatsApp restart initiated' });
 });
 
-// Logout & Clear Session Endpoint
+// Logout & Clear Session Endpoint (Ensures clean slate)
 app.post('/logout', async (req, res) => {
     log('🚪 Hard logout requested (clearing session)...');
     isWhatsAppReady = false;
