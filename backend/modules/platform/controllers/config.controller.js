@@ -273,7 +273,7 @@ const { getWhatsAppStatus, restartWhatsApp, logoutWhatsApp } = require('../../..
 
 exports.getWhatsAppStatus = async (req, res) => {
     try {
-        const status = getWhatsAppStatus();
+        const status = await getWhatsAppStatus();
         res.json({ success: true, ...status });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to fetch WhatsApp status' });

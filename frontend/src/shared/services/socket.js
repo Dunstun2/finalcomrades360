@@ -39,8 +39,8 @@ const connectSocket = () => {
   // Start with polling (works reliably through Apache proxy on shared hosting),
   // then attempt WebSocket upgrade. If wss:// fails, stays on polling silently.
   socket = io(WS_URL, {
-    transports: ['polling', 'websocket'], 
-    upgrade: true,
+    transports: ['polling'], 
+    upgrade: false,
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
