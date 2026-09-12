@@ -29,6 +29,7 @@ let baileys = null;
 let sock = null;
 let isWhatsAppReady = false;
 let latestQr = null;
+let latestPairingCode = null;
 let isInitializing = false;
 let whatsappStatus = 'initializing'; // initializing, qr_ready, ready, disconnected, error
 let reconnectTimeout = null;
@@ -39,10 +40,11 @@ if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true });
 }
 
-// Log helper
+// Log helper with memory usage
 const log = (msg) => {
     const timestamp = new Date().toISOString();
-    console.log(`[WhatsApp-Worker ${timestamp}] ${msg}`);
+    const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    console.log(`[WhatsApp-Worker ${timestamp} | ${mem}MB] ${msg}`);
 };
 
 async function getBaileys() {
@@ -58,7 +60,7 @@ const initWhatsApp = async () => {
         return;
     }
     isInitializing = true;
-    log('🔄 Initializing Baileys Socket (Ultra-Fast Connection Mode)...');
+    log('🔄 Initializing Baileys Socket (Optimized Stable Mode)...');
     whatsappStatus = 'initializing';
     latestQr = null;
 
@@ -82,10 +84,6 @@ const initWhatsApp = async () => {
             log(`Using fallback version: ${version.join('.')}`);
         }
 
-        // ULTRA-FAST PRODUCTION CONFIG:
-        // 1. shouldSyncHistoryMessage = false prevents downloading gigabytes of old chats on phone pairing
-        // 2. Browsers.ubuntu('Chrome') ensures immediate server handshake without UA rejection
-        // 3. Keepalive and timeout configs prevent cPanel network drops
         sock = makeWASocket({
             version,
             auth: {
@@ -96,15 +94,15 @@ const initWhatsApp = async () => {
             logger: P({ level: 'silent' }),
             browser: Browsers ? Browsers.ubuntu('Chrome') : ['Comrades360', 'Chrome', '122.0.0'],
             syncFullHistory: false,
-            shouldSyncHistoryMessage: () => false,      // CRITICAL: Skips history sync so scan pairs in 1-2s!
-            fireInitQueries: false,                     // Skips heavy initial query flood
+            shouldSyncHistoryMessage: () => false,
+            fireInitQueries: false,
             markOnlineOnConnect: false,
             generateHighQualityLinkPreview: false,
-            qrTimeout: 60000,                           // 60s per QR code
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000,
-            retryRequestDelayMs: 300
+            qrTimeout: 90000,
+            connectTimeoutMs: 90000,
+            defaultQueryTimeoutMs: 90000,
+            keepAliveIntervalMs: 30000,
+            retryRequestDelayMs: 500
         });
 
         // Connection Update
@@ -127,6 +125,7 @@ const initWhatsApp = async () => {
                 isWhatsAppReady = true;
                 whatsappStatus = 'ready';
                 latestQr = null;
+                latestPairingCode = null;
                 isInitializing = false;
                 if (reconnectTimeout) {
                     clearTimeout(reconnectTimeout);
@@ -154,7 +153,7 @@ const initWhatsApp = async () => {
                         }
                     }, delay);
                 } else {
-                    log('⚠️ Logged out from WhatsApp. Clear session and scan again.');
+                    log('⚠️ Logged out from WhatsApp. Clear session to re-scan.');
                     latestQr = null;
                 }
             }
@@ -186,6 +185,7 @@ app.get('/status', (req, res) => {
         isReady: isWhatsAppReady,
         status: whatsappStatus,
         qr: latestQr,
+        pairingCode: latestPairingCode,
         uptime: Math.floor(process.uptime()),
         memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
     });
@@ -193,6 +193,38 @@ app.get('/status', (req, res) => {
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', worker: 'whatsapp-worker', isReady: isWhatsAppReady });
+});
+
+// Request Phone Number Pairing Code (Alternative to QR camera scanning)
+app.post('/pairing-code', async (req, res) => {
+    let { phoneNumber } = req.body;
+    if (!phoneNumber) {
+        return res.status(400).json({ success: false, message: 'Missing "phoneNumber" parameter' });
+    }
+
+    if (!sock) {
+        return res.status(503).json({ success: false, message: 'WhatsApp socket not initialized yet' });
+    }
+
+    try {
+        let clean = String(phoneNumber).replace(/[\s\-\(\)\+]/g, '');
+        if (clean.startsWith('0')) clean = '254' + clean.substring(1);
+        else if (clean.startsWith('7') || clean.startsWith('1')) clean = '254' + clean;
+
+        log(`📲 Requesting 8-digit Pairing Code for: ${clean}...`);
+        const code = await sock.requestPairingCode(clean);
+        latestPairingCode = code;
+        log(`🔑 Pairing Code generated: ${code}`);
+
+        res.json({
+            success: true,
+            pairingCode: code,
+            message: `Enter code ${code} on your WhatsApp mobile app (Linked Devices ➔ Link with phone number instead).`
+        });
+    } catch (err) {
+        log(`❌ Pairing Code Error: ${err.message}`);
+        res.status(500).json({ success: false, message: err.message });
+    }
 });
 
 // Send Message Endpoint
@@ -235,6 +267,7 @@ app.post('/restart', async (req, res) => {
     log('🔄 Soft restart requested...');
     isWhatsAppReady = false;
     latestQr = null;
+    latestPairingCode = null;
     if (sock) {
         try {
             sock.end(new Error('Manual Reconnect'));
@@ -246,11 +279,12 @@ app.post('/restart', async (req, res) => {
     res.json({ success: true, message: 'WhatsApp restart initiated' });
 });
 
-// Logout & Clear Session Endpoint (Ensures clean slate)
+// Logout & Clear Session Endpoint
 app.post('/logout', async (req, res) => {
     log('🚪 Hard logout requested (clearing session)...');
     isWhatsAppReady = false;
     latestQr = null;
+    latestPairingCode = null;
 
     if (sock) {
         try {
@@ -272,6 +306,15 @@ app.post('/logout', async (req, res) => {
 
     setTimeout(initWhatsApp, 2000);
     res.json({ success: true, message: 'WhatsApp logged out and session cleared' });
+});
+
+// Prevent any uncaught exception from terminating process
+process.on('uncaughtException', (err) => {
+    log(`⚠️ Uncaught Exception in WhatsApp Worker: ${err.message}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+    log(`⚠️ Unhandled Rejection in WhatsApp Worker: ${reason}`);
 });
 
 // Start listening
