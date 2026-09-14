@@ -67,7 +67,7 @@ const getWhatsAppStatus = async () => {
 
     // Query the isolated local WhatsApp Worker
     try {
-        const response = await axios.get(`${WHATSAPP_WORKER_URL}/status`, { timeout: 3000 });
+        const response = await axios.get(`${WHATSAPP_WORKER_URL}/status`, { timeout: 6000 });
         return {
             ...response.data,
             method: 'local'

@@ -16,9 +16,9 @@ module.exports = {
     {
       name: 'comrades-whatsapp',
       script: 'whatsapp-worker.js',
-      // Baileys uses more memory for crypto operations
-      node_args: '--max-old-space-size=200',
-      max_memory_restart: '250M',
+      // Baileys uses memory for crypto operations - expose GC and limit heap
+      node_args: '--max-old-space-size=150 --expose-gc',
+      max_memory_restart: '220M',
       autorestart: true,
       max_restarts: 15,
       restart_delay: 5000,

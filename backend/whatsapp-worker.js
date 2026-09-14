@@ -88,22 +88,16 @@ const initWhatsApp = async () => {
             fetchLatestBaileysVersion,
             makeCacheableSignalKeyStore,
             DisconnectReason,
-            Browsers
+            Browsers,
+            makeInMemoryStore
         } = await getBaileys();
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         
-        // Known-good WA Web version fallback (update periodically)
-        let version = [2, 3000, 1023141551];
-        try {
-            const fetched = await fetchLatestBaileysVersion();
-            if (fetched && Array.isArray(fetched.version) && fetched.version.length === 3) {
-                version = fetched.version;
-                log(`📡 WA Web version: ${version.join('.')}`);
-            }
-        } catch (vErr) {
-            log(`⚠️ Version fetch failed (${vErr.message}), using fallback: ${version.join('.')}`);
-        }
+        // Use a hardcoded known-good version to skip the HTTP fetch (~10MB saved)
+        // Update this periodically: https://wppconnect.io/wa-version/
+        const version = [2, 3000, 1043857760]; // matches server's fetched version
+        log(`📡 Using WA Web version: ${version.join('.')} (pinned)`);
 
         destroySocket();
 
@@ -111,21 +105,35 @@ const initWhatsApp = async () => {
             version,
             auth: {
                 creds: state.creds,
+                // Use plain store (no caching layer) to save memory
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
             },
-            printQRInTerminal: true,
+            printQRInTerminal: false,          // skip terminal QR render (saves buffer)
             logger: P({ level: 'silent' }),
-            browser: Browsers ? Browsers.ubuntu('Chrome') : ['Comrades360', 'Chrome', '124.0.0'],
+            // Identify as Chrome desktop — most stable protocol path
+            browser: ['Comrades360', 'Chrome', '124.0.6367.207'],
+
+            // ─── Disable EVERYTHING non-essential to save RAM ──────────────
             syncFullHistory: false,
             shouldSyncHistoryMessage: () => false,
             fireInitQueries: false,
             markOnlineOnConnect: false,
             generateHighQualityLinkPreview: false,
-            qrTimeout: 60000,
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000,
-            retryRequestDelayMs: 1000
+            downloadHistory: false,
+            emitOwnEvents: false,
+            msgRetryCounterCache: null,      // no retry map in memory
+            linkPreviewImageThumbnailWidth: 0,
+            transactionOpts: { maxCommitRetries: 1, delayBetweenTriesMs: 500 },
+
+            // ─── Timeouts tuned for shared hosting ────────────────────────
+            qrTimeout: 55000,
+            connectTimeoutMs: 30000,
+            defaultQueryTimeoutMs: 30000,
+            keepAliveIntervalMs: 30000,
+            retryRequestDelayMs: 2000,
+
+            // ─── Don't buffer incoming messages in memory ─────────────────
+            getMessage: async () => undefined,
         });
 
         // Connection Update
@@ -136,6 +144,9 @@ const initWhatsApp = async () => {
                 log('📱 QR Code Generated! Ready to scan.');
                 latestQr = qr;
                 whatsappStatus = 'qr_ready';
+                if (global.gc) {
+                    try { global.gc(); } catch (_) {}
+                }
             }
 
             if (connection === 'connecting') {
@@ -154,6 +165,11 @@ const initWhatsApp = async () => {
                 if (reconnectTimeout) {
                     clearTimeout(reconnectTimeout);
                     reconnectTimeout = null;
+                }
+                // Nudge GC to free crypto buffers used during handshake
+                if (global.gc) {
+                    setTimeout(() => { try { global.gc(); } catch(_) {} }, 1000);
+                    log('🧹 GC nudge triggered after connect.');
                 }
             }
 

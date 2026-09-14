@@ -295,22 +295,35 @@ export default function SystemSettings() {
     }
   };
 
-  useEffect(() => {
-    fetchWhatsAppStatus();
-    const interval = setInterval(() => {
-      fetchWhatsAppStatus();
-    }, 30000); // Poll every 30 seconds — no need for real-time precision
-    return () => clearInterval(interval);
-  }, []);
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
 
-  const fetchWhatsAppStatus = async () => {
+  const fetchWhatsAppStatus = useCallback(async () => {
     try {
       const { data } = await api.get('/platform/whatsapp/status');
       setWhatsappStatus(data);
     } catch (err) {
       console.error('Failed to fetch WhatsApp status');
     }
+  }, []);
+
+  const handleManualRefreshStatus = async () => {
+    setIsRefreshingStatus(true);
+    await fetchWhatsAppStatus();
+    setIsRefreshingStatus(false);
   };
+
+  useEffect(() => {
+    fetchWhatsAppStatus();
+    // Fast polling (3 seconds) while waiting for QR or worker initialization
+    // Slower polling (30 seconds) once connected
+    const isConnected = whatsappStatus.status === 'ready' || whatsappStatus.status === 'cloud_active';
+    const pollInterval = isConnected ? 30000 : 3000;
+
+    const interval = setInterval(() => {
+      fetchWhatsAppStatus();
+    }, pollInterval);
+    return () => clearInterval(interval);
+  }, [whatsappStatus.status, fetchWhatsAppStatus]);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -1042,6 +1055,14 @@ export default function SystemSettings() {
                         {whatsappStatus.status.replace('_', ' ')}
                       </span>
                       <div className="flex items-center gap-2">
+                        <button 
+                          onClick={handleManualRefreshStatus}
+                          disabled={isRefreshingStatus}
+                          className="text-[10px] bg-gray-100 text-gray-700 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-bold transition-all border border-gray-200 disabled:opacity-50 flex items-center gap-1"
+                          title="Refresh status immediately"
+                        >
+                          <FaSyncAlt className={isRefreshingStatus ? 'animate-spin' : ''} /> {isRefreshingStatus ? 'Checking...' : 'Refresh'}
+                        </button>
                         <button 
                           onClick={handleRestartWhatsApp}
                           disabled={isRestarting || isLoggingOut}
