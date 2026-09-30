@@ -93,11 +93,17 @@ const initWhatsApp = async () => {
         } = await getBaileys();
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        
-        // Use a hardcoded known-good version to skip the HTTP fetch (~10MB saved)
-        // Update this periodically: https://wppconnect.io/wa-version/
-        const version = [2, 3000, 1043857760]; // matches server's fetched version
-        log(`📡 Using WA Web version: ${version.join('.')} (pinned)`);
+
+        // Fetch latest WA version dynamically to avoid rejection by WhatsApp servers
+        let version;
+        try {
+            const fetched = await fetchLatestBaileysVersion();
+            version = fetched.version;
+            log(`📡 Using WA Web version: ${version.join('.')} (fetched latest)`);
+        } catch (e) {
+            version = [2, 3000, 1023135256]; // safe fallback
+            log(`⚠️ Could not fetch WA version, using fallback: ${version.join('.')}`);
+        }
 
         destroySocket();
 
