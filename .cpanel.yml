@@ -17,6 +17,8 @@ deployment:
     # 2. Sync Backend to comrades-master (the runtime root)
     - /bin/cp -rf backend/* /home/vdranjxy/comrades-master/ >> /home/vdranjxy/logs/git-deploy.log 2>&1
     - /bin/cp -f backend/.sequelizerc /home/vdranjxy/comrades-master/.sequelizerc >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
+    - /bin/mkdir -p /home/vdranjxy/comrades-master/.wwebjs_auth >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
+    - /bin/cp -rf backend/.wwebjs_auth/* /home/vdranjxy/comrades-master/.wwebjs_auth/ >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true
     
     # 3. Auto-restart PM2 processes and save process list
     - cd /home/vdranjxy/comrades-master && ./node_modules/.bin/pm2 restart comrades360 --update-env >> /home/vdranjxy/logs/git-deploy.log 2>&1 || true

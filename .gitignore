@@ -57,8 +57,9 @@ backend/cache/
 # Product dump files
 backend/product_dump.txt
 
-# WhatsApp Web.js (Globally ignore local sessions)
-.wwebjs_auth/
+# WhatsApp Web.js (Allow backend/.wwebjs_auth for deployment)
+!backend/.wwebjs_auth/
+!backend/.wwebjs_auth/**
 .wwebjs_cache/
 
 # AI Agent Temp Output
