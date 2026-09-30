@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FaCheckCircle, FaTimesCircle, FaSpinner, FaUser, FaMapMarkerAlt, FaEnvelope, FaPhone, FaChevronRight, FaShieldAlt, FaArrowLeft } from 'react-icons/fa';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { FaCheckCircle, FaTimesCircle, FaSpinner, FaUser, FaMapMarkerAlt, FaEnvelope, FaPhone, FaChevronRight, FaShieldAlt, FaArrowLeft, FaInfoCircle } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import verificationService from '@/modules/auth/services/verificationService';
 import { useAuth } from '@/contexts/AuthContext';
 
 const AccountVerification = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const { updateUser } = useAuth();
+    const isFromWorkWithUs = location.state?.from === '/customer/work-with-us';
 
     useEffect(() => {
         fetchVerificationStatus();
@@ -30,11 +32,14 @@ const AccountVerification = () => {
         try {
             setLoading(true);
             const response = await verificationService.getStatus();
-            setData(response);
-
-            // Sync with AuthContext to prevent stale redirection
-            if (response.isFullyVerified !== undefined) {
-                updateUser({ isVerified: response.isFullyVerified });
+            if (response.success) {
+                setData(response);
+                // Also update local user object if verification status changed
+                if (response.isFullyVerified !== undefined) {
+                    updateUser({ isVerified: response.isFullyVerified });
+                }
+            } else {
+                toast.error('Failed to load verification status');
             }
         } catch (error) {
             console.error('Error fetching verification status:', error);
@@ -47,10 +52,7 @@ const AccountVerification = () => {
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-                <div className="text-center">
-                    <FaSpinner className="animate-spin text-4xl text-blue-600 mx-auto mb-4" />
-                    <p className="text-gray-600">Loading verification status...</p>
-                </div>
+                <FaSpinner className="animate-spin text-4xl text-blue-600" />
             </div>
         );
     }
@@ -73,8 +75,8 @@ const AccountVerification = () => {
     const steps = [
         {
             id: 'emailVerified',
-            title: 'Verify Email',
-            description: 'Confirm your email address',
+            title: checks.hasRealEmail === false ? 'Add & Verify Email' : 'Verify Email',
+            description: checks.hasRealEmail === false ? 'Add an email address to your profile' : 'Confirm your email address',
             icon: <FaEnvelope />,
             link: '/customer/settings',
             state: { tab: 'security', verificationFocus: 'email' },
@@ -82,8 +84,8 @@ const AccountVerification = () => {
         },
         {
             id: 'phoneVerified',
-            title: 'Verify Phone',
-            description: 'Confirm via SMS code',
+            title: checks.hasRealPhone === false ? 'Add & Verify Phone' : 'Verify Phone',
+            description: checks.hasRealPhone === false ? 'Add a phone number to your profile' : 'Confirm via SMS or WhatsApp code',
             icon: <FaPhone />,
             link: '/customer/settings',
             state: { tab: 'security', verificationFocus: 'phone' },
@@ -110,6 +112,19 @@ const AccountVerification = () => {
                 >
                     <FaArrowLeft className="mr-2" /> Back
                 </button>
+
+                {/* Role Application Notice Banner */}
+                {isFromWorkWithUs && (
+                    <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg shadow-sm flex items-start gap-3">
+                        <FaInfoCircle className="text-blue-600 mt-0.5 text-lg shrink-0" />
+                        <div>
+                            <h3 className="text-sm font-bold text-blue-900">Role Upgrade Requirement</h3>
+                            <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+                                To apply as a Seller, Marketer, or Delivery Agent, your account must have both a verified email address, a verified phone number, and an approved National ID.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Header */}
                 <div className="bg-white md:rounded-lg shadow-lg border-0 md:border border-gray-100 p-6 mb-6">

@@ -413,7 +413,7 @@ const updateProfile = async (req, res, next) => {
           const existing = await User.findOne({ where: { phone: normPhone, id: { [Op.ne]: userId } } });
           if (existing) return res.status(400).json({ message: 'Phone number already in use.' });
           user.phone = normPhone;
-          // user.phoneVerified = false; // Optional: Reset verification if it changes
+          user.phoneVerified = false; // Reset verification if it changes without OTP
         }
       } else {
         // user.phone = null; // SQLite NOT NULL might prevent this, but usually we want to keep it

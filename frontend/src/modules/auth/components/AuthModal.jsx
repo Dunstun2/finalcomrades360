@@ -13,20 +13,27 @@ export default function AuthModal() {
 
     useEffect(() => {
         const path = location.pathname;
+        // If the user opened this URL directly in a fresh browser tab/window,
+        // location.key is 'default' (React Router's initial value). In that case
+        // we don't want to pop the login modal — just redirect to home silently.
+        const isFreshLoad = location.key === 'default';
 
         if (path === '/login') {
+            if (isFreshLoad) { navigate('/', { replace: true }); return; }
             setModalType('login');
             setIsOpen(true);
         } else if (path === '/register') {
+            if (isFreshLoad) { navigate('/', { replace: true }); return; }
             setModalType('register');
             setIsOpen(true);
         } else if (path === '/forgot-password') {
+            if (isFreshLoad) { navigate('/', { replace: true }); return; }
             setModalType('forgot-password');
             setIsOpen(true);
         } else {
             setIsOpen(false);
         }
-    }, [location.pathname]);
+    }, [location.pathname, location.key]);
 
     const handleClose = () => {
         setIsOpen(false);

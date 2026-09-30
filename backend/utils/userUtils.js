@@ -7,10 +7,35 @@ const sanitizeUserPayload = (userData) => {
   
   const u = { ...userData };
   let originalEmail = u.email;
+  let originalPhone = u.phone;
 
-  // Strip internal placeholders
-  if (u.email && String(u.email).startsWith('noemail_')) u.email = '';
-  if (u.phone && String(u.phone).startsWith('nophone_')) u.phone = '';
+  const isPlaceholderEmail = Boolean(
+    originalEmail && (
+      String(originalEmail).startsWith('noemail_') ||
+      String(originalEmail).includes('@placeholder.local') ||
+      String(originalEmail).includes('@comrades360.placeholder')
+    )
+  );
+
+  const isPlaceholderPhone = Boolean(
+    originalPhone && (
+      String(originalPhone).startsWith('nophone_') ||
+      String(originalPhone).startsWith('placeholder-')
+    )
+  );
+
+  // Strip internal placeholders and ensure verification reflects real status
+  if (isPlaceholderEmail) {
+    u.email = '';
+    u.emailVerified = false;
+  }
+  if (isPlaceholderPhone) {
+    u.phone = '';
+    u.phoneVerified = false;
+  }
+
+  u.hasEmail = !isPlaceholderEmail && Boolean(u.email);
+  u.hasPhone = !isPlaceholderPhone && Boolean(u.phone);
 
   // Clear name if it matches the email prefix or is a generic "User" string
   if (u.name) {

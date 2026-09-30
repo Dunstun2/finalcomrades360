@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
-    "dev": "concurrently \"cd frontend && set BACKEND_PORT=6001&& npm run dev\" \"cd backend && npm run dev\"",
+    "dev": "concurrently -n frontend,backend,whatsapp -c blue,green,magenta \"cd frontend && set BACKEND_PORT=6001&& npm run dev\" \"cd backend && npm run dev\" \"cd backend && node whatsapp-worker.js\"",
     "start": "node backend/server.js",
     "build": "cd frontend && npm run build",
     "db:migrate": "cd backend && node scripts/run_migrations.js",

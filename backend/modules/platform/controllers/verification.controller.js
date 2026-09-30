@@ -3,6 +3,7 @@ const { sendMessage } = require('../../../utils/messageService');
 const { normalizeKenyanPhone } = require('../../../middleware/validators');
 const { getDynamicMessage } = require('../../../utils/templateUtils');
 const { mirrorOtpToSocket } = require('../../../utils/otpUtils');
+const { sanitizeUserPayload } = require('../../../utils/userUtils');
 
 /**
  * Calculate and return user verification status
@@ -29,12 +30,26 @@ const getVerificationStatus = async (req, res, next) => {
 
         console.log(`[Verification] User: ${user.email}, Role: ${user.role}, IsSuperAdmin: ${isSuperAdmin}, NatID: ${user.nationalIdUrl}`);
 
+        const hasRealEmail = Boolean(
+            user.email &&
+            !String(user.email).startsWith('noemail_') &&
+            !String(user.email).includes('@placeholder.local') &&
+            !String(user.email).includes('@comrades360.placeholder')
+        );
+        const hasRealPhone = Boolean(
+            user.phone &&
+            !String(user.phone).startsWith('nophone_') &&
+            !String(user.phone).startsWith('placeholder-')
+        );
+
         // Check each requirement
         const checks = {
             profileComplete: isSuperAdmin || !!(user.gender && user.dateOfBirth),
             addressComplete: isSuperAdmin || !!(user.county && user.town && user.estate && user.houseNumber),
-            emailVerified: isSuperAdmin || user.emailVerified === true,
-            phoneVerified: isSuperAdmin || user.phoneVerified === true,
+            hasRealEmail: isSuperAdmin || hasRealEmail,
+            hasRealPhone: isSuperAdmin || hasRealPhone,
+            emailVerified: isSuperAdmin || (hasRealEmail && user.emailVerified === true),
+            phoneVerified: isSuperAdmin || (hasRealPhone && user.phoneVerified === true),
             nationalIdApproved: isSuperAdmin || user.nationalIdStatus === 'approved',
             nationalIdStatus: user.nationalIdStatus || 'none'
         };
@@ -56,18 +71,18 @@ const getVerificationStatus = async (req, res, next) => {
         const missingSteps = [];
         if (!checks.emailVerified) {
             missingSteps.push({
-                step: 'emailVerified',
-                title: 'Verify Your Email',
-                description: 'Confirm your email address',
-                link: '/account/verify-email'
+                step: hasRealEmail ? 'emailVerified' : 'emailMissing',
+                title: hasRealEmail ? 'Verify Your Email' : 'Add an Email Address',
+                description: hasRealEmail ? 'Confirm your email address' : 'An email address is required for role verification and security',
+                link: '/customer/settings'
             });
         }
         if (!checks.phoneVerified) {
             missingSteps.push({
-                step: 'phoneVerified',
-                title: 'Verify Your Phone',
-                description: 'Confirm your phone number via SMS',
-                link: '/account/verify-phone'
+                step: hasRealPhone ? 'phoneVerified' : 'phoneMissing',
+                title: hasRealPhone ? 'Verify Your Phone' : 'Add a Phone Number',
+                description: hasRealPhone ? 'Confirm your phone number via SMS/WhatsApp code' : 'A verified phone number is required to place orders and apply for roles',
+                link: '/customer/settings'
             });
         }
         if (!checks.nationalIdApproved) {
@@ -92,6 +107,8 @@ const getVerificationStatus = async (req, res, next) => {
             });
         }
 
+        const safeUserData = sanitizeUserPayload(user.toJSON ? user.toJSON() : user);
+
         res.json({
             success: true,
             isFullyVerified: allVerified,
@@ -101,9 +118,11 @@ const getVerificationStatus = async (req, res, next) => {
             missingSteps,
             completionPercentage: Math.round((Object.values(essentialChecks).filter(v => v).length / Object.keys(essentialChecks).length) * 100),
             userData: {
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
+                name: safeUserData.name || '',
+                email: safeUserData.email || '',
+                phone: safeUserData.phone || '',
+                hasEmail: safeUserData.hasEmail,
+                hasPhone: safeUserData.hasPhone,
                 gender: user.gender,
                 dateOfBirth: user.dateOfBirth,
                 county: user.county,

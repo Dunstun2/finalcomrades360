@@ -342,7 +342,26 @@ module.exports = (sequelize, DataTypes) => {
 
     if (isAdmin) return true;
 
-    return !!(user.emailVerified && user.phoneVerified && user.nationalIdStatus === 'approved');
+    const hasRealEmail = Boolean(
+      user.email &&
+      !String(user.email).startsWith('noemail_') &&
+      !String(user.email).includes('@placeholder.local') &&
+      !String(user.email).includes('@comrades360.placeholder')
+    );
+
+    const hasRealPhone = Boolean(
+      user.phone &&
+      !String(user.phone).startsWith('nophone_') &&
+      !String(user.phone).startsWith('placeholder-')
+    );
+
+    return Boolean(
+      hasRealEmail &&
+      user.emailVerified &&
+      hasRealPhone &&
+      user.phoneVerified &&
+      user.nationalIdStatus === 'approved'
+    );
   };
 
   /**

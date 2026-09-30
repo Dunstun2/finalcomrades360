@@ -30,8 +30,20 @@ export default function WorkWithUs() {
       }
 
       // For non-admin users, check verification status
-      const isEmailVerified = user.emailVerified === true;
-      const isPhoneVerified = user.phoneVerified === true;
+      const hasRealEmail = Boolean(
+        user.email &&
+        !user.email.startsWith('noemail_') &&
+        !user.email.includes('@placeholder.local') &&
+        !user.email.includes('@comrades360.placeholder')
+      );
+      const hasRealPhone = Boolean(
+        user.phone &&
+        !user.phone.startsWith('nophone_') &&
+        !user.phone.startsWith('placeholder-')
+      );
+
+      const isEmailVerified = hasRealEmail && user.emailVerified === true;
+      const isPhoneVerified = hasRealPhone && user.phoneVerified === true;
       const nationalIdStatus = user.nationalIdStatus;
 
       console.log('[WorkWithUs] Verification check:', { 
@@ -42,8 +54,14 @@ export default function WorkWithUs() {
 
       if (!isEmailVerified || !isPhoneVerified) {
         // Redirect to verification if email or phone not verified
-        console.log('[WorkWithUs] Email/Phone not verified - redirecting to verification');
-        navigate('/customer/account-verification');
+        console.log('[WorkWithUs] Email or Phone missing/not verified - redirecting to verification');
+        navigate('/customer/account-verification', {
+          state: {
+            from: '/customer/work-with-us',
+            missingEmail: !isEmailVerified,
+            missingPhone: !isPhoneVerified
+          }
+        });
       } else if (nationalIdStatus === 'pending') {
         // Show pending modal if ID verification is in progress
         console.log('[WorkWithUs] National ID pending - showing modal');

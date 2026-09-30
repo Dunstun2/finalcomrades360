@@ -57,6 +57,30 @@ const saveDraftApplication = async (req, res) => {
     }
 
     const isAdmin = ['admin', 'superadmin', 'super_admin'].includes(user.role);
+    const hasRealEmail = Boolean(
+      user.email &&
+      !String(user.email).startsWith('noemail_') &&
+      !String(user.email).includes('@placeholder.local') &&
+      !String(user.email).includes('@comrades360.placeholder')
+    );
+    const hasRealPhone = Boolean(
+      user.phone &&
+      !String(user.phone).startsWith('nophone_') &&
+      !String(user.phone).startsWith('placeholder-')
+    );
+
+    if (!isAdmin && (!hasRealEmail || !user.emailVerified || !hasRealPhone || !user.phoneVerified)) {
+      return res.status(422).json({
+        success: false,
+        code: 'PROFILE_INCOMPLETE',
+        missing: [
+          ...(!hasRealEmail || !user.emailVerified ? ['email'] : []),
+          ...(!hasRealPhone || !user.phoneVerified ? ['phone'] : [])
+        ],
+        message: 'To apply for a role, your account must have both a verified email and phone number. Please complete your profile verification first.'
+      });
+    }
+
     if (!isAdmin && !user.isVerified) {
       return res.status(403).json({
         success: false,
@@ -185,6 +209,30 @@ const createRoleApplication = async (req, res) => {
     }
 
     const isAdmin = ['admin', 'superadmin', 'super_admin'].includes(user.role);
+    const hasRealEmail = Boolean(
+      user.email &&
+      !String(user.email).startsWith('noemail_') &&
+      !String(user.email).includes('@placeholder.local') &&
+      !String(user.email).includes('@comrades360.placeholder')
+    );
+    const hasRealPhone = Boolean(
+      user.phone &&
+      !String(user.phone).startsWith('nophone_') &&
+      !String(user.phone).startsWith('placeholder-')
+    );
+
+    if (!isAdmin && (!hasRealEmail || !user.emailVerified || !hasRealPhone || !user.phoneVerified)) {
+      return res.status(422).json({
+        success: false,
+        code: 'PROFILE_INCOMPLETE',
+        missing: [
+          ...(!hasRealEmail || !user.emailVerified ? ['email'] : []),
+          ...(!hasRealPhone || !user.phoneVerified ? ['phone'] : [])
+        ],
+        message: 'To apply for a role, your account must have both a verified email and phone number. Please complete your profile verification first.'
+      });
+    }
+
     if (!isAdmin && !user.isVerified) {
       return res.status(403).json({
         success: false,

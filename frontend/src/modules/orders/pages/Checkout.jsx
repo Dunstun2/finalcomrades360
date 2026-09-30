@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import userService from '@/modules/users/services/userService';
 import paymentService from '@/modules/services/services/paymentService';
-import { FaMapMarkerAlt, FaStore, FaEdit, FaSearch, FaArrowLeft } from 'react-icons/fa';
+import { FaMapMarkerAlt, FaStore, FaEdit, FaSearch, FaArrowLeft, FaCheckCircle, FaPhone, FaShieldAlt } from 'react-icons/fa';
 import api from '@/shared/services/api';
 import { resolveImageUrl } from '@/utils/imageUtils';
 import { formatPrice } from '@/utils/currency';
@@ -131,6 +131,14 @@ function Checkout() {
     const items = Array.isArray(cart?.items) ? cart.items : [];
     return items.filter((item) => (cartScope === 'fastfood' ? item.itemType === 'fastfood' : item.itemType !== 'fastfood'));
   }, [cart?.items, cartScope]);
+
+  const userHasVerifiedPhone = useMemo(() => {
+    if (!user || !userProfile) return false;
+    const phone = userProfile.phone;
+    if (!phone) return false;
+    if (String(phone).startsWith('nophone_') || String(phone).startsWith('placeholder-')) return false;
+    return Boolean(userProfile.phoneVerified);
+  }, [user, userProfile]);
 
   const [routeFees, setRouteFees] = useState(null);
 
@@ -379,6 +387,13 @@ function Checkout() {
         try {
           const profile = await userService.getProfile();
           setUserProfile(profile);
+
+          if (profile.phone && !profile.phone.startsWith('nophone_') && !profile.phone.startsWith('placeholder-')) {
+            setFormData(prev => ({
+              ...prev,
+              customerPhone: profile.phone
+            }));
+          }
 
           const isMarketingMode = localStorage.getItem('marketing_mode') === 'true';
 
@@ -830,8 +845,25 @@ function Checkout() {
       return;
     }
 
-    // Validate customer details in marketing mode OR guest checkout
-    if (isMarketingMode || !user) {
+    // Validate customer details in marketing mode OR guest checkout OR logged-in checkout
+    if (isMarketingMode) {
+      if (!formData.customerName.trim()) {
+        alert('Please enter your full name');
+        return;
+      }
+      if (!formData.customerPhone.trim()) {
+        alert('Please enter your phone number');
+        return;
+      }
+      if (formData.customerPhone.trim() && !validateKenyanPhone(formData.customerPhone.trim())) {
+        alert(`Phone Number: ${PHONE_VALIDATION_ERROR}`);
+        return;
+      }
+      if (!formData.customerAddress.trim()) {
+        alert('Please enter the customer delivery address');
+        return;
+      }
+    } else if (!user) {
       if (!formData.customerName.trim()) {
         alert('Please enter your full name');
         return;
@@ -845,19 +877,21 @@ function Checkout() {
         return;
       }
       
-      // Address is only required via 'customerAddress' field if in marketing mode.
-      // Otherwise, we use the 'editedCounty/town/etc' fields which are validated below.
-      if (isMarketingMode && !formData.customerAddress.trim()) {
-        alert('Please enter the customer delivery address');
-        return;
-      }
-
       // Enforcement: Guest must be verified
-      if (!user && !isMarketingMode && !isGuestVerified) {
+      if (!isGuestVerified) {
         alert('Please verify your phone number via OTP before placing the order.');
-        // Scroll to the verification section
         const verifyBtn = document.getElementById('request-otp-btn');
         if (verifyBtn) verifyBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    } else {
+      // Enforcement: Logged in customer must have a verified phone number
+      if (!userHasVerifiedPhone) {
+        alert('A verified phone number is required to place your order. Please add and verify your phone number in the section below.');
+        const phoneSection = document.getElementById('checkout-phone-verification-section');
+        if (phoneSection) {
+          phoneSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         return;
       }
     }
@@ -982,7 +1016,9 @@ function Checkout() {
           isMarketingOrder: localStorage.getItem('marketing_mode') === 'true',
           isGuestOrder: !user,
           customerName: (isMarketingMode || !user) ? formData.customerName : (userProfile?.name || formData.customerName),
-          customerPhone: formData.mobileMoneyPhone || formData.customerPhone || userProfile?.phone,
+          customerPhone: (isMarketingMode || !user)
+            ? (formData.customerPhone || formData.mobileMoneyPhone)
+            : (userProfile?.phone || formData.customerPhone || formData.mobileMoneyPhone),
           customerEmail: (isMarketingMode || !user) ? formData.customerEmail : (userProfile?.email || formData.customerEmail),
           marketingDeliveryAddress: isMarketingMode ? formData.customerAddress : formData.deliveryAddress,
           deliveryInstructions: isFastFoodScope ? (formData.specialInstructions?.trim() || null) : null,
@@ -1929,6 +1965,192 @@ function Checkout() {
                         </div>
                       )
                     )}
+                  </div>
+                )}
+
+                {/* Contact & Phone Verification Section for Logged-in Users */}
+                {user && localStorage.getItem('marketing_mode') !== 'true' && (
+                  userHasVerifiedPhone ? (
+                    <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6 mt-6 transition-all animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
+                            <FaCheckCircle className="text-xl" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-gray-800">Phone Verified</h3>
+                            <p className="text-xs text-gray-600">
+                              Delivery updates will be sent to <strong>{userProfile?.phone}</strong>
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-bold bg-green-100 text-green-800 px-2.5 py-1 rounded-full border border-green-200 uppercase tracking-wider">
+                          Verified
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      id="checkout-phone-verification-section"
+                      className="bg-white md:rounded-lg shadow-sm border-2 border-orange-400 p-4 md:p-6 mt-6 transition-all animate-in fade-in slide-in-from-top-2"
+                    >
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0 mt-0.5">
+                          <FaPhone className="text-base" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                              Phone Verification Required
+                            </h3>
+                            <span className="text-[10px] bg-orange-100 text-orange-800 font-bold px-2 py-0.5 rounded-full uppercase">
+                              Required
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-1">
+                            To receive real-time delivery tracking and dispatch updates, please add and verify your phone number.
+                          </p>
+                        </div>
+                      </div>
+                      <PhoneVerification
+                        mode="authenticated"
+                        currentPhone={userProfile?.phone || ''}
+                        onVerified={async (verifiedPhone) => {
+                          try {
+                            const updated = await userService.getProfile();
+                            setUserProfile(updated);
+                            setFormData(prev => ({
+                              ...prev,
+                              customerPhone: verifiedPhone || updated?.phone || prev.customerPhone
+                            }));
+                          } catch (e) {
+                            console.error('Failed to refresh profile after verification:', e);
+                          }
+                        }}
+                      />
+                    </div>
+                  )
+                )}
+
+                {/* Pickup Station Guest Contact Details (if guest selected pick_station) */}
+                {!user && localStorage.getItem('marketing_mode') !== 'true' && formData.deliveryMethod === 'pick_station' && (
+                  <div className="bg-white md:rounded-lg shadow-sm border-0 md:border border-gray-100 p-4 md:p-6 mt-6 transition-all animate-in fade-in slide-in-from-top-2">
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider mb-2">
+                      Pickup Contact Details
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Enter the name and phone number of the person collecting this package from the pickup station.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Collector Name *</label>
+                        <input
+                          type="text"
+                          name="customerName"
+                          value={formData.customerName}
+                          onChange={handleInputChange}
+                          placeholder="Full name"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Collector Phone Number *</label>
+                        <input
+                          type="tel"
+                          name="customerPhone"
+                          value={formData.customerPhone}
+                          onInput={(e) => e.target.value = formatKenyanPhoneInput(e.target.value)}
+                          onChange={handleInputChange}
+                          placeholder="e.g., 0712345678 or +254712345678"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                          required
+                        />
+                      </div>
+                    </div>
+                    {/* Guest OTP Verification */}
+                    <div className="p-4 bg-orange-50/50 rounded-lg border border-orange-200">
+                      {!isGuestVerified ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-black text-orange-800 uppercase tracking-wider">Phone Verification Required</label>
+                            {otpSent && (
+                              <button 
+                                type="button" 
+                                onClick={handleRequestGuestOtp}
+                                disabled={isSendingOtp}
+                                className="text-[10px] text-blue-600 font-bold hover:underline"
+                              >
+                                Resend Code
+                              </button>
+                            )}
+                          </div>
+                          {!otpSent ? (
+                            <div className="space-y-2">
+                              <div className="flex gap-4">
+                                <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-700">
+                                  <input 
+                                    type="radio" 
+                                    name="stationVerificationMethod" 
+                                    value="whatsapp" 
+                                    checked={verificationMethod === 'whatsapp'} 
+                                    onChange={(e) => setVerificationMethod(e.target.value)}
+                                  />
+                                  <span>WhatsApp</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-700">
+                                  <input 
+                                    type="radio" 
+                                    name="stationVerificationMethod" 
+                                    value="sms" 
+                                    checked={verificationMethod === 'sms'} 
+                                    onChange={(e) => setVerificationMethod(e.target.value)}
+                                  />
+                                  <span>SMS</span>
+                                </label>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleRequestGuestOtp}
+                                disabled={isSendingOtp || !formData.customerPhone}
+                                className="w-full py-2.5 bg-orange-600 text-white rounded-md font-bold text-xs hover:bg-orange-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                              >
+                                {isSendingOtp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
+                                <span>Send Verification Code</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <p className="text-xs text-gray-600">Enter the 6-digit code sent to <strong>{formData.customerPhone}</strong>:</p>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={otpCode}
+                                  onChange={(e) => setOtpCode(e.target.value)}
+                                  placeholder="Enter 6-digit OTP"
+                                  maxLength="6"
+                                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm text-center font-bold tracking-widest"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleVerifyGuestOtp}
+                                  disabled={isVerifyingOtp || !otpCode}
+                                  className="px-5 py-2 bg-green-600 text-white rounded-md font-bold text-xs hover:bg-green-700 disabled:opacity-50 transition-all"
+                                >
+                                  {isVerifyingOtp ? 'Verifying...' : 'Verify'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {otpError && <p className="text-xs text-red-500 font-medium">{otpError}</p>}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-green-700">
+                          <FaCheckCircle className="text-green-600" />
+                          <span className="text-xs font-bold uppercase tracking-tight">Phone Verified</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

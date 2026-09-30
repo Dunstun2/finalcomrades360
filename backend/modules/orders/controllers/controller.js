@@ -410,34 +410,53 @@ const createOrderFromCart = async (req, res) => {
   const customerPhone = req.body.customerPhone;
   const isMarketingOrder = req.body.isMarketingOrder || false;
 
-  // Guest Verification Check: Force OTP verification for non-logged in users
-  if (!userId && !isMarketingOrder) {
-    if (!customerPhone) {
-      return res.status(400).json({ success: false, message: 'Phone number is required for guest checkout' });
-    }
-    
-    try {
-      const { normalizeKenyanPhone } = require('../../../middleware/validators');
-      const normalizedPhone = normalizeKenyanPhone(customerPhone);
-      
-      const verifiedOtp = await Otp.findOne({
-        where: {
-          phone: normalizedPhone,
-          isVerified: true
-        }
-      });
+  // Verification Check: Force verified phone for all customers placing orders (except marketer proxy orders)
+  let orderUser = null;
+  if (!isMarketingOrder) {
+    if (userId) {
+      orderUser = await User.findByPk(userId);
+      const hasRealPhone = Boolean(
+        orderUser?.phone &&
+        !String(orderUser.phone).startsWith('nophone_') &&
+        !String(orderUser.phone).startsWith('placeholder-')
+      );
 
-      if (!verifiedOtp || new Date() > verifiedOtp.expiresAt) {
+      if (!hasRealPhone || !orderUser.phoneVerified) {
         return res.status(403).json({
           success: false,
-          message: 'Phone number verification required. Please verify your phone number via OTP first.'
+          code: 'PHONE_VERIFICATION_REQUIRED',
+          message: 'A verified phone number is required to place an order. Please verify your phone number at checkout first.'
         });
       }
+    } else {
+      // Guest Verification Check: Force OTP verification for non-logged in users
+      if (!customerPhone) {
+        return res.status(400).json({ success: false, message: 'Phone number is required for guest checkout' });
+      }
       
-      console.log(`✅ Guest phone ${normalizedPhone} verified. Proceeding with order...`);
-    } catch (err) {
-      console.error('Guest verification error:', err);
-      // If normalization fails, we'll catch it later or here
+      try {
+        const { normalizeKenyanPhone } = require('../../../middleware/validators');
+        const normalizedPhone = normalizeKenyanPhone(customerPhone);
+        
+        const verifiedOtp = await Otp.findOne({
+          where: {
+            phone: normalizedPhone,
+            isVerified: true
+          }
+        });
+
+        if (!verifiedOtp || new Date() > verifiedOtp.expiresAt) {
+          return res.status(403).json({
+            success: false,
+            message: 'Phone number verification required. Please verify your phone number via OTP first.'
+          });
+        }
+        
+        console.log(`✅ Guest phone ${normalizedPhone} verified. Proceeding with order...`);
+      } catch (err) {
+        console.error('Guest verification error:', err);
+        // If normalization fails, we'll catch it later or here
+      }
     }
   }
 
@@ -846,7 +865,9 @@ const createOrderFromCart = async (req, res) => {
       }]),
       isMarketingOrder: req.body.isMarketingOrder || false,
       customerName: req.body.customerName || null,
-      customerPhone: req.body.customerPhone ? require('../../../middleware/validators').normalizeKenyanPhone(req.body.customerPhone) : null,
+      customerPhone: req.body.customerPhone 
+        ? require('../../../middleware/validators').normalizeKenyanPhone(req.body.customerPhone) 
+        : (orderUser?.phone || null),
       customerEmail: req.body.customerEmail || null,
       marketingDeliveryAddress: req.body.marketingDeliveryAddress || null,
       deliveryAddress: req.body.deliveryAddress || null,
