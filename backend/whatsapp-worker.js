@@ -116,8 +116,8 @@ const initWhatsApp = async () => {
             },
             printQRInTerminal: false,          // skip terminal QR render (saves buffer)
             logger: P({ level: 'silent' }),
-            // Identify as Chrome desktop — most stable protocol path
-            browser: ['Comrades360', 'Chrome', '124.0.6367.207'],
+            // Use standard Baileys browser signature to prevent 401 handshake rejections
+            browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '124.0.6367.207'],
 
             // ─── Disable EVERYTHING non-essential to save RAM ──────────────
             syncFullHistory: false,
@@ -190,9 +190,18 @@ const initWhatsApp = async () => {
                 destroySocket();
 
                 if (isLoggedOut) {
-                    log('🚪 Logged out. Clear session to re-pair.');
+                    log('🚪 Logged out or 401. Auto-wiping corrupted session files...');
                     whatsappStatus = 'disconnected';
                     latestQr = null;
+                    try {
+                        if (fs.existsSync(sessionDir)) {
+                            fs.rmSync(sessionDir, { recursive: true, force: true });
+                            fs.mkdirSync(sessionDir, { recursive: true });
+                            log('🧹 Stale session directory purged.');
+                        }
+                    } catch (e) {
+                        log(`⚠️ Error cleaning session: ${e.message}`);
+                    }
                 } else if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
                     log(`🛑 Max reconnect attempts reached (${MAX_RECONNECT_ATTEMPTS}). Use /restart to retry.`);
                     whatsappStatus = 'error';
