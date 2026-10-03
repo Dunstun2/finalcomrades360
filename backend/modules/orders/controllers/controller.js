@@ -1329,6 +1329,18 @@ const createOrderFromCart = async (req, res) => {
               });
             }
           }
+
+          // Broadcast to admin room so AdminOrders dashboard updates instantly
+          // (covers all logged-in admins without needing their individual user IDs)
+          logNotify(`📡 [Real-time] Broadcasting new order to admin rooms...`);
+          const newOrderPayload = {
+            scope: 'orders',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            event: 'new_order',
+          };
+          io.to('admin_room').emit('realtime:update', newOrderPayload);
+          io.to('admin').emit('realtime:update', newOrderPayload);
         }
 
         // Customer Notifications (WhatsApp/SMS/Email)

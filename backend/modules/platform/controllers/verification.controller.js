@@ -270,11 +270,24 @@ const requestGuestPhoneOtp = async (req, res, next) => {
             `Your Comrades360 guest checkout code is: ${cleanOtp}. Valid for 10 minutes.\n\n@comrades360.shop #${cleanOtp}`,
             { otp: cleanOtp }
         );
-        await sendMessage(
-            normalizedPhone,
-            message,
-            method
-        );
+
+        try {
+            await sendMessage(normalizedPhone, message, method);
+        } catch (sendErr) {
+            const errMsg = sendErr.message || '';
+            console.error(`[GuestVerification] ❌ Message dispatch failed: ${errMsg}`);
+
+            // WhatsApp not ready — return a clear 503 so the frontend can show a proper message
+            if (errMsg.includes('not ready') || errMsg.includes('QR code') || errMsg.includes('WhatsApp Dispatch Failed')) {
+                return res.status(503).json({
+                    success: false,
+                    message: 'Messaging service is temporarily unavailable. Please try again shortly or contact support.',
+                    code: 'WHATSAPP_NOT_READY'
+                });
+            }
+            // Re-throw other unexpected send errors
+            throw sendErr;
+        }
 
         if (socketId || normalizedPhone) {
             const { mirrorOtp } = require('../../../utils/otpUtils');

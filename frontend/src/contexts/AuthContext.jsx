@@ -158,35 +158,76 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = (isRegistration = false) => {
     return new Promise((resolve, reject) => {
-      if (typeof window.google === 'undefined') {
-        reject(new Error('Google Identity Services script not loaded. Please refresh the page.'));
-        return;
-      }
-
       const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || window.__GOOGLE_CLIENT_ID__;
       if (!clientId) {
-        reject(new Error('Google Client ID is missing. Please set VITE_GOOGLE_CLIENT_ID in your frontend/.env file.'));
+        reject(new Error('Google Client ID is missing. Please contact support.'));
         return;
       }
 
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: 'email profile openid',
-        callback: async (response) => {
-          if (response.error) {
-            reject(response);
-            return;
-          }
-          try {
-            const user = await googleLogin(response.access_token, 'access_token', isRegistration);
-            resolve(user);
-          } catch (err) {
-            reject(err);
-          }
-        },
-      });
+      // Wait for the Google GIS script to be ready (handles slow mobile connections)
+      const initClient = () => {
+        if (typeof window.google === 'undefined' || !window.google?.accounts?.oauth2) {
+          reject(new Error('Google Sign-In is not available. Please refresh and try again.'));
+          return;
+        }
 
-      client.requestAccessToken();
+        let settled = false;
+        const settle = (fn, val) => {
+          if (!settled) { settled = true; fn(val); }
+        };
+
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'email profile openid',
+          // error_callback handles popup_closed, access_denied, popup_blocked etc.
+          error_callback: (err) => {
+            const errorMap = {
+              popup_closed: 'Sign-in was cancelled. Please try again.',
+              popup_closed_by_user: 'Sign-in was cancelled. Please try again.',
+              access_denied: 'Access was denied. Please allow access to continue.',
+              popup_failed_to_open: 'A pop-up was blocked by your browser. Please allow pop-ups for this site and try again.',
+            };
+            const msg = errorMap[err?.type] || `Google Sign-In failed: ${err?.type || 'unknown error'}`;
+            settle(reject, new Error(msg));
+          },
+          callback: async (response) => {
+            if (response.error) {
+              const errorMap = {
+                popup_closed_by_user: 'Sign-in was cancelled. Please try again.',
+                access_denied: 'Access was denied. Please allow access to continue.',
+              };
+              settle(reject, new Error(errorMap[response.error] || `Google error: ${response.error}`));
+              return;
+            }
+            try {
+              const user = await googleLogin(response.access_token, 'access_token', isRegistration);
+              settle(resolve, user);
+            } catch (err) {
+              settle(reject, err);
+            }
+          },
+        });
+
+        client.requestAccessToken();
+      };
+
+      // If the GIS script is already loaded, init immediately
+      if (typeof window.google !== 'undefined' && window.google?.accounts?.oauth2) {
+        initClient();
+      } else {
+        // Wait up to 5 seconds for the script to load (mobile slow connections)
+        let waited = 0;
+        const interval = setInterval(() => {
+          waited += 100;
+          if (typeof window.google !== 'undefined' && window.google?.accounts?.oauth2) {
+            clearInterval(interval);
+            initClient();
+          } else if (waited >= 5000) {
+            clearInterval(interval);
+            reject(new Error('Google Sign-In could not load. Please check your internet connection and try again.'));
+          }
+        }, 100);
+      }
     });
   };
 
@@ -250,6 +291,9 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('cartState'); // Ensure no guest cart remains
     localStorage.removeItem('cartState_personal');
     localStorage.removeItem('cartState_marketing');
+    // Clean up any lingering impersonation backup state
+    localStorage.removeItem('admin_token_backup');
+    localStorage.removeItem('admin_user_backup');
     sessionStorage.clear();
     setUser(null);
     setVerificationRequired(false);

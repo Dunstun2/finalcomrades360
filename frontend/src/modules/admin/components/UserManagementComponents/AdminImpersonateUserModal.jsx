@@ -41,10 +41,14 @@ export default function AdminImpersonateUserModal({ isOpen, onClose, onSuccess }
     try {
       const res = await adminApi.adminImpersonateUser(user.id);
       
-      // Save the old admin token if we want to build a "return to admin" button.
+      // Save the old admin token & user so we can fully restore the admin session on exit.
       const currentToken = localStorage.getItem('token');
+      const currentUser = localStorage.getItem('user');
       if (currentToken) {
         localStorage.setItem('admin_token_backup', currentToken);
+      }
+      if (currentUser) {
+        localStorage.setItem('admin_user_backup', currentUser);
       }
 
       // Save the new token

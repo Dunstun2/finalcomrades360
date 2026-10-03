@@ -16,6 +16,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import RealtimeSync from './shared/components/RealtimeSync';
 import DashboardGuard from './modules/dashboard/components/DashboardGuard';
+import ImpersonationBanner from './shared/components/ImpersonationBanner';
 // import VerificationRequired from './components/VerificationRequired'; // Removed as per user request
 import Home from './shared/pages/Home';
 const MaintenancePage = React.lazy(() => import('./shared/pages/MaintenancePage'));
@@ -421,6 +422,7 @@ const AppContent = () => {
   return (
     <PageLayout fluid={isDashboardRoute}>
       <ScrollToTop />
+      <ImpersonationBanner />
       <Routes>
         {/* Verification Required Interceptor */}
 

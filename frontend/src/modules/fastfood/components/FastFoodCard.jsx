@@ -195,7 +195,8 @@ export default function FastFoodCard({
           height="192"
           className={`w-full h-full object-cover object-center transition-transform duration-300 ${!isOpen ? 'grayscale-[0.4] brightness-90' : ''}`}
           onError={(e) => {
-            e.target.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&q=80';
+            e.target.onError = null; // prevent infinite retry loop
+            e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='210' height='192' viewBox='0 0 210 192'%3E%3Crect width='210' height='192' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14' fill='%239ca3af'%3ENo Image%3C/text%3E%3C/svg%3E";
           }}
         />
 

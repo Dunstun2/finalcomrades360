@@ -800,14 +800,10 @@ const googleAuth = async (req, res, next) => {
         }
       });
       return;
-    } else {
-      if (!req.body.isRegistration) {
-        // User not found and it's just a login attempt
-        return res.status(404).json({ success: false, message: 'Email not registered' });
-      }
+    }
 
-      // User not found, but it's a registration attempt -> Create User
-      console.log('[googleAuth] Creating new user for Google email:', email);
+    // User not found -> Auto-create user for seamless "Continue with Google" experience
+    console.log('[googleAuth] Creating new user for Google email:', email);
       const publicId = uuidv4();
       const tempPassword = crypto.randomBytes(4).toString('hex');
       const hashedPassword = await bcrypt.hash(tempPassword, 10);
@@ -845,6 +841,11 @@ const googleAuth = async (req, res, next) => {
         }
       });
 
+      // Link past guest orders to this new account
+      setImmediate(() => {
+        linkGuestOrders(newUser.id, email, null);
+      });
+
       return res.status(201).json({
         success: true,
         message: 'Registration successful.',
@@ -854,8 +855,6 @@ const googleAuth = async (req, res, next) => {
           mustChangePassword: false
         }
       });
-    }
-
   } catch (error) {
     next(error);
   }

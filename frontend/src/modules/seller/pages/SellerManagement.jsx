@@ -66,8 +66,12 @@ export default function SellerManagement() {
         try {
             const res = await adminApi.adminImpersonateUser(userId);
             const currentToken = localStorage.getItem('token');
+            const currentUser = localStorage.getItem('user');
             if (currentToken) {
                 localStorage.setItem('admin_token_backup', currentToken);
+            }
+            if (currentUser) {
+                localStorage.setItem('admin_user_backup', currentUser);
             }
             localStorage.setItem('token', res.data.token);
             toast.success('Impersonation started. Redirecting...');
