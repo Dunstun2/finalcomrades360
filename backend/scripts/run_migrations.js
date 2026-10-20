@@ -72,14 +72,38 @@ async function runMigrations() {
         continue;
       }
 
-      await migration.up(queryInterface, Sequelize);
+      try {
+        await migration.up(queryInterface, Sequelize);
 
-      // Record in SequelizeMeta
-      await sequelize.query('INSERT INTO SequelizeMeta (name) VALUES (:name);', {
-        replacements: { name: file }
-      });
+        // Record in SequelizeMeta
+        await sequelize.query('INSERT INTO SequelizeMeta (name) VALUES (:name);', {
+          replacements: { name: file }
+        });
 
-      console.log(`✅ Applied:  ${file}`);
+        console.log(`✅ Applied:  ${file}`);
+      } catch (err) {
+        const isDuplicateOrExists =
+          (err.original && (
+            err.original.code === 'ER_DUP_KEYNAME' ||
+            err.original.code === 'ER_TABLE_EXISTS_ERROR' ||
+            err.original.code === 'ER_DUP_FIELDNAME' ||
+            err.original.errno === 1061 ||
+            err.original.errno === 1050 ||
+            err.original.errno === 1060
+          )) ||
+          err.message?.includes('Duplicate key name') ||
+          err.message?.includes('already exists');
+
+        if (isDuplicateOrExists) {
+          console.warn(`⚠️ Note: ${file} experienced: ${err.message}. Marking as applied.`);
+          await sequelize.query('INSERT IGNORE INTO SequelizeMeta (name) VALUES (:name);', {
+            replacements: { name: file }
+          });
+          console.log(`✅ Marked as applied: ${file}`);
+        } else {
+          throw err;
+        }
+      }
     }
 
     console.log('\n🎉 All pending migrations completed successfully!\n');
