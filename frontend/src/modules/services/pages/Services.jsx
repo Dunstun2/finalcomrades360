@@ -189,8 +189,7 @@ const Services = () => {
       />
       
       <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
-        <PageLayout>
-          <div className="min-h-screen flex flex-col bg-gray-50 pb-20">
+        <div className="min-h-screen flex flex-col bg-gray-50 pb-20 px-1.5 sm:px-4">
 
             <HeroBanner
               title="Browse Services"
@@ -199,51 +198,53 @@ const Services = () => {
               loading={loading}
             />
 
-            {/* Navigation & Subcategory Filter */}
-            <div className="flex justify-center mt-4 mb-4 px-3 md:px-4 relative z-20">
-              <div className="w-full sm:w-auto bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/50 flex space-x-2">
+            {/* Navigation — compact tabs */}
+            <div className="flex justify-center mt-2 sm:mt-4 mb-2 sm:mb-4 px-2 sm:px-4 relative z-20">
+              <div className="w-full max-w-lg bg-white/90 backdrop-blur-md p-1 sm:p-1.5 rounded-xl shadow-md border border-white/50 flex gap-1">
                 <button
                   onClick={() => navigate('/')}
-                  className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                  className="flex-1 flex items-center justify-center px-2 sm:px-6 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
                 >
-                  <ArrowLeft className="h-4 w-4 mr-2" /> Homepage
+                  <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Home
                 </button>
                 <button
                   onClick={() => navigate('/services')}
-                  className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 bg-purple-600 text-white shadow-lg"
+                  className="flex-1 flex items-center justify-center px-2 sm:px-6 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-bold transition-all duration-300 bg-purple-600 text-white shadow-md"
                 >
-                  🛠️ <span className="ml-2">Services</span>
+                  🛠️ <span className="ml-1">Services</span>
                 </button>
               </div>
             </div>
 
-            {/* Subcategory Filter */}
-            <div className="bg-white border-b shadow-sm">
-              <div className="w-full px-0 md:px-4 py-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">Filter by Service Type</h2>
-                  {selectedSubcategory && (
-                    <button onClick={clearSubcategoryFilter} className="text-sm text-blue-600 hover:text-blue-800">Clear Filter</button>
-                  )}
-                </div>
-
-                <div className="flex space-x-3 overflow-x-auto pb-2">
-                  <button
-                    onClick={() => handleSubcategorySelect(null)}
-                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${!selectedSubcategory ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300'}`}
-                  >
-                    All Services
-                  </button>
-                  {studentSubcategories.map(subcategory => (
+            {/* Subcategory Filter — FastFood style navigation bar */}
+            <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+              <div className="px-4 py-4">
+                <div className="relative">
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
+                  <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                     <button
-                      key={subcategory.id}
-                      onClick={() => handleSubcategorySelect(subcategory)}
-                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedSubcategory?.id === subcategory.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300'}`}
+                      onClick={() => handleSubcategorySelect(null)}
+                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${!selectedSubcategory
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                      }`}
                     >
-                      <span className="mr-2">{subcategory.emoji || '🛠️'}</span>
-                      {subcategory.name}
+                      All Services
                     </button>
-                  ))}
+                    {studentSubcategories.map(subcategory => (
+                      <button
+                        key={subcategory.id}
+                        onClick={() => handleSubcategorySelect(subcategory)}
+                        className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedSubcategory?.id === subcategory.id
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                        }`}
+                      >
+                        {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                        {subcategory.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -287,7 +288,6 @@ const Services = () => {
 
             <Footer />
           </div>
-        </PageLayout>
       </div>
     </div>
   );

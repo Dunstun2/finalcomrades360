@@ -24,6 +24,7 @@ import App from '@/App.jsx'
 import { PlatformProvider } from '@/contexts/PlatformContext';
 import '@/styles/global.css' // Global styles with standard dimensions
 import '@/styles.css'
+import '@/index.css'
 import '@/styles/ecommerce-standards.css'
 import { initPerformanceMonitoring } from '@/utils/performance';
 

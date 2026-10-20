@@ -913,25 +913,21 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
     }
 
     return (
-      <div key={`category-section-${sectionId}`} id={`category-${sectionId}`} className="sm:mb-3 mb-2">
-        <div className="flex items-center justify-between mb-4">
+      <div key={`category-section-${sectionId}`} id={`category-${sectionId}`} className="mb-2 sm:mb-3">
+        <div className="section-header-mobile">
           <div>
-            <h3 className="font-display text-2xl md:text-3xl font-black text-gray-900 tracking-tight">{name}</h3>
-            <p className="text-gray-500 text-sm mt-2">
-              {!loading && `${totalCount.toLocaleString()} products found`}
-            </p>
+            <h3 className="font-display text-base sm:text-2xl md:text-3xl font-black text-gray-900 tracking-tight">{name}</h3>
+            {!loading && <p className="text-gray-400 text-xs sm:text-sm mt-0.5">{totalCount.toLocaleString()} products</p>}
           </div>
-          <div className="flex items-center space-x-4">
-            <Link
-              to="/products"
-              className="text-blue-600 hover:text-blue-800 font-semibold flex items-center group gap-1"
-            >
-              View all
-              <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          </div>
+          <Link
+            to="/products"
+            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center group gap-1 text-xs sm:text-sm"
+          >
+            View all
+            <svg className="h-3 w-3 sm:h-4 sm:w-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
 
         <div className="space-y-8">
@@ -1039,25 +1035,25 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
       />
 
 
-      <div data-testid="homepage-content" className="w-full px-1 sm:px-4 pt-4 md:pt-8 pb-2">
+      <div data-testid="homepage-content" className="w-full px-1.5 sm:px-4 pt-2 sm:pt-8 pb-2">
         {/* Quick Navigation Buttons */}
-        <div className="mb-6 flex items-center justify-center px-1 sm:px-0">
-          <div className="flex flex-row gap-2 w-full max-w-xl">
+        <div className="mb-3 sm:mb-6">
+          <div className="flex flex-row gap-1.5 sm:gap-2 w-full max-w-lg mx-auto">
             {isSectionVisible('products') && (
-              <a href="/products" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-                <span className="text-base sm:text-xl mr-1">🛒</span>
+              <a href="/products" className="flex-1 px-2 py-2 sm:py-3 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-white font-bold text-xs sm:text-sm shadow-md hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center gap-1">
+                <span className="text-sm sm:text-lg">🛒</span>
                 <span>Products</span>
               </a>
             )}
             {isSectionVisible('fastfood') && (
-              <a href="/fastfood" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-orange-400 to-amber-500 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-                <span className="text-base sm:text-xl mr-1">🍔</span>
+              <a href="/fastfood" className="flex-1 px-2 py-2 sm:py-3 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 text-white font-bold text-xs sm:text-sm shadow-md hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center gap-1">
+                <span className="text-sm sm:text-lg">🍔</span>
                 <span>Fastfood</span>
               </a>
             )}
             {isSectionVisible('services') && (
-              <a href="/services" className="flex-1 px-1 py-1 rounded-md bg-gradient-to-br from-purple-500 to-violet-700 text-white font-medium text-xs sm:text-base shadow hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center min-w-[60px] sm:min-w-[90px] h-8 sm:h-auto">
-                <span className="text-base sm:text-xl mr-1">🛠️</span>
+              <a href="/services" className="flex-1 px-2 py-2 sm:py-3 rounded-xl bg-gradient-to-br from-purple-500 to-violet-700 text-white font-bold text-xs sm:text-sm shadow-md hover:scale-105 hover:shadow-lg transition-all flex flex-row items-center justify-center gap-1">
+                <span className="text-sm sm:text-lg">🛠️</span>
                 <span>Services</span>
               </a>
             )}
@@ -1072,45 +1068,35 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
         )}
         {/* Product Category Filter Navigation */}
         {isSectionVisible('products') && (
-          <div className="bg-white border rounded-none sm:rounded-lg shadow-sm mb-6 mt-4">
-            <div className="px-2 sm:px-4 py-4">
-              <div className="flex items-center justify-end mb-2">
-                {selectedCategoryId !== 'all' && (
+          <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden mt-2 sm:mt-4">
+            <div className="px-4 py-4">
+              <div className="relative">
+                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
+                <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                   <button
                     onClick={() => toggleCategorySelection({ id: 'all' })}
-                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center font-medium"
-                  >
-                    Show All
-                  </button>
-                )}
-              </div>
-
-              <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide">
-                {/* All Products Button */}
-                <button
-                  onClick={() => toggleCategorySelection({ id: 'all' })}
-                  className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedCategoryId === 'all'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-                    }`}
-                >
-                  All Products
-                </button>
-
-                {/* Category Buttons */}
-                {allCategories.map(category => (
-                  <button
-                    key={category.id}
-                    onClick={() => toggleCategorySelection(category)}
-                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedCategoryId === category.id
-                      ? 'bg-blue-600 text-white border-blue-600'
+                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${selectedCategoryId === 'all'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                       : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-                      }`}
+                    }`}
                   >
-                    <span className="mr-2">{category.emoji || '📦'}</span>
-                    {category.name}
+                    All Products
                   </button>
-                ))}
+
+                  {allCategories.map(category => (
+                    <button
+                      key={category.id}
+                      onClick={() => toggleCategorySelection(category)}
+                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedCategoryId === category.id
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                      }`}
+                    >
+                      {category.emoji && <span>{category.emoji}</span>}
+                      {category.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -1128,70 +1114,50 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
 
       {/* Services Section */}
       {isSectionVisible('services') && ((!loading && !loadingServices && services.length === 0 && !selectedServiceSubcategory) ? null : (
-      <div className="w-full px-1 sm:px-4 sm:py-4 py-2">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Best Services</h2>
-          </div>
+      <div className="w-full px-1.5 sm:px-4 py-2 sm:py-4">
+        <div className="section-header-mobile">
+          <h2 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900">Best Services</h2>
           <Link
             to="/services"
-            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 group"
+            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 group text-xs sm:text-sm"
           >
             View all
-            <svg className="h-4 w-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="h-3 w-3 sm:h-4 sm:w-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </Link>
         </div>
 
-        {/* Subcategory Filter Navigation */}
-        <div className="bg-white border rounded-none sm:rounded-lg shadow-sm mb-6">
-          <div className="px-2 sm:px-4 py-4">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold text-gray-900">Filter by Service Type</h4>
-              {selectedServiceSubcategory && (
+        {/* Subcategory Filter — FastFood style navigation bar */}
+        <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+          <div className="px-4 py-4">
+            <div className="relative">
+              <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
+              <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                 <button
-                  onClick={clearServiceSubcategoryFilter}
-                  className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
-                >
-                  Clear Filter
-                </button>
-              )}
-            </div>
-
-            <div className="flex space-x-3 overflow-x-auto pb-2">
-              {/* All Services Button */}
-              <button
-                onClick={() => handleServiceSubcategorySelect(null)}
-                className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${!selectedServiceSubcategory
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-                  }`}
-              >
-                All Services
-              </button>
-
-              {/* Subcategory Buttons */}
-              {studentSubcategories.map(subcategory => (
-                <button
-                  key={subcategory.id}
-                  onClick={() => handleServiceSubcategorySelect(subcategory)}
-                  className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors ${selectedServiceSubcategory?.id === subcategory.id
-                    ? 'bg-blue-600 text-white border-blue-600'
+                  onClick={() => handleServiceSubcategorySelect(null)}
+                  className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${!selectedServiceSubcategory
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                     : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-                    }`}
+                  }`}
                 >
-                  <span className="mr-2">{subcategory.emoji || '🛠️'}</span>
-                  {subcategory.name}
+                  All Services
                 </button>
-              ))}
-            </div>
-
-            {selectedServiceSubcategory && (
-              <div className="mt-3 text-sm text-gray-600">
-                Showing services in <span className="font-medium">{selectedServiceSubcategory.name}</span> type
+                {studentSubcategories.map(subcategory => (
+                  <button
+                    key={subcategory.id}
+                    onClick={() => handleServiceSubcategorySelect(subcategory)}
+                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedServiceSubcategory?.id === subcategory.id
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                    }`}
+                  >
+                    {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                    {subcategory.name}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">

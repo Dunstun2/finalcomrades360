@@ -57,10 +57,10 @@ const PageLayout = ({ children, title, description, fluid = false }) => {
             }
             .page-content {
               flex: 1;
-              max-width: ${fluid ? 'none' : '1440px'};
               width: 100%;
-              margin: ${fluid ? '0' : '0 auto'};
-              padding: ${fluid ? '0' : '0 1rem'};
+              max-width: 100%;
+              margin: 0;
+              padding: 0;
             }
             
             /* Skeleton loading animation */

@@ -252,16 +252,15 @@ const Products = () => {
       />
       
       <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
-        <PageLayout>
-          <div className="min-h-screen bg-gray-50 pb-20">
-            {/* Back Button */}
-            <div className="w-full px-0 md:px-4 py-4">
+        <div className="min-h-screen bg-gray-50 pb-20 px-1.5 sm:px-4">
+            {/* Back button */}
+            <div className="w-full px-1.5 sm:px-4 py-2 sm:py-4">
               <button
                 onClick={() => navigate('/')}
-                className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors ml-4 md:ml-0"
+                className="flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors text-xs sm:text-sm"
               >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Homepage
+                <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                Back
               </button>
             </div>
 
@@ -272,41 +271,37 @@ const Products = () => {
               onAddToCart={handleAddToCart}
             />
 
-            {/* Category Navigation Bar */}
-            <div className="w-full px-0 md:px-4 py-4">
-              <div className="flex space-x-2 overflow-x-auto pb-3 scrollbar-hide relative">
-                <button
-                  onClick={() => handleCategorySelect(null)}
-                  className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${!selectedCategory
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
-                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
-                    }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <span className="text-lg">📦</span>
-                    <div className="text-left">
-                      <div className="text-sm font-semibold">All Products</div>
-                    </div>
-                  </div>
-                </button>
-
-                {displayCategories.map(category => (
-                  <button
-                    key={category.id}
-                    onClick={() => handleCategorySelect(category)}
-                    className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 font-semibold transition-all duration-200 min-w-fit focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${selectedCategory?.id === category.id
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-lg transform scale-105'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600 hover:shadow-md'
+            {/* Category Filter — FastFood style navigation bar */}
+            <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+              <div className="px-4 py-4">
+                <div className="relative">
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
+                  <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
+                    <button
+                      onClick={() => handleCategorySelect(null)}
+                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${!selectedCategory
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
                       }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <span className="text-lg">{category.emoji || '📦'}</span>
-                      <div className="text-left">
-                        <div className="text-sm font-semibold truncate max-w-24">{category.name}</div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                    >
+                      All Products
+                    </button>
+
+                    {displayCategories.map(category => (
+                      <button
+                        key={category.id}
+                        onClick={() => handleCategorySelect(category)}
+                        className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedCategory?.id === category.id
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                        }`}
+                      >
+                        {category.emoji && <span>{category.emoji}</span>}
+                        {category.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -392,7 +387,6 @@ const Products = () => {
 
             <Footer />
           </div>
-        </PageLayout>
       </div>
     </div>
   );

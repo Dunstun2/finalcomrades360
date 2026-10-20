@@ -67,6 +67,22 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  /* Global scrollbar elimination for native app-like full width */
+  * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  ::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+    background: transparent !important;
   }
 
   h1 {
@@ -146,6 +162,59 @@
   /* Compact Card Utility */
   .card-responsive {
     @apply bg-white rounded-none sm:rounded-2xl border-x-0 sm:border border-gray-100 shadow-none sm:shadow-sm overflow-hidden p-3 sm:p-5;
+  }
+
+  /* ── Mobile Screen Optimizations ─────────────────────────── */
+
+  /* Edge-to-edge content on mobile */
+  .mobile-edge {
+    @apply px-2 sm:px-4;
+  }
+
+  /* Compact section header for mobile */
+  .section-header-mobile {
+    @apply flex items-center justify-between py-2 sm:py-4 px-2 sm:px-0;
+  }
+
+  /* Category & Filter Scroller — smooth horizontal scroll */
+  .filter-pill-row {
+    @apply flex items-center gap-2 sm:gap-2.5 overflow-x-auto py-1.5 px-0.5 scrollbar-hide snap-x touch-pan-x scroll-smooth;
+  }
+
+  /* Modern App-Style Category Tile / Chip — Icon beside title */
+  .filter-pill {
+    @apply flex-shrink-0 snap-start inline-flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold rounded-xl sm:rounded-2xl border transition-all duration-200 select-none cursor-pointer whitespace-nowrap;
+  }
+
+  /* Enlarged Icon Container beside Title */
+  .filter-pill-icon {
+    @apply flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-base sm:text-lg transition-transform duration-200;
+  }
+
+  /* Active Tile */
+  .filter-pill-active {
+    @apply bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-500/25 ring-2 ring-blue-500/20;
+  }
+  .filter-pill-active .filter-pill-icon {
+    @apply bg-white/20 text-white shadow-inner;
+  }
+
+  /* Inactive Tile */
+  .filter-pill-inactive {
+    @apply bg-slate-50/90 hover:bg-white text-slate-700 border-slate-200/90 hover:border-slate-300 hover:shadow-xs;
+  }
+  .filter-pill-inactive .filter-pill-icon {
+    @apply bg-white text-slate-700 shadow-xs border border-slate-100 group-hover:scale-110;
+  }
+
+  /* Mobile-only bottom padding so content clears the fixed bottom nav */
+  .mobile-bottom-safe {
+    @apply pb-16 sm:pb-4;
+  }
+
+  /* Tight section divider for mobile */
+  .section-title-sm {
+    @apply text-sm font-bold text-gray-800 sm:text-lg;
   }
 
   /* Consistent Input Sizing */

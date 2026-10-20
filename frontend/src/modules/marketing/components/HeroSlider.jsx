@@ -272,7 +272,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
 
     return (
         <div
-            className="relative w-full overflow-hidden select-none shadow-2xl rounded-2xl bg-slate-950 my-2"
+            className="relative w-full overflow-hidden select-none shadow-2xl rounded-none sm:rounded-2xl bg-slate-950 my-0 sm:my-2"
             onMouseEnter={() => setIsAutoPlaying(false)}
             onMouseLeave={() => setIsAutoPlaying(true)}
             onTouchStart={handleTouchStart}
@@ -465,9 +465,9 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                     </div>
 
                     {/* RIGHT COLUMN: Media Box with auto-fitting aspect ratio */}
-                    <div className="order-1 lg:order-2 lg:col-span-7 flex justify-center items-center w-full h-full min-h-[200px] sm:min-h-[240px] lg:min-h-0 animate-fade-in-right p-0 sm:p-0.5 min-w-0">
+                    <div className="order-1 lg:order-2 lg:col-span-7 flex justify-center items-center w-full h-full min-h-[200px] sm:min-h-[240px] lg:min-h-0 animate-fade-in-right p-0 min-w-0">
                         
-                        <div className="relative w-full h-full rounded-2xl border border-white/15 bg-slate-950/80 shadow-2xl overflow-hidden group/card flex items-center justify-center">
+                        <div className="relative w-full h-full rounded-2xl overflow-hidden group/card flex items-center justify-center">
                             
                             {hasVideo && !isBackgroundVideo ? (
                                 <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 flex items-center justify-center">
@@ -523,7 +523,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                 </div>
                             ) : (
                                 /* Product Image Showcase Card (Used for images AND background videos) */
-                                <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-6 bg-gradient-to-b from-white/5 to-white/0">
+                                <div className="relative w-full h-full flex items-center justify-center p-0 bg-gradient-to-b from-white/5 to-white/0">
                                     <img
                                         src={resolveImageUrl(hasCustomImage ? (currentItem.customImageUrl || currentItem.image) : (firstProduct?.coverImage || firstProduct?.mainImage || FALLBACK_IMAGE))}
                                         alt={currentItem.title || firstProduct?.name || 'Banner Promotion'}

@@ -197,8 +197,7 @@ export default function FastFood() {
             />
             
             <div className={isMaintenanceActive ? "blur-md pointer-events-none opacity-50 select-none transition-all duration-700" : "transition-all duration-700"}>
-                <PageLayout>
-                    <div className="min-h-screen flex flex-col pb-20">
+                <div className="min-h-screen flex flex-col pb-20 px-1.5 sm:px-4">
 
 
                         {/* Unified Hero Banner (Media on top, content below on mobile — same as Homepage) */}
@@ -210,20 +209,20 @@ export default function FastFood() {
                         />
 
                         {/* Fast Food Search Bar */}
-                        <div className="w-full max-w-xl mx-auto px-4 mt-2 mb-2 relative z-20">
+                        <div className="w-full px-2 sm:max-w-xl sm:mx-auto sm:px-4 mt-1 mb-1 sm:mt-2 sm:mb-2 relative z-20">
                             <div className="relative group">
-                                <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
+                                <FaSearch className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
                                 <input
                                     type="text"
-                                    placeholder="Search your favorite fast food..."
-                                    className="w-full bg-white border border-gray-200 h-12 pl-12 pr-10 rounded-2xl shadow-sm focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900 font-medium text-sm"
+                                    placeholder="Search fast food..."
+                                    className="w-full bg-white border border-gray-200 h-10 sm:h-12 pl-9 sm:pl-12 pr-8 sm:pr-10 rounded-xl sm:rounded-2xl shadow-sm focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900 font-medium text-xs sm:text-sm"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
                                 {searchTerm && (
                                     <button
                                         onClick={() => setSearchTerm('')}
-                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-600"
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-600"
                                     >
                                         ✕
                                     </button>
@@ -231,26 +230,26 @@ export default function FastFood() {
                             </div>
                         </div>
 
-                        {/* Tab Navigation */}
-                        <div className="flex justify-center mt-4 mb-6 px-3 md:px-4 relative z-20">
-                            <div className="w-full sm:w-auto bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/50 flex space-x-2">
+                        {/* Compact Tab Navigation */}
+                        <div className="flex justify-center mt-2 sm:mt-4 mb-3 sm:mb-6 px-2 sm:px-4 relative z-20">
+                            <div className="w-full max-w-lg bg-white/90 backdrop-blur-md p-1 sm:p-1.5 rounded-xl shadow-md border border-white/50 flex gap-1">
                                 <button
                                     onClick={() => navigate('/')}
-                                    className="flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                                    className="flex-1 flex items-center justify-center px-2 sm:px-6 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-bold transition-all duration-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
                                 >
-                                    <FaArrowLeft className="mr-2" /> Homepage
+                                    <FaArrowLeft className="mr-1" /> Home
                                 </button>
                                 <button
                                     onClick={() => handleTabChange('all')}
-                                    className={`flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-50'}`}
+                                    className={`flex-1 flex items-center justify-center px-2 sm:px-6 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-bold transition-all duration-300 ${activeTab === 'all' ? 'bg-gray-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
                                 >
-                                    <FaUtensils className="mr-2" /> Browse All
+                                    <FaUtensils className="mr-1" /> Browse
                                 </button>
                                 <button
                                     onClick={() => handleTabChange('live')}
-                                    className={`flex-1 sm:flex-initial flex items-center justify-center px-4 sm:px-6 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTab === 'live' ? 'bg-orange-600 text-white shadow-lg' : 'text-gray-500 hover:text-orange-600'}`}
+                                    className={`flex-1 flex items-center justify-center px-2 sm:px-6 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-bold transition-all duration-300 ${activeTab === 'live' ? 'bg-orange-600 text-white shadow-md' : 'text-gray-500 hover:text-orange-600'}`}
                                 >
-                                    <FaFire className="mr-2" /> Live Menu
+                                    <FaFire className="mr-1" /> Live
                                 </button>
                             </div>
                         </div>
@@ -264,25 +263,36 @@ export default function FastFood() {
                                 <LiveMenuGrid items={sortedItems} searchTerm={searchTerm} navigate={navigate} />
                             ) : (
                                 <div className={`transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
-                                    {/* Category Filter */}
-                                    <div className="bg-white md:rounded-2xl shadow-sm border border-gray-100 p-3 md:p-4 mb-4 md:mb-8">
-                                        <div className="flex gap-2 overflow-x-auto pb-4 pt-1 scrollbar-hide snap-x touch-pan-x relative px-1">
-                                            <button
-                                                onClick={() => { setSelectedCategory('all'); setSelectedSubcategory(null); }}
-                                                className={`px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap flex-shrink-0 snap-start shadow-sm border ${!selectedSubcategory && selectedCategory === 'all' ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}`}
-                                            >
-                                                All Items
-                                            </button>
-                                            {subcategories.map((subcategory) => (
-                                                <button
-                                                    key={subcategory.id}
-                                                    onClick={() => { setSelectedSubcategory(subcategory); setSelectedCategory('all'); }}
-                                                    className={`px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap flex-shrink-0 snap-start shadow-sm border ${selectedSubcategory?.id === subcategory.id ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}`}
-                                                >
-                                                    {subcategory.emoji && <span className="mr-2">{subcategory.emoji}</span>}
-                                                    {subcategory.name}
-                                                </button>
-                                            ))}
+                                    {/* Category Filter — FastFood style navigation bar */}
+                                    <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+                                        <div className="px-4 py-4">
+                                            <div className="relative">
+                                                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
+                                                <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
+                                                    <button
+                                                        onClick={() => { setSelectedCategory('all'); setSelectedSubcategory(null); }}
+                                                        className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${!selectedSubcategory && selectedCategory === 'all'
+                                                            ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                                                            : 'bg-white text-gray-700 border-gray-300 hover:border-orange-300 hover:text-orange-600'
+                                                        }`}
+                                                    >
+                                                        All Items
+                                                    </button>
+                                                    {subcategories.map((subcategory) => (
+                                                        <button
+                                                            key={subcategory.id}
+                                                            onClick={() => { setSelectedSubcategory(subcategory); setSelectedCategory('all'); }}
+                                                            className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedSubcategory?.id === subcategory.id
+                                                                ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                                                                : 'bg-white text-gray-700 border-gray-300 hover:border-orange-300 hover:text-orange-600'
+                                                            }`}
+                                                        >
+                                                            {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                                                            {subcategory.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -316,7 +326,6 @@ export default function FastFood() {
                         </div>
                         <Footer />
                     </div>
-                </PageLayout>
             </div>
         </div>
     );
