@@ -259,7 +259,12 @@ const createHeroPromotion = async (req, res) => {
     const start = startAt ? new Date(startAt) : new Date()
     const days = Number(durationDays) || 7
     const end = new Date(start)
-    end.setDate(end.getDate() + days)
+    // Default/system banners are perpetual — give them a far-future endAt so date-range queries always include them
+    if (!!isDefault || effectiveIsSystem) {
+      end.setFullYear(end.getFullYear() + 100)
+    } else {
+      end.setDate(end.getDate() + days)
+    }
 
     const payload = {
       sellerId: sellerId ? Number(sellerId) : null,
@@ -460,19 +465,38 @@ const editHeroPromotion = async (req, res) => {
     if (startAt) {
       const start = new Date(startAt)
       item.startAt = start
-      const days = Number(item.durationDays) || 7
-      let calculatedEnd = new Date(start)
-      calculatedEnd.setDate(calculatedEnd.getDate() + days)
-      // If the calculated end date would already be in the past, extend it from now so it stays active
-      if (calculatedEnd < new Date() && !endAt) {
-        calculatedEnd = new Date()
+      // Default/system banners get a far-future endAt regardless of durationDays
+      if (item.isDefault || item.isSystem) {
+        if (!endAt) {
+          const farFuture = new Date(start)
+          farFuture.setFullYear(farFuture.getFullYear() + 100)
+          item.endAt = farFuture
+        }
+      } else {
+        const days = Number(item.durationDays) || 7
+        let calculatedEnd = new Date(start)
         calculatedEnd.setDate(calculatedEnd.getDate() + days)
-      }
-      if (!endAt) {
-        item.endAt = calculatedEnd
+        // If the calculated end date would already be in the past, extend it from now so it stays active
+        if (calculatedEnd < new Date() && !endAt) {
+          calculatedEnd = new Date()
+          calculatedEnd.setDate(calculatedEnd.getDate() + days)
+        }
+        if (!endAt) {
+          item.endAt = calculatedEnd
+        }
       }
       if (!status) {
         item.status = (start <= new Date()) ? 'active' : 'scheduled'
+      }
+    }
+
+    // If isDefault/isSystem was just toggled ON and no explicit endAt was sent, push endAt to far future
+    if ((item.isDefault || item.isSystem) && !endAt && !startAt) {
+      const currentEnd = item.endAt ? new Date(item.endAt) : new Date()
+      if (currentEnd < new Date()) {
+        const farFuture = new Date()
+        farFuture.setFullYear(farFuture.getFullYear() + 100)
+        item.endAt = farFuture
       }
     }
 

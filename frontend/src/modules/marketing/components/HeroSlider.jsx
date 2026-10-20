@@ -336,18 +336,53 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                     {/* LEFT COLUMN: Content & CTAs (5 Columns) */}
                     <div className="order-2 lg:order-1 lg:col-span-5 flex flex-col justify-center text-left space-y-2.5 sm:space-y-3.5 animate-fade-in-left py-2 px-1 sm:px-2 min-w-0">
                         
-                        {/* Eyebrow Pill with Pulsing Live Indicator */}
-                        {(currentItem.eyebrow || currentItem.promoBadge || currentItem.badge) ? (
-                            <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-2 px-3.5 py-1 bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 backdrop-blur-md text-amber-300 text-[11px] sm:text-xs font-black rounded-full border border-amber-400/30 uppercase tracking-widest shadow-lg shadow-amber-500/10">
-                                    <span className="relative flex h-2 w-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                        {/* Top Row: Eyebrow Pill + Small-Screen CTA Button (Placed opposite each other with overlap protection) */}
+                        <div className="flex items-center justify-between gap-2 sm:gap-3 w-full min-w-0">
+                            {(currentItem.eyebrow || currentItem.promoBadge || currentItem.badge) ? (
+                                <div className="min-w-0 flex-1 flex items-center pr-1">
+                                    <span className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1 bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 backdrop-blur-md text-amber-300 text-[10px] sm:text-xs font-black rounded-full border border-amber-400/30 uppercase tracking-wider sm:tracking-widest shadow-lg shadow-amber-500/10 max-w-full min-w-0">
+                                        <span className="relative flex h-2 w-2 flex-shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                                        </span>
+                                        <span className="truncate">{currentItem.eyebrow || currentItem.promoBadge || currentItem.badge}</span>
                                     </span>
-                                    <span>{currentItem.eyebrow || currentItem.promoBadge || currentItem.badge}</span>
-                                </span>
-                            </div>
-                        ) : null}
+                                </div>
+                            ) : <div className="min-w-0 flex-1" />}
+
+                            {/* Small-Screen CTA (lg:hidden) */}
+                            {(firstProduct || currentItem.productId || currentItem.ctaText || currentItem.buttonText || currentItem.link || currentItem.targetUrl) ? (
+                                <div className="lg:hidden flex items-center justify-end flex-shrink-0 pl-1">
+                                    {(firstProduct || currentItem.productId) ? (
+                                        <button
+                                            onClick={(e) => handleAddToCartClick(e, firstProduct?.id || currentItem.productId)}
+                                            className="group px-3 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl sm:rounded-2xl font-black text-xs shadow-lg shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-1.5 border border-blue-400/40 pointer-events-auto whitespace-nowrap flex-shrink-0"
+                                        >
+                                            <span>{currentItem.ctaText || currentItem.buttonText || 'BUY NOW'}</span>
+                                            <FaShoppingCart size={12} className="group-hover:scale-110 transition-transform flex-shrink-0" />
+                                        </button>
+                                    ) : (currentItem.ctaText || currentItem.buttonText || currentItem.link || currentItem.targetUrl) ? (
+                                        <button
+                                            onClick={() => {
+                                                trackClick(currentItem?.id);
+                                                const destination = currentItem.link || currentItem.targetUrl || currentItem.ctaLink;
+                                                if (destination) {
+                                                    if (destination.startsWith('http://') || destination.startsWith('https://')) {
+                                                        window.open(destination, '_blank');
+                                                    } else {
+                                                        navigate(destination);
+                                                    }
+                                                }
+                                            }}
+                                            className="group relative px-3.5 py-1.5 sm:px-5 sm:py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm shadow-xl shadow-orange-500/25 hover:shadow-orange-500/40 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-1.5 sm:gap-2 border border-white/20 pointer-events-auto whitespace-nowrap flex-shrink-0"
+                                        >
+                                            <span>{currentItem.ctaText || currentItem.buttonText || 'Claim Deal'}</span>
+                                            <FaArrowRight size={11} className="group-hover:translate-x-1 transition-transform flex-shrink-0" />
+                                        </button>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
 
                         {/* Main Title */}
                         {currentItem.title ? (
@@ -367,9 +402,9 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                             </div>
                         ) : null}
 
-                        {/* CTA Buttons Row (Only if product or CTA text/link explicitly provided) */}
+                        {/* CTA Buttons Row - Desktop Only (hidden on small screen as CTA is located beside the eyebrow) */}
                         {(firstProduct || currentItem.productId || currentItem.ctaText || currentItem.buttonText || currentItem.link || currentItem.targetUrl) ? (
-                            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3.5 pt-1">
+                            <div className="hidden lg:flex flex-wrap items-center gap-2.5 sm:gap-3.5 pt-1">
                                 {(firstProduct || currentItem.productId) ? (
                                     <div className="flex flex-col gap-1.5">
                                         {/* Product name chip */}

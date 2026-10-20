@@ -400,101 +400,136 @@ const getHomepageBatchData = async (req, res) => {
         console.log(`⏱️ [Batch] FastFood fetched: ${res.items.length} (Marketing: ${isMarketing}) in ${Date.now() - start}ms`);
         return res;
       })(),
-      // 5. Fetch real active hero promotions
+      // 5. Fetch real active hero promotions (with isDefault fallback)
       (async () => {
         try {
           const now = new Date();
-          const items = await HeroPromotion.findAll({
-            where: {
-              status: { [Op.in]: ['active', 'scheduled'] },
-              startAt: { [Op.lte]: now },
-              endAt: { [Op.gte]: now },
-              [Op.or]: [
-                { bannerLocation: 'homepage' },
-                { bannerLocation: 'all' },
-                { bannerLocation: null },
-                { bannerLocation: '' },
-                { bannerLocation: { [Op.like]: '%"homepage"%' } },
-                { bannerLocation: { [Op.like]: '%"all"%' } },
-                { bannerLocation: { [Op.like]: '%homepage%' } },
-                { bannerLocation: { [Op.like]: '%all%' } }
-              ]
-            },
-            order: [['startAt', 'ASC']]
-            // No limit - fetch all active banners to allow rotation
-          });
 
-          const result = [];
-          for (const p of items) {
-            const rawLoc = p.bannerLocation;
-            let locs = Array.isArray(rawLoc) ? rawLoc : [rawLoc];
-            if (typeof rawLoc === 'string') {
-              try { const parsed = JSON.parse(rawLoc); if (Array.isArray(parsed)) locs = parsed; } catch {}
-            }
-            const cleanLocs = locs.map(s => String(s || '').toLowerCase().trim()).filter(Boolean);
-            const matchesHome = cleanLocs.length === 0 || cleanLocs.includes('homepage') || cleanLocs.includes('all');
-            if (!matchesHome) continue;
-
-            const promoData = p.toJSON();
+          // Helper: populate items for a promotion
+          const populatePromo = async (p) => {
             let populatedItems = [];
-
             if (p.promoType === 'fastfood') {
               const ids = p.fastFoodIds || [];
-              const ffItems = await FastFood.findAll({
-                where: { id: { [Op.in]: ids }, isActive: true, approved: true },
-                attributes: [
-                  'id', 'name', 'mainImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
-                  'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
-                ]
-              });
-
-              populatedItems = ffItems.map(item => {
-                const plain = item.get({ plain: true });
-                plain.coverImage = plain.mainImage;
-                plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
-                plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
-                return plain;
-              });
+              if (ids.length > 0) {
+                const ffItems = await FastFood.findAll({
+                  where: { id: { [Op.in]: ids }, isActive: true, approved: true },
+                  attributes: [
+                    'id', 'name', 'mainImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
+                    'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
+                  ]
+                });
+                populatedItems = ffItems.map(item => {
+                  const plain = item.get({ plain: true });
+                  plain.coverImage = plain.mainImage;
+                  plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+                  plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
+                  return plain;
+                });
+              }
             } else {
-              // Default to product
               const ids = p.productIds || [];
-              const prods = await Product.findAll({
-                where: { id: { [Op.in]: ids }, approved: true, isActive: true, stock: { [Op.gt]: 0 } },
-                attributes: [
-                  'id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
-                  'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
-                ]
-              });
-
-              populatedItems = prods.map(product => {
-                const plain = product.get({ plain: true });
-                plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
-                plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
-                plain.coverImage = getListSafeImage(plain.coverImage);
-                return plain;
-              });
+              if (ids.length > 0) {
+                const prods = await Product.findAll({
+                  where: { id: { [Op.in]: ids }, approved: true, isActive: true, stock: { [Op.gt]: 0 } },
+                  attributes: [
+                    'id', 'name', 'coverImage', 'displayPrice', 'discountPrice', 'basePrice', 'discountPercentage',
+                    'marketingCommission', 'marketingEnabled', 'marketingCommissionType'
+                  ]
+                });
+                populatedItems = prods.map(product => {
+                  const plain = product.get({ plain: true });
+                  plain.displayPrice = plain.displayPrice || plain.basePrice || 0;
+                  plain.price = plain.discountPrice || plain.displayPrice || plain.basePrice || 0;
+                  plain.coverImage = getListSafeImage(plain.coverImage);
+                  return plain;
+                });
+              }
             }
-
-            // In marketing mode, filter items to only include those with commission > 1
             if (isMarketing) {
               populatedItems = populatedItems.filter(item => {
                 const commission = parseFloat(item.marketingCommission || 0);
                 return item.marketingEnabled && commission > 1;
               });
             }
+            return populatedItems;
+          };
 
-            // Keep the promotion if it has items OR if it's a priority system/default banner with custom image
-            const isFallback = p.isSystem || p.isDefault || !!p.customImageUrl || !!p.videoUrl;
+          // Helper: check if banner location matches homepage
+          const matchesHomepage = (p) => {
+            const rawLoc = p.bannerLocation;
+            let locs = Array.isArray(rawLoc) ? rawLoc : [rawLoc];
+            if (typeof rawLoc === 'string') {
+              try { const parsed = JSON.parse(rawLoc); if (Array.isArray(parsed)) locs = parsed; } catch {}
+            }
+            const cleanLocs = locs.map(s => String(s || '').toLowerCase().trim()).filter(Boolean);
+            return cleanLocs.length === 0 || cleanLocs.includes('homepage') || cleanLocs.includes('all');
+          };
 
+          const homepageLocationFilter = [
+            { bannerLocation: 'homepage' },
+            { bannerLocation: 'all' },
+            { bannerLocation: null },
+            { bannerLocation: '' },
+            { bannerLocation: { [Op.like]: '%\"homepage\"%' } },
+            { bannerLocation: { [Op.like]: '%\"all\"%' } },
+            { bannerLocation: { [Op.like]: '%homepage%' } },
+            { bannerLocation: { [Op.like]: '%all%' } }
+          ];
+
+          // Step 1: Fetch active non-default paid promotions (must be within date range)
+          let items = await HeroPromotion.findAll({
+            where: {
+              status: { [Op.in]: ['active', 'scheduled'] },
+              isDefault: false,
+              startAt: { [Op.lte]: now },
+              endAt: { [Op.gte]: now },
+              [Op.or]: homepageLocationFilter
+            },
+            order: [['priority', 'DESC'], ['startAt', 'ASC']]
+          });
+          items = items.filter(matchesHomepage);
+
+          const result = [];
+          for (const p of items) {
+            const populatedItems = await populatePromo(p);
+            const isFallback = p.isSystem || !!p.customImageUrl || !!p.videoUrl;
             if (populatedItems.length > 0 || isFallback) {
-              result.push({
-                ...promoData,
-                products: populatedItems // maintaining key name 'products' for frontend compatibility
-              });
+              result.push({ ...p.toJSON(), products: populatedItems });
             }
           }
 
-          // Return all filtered results - no limit for rotation
+          // Step 2: If no active promotions, fall back to isDefault banners
+          // Default banners are not subject to date expiry — they show whenever no paid promos are active
+          if (result.length === 0) {
+            console.log('[HomepageBatch] No active paid promotions — falling back to default banners');
+            let defaultItems = await HeroPromotion.findAll({
+              where: {
+                status: 'active',
+                isDefault: true,
+                [Op.or]: homepageLocationFilter
+              },
+              order: [['priority', 'DESC'], ['createdAt', 'DESC']]
+            });
+            defaultItems = defaultItems.filter(matchesHomepage);
+
+            // If still no location-specific defaults, try any active default (global fallback)
+            if (defaultItems.length === 0) {
+              defaultItems = await HeroPromotion.findAll({
+                where: { status: 'active', isDefault: true },
+                order: [['priority', 'DESC'], ['createdAt', 'DESC']]
+              });
+              defaultItems = defaultItems.filter(matchesHomepage);
+            }
+
+            for (const p of defaultItems) {
+              const populatedItems = await populatePromo(p);
+              const isFallback = p.isSystem || p.isDefault || !!p.customImageUrl || !!p.videoUrl;
+              if (populatedItems.length > 0 || isFallback) {
+                result.push({ ...p.toJSON(), products: populatedItems });
+              }
+            }
+          }
+
           return result;
         } catch (err) {
           console.error('[HomepageBatch] HeroPromotions query failed:', err.message);

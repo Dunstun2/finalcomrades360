@@ -130,7 +130,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password', 'X-Access-Token', 'x-access-token']
 }));
 
 // Apply JSON body parsing middleware globally

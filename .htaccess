@@ -36,6 +36,9 @@
   RewriteCond %{REQUEST_URI} ^/uploads
   RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
 
+  # Preserve Authorization header through the proxy (Apache strips it by default)
+  RequestHeader set Authorization "%{HTTP_AUTHORIZATION}e" env=HTTP_AUTHORIZATION
+
   # 4. React Router SPA Routing (serve index.html for all other requests)
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
