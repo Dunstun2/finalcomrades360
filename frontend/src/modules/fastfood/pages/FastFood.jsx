@@ -3,12 +3,13 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import FastFoodCard from '@/modules/fastfood/components/FastFoodCard';
 import ItemCarousel from '@/modules/products/components/ItemCarousel';
 import Footer from '@/shared/components/Footer';
-import FastFoodHero from '@/modules/fastfood/components/FastFoodHero';
+import HeroBanner from '@/modules/marketing/components/HeroBanner';
+import useHeroPromotions from '@/hooks/useHeroPromotions';
 import LiveMenuGrid from '@/modules/fastfood/components/LiveMenuGrid';
 import api from '@/shared/services/api';
 import { platformService } from '@/modules/services/services/platformService';
 import { fastFoodService } from '@/modules/fastfood/services/fastFoodService';
-import { FaHamburger, FaFilter, FaArrowLeft, FaUtensils, FaFire, FaArrowRight } from 'react-icons/fa';
+import { FaHamburger, FaFilter, FaArrowLeft, FaUtensils, FaFire, FaArrowRight, FaSearch } from 'react-icons/fa';
 import { useCategories } from '@/contexts/CategoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import MaintenanceOverlay from '@/shared/components/MaintenanceOverlay';
@@ -29,11 +30,9 @@ export default function FastFood() {
         return urlParams.get('tab') || 'live';
     });
     const [hasAttemptedDefaultTab, setHasAttemptedDefaultTab] = useState(false);
-    const [activeCampaigns, setActiveCampaigns] = useState([]);
-    const [campaignItems, setCampaignItems] = useState({});
-    const [currentCampaignIndex, setCurrentCampaignIndex] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentTime, setCurrentTime] = useState(new Date());
+    const { heroPromotions, loading: heroLoading } = useHeroPromotions('fastfood');
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -86,94 +85,9 @@ export default function FastFood() {
     const foodCategory = categories.find(cat => cat.name === 'Food & Drinks');
     const subcategories = foodCategory?.subcategories || [];
 
-    // Load Hero Settings
-    useEffect(() => {
-        const loadHeroConfig = async () => {
-            try {
-                let activeList = [];
-                const itemsMap = {};
-
-                // 1. Load campaigns from platform config (fast_food_hero)
-                try {
-                    const res = await platformService.getConfig('fast_food_hero');
-                    if (res.success && res.data && typeof res.data === 'object') {
-                        const config = res.data;
-                        const configCampaigns = Array.isArray(config.campaigns)
-                            ? config.campaigns.filter(c => c.active).sort((a, b) => b.priority - a.priority)
-                            : [];
-                        activeList = [...configCampaigns];
-                    }
-                } catch (e) {
-                    console.warn('Could not load fast_food_hero platform config:', e.message);
-                }
-
-                // 2. Always load hero promotions from the API (promoType === 'fastfood' or bannerLocation === 'fastfood')
-                try {
-                    const promoRes = await api.get('/hero-promotions/active', { params: { location: 'fastfood' } });
-                    const promos = Array.isArray(promoRes.data?.items) ? promoRes.data.items : (Array.isArray(promoRes.data) ? promoRes.data : []);
-                    const fastFoodPromos = promos.filter(p => (p.promoType === 'fastfood' || p.bannerLocation === 'fastfood') && (p.customImageUrl || p.videoUrl || (Array.isArray(p.fastfoods) && p.fastfoods.length > 0)));
-                    
-                    fastFoodPromos.forEach(p => {
-                        const fastFoodItem = Array.isArray(p.fastfoods) && p.fastfoods.length > 0 ? p.fastfoods[0] : null;
-                        const campId = `promo_${p.id}`;
-                        // Don't add duplicate if already in list
-                        if (!activeList.find(c => c.id === campId)) {
-                            activeList.push({
-                                id: campId,
-                                active: true,
-                                priority: p.priority || 10,
-                                type: p.videoUrl ? 'video' : (p.customImageUrl ? 'manual_image_only' : 'featured_item'),
-                                title: p.title || '',
-                                subtitle: p.subtitle || '',
-                                image: p.customImageUrl || fastFoodItem?.mainImage,
-                                videoUrl: p.videoUrl || null,
-                                videoType: p.videoType || 'background',
-                                videoAutoplay: p.videoAutoplay,
-                                itemId: fastFoodItem?.id || 'none',
-                                trustPoints: p.trustPoints || undefined
-                            });
-                        }
-                        if (fastFoodItem) {
-                            itemsMap[fastFoodItem.id] = fastFoodItem;
-                        }
-                    });
-                } catch (e) {
-                    console.error('Failed to load hero promotions:', e);
-                }
-
-                setActiveCampaigns(activeList.sort((a, b) => b.priority - a.priority));
-                
-                // 3. Fetch item details for any campaign items not yet in itemsMap
-                const campaignsWithItems = activeList.filter(c => c.itemId && c.itemId !== 'none' && !itemsMap[c.itemId]);
-                const uniqueItemIds = [...new Set(campaignsWithItems.map(c => c.itemId))];
-                
-                if (uniqueItemIds.length > 0) {
-                    const itemFetchPromises = uniqueItemIds.map(id => fastFoodService.getFastFoodById(id));
-                    const itemResponses = await Promise.all(itemFetchPromises);
-                    itemResponses.forEach((response, index) => {
-                        if (response.success && response.data) itemsMap[uniqueItemIds[index]] = response.data;
-                    });
-                }
-                setCampaignItems(itemsMap);
-            } catch (error) { console.error('Failed to load hero config:', error); }
-        };
-        loadHeroConfig();
-    }, []);
-
-    const currentCampaign = activeCampaigns.length > 0 ? activeCampaigns[currentCampaignIndex] : { type: 'manual' };
-    const currentHeroItem = currentCampaign.itemId ? campaignItems[currentCampaign.itemId] : null;
-
     useEffect(() => {
         if (urlSearchQuery) setSearchTerm(urlSearchQuery);
     }, [urlSearchQuery]);
-
-    useEffect(() => {
-        if (activeCampaigns.length <= 1) return;
-        const interval = setInterval(() => {
-            setCurrentCampaignIndex((prev) => (prev + 1) % activeCampaigns.length);
-        }, 6000);
-        return () => clearInterval(interval);
-    }, [activeCampaigns.length]);
 
     useEffect(() => {
         const urlParams = new URLSearchParams(location.search);
@@ -287,27 +201,35 @@ export default function FastFood() {
                     <div className="min-h-screen flex flex-col pb-20">
 
 
-                        <FastFoodHero
-                            settings={activeCampaigns[currentCampaignIndex] || {}}
-                            item={currentHeroItem}
-                            searchTerm={searchTerm}
-                            setSearchTerm={setSearchTerm}
-                            loading={activeCampaigns.length === 0}
+                        {/* Unified Hero Banner (Media on top, content below on mobile — same as Homepage) */}
+                        <HeroBanner
+                            title="Hot Campus Fast Food Deals"
+                            subtitle="Order fresh burgers, pizzas, and local meals delivered piping hot to your door."
+                            promotions={heroPromotions}
+                            loading={heroLoading}
                         />
 
-                        {/* Rotation Indicators */}
-                        {activeCampaigns.length > 1 && (
-                            <div className="flex justify-center mt-4 mb-6 relative z-20 gap-2 px-3 md:px-4">
-                                {activeCampaigns.map((_, idx) => (
+                        {/* Fast Food Search Bar */}
+                        <div className="w-full max-w-xl mx-auto px-4 mt-2 mb-2 relative z-20">
+                            <div className="relative group">
+                                <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
+                                <input
+                                    type="text"
+                                    placeholder="Search your favorite fast food..."
+                                    className="w-full bg-white border border-gray-200 h-12 pl-12 pr-10 rounded-2xl shadow-sm focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900 font-medium text-sm"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                                {searchTerm && (
                                     <button
-                                        key={idx}
-                                        onClick={() => setCurrentCampaignIndex(idx)}
-                                        className={`h-2 rounded-full transition-all duration-300 ${idx === currentCampaignIndex ? 'w-8 bg-orange-600' : 'w-2 bg-gray-300'}`}
-                                        aria-label={`Go to slide ${idx + 1}`}
-                                    />
-                                ))}
+                                        onClick={() => setSearchTerm('')}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-600"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
                             </div>
-                        )}
+                        </div>
 
                         {/* Tab Navigation */}
                         <div className="flex justify-center mt-4 mb-6 px-3 md:px-4 relative z-20">

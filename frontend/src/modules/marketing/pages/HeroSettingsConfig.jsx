@@ -129,11 +129,7 @@ const HeroSettingsConfig = () => {
                     type: 'manual',
                     active: false,
                     priority: 50,
-                    trustPoints: [
-                        { icon: '🚀', text: 'Fast Delivery' },
-                        { icon: '✅', text: 'Verified' },
-                        { icon: '🎓', text: 'Student Choice' }
-                    ],
+                    trustPoints: [],
                     schedule: { startDate: '', endDate: '', startTime: '', endTime: '', days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }
                 }
             ]
@@ -543,15 +539,19 @@ const HeroSettingsConfig = () => {
                                                                     <div className="flex items-center justify-between">
                                                                         <div className="flex items-center gap-2">
                                                                             <div className="w-1 h-5 bg-blue-500 rounded-full" />
-                                                                            <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Trust & Speed Markers</h4>
+                                                                            <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest">
+                                                                                Trust & Speed Markers <span className="text-xs text-gray-400 font-normal lowercase">({(camp.trustPoints || []).length}/3 max)</span>
+                                                                            </h4>
                                                                         </div>
                                                                         <Button 
                                                                             variant="ghost" 
                                                                             size="sm" 
-                                                                            className="text-orange-600 font-bold text-[10px]"
+                                                                            disabled={(camp.trustPoints || []).length >= 3}
+                                                                            className="text-orange-600 font-bold text-[10px] disabled:text-gray-400"
                                                                             onClick={() => {
                                                                                 const current = camp.trustPoints || [];
-                                                                                updateCampaign(camp.id, 'trustPoints', [...current, { icon: '✨', text: 'New Marker' }]);
+                                                                                if (current.length >= 3) return;
+                                                                                updateCampaign(camp.id, 'trustPoints', [...current, { icon: '✨', text: 'New Marker' }].slice(0, 3));
                                                                             }}
                                                                         >
                                                                             <Plus className="h-3 w-3 mr-1" /> ADD MARKER

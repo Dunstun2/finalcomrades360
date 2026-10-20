@@ -108,11 +108,11 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
 
         return (
             <div className="relative w-full overflow-hidden group rounded-2xl sm:rounded-3xl shadow-2xl mb-8">
-                {/* Fixed height matching HeroSlider */}
-                <div className="flex flex-row w-full h-56 sm:h-64 md:h-[350px] lg:h-[380px]">
+                {/* Responsive container matching HeroSlider: column on mobile, row on desktop */}
+                <div className="flex flex-col lg:flex-row w-full min-h-[420px] lg:h-[380px]">
 
-                    {/* ── LEFT: Content ── */}
-                    <div className="relative w-[55%] sm:w-3/5 h-full flex flex-col justify-between px-3 sm:px-7 md:px-12 py-1.5 sm:py-4 md:py-6 overflow-hidden bg-gradient-to-br from-[#6d28d9] via-[#b57be0] to-[#7c3aed]">
+                    {/* ── CONTENT: Below media on mobile (order-2), left on desktop (order-1) ── */}
+                    <div className="order-2 lg:order-1 relative w-full lg:w-3/5 flex flex-col justify-between px-4 sm:px-7 md:px-12 py-3 sm:py-4 md:py-6 overflow-hidden bg-gradient-to-br from-[#6d28d9] via-[#b57be0] to-[#7c3aed]">
                         {/* Pattern overlay */}
                         <div
                             className="absolute inset-0 pointer-events-none mix-blend-overlay"
@@ -168,18 +168,10 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
                                 {settings.subtitle || item?.shortDescription || "Deliciously prepared for you."}
                             </p>
 
-                            {/* Trust & Speed Bar */}
-                            {(settings.trustPoints || [
-                                { icon: '🚀', text: 'Fast Delivery' },
-                                { icon: '✅', text: 'Verified' },
-                                { icon: '🎓', text: 'Student Choice' }
-                            ]).length > 0 && (
+                            {/* Trust & Speed Bar (Only if explicitly provided) */}
+                            {Array.isArray(settings.trustPoints) && settings.trustPoints.length > 0 && (
                                 <div className="mt-0.5 sm:mt-1 flex items-center flex-nowrap gap-0.5 sm:gap-4 text-white/90 bg-white/10 w-fit px-0.5 sm:px-3 py-0.5 sm:py-1 rounded-lg backdrop-blur-sm border border-white/10">
-                                    {(settings.trustPoints || [
-                                        { icon: '🚀', text: 'Fast Delivery' },
-                                        { icon: '✅', text: 'Verified' },
-                                        { icon: '🎓', text: 'Student Choice' }
-                                    ]).map((tp, idx, arr) => (
+                                    {settings.trustPoints.slice(0, 3).map((tp, idx, arr) => (
                                         <React.Fragment key={idx}>
                                             <div className="flex items-center gap-[1px] sm:gap-1.5 flex-shrink-0">
                                                 <span className="text-[7px] sm:text-xs">{tp.icon}</span>
@@ -220,8 +212,8 @@ const FastFoodHero = ({ settings, item, searchTerm, setSearchTerm, onOrder, load
 
                     </div>
 
-                    {/* ── RIGHT: Video / Image + Price + Buy Now ── */}
-                    <div className="relative w-[45%] sm:w-2/5 h-full flex flex-col overflow-hidden">
+                    {/* ── MEDIA: Above content on mobile (order-1), right on desktop (order-2) ── */}
+                    <div className="order-1 lg:order-2 relative w-full lg:w-2/5 min-h-[220px] sm:min-h-[260px] lg:min-h-0 flex flex-col overflow-hidden">
                         {/* Media fills the top */}
                         <div className="relative flex-1 overflow-hidden bg-slate-950">
                             {rawVideoUrl ? (

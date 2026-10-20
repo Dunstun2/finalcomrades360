@@ -15,7 +15,23 @@ export default function SellerHeroPromotions() {
   const [uploadingId, setUploadingId] = useState(null)
   const [paymentProofUrl, setPaymentProofUrl] = useState('')
   const [proofUploading, setProofUploading] = useState(false)
-  const [rates, setRates] = useState({ perDay: 500, perProduct: 100, instructions: '' })
+  const [rates, setRates] = useState({
+    perDay: 500,
+    perProduct: 100,
+    videoSurcharge: 150,
+    discount7d: 10,
+    discount14d: 15,
+    discount30d: 25,
+    paymentType: 'till',
+    paymentTill: '123456',
+    paymentTillName: '',
+    paymentPaybill: '',
+    paymentPaybillAcc: '',
+    paymentAccountRef: 'HERO-{id}',
+    paymentPhone: '',
+    paymentPhoneName: '',
+    instructions: ''
+  })
   const [loading, setLoading] = useState(true)
 
   const editApp = async (item) => {
@@ -86,7 +102,7 @@ export default function SellerHeroPromotions() {
           }),
           api.get('/hero-promotions/mine').then(r => setMine(r.data?.items || [])),
           api.get('/hero-promotions/rates').then(r => {
-            if (r.data) setRates(r.data)
+            if (r.data) setRates(prev => ({ ...prev, ...r.data }))
           })
         ])
       } catch (e) { } finally { setLoading(false) }
@@ -114,13 +130,24 @@ export default function SellerHeroPromotions() {
   }
 
   const estAmount = useMemo(() => {
-    return (Number(durationDays) || 0) * ((rates.perDay || 0) + (selected.length * (rates.perProduct || 0)))
+    const days = Number(durationDays) || 0
+    const base = days * (rates.perDay || 500)
+    const productFee = days * selected.length * (rates.perProduct || 100)
+    const subtotal = base + productFee
+
+    let discountPercent = 0
+    if (days >= 30) discountPercent = Number(rates.discount30d) || 25
+    else if (days >= 14) discountPercent = Number(rates.discount14d) || 15
+    else if (days >= 7) discountPercent = Number(rates.discount7d) || 10
+
+    const discountAmount = Math.round(subtotal * (discountPercent / 100))
+    return Math.max(0, subtotal - discountAmount)
   }, [durationDays, selected, rates])
 
   const submit = async () => {
     if (selected.length === 0) { setMessage('Select at least one product'); return }
     if (!promoTitle.trim()) { setMessage('Please provide a preferred banner heading.'); return }
-    if (!promoSubtitle.trim()) { setMessage('Please provide a preferred subheading.'); return }
+    if (!promoSubtitle.trim()) { setMessage('Please provide a preferred short description.'); return }
     if (!paymentProofUrl) { setMessage('Please upload payment proof before submitting.'); return }
     setSubmitting(true)
     setMessage('')
@@ -175,7 +202,7 @@ export default function SellerHeroPromotions() {
                 <input type="text" className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. FLASH SALE - ELECTRONICS" value={promoTitle} onChange={e => setPromoTitle(e.target.value)} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Subheading <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Short Description <span className="text-red-500">*</span></label>
                 <input type="text" className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. Get up to 50% off amazing gadgets!" value={promoSubtitle} onChange={e => setPromoSubtitle(e.target.value)} />
                 <p className="text-xs text-gray-500 mt-1">Our marketing team will review these for quality before publishing.</p>
               </div>
@@ -222,16 +249,67 @@ export default function SellerHeroPromotions() {
               </div>
               <div className="text-xs text-gray-500 mt-1">Upload your payment receipt/screenshot before submitting the application.</div>
             </div>
-            {rates.instructions && (
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded text-sm text-blue-800">
-                <div className="font-bold mb-1">Payment Instructions:</div>
-                {rates.instructions}
+            {/* Structured M-Pesa Payment Box */}
+            <div className="mb-4 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-950 space-y-2">
+              <div className="font-bold text-indigo-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                <span>📱</span> Official M-Pesa Payment Channel
               </div>
-            )}
-            <div className="text-sm text-gray-600 mb-3">
-              Official Rates: <span className="font-medium">KES {rates.perDay} base daily</span> + <span className="font-medium">KES {rates.perProduct} per product/day</span>
-              <br />
-              Total Amount: <span className="font-bold text-blue-600">KES {estAmount}</span>
+
+              {rates.paymentType === 'paybill' ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Paybill Business No</div>
+                    <div className="font-mono font-black text-slate-900 text-sm">{rates.paymentPaybill || '—'}</div>
+                  </div>
+                  <div className="p-2.5 bg-white rounded-lg border border-indigo-200">
+                    <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Account Number</div>
+                    <div className="font-mono font-black text-indigo-700 text-sm">{rates.paymentPaybillAcc || rates.paymentAccountRef || '—'}</div>
+                  </div>
+                  {rates.paymentAccountRef && (
+                    <div className="col-span-2 text-[10px] text-slate-500 italic">Account reference format: {rates.paymentAccountRef}</div>
+                  )}
+                </div>
+              ) : rates.paymentType === 'send_money' ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Phone Number</div>
+                    <div className="font-mono font-black text-slate-900 text-sm">{rates.paymentPhone || '—'}</div>
+                  </div>
+                  {rates.paymentPhoneName && (
+                    <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                      <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Recipient Name</div>
+                      <div className="font-bold text-slate-900">{rates.paymentPhoneName}</div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Buy Goods Till No</div>
+                    <div className="font-mono font-black text-slate-900 text-sm">{rates.paymentTill || '123456'}</div>
+                  </div>
+                  {rates.paymentTillName && (
+                    <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                      <div className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Store Name</div>
+                      <div className="font-bold text-slate-900">{rates.paymentTillName}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {rates.instructions && (
+                <div className="text-[11px] text-indigo-800 italic border-t border-indigo-200 pt-2">{rates.instructions}</div>
+              )}
+            </div>
+            <div className="text-xs text-gray-600 mb-3 bg-gray-50 p-2.5 rounded-lg border border-gray-200">
+              <div className="flex justify-between">
+                <span>Rates:</span>
+                <span>KES {rates.perDay || 500}/day base + KES {rates.perProduct || 100}/product/day</span>
+              </div>
+              <div className="flex justify-between pt-1 font-bold text-sm text-gray-900 border-t border-gray-200 mt-1">
+                <span>Total Amount Due:</span>
+                <span className="text-blue-600 font-black">KES {estAmount}</span>
+              </div>
             </div>
             <button disabled={submitting || !paymentProofUrl} onClick={submit} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 w-full md:w-auto">{submitting ? 'Submitting...' : 'Submit Application & Proof'}</button>
             {message && <div className="mt-3 text-sm font-medium p-2 bg-gray-50 rounded">{message}</div>}

@@ -25,6 +25,43 @@ export default function AdminCreateVideoBanner() {
   const [success, setSuccess] = useState('')
   const [loadingBanner, setLoadingBanner] = useState(false)
 
+  const toggleBannerLocation = (locVal) => {
+    setForm(prev => {
+      const current = Array.isArray(prev.bannerLocation)
+        ? prev.bannerLocation
+        : [prev.bannerLocation || 'homepage']
+
+      if (locVal === 'all') {
+        return {
+          ...prev,
+          bannerLocation: current.includes('all') ? ['homepage'] : ['all']
+        }
+      }
+
+      let next = current.filter(x => x !== 'all')
+      if (next.includes(locVal)) {
+        next = next.filter(x => x !== locVal)
+        if (next.length === 0) next = ['homepage']
+      } else {
+        next = [...next, locVal]
+        const allPages = ['homepage', 'fastfood', 'products', 'services']
+        if (allPages.every(p => next.includes(p))) {
+          next = ['all']
+        }
+      }
+
+      return { ...prev, bannerLocation: next }
+    })
+  }
+
+  const isLocationSelected = (locVal) => {
+    const current = Array.isArray(form.bannerLocation)
+      ? form.bannerLocation
+      : [form.bannerLocation || 'homepage']
+    if (locVal === 'all') return current.includes('all')
+    return current.includes('all') || current.includes(locVal)
+  }
+
   const [form, setForm] = useState({
     sellerId: '',
     productIds: [],
@@ -58,7 +95,7 @@ export default function AdminCreateVideoBanner() {
     dateTimeMode: 'same',
     dateSpecificTimes: {},
     trustPoints: [],
-    bannerLocation: 'homepage'
+    bannerLocation: ['homepage']
   })
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -115,8 +152,20 @@ export default function AdminCreateVideoBanner() {
             timezone: banner.timezone || 'Africa/Nairobi',
             dateTimeMode: banner.dateTimeMode || 'same',
             dateSpecificTimes: banner.dateSpecificTimes || {},
-            trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints : [],
-            bannerLocation: banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
+            trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints.slice(0, 3) : [],
+            bannerLocation: (() => {
+              const raw = banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
+              if (Array.isArray(raw)) return raw
+              if (typeof raw === 'string') {
+                try {
+                  const parsed = JSON.parse(raw)
+                  if (Array.isArray(parsed)) return parsed
+                } catch {}
+                if (raw.includes(',')) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+                return [raw.toLowerCase().trim()]
+              }
+              return ['homepage']
+            })()
           }))
 
           // If it's a seller banner, load sellers
@@ -417,17 +466,30 @@ export default function AdminCreateVideoBanner() {
 
           {/* Banner Placement / Page Location */}
           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-            <div className="flex items-center justify-between mb-3">
-              <label className="block text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
-                <FaGlobe className="text-purple-600" /> Target Placement / Page Location
-              </label>
-              <span className="text-xs text-purple-700 font-bold bg-purple-100 px-2.5 py-0.5 rounded-full">
-                Active on: {form.bannerLocation === 'all' ? 'All Platform Pages' : form.bannerLocation.toUpperCase()}
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div>
+                <label className="block text-xs font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                  <FaGlobe className="text-purple-600" /> Target Placement / Page Location
+                </label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Select one or more pages where this hero video banner should appear:
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-500">Active on:</span>
+                {Array.isArray(form.bannerLocation) && form.bannerLocation.includes('all') ? (
+                  <span className="text-xs text-purple-700 font-black bg-purple-100 border border-purple-200 px-2.5 py-0.5 rounded-full">
+                    All Platform Pages
+                  </span>
+                ) : (
+                  (Array.isArray(form.bannerLocation) ? form.bannerLocation : [form.bannerLocation || 'homepage']).map(loc => (
+                    <span key={loc} className="text-xs text-purple-700 font-black bg-purple-100 border border-purple-200 px-2.5 py-0.5 rounded-full uppercase">
+                      {loc}
+                    </span>
+                  ))
+                )}
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Select which page header this hero video banner should appear on:
-            </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
                 { value: 'homepage', label: 'Homepage', icon: <FaHome />, desc: 'Main Landing Hero', color: 'blue' },
@@ -435,26 +497,37 @@ export default function AdminCreateVideoBanner() {
                 { value: 'products', label: 'Products', icon: <FaShoppingBag />, desc: 'Products Catalog', color: 'emerald' },
                 { value: 'services', label: 'Services', icon: <FaTools />, desc: 'Campus Services', color: 'indigo' },
                 { value: 'all', label: 'All Pages', icon: <FaGlobe />, desc: 'Global Hero Banner', color: 'purple' },
-              ].map(loc => (
-                <button
-                  type="button"
-                  key={loc.value}
-                  onClick={() => setForm(p => ({ ...p, bannerLocation: loc.value }))}
-                  className={`flex flex-col items-center text-center p-3.5 rounded-xl border-2 transition-all ${
-                    form.bannerLocation === loc.value
-                      ? 'border-purple-600 bg-purple-50/80 shadow-md ring-2 ring-purple-400/20'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-2 ${
-                    form.bannerLocation === loc.value ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {loc.icon}
-                  </div>
-                  <span className="font-black text-xs text-slate-900">{loc.label}</span>
-                  <span className="text-[10px] text-slate-500 mt-0.5">{loc.desc}</span>
-                </button>
-              ))}
+              ].map(loc => {
+                const selected = isLocationSelected(loc.value)
+                return (
+                  <button
+                    type="button"
+                    key={loc.value}
+                    onClick={() => toggleBannerLocation(loc.value)}
+                    className={`relative flex flex-col items-center text-center p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
+                      selected
+                        ? 'border-purple-600 bg-purple-50/80 shadow-md ring-2 ring-purple-400/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {selected && (
+                      <FaCheckCircle className="absolute top-2 right-2 text-purple-600 text-xs" />
+                    )}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-2 ${
+                      selected ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {loc.icon}
+                    </div>
+                    <span className="font-black text-xs text-slate-900">{loc.label}</span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">{loc.desc}</span>
+                    <span className={`text-[9px] font-bold mt-1 px-1.5 py-0.5 rounded ${
+                      selected ? 'bg-purple-200 text-purple-800' : 'text-slate-400'
+                    }`}>
+                      {selected ? 'Active' : 'Click to add'}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -777,7 +850,16 @@ export default function AdminCreateVideoBanner() {
 
                 {/* Custom Trust Points */}
                 <div className="pt-2 border-t border-slate-200 space-y-2">
-                  <label className="block text-xs font-bold text-gray-600">Custom Trust Badges</label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-gray-600">
+                      Custom Trust Badges <span className="text-gray-400 font-normal">({form.trustPoints.length}/3 max)</span>
+                    </label>
+                    {form.trustPoints.length >= 3 && (
+                      <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                        Limit reached (3 max)
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {form.trustPoints.map((tp, idx) => (
                       <span key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border text-xs font-semibold shadow-sm">
@@ -800,33 +882,41 @@ export default function AdminCreateVideoBanner() {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      className="w-16 p-2 border rounded-lg text-center text-sm bg-white"
+                      disabled={form.trustPoints.length >= 3}
+                      className="w-16 p-2 border rounded-lg text-center text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
                       placeholder="Icon"
                       value={newTrustIcon}
                       onChange={e => setNewTrustIcon(e.target.value)}
                     />
                     <input
                       type="text"
-                      className="flex-grow p-2 border rounded-lg text-sm bg-white"
-                      placeholder="Badge label e.g. Fast Delivery, Verified"
+                      disabled={form.trustPoints.length >= 3}
+                      className="flex-grow p-2 border rounded-lg text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                      placeholder={form.trustPoints.length >= 3 ? "Maximum 3 badges added" : "Badge label e.g. Fast Delivery, Verified"}
                       value={newTrustText}
                       onChange={e => setNewTrustText(e.target.value)}
                     />
                     <button
                       type="button"
+                      disabled={form.trustPoints.length >= 3}
                       onClick={() => {
-                        if (!newTrustText.trim()) return
+                        if (!newTrustText.trim() || form.trustPoints.length >= 3) return
                         setForm(p => ({
                           ...p,
-                          trustPoints: [...p.trustPoints, { icon: newTrustIcon || '📍', text: newTrustText.trim() }]
+                          trustPoints: [...p.trustPoints, { icon: newTrustIcon || '📍', text: newTrustText.trim() }].slice(0, 3)
                         }))
                         setNewTrustText('')
                       }}
-                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs"
+                      className={`px-4 py-2 text-white rounded-lg font-bold text-xs transition-colors ${
+                        form.trustPoints.length >= 3
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : 'bg-purple-600 hover:bg-purple-700'
+                      }`}
                     >
                       + Add
                     </button>
                   </div>
+                  <p className="text-[10px] text-gray-400">Up to 3 badges will display side-by-side in a single horizontal line on the hero banner.</p>
                 </div>
               </div>
             </div>

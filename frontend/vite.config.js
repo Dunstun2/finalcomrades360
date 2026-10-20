@@ -103,37 +103,146 @@ export default defineConfig(({ mode }) => ({
         // },
         // Optimize chunking strategy for better loading
         manualChunks: (id) => {
+          // ── Vendor splitting ──────────────────────────────────────────────
           if (id.includes('node_modules')) {
-            if (id.includes('@headlessui') || id.includes('@heroicons') || id.includes('react-icons')) {
+            if (id.includes('react-icons') || id.includes('@heroicons') || id.includes('@headlessui')) {
               return 'vendor-ui';
             }
             if (id.includes('@tanstack/react-query') || id.includes('axios')) {
               return 'vendor-api';
             }
-            if (id.includes('react-router-dom') || id.includes('@headlessui')) {
+            if (id.includes('react-router-dom')) {
               return 'vendor-router';
+            }
+            if (id.includes('leaflet') || id.includes('react-leaflet') || id.includes('@react-google-maps')) {
+              return 'vendor-maps';
+            }
+            if (id.includes('chart.js') || id.includes('react-chartjs-2')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('socket.io-client')) {
+              return 'vendor-socket';
+            }
+            if (id.includes('html2canvas') || id.includes('qrcode') || id.includes('emoji-picker')) {
+              return 'vendor-extras';
             }
             return 'vendor';
           }
 
-          // Split large components into separate chunks
-          if (id.includes('pages/')) {
-            if (id.includes('Home')) return 'page-home';
-            if (id.includes('Cart') || id.includes('Checkout')) return 'page-commerce';
-            if (id.includes('Product')) return 'page-products';
-            if (id.includes('dashboard')) return 'page-dashboard';
-            return 'pages';
+          // ── Admin: heavy promotion pages (160KB + 117KB source) ───────────
+          if (
+            id.includes('AdminHeroPromotions') ||
+            id.includes('AdminCreateHeroPromotion') ||
+            id.includes('AdminCreateVideoBanner') ||
+            id.includes('AdminVideoBanners')
+          ) {
+            return 'page-admin-promotions';
           }
 
+          // ── Admin: subscriptions & returns (large) ────────────────────────
+          if (
+            id.includes('AdminSubscriptions') ||
+            id.includes('AdminReturnsList') ||
+            id.includes('AdminBenefitPackageModal') ||
+            id.includes('AdminPlanEditorModal')
+          ) {
+            return 'page-admin-subscriptions';
+          }
+
+          // ── Admin: remaining pages & tools ────────────────────────────────
+          if (id.includes('/modules/admin/') || id.includes('/pages/dashboard/')) {
+            return 'page-admin';
+          }
+
+          // ── Seller module ─────────────────────────────────────────────────
+          if (id.includes('/modules/seller/')) {
+            return 'page-seller';
+          }
+
+          // ── Checkout (heavy) separated from order listing ─────────────────
+          if (id.includes('Checkout') || id.includes('MealPlanBuilder') || id.includes('SubscriptionConfirmation')) {
+            return 'page-checkout';
+          }
+
+          // ── Orders / Cart ─────────────────────────────────────────────────
+          if (id.includes('/modules/orders/') || id.includes('Cart')) {
+            return 'page-commerce';
+          }
+
+          // ── FastFood (separate from products) ─────────────────────────────
+          if (id.includes('/modules/fastfood/')) {
+            return 'page-fastfood';
+          }
+
+          // ── Products ──────────────────────────────────────────────────────
+          if (id.includes('/modules/products/')) {
+            return 'page-products';
+          }
+
+          // ── Delivery ──────────────────────────────────────────────────────
+          if (id.includes('/modules/delivery/')) {
+            return 'page-delivery';
+          }
+
+          // ── Finance ───────────────────────────────────────────────────────
+          if (id.includes('/modules/finance/')) {
+            return 'page-finance';
+          }
+
+          // ── Auth (login/register forms) ───────────────────────────────────
+          if (id.includes('/modules/auth/')) {
+            return 'page-auth';
+          }
+
+          // ── Users / Account pages ─────────────────────────────────────────
+          if (id.includes('/modules/users/')) {
+            return 'page-users';
+          }
+
+          // ── Marketing ─────────────────────────────────────────────────────
+          if (id.includes('/modules/marketing/')) {
+            return 'page-marketing';
+          }
+
+          // ── Home page ─────────────────────────────────────────────────────
+          if (id.includes('pages/Home') || id.includes('shared/pages/Home')) {
+            return 'page-home';
+          }
+
+          // ── Dashboard pages ───────────────────────────────────────────────
+          if (id.includes('pages/dashboard') || id.includes('/modules/dashboard/')) {
+            return 'page-dashboard';
+          }
+
+          // ── Shared pages: management-heavy ────────────────────────────────
+          if (id.includes('/shared/pages/')) {
+            if (
+              id.includes('Management') ||
+              id.includes('System') ||
+              id.includes('Warehouse') ||
+              id.includes('Inventory') ||
+              id.includes('Batch') ||
+              id.includes('Commission')
+            ) {
+              return 'page-shared-mgmt';
+            }
+            return 'page-shared';
+          }
+
+          // ── Shared components: heavy widgets ──────────────────────────────
           if (id.includes('components/')) {
+            if (id.includes('Navbar') || id.includes('Sidebar')) return 'components-nav';
             if (id.includes('ProductCard') || id.includes('ServiceCard')) return 'components-cards';
-            if (id.includes('ui/')) return 'components-ui';
+            if (id.includes('MealPlanBuilder') || id.includes('ScheduleProjectedCost') || id.includes('HandoverCodeWidget')) {
+              return 'components-heavy';
+            }
+            if (id.includes('/shared/components/')) return 'components-shared';
             return 'components';
           }
         },
       },
     },
-    chunkSizeWarningLimit: 600, // Reasonable chunk size limit (in kbs)
+    chunkSizeWarningLimit: 1600, // Adjusted for this large monorepo
     // Disable preloading of all assets
     assetsInlineLimit: 0,
     // Disable CSS code splitting to prevent FOUC

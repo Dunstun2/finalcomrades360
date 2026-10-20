@@ -135,7 +135,7 @@ export default function SellerFastFoodPromotions() {
   const submit = async () => {
     if (selected.length === 0) { setMessage('Select at least one fastfood item'); return }
     if (!promoTitle.trim()) { setMessage('Please provide a preferred banner heading.'); return }
-    if (!promoSubtitle.trim()) { setMessage('Please provide a preferred subheading.'); return }
+    if (!promoSubtitle.trim()) { setMessage('Please provide a preferred short description.'); return }
     if (!paymentProofUrl) { setMessage('Please upload payment proof before submitting.'); return }
     setSubmitting(true)
     setMessage('')
@@ -193,7 +193,7 @@ export default function SellerFastFoodPromotions() {
                 <input type="text" className="w-full border border-orange-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500" placeholder="e.g. WEEKEND TIKKA DEALS" value={promoTitle} onChange={e => setPromoTitle(e.target.value)} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-orange-900 mb-1">Preferred Subheading <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-orange-900 mb-1">Preferred Short Description <span className="text-red-500">*</span></label>
                 <input type="text" className="w-full border border-orange-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-orange-500" placeholder="e.g. Get 10% off your favorite sizzling meals!" value={promoSubtitle} onChange={e => setPromoSubtitle(e.target.value)} />
                 <p className="text-xs text-orange-600 mt-1">Our marketing team will review these for quality before publishing.</p>
               </div>

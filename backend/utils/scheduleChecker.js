@@ -29,7 +29,7 @@ function shouldShowPromotion(promotion, now = new Date()) {
     const recurringDays = promotion.recurringDays || [];
     if (recurringDays.length === 0) return checkTimeSlot(promotion, now); // No days = always show
 
-    const currentDay = now.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+    const currentDay = getDayInTimezone(now, promotion.timezone); // 0=Sunday, 6=Saturday
     if (!recurringDays.includes(currentDay)) return false;
 
     return checkTimeSlot(promotion, now);
@@ -40,7 +40,7 @@ function shouldShowPromotion(promotion, now = new Date()) {
     const specificDates = promotion.specificDates || [];
     if (specificDates.length === 0) return checkTimeSlot(promotion, now);
 
-    const currentDate = formatDate(now); // "2026-09-01"
+    const currentDate = formatDateInTimezone(now, promotion.timezone); // "2026-09-01"
     if (!specificDates.includes(currentDate)) return false;
 
     // Check if using per-date times
@@ -49,7 +49,7 @@ function shouldShowPromotion(promotion, now = new Date()) {
       const dateTime = promotion.dateSpecificTimes[currentDate];
       if (dateTime && (dateTime.start || dateTime.end)) {
         // Use date-specific times for this date
-        return checkTimeSlotWithValues(dateTime.start, dateTime.end, now);
+        return checkTimeSlotWithValues(dateTime.start, dateTime.end, now, promotion.timezone);
       }
     }
 
@@ -62,26 +62,27 @@ function shouldShowPromotion(promotion, now = new Date()) {
 
 /**
  * Check if current time is within allowed time slot
- * @param {Object} promotion 
- * @param {Date} now 
+ * @param {Object} promotion
+ * @param {Date} now
  * @returns {boolean}
  */
 function checkTimeSlot(promotion, now) {
-  return checkTimeSlotWithValues(promotion.timeSlotStart, promotion.timeSlotEnd, now);
+  return checkTimeSlotWithValues(promotion.timeSlotStart, promotion.timeSlotEnd, now, promotion.timezone);
 }
 
 /**
  * Check if current time is within allowed time slot (with explicit start/end values)
  * @param {string} timeSlotStart - "09:00"
  * @param {string} timeSlotEnd - "17:00"
- * @param {Date} now 
+ * @param {Date} now
+ * @param {string} timezone - IANA timezone string (e.g. "Africa/Nairobi")
  * @returns {boolean}
  */
-function checkTimeSlotWithValues(timeSlotStart, timeSlotEnd, now) {
+function checkTimeSlotWithValues(timeSlotStart, timeSlotEnd, now, timezone) {
   // No time restrictions
   if (!timeSlotStart && !timeSlotEnd) return true;
 
-  const currentTime = formatTime(now); // "14:30"
+  const currentTime = formatTimeInTimezone(now, timezone); // "14:30"
 
   // Only start time specified
   if (timeSlotStart && !timeSlotEnd) {
@@ -109,7 +110,51 @@ function checkTimeSlotWithValues(timeSlotStart, timeSlotEnd, now) {
 }
 
 /**
- * Format date as YYYY-MM-DD
+ * Get the day-of-week (0-6) in the given IANA timezone.
+ * Falls back to server local time if timezone is invalid/unavailable.
+ */
+function getDayInTimezone(date, timezone) {
+  const tz = timezone || 'Africa/Nairobi';
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' });
+    const dayStr = formatter.format(date);
+    const days = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return days[dayStr] !== undefined ? days[dayStr] : date.getDay();
+  } catch {
+    return date.getDay();
+  }
+}
+
+/**
+ * Format date as YYYY-MM-DD in the given IANA timezone.
+ * Falls back to server-local formatting if timezone is invalid.
+ */
+function formatDateInTimezone(date, timezone) {
+  const tz = timezone || 'Africa/Nairobi';
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(date); // returns "YYYY-MM-DD" in en-CA locale
+  } catch {
+    return formatDate(date);
+  }
+}
+
+/**
+ * Format time as HH:MM in the given IANA timezone.
+ * Falls back to server-local time if timezone is invalid.
+ */
+function formatTimeInTimezone(date, timezone) {
+  const tz = timezone || 'Africa/Nairobi';
+  try {
+    const formatter = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+    return formatter.format(date); // returns "HH:MM" in en-GB 24h locale
+  } catch {
+    return formatTime(date);
+  }
+}
+
+/**
+ * Format date as YYYY-MM-DD (server local time — legacy fallback)
  */
 function formatDate(date) {
   const year = date.getFullYear();
@@ -119,7 +164,7 @@ function formatDate(date) {
 }
 
 /**
- * Format time as HH:MM
+ * Format time as HH:MM (server local time — legacy fallback)
  */
 function formatTime(date) {
   const hours = String(date.getHours()).padStart(2, '0');
@@ -160,6 +205,11 @@ function getScheduleDescription(promotion) {
     parts.push(`until ${promotion.timeSlotEnd}`);
   }
 
+  // Add timezone note if non-default
+  if (promotion.timezone && promotion.timezone !== 'Africa/Nairobi') {
+    parts.push(`(${promotion.timezone})`);
+  }
+
   return parts.join(' • ') || 'No schedule';
 }
 
@@ -169,5 +219,8 @@ module.exports = {
   checkTimeSlotWithValues,
   getScheduleDescription,
   formatDate,
-  formatTime
+  formatTime,
+  formatDateInTimezone,
+  formatTimeInTimezone,
+  getDayInTimezone
 };

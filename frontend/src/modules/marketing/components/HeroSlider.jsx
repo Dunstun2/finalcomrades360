@@ -1,10 +1,38 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { FaChevronLeft, FaChevronRight, FaShoppingCart, FaPlay, FaVolumeUp, FaVolumeMute, FaFire, FaArrowRight } from 'react-icons/fa';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils';
 import { useCart } from '@/contexts/CartContext';
+import api from '@/shared/services/api';
 
 const HeroSlider = ({ items = [], onAddToCart = null }) => {
+    // Expand multi-product banners: each product becomes its own slide
+    const slides = useMemo(() => {
+        const expanded = [];
+        for (const item of items) {
+            const prods = (Array.isArray(item.products) && item.products.length > 0)
+                ? item.products
+                : (Array.isArray(item.fastfoods) && item.fastfoods.length > 0 ? item.fastfoods : []);
+            const isFastFood = Array.isArray(item.fastfoods) && item.fastfoods.length > 0;
+            if (prods.length > 1) {
+                // Explode into one slide per product
+                for (const prod of prods) {
+                    expanded.push({
+                        ...item,
+                        // Override with single-product arrays so firstProduct derivation works
+                        products: isFastFood ? [] : [prod],
+                        fastfoods: isFastFood ? [prod] : [],
+                        // Auto-set product-specific content if banner title is generic or empty
+                        _expandedProduct: prod,
+                    });
+                }
+            } else {
+                expanded.push(item);
+            }
+        }
+        return expanded;
+    }, [items]);
+
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isAutoPlaying, setIsAutoPlaying] = useState(true);
     const [videoMuted, setVideoMuted] = useState(true);
@@ -26,18 +54,18 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     const { addToCart } = useCart();
 
     const nextSlide = useCallback(() => {
-        if (!items || items.length <= 1) return;
-        setCurrentIndex((prev) => (prev + 1) % items.length);
+        if (!slides || slides.length <= 1) return;
+        setCurrentIndex((prev) => (prev + 1) % slides.length);
         setVideoPlaying(true);
         setTiktokAutoplayAttempted(false);
-    }, [items]);
+    }, [slides]);
 
     const prevSlide = useCallback(() => {
-        if (!items || items.length <= 1) return;
-        setCurrentIndex((prev) => (prev - 1 + items.length) % items.length);
+        if (!slides || slides.length <= 1) return;
+        setCurrentIndex((prev) => (prev - 1 + slides.length) % slides.length);
         setVideoPlaying(true);
         setTiktokAutoplayAttempted(false);
-    }, [items]);
+    }, [slides]);
 
     // Touch Gesture Handlers
     const handleTouchStart = (e) => {
@@ -80,10 +108,10 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     };
 
     useEffect(() => {
-        if (!isAutoPlaying || items.length <= 1) return;
+        if (!isAutoPlaying || slides.length <= 1) return;
         const interval = setInterval(nextSlide, 6000);
         return () => clearInterval(interval);
-    }, [isAutoPlaying, nextSlide, items.length]);
+    }, [isAutoPlaying, nextSlide, slides.length]);
 
     // Video control effect
     useEffect(() => {
@@ -155,15 +183,40 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
         };
     };
 
-    if (!items || items.length === 0) return null;
+    const trackedImpressions = useRef(new Set());
 
-    const currentItem = items[currentIndex];
-    const products = currentItem.products || [];
+    const currentItem = (Array.isArray(slides) && slides.length > 0)
+        ? (slides[currentIndex] || slides[0] || null)
+        : null;
+
+    // Analytics tracking: impression on view (deduped per promotion ID in memory)
+    useEffect(() => {
+        if (!currentItem?.id) return;
+        if (!trackedImpressions.current.has(currentItem.id)) {
+            trackedImpressions.current.add(currentItem.id);
+            api.post(`/hero-promotions/${currentItem.id}/track`, { eventType: 'impression' }).catch(() => {});
+        }
+    }, [currentItem?.id]);
+
+    if (!slides || slides.length === 0 || !currentItem) return null;
+
+    const products = (Array.isArray(currentItem.products) && currentItem.products.length > 0)
+        ? currentItem.products
+        : (Array.isArray(currentItem.fastfoods) ? currentItem.fastfoods : []);
     const firstProduct = products[0];
-    const hasCustomImage = !!currentItem.customImageUrl;
+    const hasCustomImage = !!(currentItem.customImageUrl || currentItem.image);
     const rawVideoUrl = currentItem.videoUrl && currentItem.videoUrl !== 'null' && currentItem.videoUrl !== 'undefined' ? currentItem.videoUrl.trim() : null;
-    const hasVideo = !!rawVideoUrl;
-    const videoEmbed = rawVideoUrl ? getVideoEmbedUrl(rawVideoUrl) : null;
+    // Respect mediaMode if set; otherwise fall back to checking if videoUrl is populated
+    const activeMode = currentItem.mediaMode || (rawVideoUrl ? 'video' : 'image');
+    const hasVideo = activeMode === 'video' && !!rawVideoUrl;
+    const videoEmbed = hasVideo ? getVideoEmbedUrl(rawVideoUrl) : null;
+
+    const trackClick = (promoId) => {
+        if (!promoId) return;
+        api.post(`/hero-promotions/${promoId}/track`, { eventType: 'click' }).catch(() => {});
+    };
+
+    const isBackgroundVideo = hasVideo && currentItem.videoType === 'background';
 
     const toggleVideoMute = (e) => {
         if (e) {
@@ -181,8 +234,9 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     const handleAddToCartClick = async (e, productId) => {
         e.preventDefault();
         e.stopPropagation();
+        trackClick(currentItem?.id);
 
-        const isFastFood = currentItem.type === 'fastfood' || currentItem.fastFoodId;
+        const isFastFood = currentItem.type === 'fastfood' || currentItem.promoType === 'fastfood' || Boolean(currentItem.fastFoodId) || (Array.isArray(currentItem.fastfoods) && currentItem.fastfoods.length > 0);
         try {
             if (isFastFood && firstProduct) {
                 await addToCart(productId, 1, { type: 'fastfood', fastFood: firstProduct });
@@ -230,8 +284,39 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
             {/* Main Outer Container */}
             <div className="relative w-full min-h-[420px] sm:min-h-[450px] lg:h-[420px] lg:min-h-0 flex items-center justify-center px-2 py-1.5 sm:px-3 sm:py-2 lg:pl-6 lg:pr-2 lg:py-2 overflow-hidden">
                 
-                {/* Background Overlay Pattern */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}></div>
+                {/* Background Video Layer (when videoType === 'background') */}
+                {isBackgroundVideo && (
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                        {videoEmbed && videoEmbed.type !== 'direct' ? (
+                            <iframe
+                                ref={iframeRef}
+                                key={`bg-vid-${currentIndex}`}
+                                src={videoEmbed.url}
+                                className="w-full h-full object-cover scale-125 opacity-60 pointer-events-none"
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                title="Background Video"
+                            />
+                        ) : (
+                            <video
+                                ref={videoRef}
+                                key={`bg-vid-${currentIndex}`}
+                                src={videoEmbed ? videoEmbed.url : resolveImageUrl(currentItem.videoUrl)}
+                                className="w-full h-full object-cover opacity-60"
+                                autoPlay={currentItem.videoAutoplay !== false}
+                                loop={currentItem.videoLoop !== false}
+                                muted={videoMuted}
+                                playsInline
+                                onEnded={() => { if (slides.length > 1) nextSlide(); }}
+                            />
+                        )}
+                        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[1px]"></div>
+                    </div>
+                )}
+
+                {/* Background Overlay Pattern (default or backdrop fallback) */}
+                {!isBackgroundVideo && <div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}></div>}
                 <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none"></div>
                 <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#FF6600]/20 rounded-full blur-[100px] pointer-events-none"></div>
                 <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-blue-600/20 rounded-full blur-[100px] pointer-events-none"></div>
@@ -286,18 +371,46 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                         {(firstProduct || currentItem.productId || currentItem.ctaText || currentItem.buttonText || currentItem.link || currentItem.targetUrl) ? (
                             <div className="flex flex-wrap items-center gap-2.5 sm:gap-3.5 pt-1">
                                 {(firstProduct || currentItem.productId) ? (
-                                    <button
-                                        onClick={(e) => handleAddToCartClick(e, firstProduct?.id || currentItem.productId)}
-                                        className="group px-5 py-2.5 sm:px-6 sm:py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-2xl font-black text-xs sm:text-sm shadow-xl shadow-blue-600/30 hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2.5 border border-blue-400/40 pointer-events-auto"
-                                    >
-                                        <span>{currentItem.ctaText || currentItem.buttonText || 'BUY NOW'}</span>
-                                        <FaShoppingCart size={14} className="group-hover:scale-110 transition-transform" />
-                                    </button>
+                                    <div className="flex flex-col gap-1.5">
+                                        {/* Product name chip */}
+                                        {firstProduct?.name && (
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[10px] text-white/60 font-semibold uppercase tracking-wider">Featuring</span>
+                                                <span className="text-[10px] sm:text-xs text-white font-black bg-white/10 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/20 max-w-[160px] truncate">{firstProduct.name}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center gap-2.5">
+                                            <button
+                                                onClick={(e) => handleAddToCartClick(e, firstProduct?.id || currentItem.productId)}
+                                                className="group px-5 py-2.5 sm:px-6 sm:py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-2xl font-black text-xs sm:text-sm shadow-xl shadow-blue-600/30 hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2.5 border border-blue-400/40 pointer-events-auto"
+                                            >
+                                                <span>{currentItem.ctaText || currentItem.buttonText || 'BUY NOW'}</span>
+                                                <FaShoppingCart size={14} className="group-hover:scale-110 transition-transform" />
+                                            </button>
+                                            {/* Price Tag */}
+                                            {firstProduct && (
+                                                <div className="flex flex-col items-start bg-black/50 px-3 py-1.5 rounded-2xl border border-white/15 backdrop-blur-md shadow-lg">
+                                                    <span className="text-gray-400 text-[9px] font-bold uppercase tracking-wider">Price</span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-amber-400 text-sm sm:text-base font-black">
+                                                            KES {Number(firstProduct.discountPrice || firstProduct.displayPrice || firstProduct.basePrice || firstProduct.price || 0).toLocaleString()}
+                                                        </span>
+                                                        {firstProduct.basePrice && firstProduct.discountPrice && firstProduct.basePrice !== firstProduct.discountPrice && (
+                                                            <span className="text-gray-500 text-[10px] line-through">
+                                                                KES {Number(firstProduct.basePrice).toLocaleString()}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 ) : null}
 
                                 {(currentItem.ctaText || currentItem.buttonText || currentItem.link || currentItem.targetUrl) && !firstProduct ? (
                                     <button
                                         onClick={() => {
+                                            trackClick(currentItem?.id);
                                             const destination = currentItem.link || currentItem.targetUrl || currentItem.ctaLink;
                                             if (destination) {
                                                 if (destination.startsWith('http://') || destination.startsWith('https://')) {
@@ -313,36 +426,32 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                         <FaArrowRight size={12} className="group-hover:translate-x-1 transition-transform" />
                                     </button>
                                 ) : null}
-
-                                {/* Price Tag if Product exists */}
-                                {firstProduct && (
-                                    <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-2xl border border-white/15 backdrop-blur-md shadow-lg">
-                                        <span className="text-gray-400 text-[10px] font-bold uppercase tracking-wider">Price</span>
-                                        <span className="text-amber-400 text-sm sm:text-base font-black">
-                                            KES {firstProduct.discountPrice || firstProduct.basePrice}
-                                        </span>
-                                    </div>
-                                )}
                             </div>
                         ) : null}
 
-                        {/* Trust Indicators Row (Only if explicitly provided) */}
+                        {/* Trust Indicators Row (Only if explicitly provided - max 3 items strictly in one horizontal line) */}
                         {Array.isArray(currentItem.trustPoints) && currentItem.trustPoints.length > 0 ? (
-                            <div className="pt-1 flex flex-wrap items-center gap-2 text-white/90 text-[11px] sm:text-xs font-bold">
-                                {currentItem.trustPoints.map((tp, idx) => (
-                                    <div key={idx} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/15 backdrop-blur-md px-3 py-1 rounded-xl border border-white/15 shadow-sm hover:scale-105 transition-all duration-200">
-                                        {tp.icon && <span className="text-sm">{tp.icon}</span>}
-                                        <span className="truncate max-w-[140px] sm:max-w-none">{typeof tp === 'string' ? tp : tp.text}</span>
+                            <div className="pt-1 flex flex-nowrap items-center gap-1.5 sm:gap-2 text-white/90 w-full max-w-full overflow-hidden">
+                                {currentItem.trustPoints.slice(0, 3).map((tp, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-1.5 bg-white/10 hover:bg-white/15 backdrop-blur-md px-1.5 sm:px-2.5 py-1 rounded-lg sm:rounded-xl border border-white/15 shadow-sm hover:scale-[1.02] transition-all duration-200"
+                                        title={typeof tp === 'string' ? tp : tp.text}
+                                    >
+                                        {tp.icon && <span className="text-xs sm:text-sm flex-shrink-0">{tp.icon}</span>}
+                                        <span className="truncate text-[10px] sm:text-xs font-bold leading-tight select-none">
+                                            {typeof tp === 'string' ? tp : tp.text}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
                         ) : null}
 
                         {/* Left-Aligned Slide Indicator Dots Capsule */}
-                        {items.length > 1 && (
+                        {slides.length > 1 && (
                             <div className="pt-1 flex items-center gap-2 pointer-events-auto">
                                 <div className="px-3 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center gap-1.5">
-                                    {items.map((_, idx) => (
+                                    {slides.map((_, idx) => (
                                         <button
                                             key={idx}
                                             onClick={() => setCurrentIndex(idx)}
@@ -360,7 +469,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                         
                         <div className="relative w-full h-full rounded-2xl border border-white/15 bg-slate-950/80 shadow-2xl overflow-hidden group/card flex items-center justify-center">
                             
-                            {hasVideo ? (
+                            {hasVideo && !isBackgroundVideo ? (
                                 <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 flex items-center justify-center">
                                     {videoEmbed && videoEmbed.type !== 'direct' ? (
                                         /* Iframe embed: fill entire container edge-to-edge */
@@ -388,7 +497,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                                 autoPlay={currentItem.videoAutoplay !== false}
                                                 muted={videoMuted}
                                                 playsInline
-                                                onEnded={() => { if (items.length > 1) nextSlide(); }}
+                                                onEnded={() => { if (slides.length > 1) nextSlide(); }}
                                             />
                                         </div>
                                     )}
@@ -413,10 +522,10 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                     </button>
                                 </div>
                             ) : (
-                                /* Product Image Showcase Card */
+                                /* Product Image Showcase Card (Used for images AND background videos) */
                                 <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-6 bg-gradient-to-b from-white/5 to-white/0">
                                     <img
-                                        src={resolveImageUrl(hasCustomImage ? currentItem.customImageUrl : (firstProduct?.coverImage || FALLBACK_IMAGE))}
+                                        src={resolveImageUrl(hasCustomImage ? (currentItem.customImageUrl || currentItem.image) : (firstProduct?.coverImage || firstProduct?.mainImage || FALLBACK_IMAGE))}
                                         alt={currentItem.title || firstProduct?.name || 'Banner Promotion'}
                                         className="max-h-full max-w-full object-contain drop-shadow-[0_25px_45px_rgba(0,0,0,0.8)] transition-all duration-500 hover:scale-105"
                                     />
@@ -424,6 +533,26 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                         <div className="absolute top-3 right-3 bg-gradient-to-r from-red-600 to-orange-600 text-white px-3 py-1 rounded-xl shadow-2xl font-black text-xs border border-white/25">
                                             -{firstProduct.discountPercentage}% OFF
                                         </div>
+                                    )}
+                                    {/* Sound button for background video */}
+                                    {isBackgroundVideo && (
+                                        <button
+                                            onClick={toggleVideoMute}
+                                            className="absolute top-3 left-3 z-30 px-3 py-1 flex items-center gap-1.5 rounded-full bg-slate-950/90 hover:bg-blue-600 text-white backdrop-blur-md border border-white/20 text-xs font-bold shadow-2xl transition-all hover:scale-105 active:scale-95 pointer-events-auto"
+                                            aria-label={videoMuted ? 'Unmute video' : 'Mute video'}
+                                        >
+                                            {videoMuted ? (
+                                                <>
+                                                    <FaVolumeMute className="text-red-400" />
+                                                    <span>Sound Off</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <FaVolumeUp className="text-emerald-400" />
+                                                    <span>Sound On</span>
+                                                </>
+                                            )}
+                                        </button>
                                     )}
                                 </div>
                             )}
@@ -434,7 +563,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                 </div>
 
                 {/* Left Floating Arrow */}
-                {items.length > 1 && (
+                {slides.length > 1 && (
                     <button
                         onClick={(e) => { e.stopPropagation(); prevSlide(); }}
                         className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-white text-white hover:text-black backdrop-blur-md border border-white/20 transition-all opacity-0 group-hover:opacity-100 shadow-2xl z-30 pointer-events-auto"
@@ -445,7 +574,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                 )}
 
                 {/* Right Floating Arrow */}
-                {items.length > 1 && (
+                {slides.length > 1 && (
                     <button
                         onClick={(e) => { e.stopPropagation(); nextSlide(); }}
                         className="absolute right-2 sm:left-auto sm:right-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-white text-white hover:text-black backdrop-blur-md border border-white/20 transition-all opacity-0 group-hover:opacity-100 shadow-2xl z-30 pointer-events-auto"

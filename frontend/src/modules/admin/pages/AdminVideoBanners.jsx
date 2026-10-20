@@ -5,6 +5,7 @@ import { uploadFile } from '@/shared/services/upload'
 import Modal from '@/shared/components/Modal'
 import { FaStore, FaClock, FaCheckCircle, FaTimesCircle, FaInfoCircle, FaCalendarAlt, FaMoneyBillWave, FaStopCircle, FaCog, FaPlay, FaEdit, FaTrash } from 'react-icons/fa'
 import { resolveImageUrl } from '@/utils/imageUtils'
+import VideoBannerPreview from '@/modules/marketing/components/VideoBannerPreview'
 
 export default function AdminVideoBanners() {
   const navigate = useNavigate()
@@ -174,18 +175,23 @@ export default function AdminVideoBanners() {
                       <div className="p-4">
                         <div className="flex flex-col md:flex-row gap-4">
                           {/* Video Preview */}
-                          <div className="w-full md:w-32 h-28 sm:h-32 rounded-lg bg-gradient-to-br from-purple-100 to-indigo-100 overflow-hidden flex-shrink-0 border border-purple-200 flex items-center justify-center">
-                            <div className="text-center">
-                              <div className="text-4xl mb-1"><FaPlay className="inline text-purple-600" /></div>
-                              <div className="text-[10px] font-bold text-purple-700">Video Banner</div>
-                              <div className="text-[9px] text-purple-500 mt-1">{x.videoType || 'background'}</div>
-                            </div>
+                          <div className="w-full md:w-36 h-28 sm:h-32 rounded-xl bg-black overflow-hidden flex-shrink-0 border border-purple-200 relative shadow-sm">
+                            <VideoBannerPreview videoUrl={x.videoUrl} videoType={x.videoType} autoPlay={true} loop={true} muted={true} />
                           </div>
 
                           <div className="flex-grow space-y-1.5 min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5 mb-1">
                               <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded tracking-widest uppercase">ID: {x.id}</span>
-                              <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded uppercase">📍 {x.bannerLocation || 'homepage'}</span>
+                              {(() => {
+                                const locs = Array.isArray(x.bannerLocation)
+                                  ? x.bannerLocation
+                                  : (x.bannerLocation ? [x.bannerLocation] : ['homepage'])
+                                return locs.map(l => (
+                                  <span key={l} className="text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded uppercase">
+                                    📍 {l === 'all' ? 'All Pages' : l}
+                                  </span>
+                                ))
+                              })()}
                               {x.isSystem && <span className="text-[10px] font-black bg-purple-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
                             </div>
 
@@ -342,11 +348,19 @@ export default function AdminVideoBanners() {
 
                 <div className="space-y-4 pt-4 border-t border-dashed">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm font-bold text-gray-700 uppercase tracking-widest">Trust Markers</div>
+                    <div className="text-sm font-bold text-gray-700 uppercase tracking-widest">
+                      Trust Markers <span className="text-xs text-gray-400 font-normal lowercase">({trustPoints.length}/3 max)</span>
+                    </div>
                     <button
                       type="button"
-                      className="text-xs font-black text-purple-600 hover:underline flex items-center gap-1"
-                      onClick={() => setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }])}
+                      disabled={trustPoints.length >= 3}
+                      className={`text-xs font-black flex items-center gap-1 ${
+                        trustPoints.length >= 3 ? 'text-gray-400 cursor-not-allowed' : 'text-purple-600 hover:underline'
+                      }`}
+                      onClick={() => {
+                        if (trustPoints.length >= 3) return;
+                        setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }]);
+                      }}
                     >
                       + Add Marker
                     </button>

@@ -413,7 +413,11 @@ const getHomepageBatchData = async (req, res) => {
                 { bannerLocation: 'homepage' },
                 { bannerLocation: 'all' },
                 { bannerLocation: null },
-                { bannerLocation: '' }
+                { bannerLocation: '' },
+                { bannerLocation: { [Op.like]: '%"homepage"%' } },
+                { bannerLocation: { [Op.like]: '%"all"%' } },
+                { bannerLocation: { [Op.like]: '%homepage%' } },
+                { bannerLocation: { [Op.like]: '%all%' } }
               ]
             },
             order: [['startAt', 'ASC']]
@@ -422,6 +426,15 @@ const getHomepageBatchData = async (req, res) => {
 
           const result = [];
           for (const p of items) {
+            const rawLoc = p.bannerLocation;
+            let locs = Array.isArray(rawLoc) ? rawLoc : [rawLoc];
+            if (typeof rawLoc === 'string') {
+              try { const parsed = JSON.parse(rawLoc); if (Array.isArray(parsed)) locs = parsed; } catch {}
+            }
+            const cleanLocs = locs.map(s => String(s || '').toLowerCase().trim()).filter(Boolean);
+            const matchesHome = cleanLocs.length === 0 || cleanLocs.includes('homepage') || cleanLocs.includes('all');
+            if (!matchesHome) continue;
+
             const promoData = p.toJSON();
             let populatedItems = [];
 

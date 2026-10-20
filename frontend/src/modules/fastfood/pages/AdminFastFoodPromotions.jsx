@@ -129,11 +129,7 @@ export default function AdminFastFoodPromotions() {
     setNotes('')
     setPromoTitle(app.title || '')
     setPromoSubtitle(app.subtitle || '')
-    setTrustPoints(app.trustPoints || [
-      { icon: '🚀', text: 'Fast Delivery' },
-      { icon: '✅', text: 'Verified' },
-      { icon: '🎓', text: 'Student Choice' }
-    ])
+    setTrustPoints(Array.isArray(app.trustPoints) ? app.trustPoints.slice(0, 3) : [])
   }
 
   const openStatusModal = (app) => {
@@ -473,11 +469,19 @@ export default function AdminFastFoodPromotions() {
                     {/* Trust Markers Section */}
                     <div className="space-y-4 pt-4 border-t border-dashed">
                       <div className="flex items-center justify-between">
-                        <div className="text-sm font-bold text-orange-900 uppercase tracking-widest">Trust & Speed Markers</div>
+                        <div className="text-sm font-bold text-orange-900 uppercase tracking-widest">
+                          Trust & Speed Markers <span className="text-xs text-gray-400 font-normal lowercase">({trustPoints.length}/3 max)</span>
+                        </div>
                         <button 
                           type="button"
-                          className="text-xs font-black text-orange-600 hover:underline flex items-center gap-1"
-                          onClick={() => setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }])}
+                          disabled={trustPoints.length >= 3}
+                          className={`text-xs font-black flex items-center gap-1 ${
+                            trustPoints.length >= 3 ? 'text-gray-400 cursor-not-allowed' : 'text-orange-600 hover:underline'
+                          }`}
+                          onClick={() => {
+                            if (trustPoints.length >= 3) return;
+                            setTrustPoints([...trustPoints, { icon: '✨', text: 'New Marker' }]);
+                          }}
                         >
                           + Add Marker
                         </button>

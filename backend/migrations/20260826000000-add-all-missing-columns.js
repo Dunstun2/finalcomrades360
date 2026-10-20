@@ -188,6 +188,20 @@ module.exports = {
         allowNull: true,
         comment: 'Small text above main heading'
       });
+
+      await addColumnIfMissing(heroPromotionTable, 'impressions', {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false,
+        comment: 'Total banner impressions'
+      });
+
+      await addColumnIfMissing(heroPromotionTable, 'clicks', {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false,
+        comment: 'Total banner clicks'
+      });
     }
 
     // ==========================================
@@ -265,6 +279,8 @@ module.exports = {
       await removeColumnIfExists(heroPromotionTable, 'dateSpecificTimes');
       await removeColumnIfExists(heroPromotionTable, 'ctaText');
       await removeColumnIfExists(heroPromotionTable, 'eyebrow');
+      await removeColumnIfExists(heroPromotionTable, 'impressions');
+      await removeColumnIfExists(heroPromotionTable, 'clicks');
     }
 
     // Remove Subscription columns

@@ -17,7 +17,7 @@ export default function Category() {
   const { user } = useAuth();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const navigate = useNavigate();
-  const { heroPromotions, loading: heroLoading } = useHeroPromotions('products');
+  const { heroPromotions, loading: heroLoading } = useHeroPromotions('category');
 
   useEffect(() => {
     let alive = true;

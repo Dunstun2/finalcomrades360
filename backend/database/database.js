@@ -195,13 +195,17 @@ const testConnection = async () => {
       console.warn('⚠️ Warning: firstPublishedAt column check failed:', colErr.message);
     }
 
-    // Self-healing: Add ctaText, eyebrow, and bannerLocation columns to HeroPromotions table if missing
+    // Self-healing: Add ctaText, eyebrow, bannerLocation, impressions, clicks to HeroPromotions table if missing
     try {
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255) NULL`)
         .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255) NULL`)
         .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(50) DEFAULT 'homepage'`)
+        .catch(() => { });
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN impressions INTEGER NOT NULL DEFAULT 0`)
+        .catch(() => { });
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0`)
         .catch(() => { });
     } catch (heroColErr) {
       console.warn('⚠️ Warning: HeroPromotions column self-healing check failed:', heroColErr.message);

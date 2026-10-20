@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const { auth, adminOnly } = require('../../../middleware/auth');
 const {
     listHeroApplications,
@@ -27,10 +27,13 @@ router.post('/applications/:id/payment', markPaymentReceived);
 router.post('/applications/:id/approve', approveAndSchedule);
 router.patch('/applications/:id/status', updateStatus);
 
+const { aiSuggestBannerContent } = require('../../marketing/controllers/heroPromotion.controller');
+
 // Management (Direct CRUD)
 router.post('/manage', createHeroPromotion);
 router.patch('/manage/:id', editHeroPromotion);
 router.delete('/manage/:id', deleteHeroPromotion);
+router.post('/ai-suggest', aiSuggestBannerContent);
 
 // Global Settings
 router.patch('/settings', updateHeroPromotionSettings);

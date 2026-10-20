@@ -3,23 +3,102 @@ const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood, Su
 const { shouldShowPromotion } = require('../../../utils/scheduleChecker');
 
 const getRateConfig = async () => {
-  const rows = await PlatformConfig.findAll({ where: { key: { [Op.in]: ['HERO_RATE_PER_DAY', 'HERO_RATE_PER_PRODUCT'] } }, raw: true })
-  const map = new Map(rows.map(r => [r.key, parseFloat(r.value)]))
-  const perDay = Number.isFinite(map.get('HERO_RATE_PER_DAY')) ? map.get('HERO_RATE_PER_DAY') : 500
-  const perProduct = Number.isFinite(map.get('HERO_RATE_PER_PRODUCT')) ? map.get('HERO_RATE_PER_PRODUCT') : 100
-  return { perDay, perProduct }
+  const keys = [
+    'HERO_RATE_PER_DAY',
+    'HERO_RATE_PER_PRODUCT',
+    'HERO_RATE_VIDEO_SURCHARGE',
+    'HERO_DISCOUNT_7D',
+    'HERO_DISCOUNT_14D',
+    'HERO_DISCOUNT_30D',
+    'HERO_PAYMENT_TYPE',
+    'HERO_PAYMENT_TILL',
+    'HERO_PAYMENT_TILL_NAME',
+    'HERO_PAYMENT_PAYBILL',
+    'HERO_PAYMENT_PAYBILL_ACC',
+    'HERO_PAYMENT_ACCOUNT_REF',
+    'HERO_PAYMENT_PHONE',
+    'HERO_PAYMENT_PHONE_NAME',
+    'HERO_PAYMENT_INSTRUCTIONS'
+  ]
+  const rows = await PlatformConfig.findAll({ where: { key: { [Op.in]: keys } }, raw: true })
+  const map = new Map(rows.map(r => [r.key, r.value]))
+
+  const perDay = Number.isFinite(parseFloat(map.get('HERO_RATE_PER_DAY'))) ? parseFloat(map.get('HERO_RATE_PER_DAY')) : 500
+  const perProduct = Number.isFinite(parseFloat(map.get('HERO_RATE_PER_PRODUCT'))) ? parseFloat(map.get('HERO_RATE_PER_PRODUCT')) : 100
+  const videoSurcharge = Number.isFinite(parseFloat(map.get('HERO_RATE_VIDEO_SURCHARGE'))) ? parseFloat(map.get('HERO_RATE_VIDEO_SURCHARGE')) : 150
+  const discount7d = Number.isFinite(parseFloat(map.get('HERO_DISCOUNT_7D'))) ? parseFloat(map.get('HERO_DISCOUNT_7D')) : 10
+  const discount14d = Number.isFinite(parseFloat(map.get('HERO_DISCOUNT_14D'))) ? parseFloat(map.get('HERO_DISCOUNT_14D')) : 15
+  const discount30d = Number.isFinite(parseFloat(map.get('HERO_DISCOUNT_30D'))) ? parseFloat(map.get('HERO_DISCOUNT_30D')) : 25
+  const paymentType = map.get('HERO_PAYMENT_TYPE') || 'till'
+  const paymentTill = map.get('HERO_PAYMENT_TILL') || '123456'
+  const paymentTillName = map.get('HERO_PAYMENT_TILL_NAME') || 'Comrades360'
+  const paymentPaybill = map.get('HERO_PAYMENT_PAYBILL') || '247247'
+  const paymentPaybillAcc = map.get('HERO_PAYMENT_PAYBILL_ACC') || ''
+  const paymentAccountRef = map.get('HERO_PAYMENT_ACCOUNT_REF') || 'HERO-{id}'
+  const paymentPhone = map.get('HERO_PAYMENT_PHONE') || ''
+  const paymentPhoneName = map.get('HERO_PAYMENT_PHONE_NAME') || ''
+  const instructions = map.get('HERO_PAYMENT_INSTRUCTIONS') || 'Please pay via M-Pesa and upload the confirmation message screenshot.'
+
+  return {
+    perDay,
+    perProduct,
+    videoSurcharge,
+    discount7d,
+    discount14d,
+    discount30d,
+    paymentType,
+    paymentTill,
+    paymentTillName,
+    paymentPaybill,
+    paymentPaybillAcc,
+    paymentAccountRef,
+    paymentPhone,
+    paymentPhoneName,
+    instructions
+  }
+}
+
+const calculateHeroAmount = (rates, { durationDays, productCount, isVideo }) => {
+  const days = Number(durationDays) || 7
+  const count = Number(productCount) || 0
+  const perDay = Number(rates.perDay) || 500
+  const perProduct = Number(rates.perProduct) || 100
+  const videoSurcharge = Number(rates.videoSurcharge) || 150
+  const discount7d = Number(rates.discount7d) || 10
+  const discount14d = Number(rates.discount14d) || 15
+  const discount30d = Number(rates.discount30d) || 25
+
+  const baseCost = days * perDay
+  const productCost = days * count * perProduct
+  const videoCost = isVideo ? (days * videoSurcharge) : 0
+  const subtotal = baseCost + productCost + videoCost
+
+  let discountPercent = 0
+  if (days >= 30) discountPercent = discount30d
+  else if (days >= 14) discountPercent = discount14d
+  else if (days >= 7) discountPercent = discount7d
+
+  const discountAmount = Math.round(subtotal * (discountPercent / 100))
+  const total = Math.max(0, subtotal - discountAmount)
+
+  return {
+    days,
+    count,
+    isVideo,
+    baseCost,
+    productCost,
+    videoCost,
+    subtotal,
+    discountPercent,
+    discountAmount,
+    total
+  }
 }
 
 const getHeroRates = async (req, res) => {
   try {
-    const { perDay, perProduct } = await getRateConfig()
-    // Also fetch payment instructions if available
-    const instrRow = await PlatformConfig.findOne({ where: { key: 'HERO_PAYMENT_INSTRUCTIONS' } })
-    res.json({
-      perDay,
-      perProduct,
-      instructions: instrRow ? instrRow.value : 'Please pay via M-Pesa Till: 123456 (Comrades360) and upload the confirmation message screenshot.'
-    })
+    const config = await getRateConfig()
+    res.json(config)
   } catch (e) { res.status(500).json({ error: e.message }) }
 }
 
@@ -47,9 +126,11 @@ const editMyHeroPromotion = async (req, res) => {
 
     // Recompute amount if changed inputs
     if (productIds || durationDays != null) {
-      const { perDay, perProduct } = await getRateConfig()
+      const rates = await getRateConfig()
       const ids = Array.isArray(item.productIds) ? item.productIds : []
-      item.amount = (Number(item.durationDays) || 0) * (perDay + (ids.length * perProduct))
+      const isVideo = Boolean(item.videoUrl)
+      const calc = calculateHeroAmount(rates, { durationDays: item.durationDays, productCount: ids.length, isVideo })
+      item.amount = calc.total
     }
 
     await item.save()
@@ -227,8 +308,10 @@ const applyHeroPromotion = async (req, res) => {
       console.warn('[applyHeroPromotion] Subscription check failed (falling back to payment):', subErr.message);
     }
 
-    const { perDay, perProduct } = await getRateConfig()
-    const amount = isCoveredBySubscription ? 0 : (Number(durationDays) || 0) * (perDay + (ids.length * perProduct))
+    const rates = await getRateConfig()
+    const isVideo = Boolean(req.body.videoUrl)
+    const calc = calculateHeroAmount(rates, { durationDays, productCount: ids.length, isVideo })
+    const amount = isCoveredBySubscription ? 0 : calc.total
 
     const app = await HeroPromotion.create({
       sellerId,
@@ -269,13 +352,44 @@ const myHeroPromotions = async (req, res) => {
   }
 }
 
+const locationMatches = (bannerLoc, targetLoc) => {
+  if (!targetLoc) return true
+  let locs = []
+  if (Array.isArray(bannerLoc)) {
+    locs = bannerLoc
+  } else if (typeof bannerLoc === 'string') {
+    try {
+      const parsed = JSON.parse(bannerLoc)
+      if (Array.isArray(parsed)) locs = parsed
+      else locs = [bannerLoc]
+    } catch {
+      locs = bannerLoc.includes(',') ? bannerLoc.split(',').map(s => s.trim()) : [bannerLoc]
+    }
+  } else {
+    locs = ['homepage']
+  }
+  const clean = locs.map(s => String(s || '').toLowerCase().trim()).filter(Boolean)
+  if (clean.includes('all')) return true
+  if (targetLoc === 'homepage' && (clean.length === 0 || clean.includes('homepage'))) return true
+  if (targetLoc === 'category' && (clean.includes('category') || clean.includes('products'))) return true
+  return clean.includes(targetLoc)
+}
+
 const listActiveHeroPromotions = async (req, res) => {
+  // Auto-expire banners whose endAt has passed — keep the public feed clean
+  try {
+    const now = new Date();
+    await HeroPromotion.update(
+      { status: 'expired' },
+      { where: { endAt: { [Op.lt]: now }, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
+    );
+  } catch { /* non-fatal, proceed */ }
   try {
     const now = new Date()
     const { location, bannerLocation } = req.query || {}
     const loc = (bannerLocation || location || '').toLowerCase().trim()
 
-    // Build location where clause
+    // Build location where clause for database query
     const buildLocationFilter = () => {
       if (!loc) return {}
       if (loc === 'homepage') {
@@ -284,14 +398,38 @@ const listActiveHeroPromotions = async (req, res) => {
             { bannerLocation: 'homepage' },
             { bannerLocation: 'all' },
             { bannerLocation: null },
-            { bannerLocation: '' }
+            { bannerLocation: '' },
+            { bannerLocation: { [Op.like]: '%"homepage"%' } },
+            { bannerLocation: { [Op.like]: '%"all"%' } },
+            { bannerLocation: { [Op.like]: '%homepage%' } },
+            { bannerLocation: { [Op.like]: '%all%' } }
+          ]
+        }
+      }
+      // 'category' pages also inherit 'products' banners; explicit 'category' banners take priority
+      if (loc === 'category') {
+        return {
+          [Op.or]: [
+            { bannerLocation: 'category' },
+            { bannerLocation: 'products' },
+            { bannerLocation: 'all' },
+            { bannerLocation: { [Op.like]: '%"category"%' } },
+            { bannerLocation: { [Op.like]: '%"products"%' } },
+            { bannerLocation: { [Op.like]: '%"all"%' } },
+            { bannerLocation: { [Op.like]: '%category%' } },
+            { bannerLocation: { [Op.like]: '%products%' } },
+            { bannerLocation: { [Op.like]: '%all%' } }
           ]
         }
       }
       return {
         [Op.or]: [
           { bannerLocation: loc },
-          { bannerLocation: 'all' }
+          { bannerLocation: 'all' },
+          { bannerLocation: { [Op.like]: `%"${loc}"%` } },
+          { bannerLocation: { [Op.like]: '%"all"%' } },
+          { bannerLocation: { [Op.like]: `%${loc}%` } },
+          { bannerLocation: { [Op.like]: '%all%' } }
         ]
       }
     }
@@ -308,8 +446,8 @@ const listActiveHeroPromotions = async (req, res) => {
       order: [['priority', 'DESC'], ['startAt', 'ASC']]
     })
 
-    // Filter using advanced schedule checker
-    items = items.filter(item => shouldShowPromotion(item, now))
+    // Filter using location matcher and advanced schedule checker
+    items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
 
     // Fallback: If no active promotions for this location, fetch default ones
     if (items.length === 0) {
@@ -322,8 +460,8 @@ const listActiveHeroPromotions = async (req, res) => {
         where: defaultWhere,
         order: [['priority', 'DESC'], ['createdAt', 'DESC']]
       })
-      // Apply schedule filter to defaults too
-      items = items.filter(item => shouldShowPromotion(item, now))
+      // Apply schedule and location filter to defaults too
+      items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
 
       // If still empty for this specific page, fallback to general defaults
       if (items.length === 0 && loc) {
@@ -334,7 +472,7 @@ const listActiveHeroPromotions = async (req, res) => {
           },
           order: [['priority', 'DESC'], ['createdAt', 'DESC']]
         })
-        items = items.filter(item => shouldShowPromotion(item, now))
+        items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
       }
     }
 
@@ -401,6 +539,88 @@ const submitPaymentProof = async (req, res) => {
   }
 }
 
+/**
+ * Track a banner impression or click — lightweight analytics endpoint.
+ * POST /hero-promotions/:id/track  { eventType: 'impression' | 'click' }
+ * Public — no auth required (rate-limit at nginx/API level if needed).
+ */
+const trackBannerEvent = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { eventType = 'impression' } = req.body || {};
+    if (!['impression', 'click'].includes(eventType)) {
+      return res.status(400).json({ error: 'eventType must be impression or click' });
+    }
+    // We store counts directly on the HeroPromotion row using a JSON analytics field.
+    // If the row doesn't have it yet we initialise it.
+    const promo = await HeroPromotion.findByPk(id);
+    if (!promo) return res.status(404).json({ error: 'Not found' });
+
+    // Use a raw increment to avoid race conditions and skip unnecessary hooks
+    if (eventType === 'impression') {
+      await HeroPromotion.increment('impressions', { where: { id }, silent: true });
+    } else {
+      await HeroPromotion.increment('clicks', { where: { id }, silent: true });
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    // Silently swallow — analytics failure should never break the frontend
+    return res.status(200).json({ ok: true });
+  }
+};
+
+/**
+ * AI Suggestions for Hero Banner Copy & Badges
+ * POST /api/hero-promotions/ai-suggest or /api/admin/hero-promotions/ai-suggest
+ */
+const HeroBannerAIService = require('../services/HeroBannerAIService');
+const aiSuggestBannerContent = async (req, res) => {
+  try {
+    const {
+      promoType = 'product',
+      type = 'seller',
+      items: incomingItems = [],
+      productIds = [],
+      fastFoodIds = [],
+      bannerLocation = ['homepage'],
+      currentValues = {}
+    } = req.body || {};
+
+    let items = Array.isArray(incomingItems) ? [...incomingItems] : [];
+
+    // If item details weren't passed directly, hydrate from IDs
+    if (items.length === 0) {
+      if (promoType === 'fastfood' && Array.isArray(fastFoodIds) && fastFoodIds.length > 0) {
+        const foods = await FastFood.findAll({
+          where: { id: { [Op.in]: fastFoodIds } },
+          attributes: ['id', 'name', 'description', 'price', 'discountPrice']
+        });
+        items = foods.map(f => f.toJSON ? f.toJSON() : f);
+      } else if (Array.isArray(productIds) && productIds.length > 0) {
+        const prods = await Product.findAll({
+          where: { id: { [Op.in]: productIds } },
+          attributes: ['id', 'name', 'description', 'price', 'discountPrice', 'discountPercentage']
+        });
+        items = prods.map(p => p.toJSON ? p.toJSON() : p);
+      }
+    }
+
+    const suggestions = await HeroBannerAIService.suggest({
+      promoType,
+      type,
+      items,
+      bannerLocation,
+      currentValues
+    });
+
+    return res.json({ ok: true, suggestions });
+  } catch (err) {
+    console.error('[aiSuggestBannerContent] Error:', err);
+    return res.status(500).json({ error: 'Failed to generate AI suggestions', details: err.message });
+  }
+};
+
 module.exports = {
   getHeroRates,
   editMyHeroPromotion,
@@ -409,5 +629,7 @@ module.exports = {
   applyHeroPromotion,
   myHeroPromotions,
   listActiveHeroPromotions,
-  submitPaymentProof
+  submitPaymentProof,
+  trackBannerEvent,
+  aiSuggestBannerContent
 };
