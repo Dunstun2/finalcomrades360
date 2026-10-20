@@ -35,6 +35,8 @@ export default function AdminHeroPromotions() {
   })
   const [editingRates, setEditingRates] = useState(false)
   const [savingRates, setSavingRates] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [selectedApp, setSelectedApp] = useState(null)
   const [modalAction, setModalAction] = useState(null) // 'approve' | 'status' | 'refund'
   const [newStatus, setNewStatus] = useState('')
@@ -935,11 +937,11 @@ export default function AdminHeroPromotions() {
                         <button
                           className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm active:scale-95 flex items-center justify-center gap-1 ${
                             x.isDefault
-                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
                               : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-600 hover:text-white'
                           }`}
-                          onClick={() => deletePromotion(x)}
-                          title={x.isDefault ? 'Cannot delete default banner' : 'Delete banner'}
+                          onClick={() => setDeleteTarget(x)}
+                          title={x.isDefault ? 'Default banner options' : 'Delete banner'}
                         >
                           <FaTrash /> Delete
                         </button>
@@ -1064,15 +1066,15 @@ export default function AdminHeroPromotions() {
                               <FaCog /> Manage / Review
                             </button>
                             <button
-                              className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 active:scale-95 ${
+                              className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer ${
                                 x.isDefault
-                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
                                   : 'bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600'
                               }`}
-                              onClick={() => deletePromotion(x)}
-                              title={x.isDefault ? 'Cannot delete default banner. Remove default state first.' : 'Delete banner'}
+                              onClick={() => setDeleteTarget(x)}
+                              title={x.isDefault ? 'Default banner (Locked)' : 'Delete banner'}
                             >
-                              <FaTrash /> Delete Banner
+                              <FaTrash /> {x.isDefault ? 'Delete (Locked)' : 'Delete Banner'}
                             </button>
                           </div>
                         </div>
@@ -1111,7 +1113,7 @@ export default function AdminHeroPromotions() {
                         </div>
                         <div className="flex flex-col gap-2">
                           {me?.role === 'super_admin' && (
-                            <button className="px-3 py-1 bg-red-600 text-white rounded" onClick={() => deletePromotion(x.id)}>Delete</button>
+                            <button className="px-3 py-1 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors" onClick={() => setDeleteTarget(x)}>Delete</button>
                           )}
                         </div>
                       </div>
@@ -2774,6 +2776,129 @@ export default function AdminHeroPromotions() {
           </Modal>
         )
       })()}
+
+      {/* Modern In-App Delete Dialog Modal */}
+      <Modal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => { if (!deleting) setDeleteTarget(null) }}
+        title={deleteTarget?.isDefault ? "Default Banner Locked" : "Confirm Banner Deletion"}
+        maxWidth="max-w-md"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            {deleteTarget.isDefault ? (
+              <>
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 text-lg flex-shrink-0 mt-0.5">
+                    <FaInfoCircle />
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="font-black text-amber-900 text-sm">Cannot Delete a Default Banner</div>
+                    <p className="text-amber-800 leading-relaxed">
+                      Banner <strong>#{deleteTarget.id}</strong> {deleteTarget.title ? `("${deleteTarget.title}")` : ''} is currently designated as a <strong>Default Fallback Banner</strong>.
+                    </p>
+                    <p className="text-amber-700 pt-1">
+                      To protect your marketplace from showing an empty space when no campaigns are running, the system prevents deleting default banners.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-2 text-slate-700">
+                  <div className="font-bold text-slate-900 uppercase text-[10px] tracking-wider">How to delete this banner:</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                    <li>Open <strong>Manage / Review</strong> (or <strong>Edit Banner</strong>).</li>
+                    <li>Turn OFF the <strong>Default Fallback</strong> switch.</li>
+                    <li>Click <strong>Save Banner Changes</strong>.</li>
+                    <li>Click Delete Banner again to permanently remove it.</li>
+                  </ol>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(null)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = deleteTarget
+                      setDeleteTarget(null)
+                      openApproveModal(item)
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FaCog /> Open Manage / Review
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-700 text-lg flex-shrink-0 mt-0.5">
+                    <FaTrash />
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="font-black text-rose-900 text-sm">Delete Banner #{deleteTarget.id}?</div>
+                    <p className="text-rose-800 leading-relaxed">
+                      Are you sure you want to permanently delete {deleteTarget.title ? <strong>"{deleteTarget.title}"</strong> : 'this banner'}? This action cannot be undone.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1 text-slate-700">
+                  <div className="flex justify-between py-0.5">
+                    <span className="text-gray-500 font-semibold">Banner ID:</span>
+                    <span className="font-bold text-gray-900">#{deleteTarget.id}</span>
+                  </div>
+                  <div className="flex justify-between py-0.5">
+                    <span className="text-gray-500 font-semibold">Type:</span>
+                    <span className="font-bold text-gray-900">{deleteTarget.isSystem ? 'Platform-Wide Banner' : 'Seller Banner'}</span>
+                  </div>
+                  <div className="flex justify-between py-0.5">
+                    <span className="text-gray-500 font-semibold">Placements:</span>
+                    <span className="font-bold text-gray-900 uppercase">
+                      {Array.isArray(deleteTarget.bannerLocation) ? deleteTarget.bannerLocation.join(', ') : deleteTarget.bannerLocation || 'homepage'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => setDeleteTarget(null)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={async () => {
+                      try {
+                        setDeleting(true)
+                        await api.delete(`/admin/hero-promotions/manage/${deleteTarget.id}`)
+                        setDeleteTarget(null)
+                        load()
+                      } catch (err) {
+                        alert(err?.response?.data?.error || err.message)
+                      } finally {
+                        setDeleting(false)
+                      }
+                    }}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {deleting ? 'Deleting...' : <><FaTrash /> Permanently Delete</>}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
