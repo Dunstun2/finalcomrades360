@@ -10,7 +10,8 @@ const {
     markPaymentReceived,
     approveAndSchedule,
     updateStatus,
-    updateHeroPromotionSettings
+    updateHeroPromotionSettings,
+    syncHeroPromotionSchema
 } = require('../controllers/heroPromotion.controller');
 
 const router = express.Router();
@@ -35,6 +36,7 @@ router.post('/manage', createHeroPromotion);
 router.patch('/manage/:id', editHeroPromotion);
 router.delete('/manage/:id', deleteHeroPromotion);
 router.post('/ai-suggest', aiSuggestBannerContent);
+router.post('/sync-schema', syncHeroPromotionSchema);
 
 // Global Settings
 router.patch('/settings', updateHeroPromotionSettings);

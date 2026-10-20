@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { HeroPromotion, Product, User, Notification, PlatformConfig, FastFood } = require('../../../database/models.registry');
+const { sequelize, ensureHeroPromotionsSchema } = require('../../../database/database');
 const cacheService = require('../../../scripts/services/cacheService');
 
 // Pricing config & Tiered calculations
@@ -510,7 +511,10 @@ const editHeroPromotion = async (req, res) => {
     // Invalidate homepage cache
     await cacheService.delPattern('homepage:*');
     res.json({ ok: true, item })
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  } catch (e) {
+    console.error('❌ [editHeroPromotion] Failed to update hero promotion:', e);
+    res.status(500).json({ error: e.message || 'Failed to update hero promotion' });
+  }
 }
 
 // Delete hero promotion (super admin)
@@ -721,6 +725,16 @@ const updateStatus = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 }
 
+const syncHeroPromotionSchema = async (req, res) => {
+  try {
+    const result = await ensureHeroPromotionsSchema(sequelize);
+    res.json(result);
+  } catch (e) {
+    console.error('❌ [syncHeroPromotionSchema] Error:', e);
+    res.status(500).json({ error: e.message });
+  }
+};
+
 module.exports = {
   getRateConfig,
   refundHeroPromotion,
@@ -732,5 +746,6 @@ module.exports = {
   markPaymentReceived,
   approveAndSchedule,
   updateStatus,
-  updateHeroPromotionSettings
+  updateHeroPromotionSettings,
+  syncHeroPromotionSchema
 };

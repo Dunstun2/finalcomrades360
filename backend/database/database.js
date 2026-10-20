@@ -134,6 +134,100 @@ sequelize.afterConnect(async (connection) => {
   }
 });
 
+// Comprehensive schema specification for HeroPromotions table
+const HERO_PROMOTION_COLUMNS = [
+  { name: 'sellerId', sql: 'INT NULL' },
+  { name: 'productIds', sql: 'TEXT NULL' },
+  { name: 'fastFoodIds', sql: 'TEXT NULL' },
+  { name: 'promoType', sql: "VARCHAR(50) NOT NULL DEFAULT 'product'" },
+  { name: 'bannerLocation', sql: "TEXT NULL" },
+  { name: 'fallbackLocation', sql: 'TEXT NULL' },
+  { name: 'status', sql: "VARCHAR(50) NOT NULL DEFAULT 'pending_payment'" },
+  { name: 'paymentStatus', sql: "VARCHAR(50) NOT NULL DEFAULT 'unpaid'" },
+  { name: 'amount', sql: 'DECIMAL(10,2) NOT NULL DEFAULT 0.00' },
+  { name: 'durationDays', sql: 'INT NOT NULL DEFAULT 7' },
+  { name: 'slotsCount', sql: 'INT NOT NULL DEFAULT 1' },
+  { name: 'startAt', sql: 'DATETIME NULL' },
+  { name: 'endAt', sql: 'DATETIME NULL' },
+  { name: 'approvedBy', sql: 'INT NULL' },
+  { name: 'notes', sql: 'TEXT NULL' },
+  { name: 'paymentProofUrl', sql: 'TEXT NULL' },
+  { name: 'title', sql: 'VARCHAR(255) NULL' },
+  { name: 'subtitle', sql: 'TEXT NULL' },
+  { name: 'customImageUrl', sql: 'TEXT NULL' },
+  { name: 'targetUrl', sql: 'TEXT NULL' },
+  { name: 'ctaText', sql: 'VARCHAR(255) NULL' },
+  { name: 'eyebrow', sql: 'VARCHAR(255) NULL' },
+  { name: 'isSystem', sql: 'TINYINT(1) DEFAULT 0' },
+  { name: 'isDefault', sql: 'TINYINT(1) DEFAULT 0' },
+  { name: 'priority', sql: 'INT DEFAULT 0' },
+  { name: 'trustPoints', sql: 'TEXT NULL' },
+  { name: 'videoUrl', sql: 'TEXT NULL' },
+  { name: 'videoType', sql: "VARCHAR(50) DEFAULT 'background'" },
+  { name: 'videoAutoplay', sql: 'TINYINT(1) DEFAULT 1' },
+  { name: 'videoLoop', sql: 'TINYINT(1) DEFAULT 1' },
+  { name: 'videoMuted', sql: 'TINYINT(1) DEFAULT 1' },
+  { name: 'mediaMode', sql: "VARCHAR(50) DEFAULT 'image'" },
+  { name: 'scheduleType', sql: "VARCHAR(50) DEFAULT 'continuous'" },
+  { name: 'recurringDays', sql: 'TEXT NULL' },
+  { name: 'specificDates', sql: 'TEXT NULL' },
+  { name: 'timeSlotStart', sql: 'VARCHAR(50) NULL' },
+  { name: 'timeSlotEnd', sql: 'VARCHAR(50) NULL' },
+  { name: 'timezone', sql: "VARCHAR(100) DEFAULT 'Africa/Nairobi'" },
+  { name: 'dateTimeMode', sql: "VARCHAR(50) DEFAULT 'same'" },
+  { name: 'dateSpecificTimes', sql: 'TEXT NULL' },
+  { name: 'impressions', sql: 'INT NOT NULL DEFAULT 0' },
+  { name: 'clicks', sql: 'INT NOT NULL DEFAULT 0' }
+];
+
+const ensureHeroPromotionsSchema = async (sequelizeInstance = sequelize) => {
+  try {
+    const isSqlite = sequelizeInstance.options.dialect === 'sqlite';
+    let tableNames = [];
+    if (isSqlite) {
+      const [rows] = await sequelizeInstance.query("SELECT name FROM sqlite_master WHERE type='table';");
+      tableNames = rows.map(r => r.name);
+    } else {
+      const [rows] = await sequelizeInstance.query("SHOW TABLES;");
+      tableNames = rows.map(r => Object.values(r)[0]);
+    }
+
+    const actualTable = tableNames.find(t => t.toLowerCase() === 'heropromotions');
+    if (!actualTable) {
+      console.warn('⚠️ HeroPromotions table not found in database yet.');
+      return { ok: false, error: 'HeroPromotions table not found' };
+    }
+
+    let existingCols = new Set();
+    if (isSqlite) {
+      const [cols] = await sequelizeInstance.query(`PRAGMA table_info(\`${actualTable}\`);`);
+      existingCols = new Set(cols.map(c => c.name.toLowerCase()));
+    } else {
+      const [cols] = await sequelizeInstance.query(`DESCRIBE \`${actualTable}\`;`);
+      existingCols = new Set(cols.map(c => c.Field.toLowerCase()));
+    }
+
+    const added = [];
+    for (const col of HERO_PROMOTION_COLUMNS) {
+      if (!existingCols.has(col.name.toLowerCase())) {
+        try {
+          await sequelizeInstance.query(`ALTER TABLE \`${actualTable}\` ADD COLUMN \`${col.name}\` ${col.sql};`);
+          console.log(`✅ [Self-Healing] Added missing column '${col.name}' to '${actualTable}' table.`);
+          added.push(col.name);
+        } catch (addErr) {
+          if (!addErr.message?.includes('duplicate column') && !addErr.message?.includes('already exists')) {
+            console.warn(`⚠️ [Self-Healing] Failed to add column '${col.name}':`, addErr.message);
+          }
+        }
+      }
+    }
+    return { ok: true, table: actualTable, addedCount: added.length, added };
+  } catch (err) {
+    console.warn('⚠️ [Self-Healing] ensureHeroPromotionsSchema error:', err.message);
+    return { ok: false, error: err.message };
+  }
+};
+
 // Test the database connection and sync models
 const testConnection = async () => {
   try {
@@ -193,24 +287,6 @@ const testConnection = async () => {
         });
     } catch (colErr) {
       console.warn('⚠️ Warning: firstPublishedAt column check failed:', colErr.message);
-    }
-
-    // Self-healing: Add ctaText, eyebrow, bannerLocation, impressions, clicks to HeroPromotions table if missing
-    try {
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255) NULL`)
-        .catch(() => { });
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255) NULL`)
-        .catch(() => { });
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(50) DEFAULT 'homepage'`)
-        .catch(() => { });
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN fallbackLocation TEXT NULL`)
-        .catch(() => { });
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN impressions INTEGER NOT NULL DEFAULT 0`)
-        .catch(() => { });
-      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0`)
-        .catch(() => { });
-    } catch (heroColErr) {
-      console.warn('⚠️ Warning: HeroPromotions column self-healing check failed:', heroColErr.message);
     }
 
     // Self-healing: Enforce default platform configs
@@ -409,28 +485,12 @@ const testConnection = async () => {
       console.warn('⚠️ Warning: Could not seed platform configs:', configErr.message);
     }
 
-    // Self-healing columns for HeroPromotions
+    // Self-healing: verify all HeroPromotions columns exist (both MySQL and SQLite)
     try {
-      if (dbConfig.dialect === 'sqlite') {
-        const [cols] = await sequelize.query("PRAGMA table_info(HeroPromotions);");
-        const colNames = cols.map(c => c.name);
-        if (!colNames.includes('bannerLocation')) {
-          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(255) DEFAULT 'homepage';");
-          console.log('✅ Added bannerLocation column to HeroPromotions');
-        }
-        if (!colNames.includes('ctaText')) {
-          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN ctaText VARCHAR(255);");
-          console.log('✅ Added ctaText column to HeroPromotions');
-        }
-        if (!colNames.includes('eyebrow')) {
-          await sequelize.query("ALTER TABLE HeroPromotions ADD COLUMN eyebrow VARCHAR(255);");
-          console.log('✅ Added eyebrow column to HeroPromotions');
-        }
-      }
+      await ensureHeroPromotionsSchema(sequelize);
     } catch (hpErr) {
       console.warn('⚠️ Warning: HeroPromotions column self-healing check:', hpErr.message);
     }
-
 
   } catch (error) {
     console.error('❌ Unable to connect to the database:', error);
@@ -443,4 +503,5 @@ module.exports = {
   sequelize,
   Sequelize,
   testConnection,
+  ensureHeroPromotionsSchema,
 };
