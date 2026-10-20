@@ -655,41 +655,43 @@ export default function AdminCreateHeroPromotion() {
   const submit = async (e) => {
     e.preventDefault()
 
-    // Required fields for ALL banner types
+    // Validate title (essential)
     if (!form.title || !form.title.trim()) {
       return reportError('Please provide a Banner Heading')
     }
-    if (!form.subtitle || !form.subtitle.trim()) {
-      return reportError('Please provide a Short Description')
-    }
-    if (!form.eyebrow || !form.eyebrow.trim()) {
-      return reportError('Please provide an Eyebrow Pill Badge (e.g. 🔥 EXCLUSIVE DEAL)')
-    }
-    if (!form.ctaText || !form.ctaText.trim()) {
-      return reportError('Please provide CTA Button Text (e.g. Shop Now, Order Now)')
-    }
-    if (!form.targetUrl || !form.targetUrl.trim()) {
-      return reportError('Please provide a CTA Target Link URL')
-    }
-    if (!form.bannerLocation || (Array.isArray(form.bannerLocation) && form.bannerLocation.length === 0)) {
-      return reportError('Please select at least one banner placement location')
-    }
+
+    // Auto-fill graceful defaults for cosmetic fields if left blank
+    const sanitizedEyebrow = form.eyebrow?.trim() || '🔥 FEATURED'
+    const sanitizedSubtitle = form.subtitle?.trim() || form.title.trim()
+    const sanitizedCtaText = form.ctaText?.trim() || 'Explore Now'
+    const sanitizedTargetUrl = form.targetUrl?.trim() || '/'
+    const sanitizedLocations = (Array.isArray(form.bannerLocation) && form.bannerLocation.length > 0)
+      ? form.bannerLocation
+      : ['homepage']
 
     if (form.type === 'seller') {
       if (!form.sellerId) return reportError('Please select a seller')
       if (mediaMode === 'image') {
-        if (form.promoType === 'product' && !form.productIds.length && !form.customImageUrl) return reportError('Select at least one product or upload a custom image')
-        if (form.promoType === 'fastfood' && !form.fastFoodIds.length && !form.customImageUrl) return reportError('Select at least one fast food item or upload a custom image')
+        if (form.promoType === 'product' && !form.productIds.length && !form.customImageUrl) {
+          return reportError('Select at least one product or upload a custom image')
+        }
+        if (form.promoType === 'fastfood' && !form.fastFoodIds.length && !form.customImageUrl) {
+          return reportError('Select at least one fast food item or upload a custom image')
+        }
       } else {
         if (!form.videoUrl) return reportError('Please upload an MP4 or provide a video URL for this video banner')
       }
     } else {
-      if (mediaMode === 'image') {
-        if (!form.customImageUrl && !form.productIds.length) return reportError('Upload a custom banner image for this banner')
-      } else {
-        if (!form.videoUrl) return reportError('Upload an MP4 or enter a video URL for this video banner')
+      if (mediaMode === 'video' && !form.videoUrl) {
+        return reportError('Upload an MP4 or enter a video URL for this video banner')
       }
     }
+
+    console.log('[AdminCreateHeroPromotion] Validation passed. Submitting banner update...', {
+      isEditMode,
+      id,
+      title: form.title
+    })
 
     setError('')
     setSuccess('')
@@ -705,20 +707,20 @@ export default function AdminCreateHeroPromotion() {
         durationDays: effectiveDuration,
         slotsCount: Number(form.slotsCount) || 1,
         title: form.title,
-        subtitle: form.subtitle,
+        subtitle: sanitizedSubtitle,
         // Preserve both assets — mediaMode tells the renderer which one is active
         customImageUrl: form.customImageUrl || null,
-        targetUrl: form.targetUrl,
-        link: form.targetUrl,
-        ctaText: form.ctaText,
-        buttonText: form.ctaText,
-        eyebrow: form.eyebrow,
-        promoBadge: form.eyebrow,
+        targetUrl: sanitizedTargetUrl,
+        link: sanitizedTargetUrl,
+        ctaText: sanitizedCtaText,
+        buttonText: sanitizedCtaText,
+        eyebrow: sanitizedEyebrow,
+        promoBadge: sanitizedEyebrow,
         isDefault: form.isDefault,
         isSystem: form.type === 'system',
         promoType: form.promoType,
         fastFoodIds: form.fastFoodIds,
-        bannerLocation: form.bannerLocation || 'homepage',
+        bannerLocation: sanitizedLocations,
         fallbackLocation: form.isDefault ? (form.fallbackLocation || ['homepage']) : null,
         free: form.mode === 'free',
         amount: form.mode === 'free' ? 0 : (chargeBreakdown?.total || 0),
