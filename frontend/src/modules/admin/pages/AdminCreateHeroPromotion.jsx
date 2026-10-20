@@ -717,7 +717,7 @@ export default function AdminCreateHeroPromotion() {
         paymentStatus: form.mode === 'free' ? 'free' : 'paid',
         trustPoints: form.trustPoints,
         // Advanced scheduling
-        scheduleType: form.scheduleType || 'specific_dates',
+        scheduleType: form.scheduleType || 'continuous',
         recurringDays: form.recurringDays,
         specificDates: form.specificDates,
         timeSlotStart: form.timeSlotStart,
