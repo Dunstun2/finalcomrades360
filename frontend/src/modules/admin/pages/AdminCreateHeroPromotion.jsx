@@ -4,6 +4,7 @@ import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
 import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools, FaPlay, FaVideo, FaMagic, FaLightbulb, FaCheck, FaTimes } from 'react-icons/fa'
+import { toast } from 'react-toastify'
 import AdvancedScheduler from '@/modules/admin/components/AdvancedScheduler'
 import VideoBannerPreview from '@/modules/marketing/components/VideoBannerPreview'
 
@@ -24,6 +25,13 @@ export default function AdminCreateHeroPromotion() {
 
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  const reportError = (msg) => {
+    setError(msg)
+    try { toast.error(msg) } catch { }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return msg
+  }
   const [loadingBanner, setLoadingBanner] = useState(false)
   const [mediaMode, setMediaMode] = useState('image') // 'image' | 'video'
 
@@ -649,37 +657,37 @@ export default function AdminCreateHeroPromotion() {
 
     // Required fields for ALL banner types
     if (!form.title || !form.title.trim()) {
-      return setError('Please provide a Banner Heading')
+      return reportError('Please provide a Banner Heading')
     }
     if (!form.subtitle || !form.subtitle.trim()) {
-      return setError('Please provide a Short Description')
+      return reportError('Please provide a Short Description')
     }
     if (!form.eyebrow || !form.eyebrow.trim()) {
-      return setError('Please provide an Eyebrow Pill Badge (e.g. 🔥 EXCLUSIVE DEAL)')
+      return reportError('Please provide an Eyebrow Pill Badge (e.g. 🔥 EXCLUSIVE DEAL)')
     }
     if (!form.ctaText || !form.ctaText.trim()) {
-      return setError('Please provide CTA Button Text (e.g. Shop Now, Order Now)')
+      return reportError('Please provide CTA Button Text (e.g. Shop Now, Order Now)')
     }
     if (!form.targetUrl || !form.targetUrl.trim()) {
-      return setError('Please provide a CTA Target Link URL')
+      return reportError('Please provide a CTA Target Link URL')
     }
     if (!form.bannerLocation || (Array.isArray(form.bannerLocation) && form.bannerLocation.length === 0)) {
-      return setError('Please select at least one banner placement location')
+      return reportError('Please select at least one banner placement location')
     }
 
     if (form.type === 'seller') {
-      if (!form.sellerId) return setError('Please select a seller')
+      if (!form.sellerId) return reportError('Please select a seller')
       if (mediaMode === 'image') {
-        if (form.promoType === 'product' && !form.productIds.length && !form.customImageUrl) return setError('Select at least one product or upload a custom image')
-        if (form.promoType === 'fastfood' && !form.fastFoodIds.length && !form.customImageUrl) return setError('Select at least one fast food item or upload a custom image')
+        if (form.promoType === 'product' && !form.productIds.length && !form.customImageUrl) return reportError('Select at least one product or upload a custom image')
+        if (form.promoType === 'fastfood' && !form.fastFoodIds.length && !form.customImageUrl) return reportError('Select at least one fast food item or upload a custom image')
       } else {
-        if (!form.videoUrl) return setError('Please upload an MP4 or provide a video URL for this video banner')
+        if (!form.videoUrl) return reportError('Please upload an MP4 or provide a video URL for this video banner')
       }
     } else {
       if (mediaMode === 'image') {
-        if (!form.customImageUrl && !form.productIds.length) return setError('Upload a custom banner image for this banner')
+        if (!form.customImageUrl && !form.productIds.length) return reportError('Upload a custom banner image for this banner')
       } else {
-        if (!form.videoUrl) return setError('Upload an MP4 or enter a video URL for this video banner')
+        if (!form.videoUrl) return reportError('Upload an MP4 or enter a video URL for this video banner')
       }
     }
 
@@ -760,7 +768,7 @@ export default function AdminCreateHeroPromotion() {
         data: e.response?.data,
         config: e.config
       })
-      setError(errorDetails)
+      reportError(errorDetails)
     } finally {
       setSubmitting(false)
     }
@@ -1854,6 +1862,14 @@ export default function AdminCreateHeroPromotion() {
               </div>
             </div>
           </div>
+
+          {/* Visible Bottom Error Alert right above the submit button */}
+          {error && (
+            <div className="p-4 rounded-xl bg-red-50 border-2 border-red-300 text-red-800 text-sm font-bold flex items-center gap-2 shadow-sm animate-pulse">
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="flex gap-4 pt-6 pb-2 border-t">

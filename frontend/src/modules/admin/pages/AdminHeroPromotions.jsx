@@ -6,6 +6,7 @@ import Modal from '@/shared/components/Modal'
 import { FaStore, FaBox, FaClock, FaCheckCircle, FaTimesCircle, FaInfoCircle, FaCalendarAlt, FaMoneyBillWave, FaStopCircle, FaCog, FaImage, FaLink, FaEdit, FaGlobe, FaTrash, FaChevronDown, FaPlayCircle, FaEllipsisH, FaSearch, FaFilter, FaVideo, FaUpload, FaEye, FaLayerGroup } from 'react-icons/fa'
 import { resolveImageUrl } from '@/utils/imageUtils'
 import { formatPrice } from '@/utils/currency'
+import { toast } from 'react-toastify'
 import VideoBannerPreview from '@/modules/marketing/components/VideoBannerPreview'
 
 export default function AdminHeroPromotions() {
@@ -342,7 +343,9 @@ export default function AdminHeroPromotions() {
       setModalAction(null)
       load()
     } catch (e) {
-      alert(e?.response?.data?.error || e.message)
+      const err = e?.response?.data?.error || e?.response?.data?.message || e.message || 'Action failed'
+      try { toast.error(err) } catch { }
+      alert(err)
     } finally {
       setActionLoading(false)
     }
