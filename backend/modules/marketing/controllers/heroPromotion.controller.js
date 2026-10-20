@@ -449,31 +449,22 @@ const listActiveHeroPromotions = async (req, res) => {
     // Filter using location matcher and advanced schedule checker
     items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
 
-    // Fallback: If no active promotions for this location, fetch default ones
+    // Fallback: If no active promotions for this location, fetch default fallback banners
     if (items.length === 0) {
-      const defaultWhere = {
-        status: 'active',
-        isDefault: true,
-        ...buildLocationFilter()
-      }
-      items = await HeroPromotion.findAll({
-        where: defaultWhere,
+      const allDefaults = await HeroPromotion.findAll({
+        where: {
+          status: 'active',
+          isDefault: true
+        },
         order: [['priority', 'DESC'], ['createdAt', 'DESC']]
       })
-      // Apply schedule and location filter to defaults too
-      items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
-
-      // If still empty for this specific page, fallback to general defaults
-      if (items.length === 0 && loc) {
-        items = await HeroPromotion.findAll({
-          where: {
-            status: 'active',
-            isDefault: true
-          },
-          order: [['priority', 'DESC'], ['createdAt', 'DESC']]
-        })
-        items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
-      }
+      // Match against fallbackLocation (fallback to bannerLocation if not set)
+      items = allDefaults.filter(item => {
+        const targetFallback = (Array.isArray(item.fallbackLocation) && item.fallbackLocation.length > 0)
+          ? item.fallbackLocation
+          : item.bannerLocation
+        return locationMatches(targetFallback, loc) && shouldShowPromotion(item, now)
+      })
     }
 
     // hydrate with item details minimal

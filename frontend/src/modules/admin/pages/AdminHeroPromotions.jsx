@@ -49,6 +49,7 @@ export default function AdminHeroPromotions() {
   const [promoCtaText, setPromoCtaText] = useState('')
   const [promoTargetUrl, setPromoTargetUrl] = useState('')
   const [promoBannerLocation, setPromoBannerLocation] = useState(['homepage'])
+  const [promoFallbackLocation, setPromoFallbackLocation] = useState(['homepage'])
   const [trustPoints, setTrustPoints] = useState([])
   const [promoCustomImageUrl, setPromoCustomImageUrl] = useState('')
   const [promoVideoUrl, setPromoVideoUrl] = useState('')
@@ -268,6 +269,19 @@ export default function AdminHeroPromotions() {
       }
     }
     setPromoBannerLocation(parsedLoc)
+    const rawFallbackLoc = app.fallbackLocation || app.bannerLocation
+    let parsedFallbackLoc = ['homepage']
+    if (Array.isArray(rawFallbackLoc)) parsedFallbackLoc = rawFallbackLoc
+    else if (typeof rawFallbackLoc === 'string') {
+      try {
+        const parsed = JSON.parse(rawFallbackLoc)
+        if (Array.isArray(parsed)) parsedFallbackLoc = parsed
+        else parsedFallbackLoc = [rawFallbackLoc]
+      } catch {
+        parsedFallbackLoc = rawFallbackLoc.includes(',') ? rawFallbackLoc.split(',').map(s => s.trim()) : [rawFallbackLoc || 'homepage']
+      }
+    }
+    setPromoFallbackLocation(parsedFallbackLoc)
     setTrustPoints(Array.isArray(app.trustPoints) ? app.trustPoints.slice(0, 3) : [])
   }
 
@@ -299,6 +313,7 @@ export default function AdminHeroPromotions() {
           videoType: promoVideoType,
           mediaMode: promoMediaMode,
           isDefault: promoIsDefault,
+          fallbackLocation: promoIsDefault ? promoFallbackLocation : null,
           durationDays: Number(promoDurationDays) || 7,
           slotsCount: Number(promoSlotsCount) || 1,
           status: promoStatus,
@@ -979,7 +994,7 @@ export default function AdminHeroPromotions() {
                               {x.isSystem && <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
                               {x.isDefault && (
                                 <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1 shadow-sm">
-                                  <FaInfoCircle /> Default ({Array.isArray(x.bannerLocation) ? x.bannerLocation.join(', ') : (x.bannerLocation || 'homepage')})
+                                  <FaInfoCircle /> Fallback ({(Array.isArray(x.fallbackLocation) && x.fallbackLocation.length > 0 ? x.fallbackLocation : (Array.isArray(x.bannerLocation) ? x.bannerLocation : [x.bannerLocation || 'homepage'])).join(', ')})
                                 </span>
                               )}
                             </div>
@@ -1999,11 +2014,27 @@ export default function AdminHeroPromotions() {
 
                           {promoIsDefault && (
                             <div className="pt-2 border-t border-amber-200 space-y-2">
-                              <label className="block text-[11px] font-black uppercase tracking-wider text-amber-900">
-                                Default on which Page(s)?
-                              </label>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-amber-900">
+                                  Default Fallback on which Page(s)?
+                                </label>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] font-bold text-amber-700">Fallback:</span>
+                                  {Array.isArray(promoFallbackLocation) && promoFallbackLocation.includes('all') ? (
+                                    <span className="text-[10px] text-amber-800 font-black bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                                      All Pages
+                                    </span>
+                                  ) : (
+                                    (Array.isArray(promoFallbackLocation) ? promoFallbackLocation : [promoFallbackLocation || 'homepage']).map(loc => (
+                                      <span key={loc} className="text-[10px] text-amber-800 font-black bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full uppercase">
+                                        {loc}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
                               <p className="text-[10px] text-amber-800">
-                                Choose the page(s) where this banner will act as the default fallback when no ads are active:
+                                Choose the page(s) where this banner will act as the default fallback when no ads are active (independent of Target Placement):
                               </p>
                               <div className="flex flex-wrap gap-1.5">
                                 {[
@@ -2013,7 +2044,7 @@ export default function AdminHeroPromotions() {
                                   { value: 'services', label: '🛠️ Services' },
                                   { value: 'all', label: '🌐 All Pages (Global)' },
                                 ].map(item => {
-                                  const curr = Array.isArray(promoBannerLocation) ? promoBannerLocation : [promoBannerLocation || 'homepage']
+                                  const curr = Array.isArray(promoFallbackLocation) ? promoFallbackLocation : [promoFallbackLocation || 'homepage']
                                   const isSelected = curr.includes('all') ? item.value === 'all' : curr.includes(item.value)
                                   return (
                                     <button
@@ -2021,7 +2052,7 @@ export default function AdminHeroPromotions() {
                                       type="button"
                                       onClick={() => {
                                         if (item.value === 'all') {
-                                          setPromoBannerLocation(curr.includes('all') ? ['homepage'] : ['all'])
+                                          setPromoFallbackLocation(curr.includes('all') ? ['homepage'] : ['all'])
                                         } else {
                                           let next = curr.filter(x => x !== 'all')
                                           if (next.includes(item.value)) {
@@ -2029,8 +2060,12 @@ export default function AdminHeroPromotions() {
                                             if (next.length === 0) next = ['homepage']
                                           } else {
                                             next = [...next, item.value]
+                                            const allPages = ['homepage', 'fastfood', 'products', 'services']
+                                            if (allPages.every(p => next.includes(p))) {
+                                              next = ['all']
+                                            }
                                           }
-                                          setPromoBannerLocation(next)
+                                          setPromoFallbackLocation(next)
                                         }
                                       }}
                                       className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${

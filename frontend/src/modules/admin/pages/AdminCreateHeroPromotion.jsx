@@ -69,6 +69,43 @@ export default function AdminCreateHeroPromotion() {
     return current.includes('all') || current.includes(locVal)
   }
 
+  const toggleFallbackLocation = (locVal) => {
+    setForm(prev => {
+      const current = Array.isArray(prev.fallbackLocation)
+        ? prev.fallbackLocation
+        : [prev.fallbackLocation || 'homepage']
+
+      if (locVal === 'all') {
+        return {
+          ...prev,
+          fallbackLocation: current.includes('all') ? ['homepage'] : ['all']
+        }
+      }
+
+      let next = current.filter(x => x !== 'all')
+      if (next.includes(locVal)) {
+        next = next.filter(x => x !== locVal)
+        if (next.length === 0) next = ['homepage']
+      } else {
+        next = [...next, locVal]
+        const allPages = ['homepage', 'fastfood', 'products', 'services']
+        if (allPages.every(p => next.includes(p))) {
+          next = ['all']
+        }
+      }
+
+      return { ...prev, fallbackLocation: next }
+    })
+  }
+
+  const isFallbackLocationSelected = (locVal) => {
+    const current = Array.isArray(form.fallbackLocation)
+      ? form.fallbackLocation
+      : [form.fallbackLocation || 'homepage']
+    if (locVal === 'all') return current.includes('all')
+    return current.includes('all') || current.includes(locVal)
+  }
+
   const [form, setForm] = useState({
     sellerId: '',
     productIds: [],
@@ -87,6 +124,7 @@ export default function AdminCreateHeroPromotion() {
     promoType: 'product',
     fastFoodIds: [],
     bannerLocation: ['homepage'],
+    fallbackLocation: ['homepage'],
     // Advanced scheduling
     scheduleType: 'continuous',
     recurringDays: [],
@@ -194,6 +232,19 @@ export default function AdminCreateHeroPromotion() {
             trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints.slice(0, 3) : [],
             bannerLocation: (() => {
               const raw = banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
+              if (Array.isArray(raw)) return raw
+              if (typeof raw === 'string') {
+                try {
+                  const parsed = JSON.parse(raw)
+                  if (Array.isArray(parsed)) return parsed
+                } catch { }
+                if (raw.includes(',')) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+                return [raw.toLowerCase().trim()]
+              }
+              return ['homepage']
+            })(),
+            fallbackLocation: (() => {
+              const raw = banner.fallbackLocation || banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
               if (Array.isArray(raw)) return raw
               if (typeof raw === 'string') {
                 try {
@@ -660,6 +711,7 @@ export default function AdminCreateHeroPromotion() {
         promoType: form.promoType,
         fastFoodIds: form.fastFoodIds,
         bannerLocation: form.bannerLocation || 'homepage',
+        fallbackLocation: form.isDefault ? (form.fallbackLocation || ['homepage']) : null,
         free: form.mode === 'free',
         amount: form.mode === 'free' ? 0 : (chargeBreakdown?.total || 0),
         paymentStatus: form.mode === 'free' ? 'free' : 'paid',
@@ -1573,11 +1625,27 @@ export default function AdminCreateHeroPromotion() {
 
                     {form.isDefault && (
                       <div className="pt-3 border-t border-emerald-100 space-y-2">
-                        <label className="block text-xs font-black text-emerald-800 uppercase tracking-wider">
-                          Default Fallback for Which Page(s)?
-                        </label>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <label className="block text-xs font-black text-emerald-800 uppercase tracking-wider">
+                            Default Fallback for Which Page(s)?
+                          </label>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-bold text-emerald-600">Fallback on:</span>
+                            {Array.isArray(form.fallbackLocation) && form.fallbackLocation.includes('all') ? (
+                              <span className="text-xs text-emerald-700 font-black bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                All Platform Pages
+                              </span>
+                            ) : (
+                              (Array.isArray(form.fallbackLocation) ? form.fallbackLocation : [form.fallbackLocation || 'homepage']).map(loc => (
+                                <span key={loc} className="text-xs text-emerald-700 font-black bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full uppercase">
+                                  {loc}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </div>
                         <p className="text-[11px] text-gray-500">
-                          Select which page(s) this banner should appear on when no active ads are running:
+                          Select which page(s) this banner should appear on as default fallback when no active ads are running (independent of Target Placement):
                         </p>
                         <div className="flex flex-wrap gap-2 pt-1">
                           {[
@@ -1587,12 +1655,12 @@ export default function AdminCreateHeroPromotion() {
                             { value: 'services', label: '🛠️ Services' },
                             { value: 'all', label: '🌐 All Pages (Global)' },
                           ].map(loc => {
-                            const selected = isLocationSelected(loc.value)
+                            const selected = isFallbackLocationSelected(loc.value)
                             return (
                               <button
                                 type="button"
                                 key={loc.value}
-                                onClick={() => toggleBannerLocation(loc.value)}
+                                onClick={() => toggleFallbackLocation(loc.value)}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${selected
                                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'

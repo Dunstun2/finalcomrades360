@@ -197,7 +197,8 @@ const createHeroPromotion = async (req, res) => {
       timezone,
       dateTimeMode,
       dateSpecificTimes,
-      bannerLocation = 'homepage'
+      bannerLocation = 'homepage',
+      fallbackLocation
     } = req.body || {}
 
     const effectiveIsSystem = !!(isSystem || !sellerId);
@@ -304,6 +305,7 @@ const createHeroPromotion = async (req, res) => {
       dateTimeMode: dateTimeMode || 'same',
       dateSpecificTimes: dateSpecificTimes || {},
       bannerLocation: normalizeBannerLocation(bannerLocation, promoType),
+      fallbackLocation: isDefault ? normalizeBannerLocation(fallbackLocation || bannerLocation, promoType) : null,
       mediaMode: mediaMode || 'image'
     }
 
@@ -380,7 +382,8 @@ const editHeroPromotion = async (req, res) => {
       timezone,
       dateTimeMode,
       dateSpecificTimes,
-      bannerLocation
+      bannerLocation,
+      fallbackLocation
     } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
@@ -419,6 +422,9 @@ const editHeroPromotion = async (req, res) => {
     if (eyebrow !== undefined || promoBadge !== undefined) item.eyebrow = eyebrow || promoBadge
     if (trustPoints !== undefined) item.trustPoints = Array.isArray(trustPoints) ? trustPoints.slice(0, 3) : []
     if (bannerLocation !== undefined) item.bannerLocation = normalizeBannerLocation(bannerLocation, item.promoType)
+    if (fallbackLocation !== undefined) {
+      item.fallbackLocation = fallbackLocation ? normalizeBannerLocation(fallbackLocation, item.promoType) : null
+    }
 
     // Video fields
     if (videoUrl !== undefined) item.videoUrl = videoUrl

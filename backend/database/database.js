@@ -203,6 +203,8 @@ const testConnection = async () => {
         .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN bannerLocation VARCHAR(50) DEFAULT 'homepage'`)
         .catch(() => { });
+      await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN fallbackLocation TEXT NULL`)
+        .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN impressions INTEGER NOT NULL DEFAULT 0`)
         .catch(() => { });
       await sequelize.query(`ALTER TABLE HeroPromotions ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0`)

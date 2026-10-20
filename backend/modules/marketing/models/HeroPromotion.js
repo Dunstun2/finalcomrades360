@@ -86,6 +86,55 @@ module.exports = (sequelize, DataTypes) => {
     eyebrow: { type: DataTypes.STRING, allowNull: true },
     isSystem: { type: DataTypes.BOOLEAN, defaultValue: false },
     isDefault: { type: DataTypes.BOOLEAN, defaultValue: false },
+    fallbackLocation: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      get() {
+        const raw = this.getDataValue('fallbackLocation')
+        if (!raw) return []
+        try {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) return parsed
+          if (typeof parsed === 'string') return [parsed]
+        } catch {}
+        if (typeof raw === 'string') {
+          if (raw.includes(',')) {
+            return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+          }
+          return [raw.toLowerCase().trim()]
+        }
+        return []
+      },
+      set(v) {
+        if (!v) {
+          this.setDataValue('fallbackLocation', null)
+          return
+        }
+        if (Array.isArray(v)) {
+          const clean = v.map(s => String(s).trim().toLowerCase()).filter(Boolean)
+          this.setDataValue('fallbackLocation', clean.length ? JSON.stringify(clean) : null)
+        } else if (typeof v === 'string') {
+          try {
+            const parsed = JSON.parse(v)
+            if (Array.isArray(parsed)) {
+              const clean = parsed.map(s => String(s).trim().toLowerCase()).filter(Boolean)
+              this.setDataValue('fallbackLocation', clean.length ? JSON.stringify(clean) : null)
+              return
+            }
+          } catch {}
+          if (v.includes(',')) {
+            const arr = v.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+            this.setDataValue('fallbackLocation', arr.length ? JSON.stringify(arr) : null)
+          } else {
+            const trimmed = v.trim().toLowerCase()
+            this.setDataValue('fallbackLocation', trimmed ? JSON.stringify([trimmed]) : null)
+          }
+        } else {
+          this.setDataValue('fallbackLocation', null)
+        }
+      }
+    },
     priority: { type: DataTypes.INTEGER, defaultValue: 0 },
     trustPoints: {
       type: DataTypes.TEXT, // JSON array of { icon: string, text: string }
