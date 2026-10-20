@@ -176,8 +176,15 @@ export default function AdminHeroPromotions() {
     } catch (e) { alert(e?.response?.data?.error || e.message) }
   }
 
-  const deletePromotion = async (id) => {
-    if (!window.confirm('Delete this hero promotion?')) return
+  const deletePromotion = async (target) => {
+    const x = typeof target === 'object' ? target : items.find(i => i.id === Number(target))
+    const id = typeof target === 'object' ? target.id : target
+    if (x?.isDefault) {
+      alert('⚠️ Cannot delete a default banner.\n\nThis banner is currently configured as a "Default Fallback".\n\nTo delete it:\n1. Click "Manage / Review" (or "Edit Banner").\n2. Turn OFF the "Default Fallback" switch.\n3. Save your changes.\n4. Click Delete.')
+      return
+    }
+    const label = x?.title ? `"${x.title}" (#${id})` : `#${id}`
+    if (!window.confirm(`Are you sure you want to permanently delete banner ${label}?`)) return
     try {
       await api.delete(`/admin/hero-promotions/manage/${id}`)
       load()
@@ -923,7 +930,18 @@ export default function AdminHeroPromotions() {
                           className="flex-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-black shadow-sm active:scale-95 flex items-center justify-center gap-1"
                           onClick={() => openApproveModal(x)}
                         >
-                          <FaCog /> Manage / Review
+                          <FaCog /> Manage
+                        </button>
+                        <button
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm active:scale-95 flex items-center justify-center gap-1 ${
+                            x.isDefault
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-600 hover:text-white'
+                          }`}
+                          onClick={() => deletePromotion(x)}
+                          title={x.isDefault ? 'Cannot delete default banner' : 'Delete banner'}
+                        >
+                          <FaTrash /> Delete
                         </button>
                       </div>
 
@@ -957,7 +975,11 @@ export default function AdminHeroPromotions() {
                               })()}
                               {x.videoUrl && <span className="text-[10px] font-black bg-purple-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1">🎥 {x.videoType || 'video'}</span>}
                               {x.isSystem && <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaCog /> System</span>}
-                              {x.isDefault && <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1"><FaInfoCircle /> Default</span>}
+                              {x.isDefault && (
+                                <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded uppercase flex items-center gap-1 shadow-sm">
+                                  <FaInfoCircle /> Default ({Array.isArray(x.bannerLocation) ? x.bannerLocation.join(', ') : (x.bannerLocation || 'homepage')})
+                                </span>
+                              )}
                             </div>
 
                             <div className="text-sm">
@@ -1040,6 +1062,17 @@ export default function AdminHeroPromotions() {
                               onClick={() => openApproveModal(x)}
                             >
                               <FaCog /> Manage / Review
+                            </button>
+                            <button
+                              className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 active:scale-95 ${
+                                x.isDefault
+                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                                  : 'bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600'
+                              }`}
+                              onClick={() => deletePromotion(x)}
+                              title={x.isDefault ? 'Cannot delete default banner. Remove default state first.' : 'Delete banner'}
+                            >
+                              <FaTrash /> Delete Banner
                             </button>
                           </div>
                         </div>
@@ -1940,25 +1973,77 @@ export default function AdminHeroPromotions() {
                           />
                         </div>
 
-                        {/* Default Fallback Banner Toggle */}
-                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-xs font-black text-amber-900 uppercase tracking-wider">
-                              Default Fallback
+                        {/* Default Fallback Banner Toggle & Page Specification */}
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                                Default Fallback
+                              </div>
+                              <div className="text-[10px] text-amber-700 font-medium">
+                                Always displays when no paid promotions are running.
+                              </div>
                             </div>
-                            <div className="text-[10px] text-amber-700 font-medium">
-                              Always displays when no paid promotions are running.
-                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={promoIsDefault}
+                                onChange={e => setPromoIsDefault(e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                            </label>
                           </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={promoIsDefault}
-                              onChange={e => setPromoIsDefault(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                          </label>
+
+                          {promoIsDefault && (
+                            <div className="pt-2 border-t border-amber-200 space-y-2">
+                              <label className="block text-[11px] font-black uppercase tracking-wider text-amber-900">
+                                Default on which Page(s)?
+                              </label>
+                              <p className="text-[10px] text-amber-800">
+                                Choose the page(s) where this banner will act as the default fallback when no ads are active:
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {[
+                                  { value: 'homepage', label: '🏠 Homepage' },
+                                  { value: 'fastfood', label: '🍔 Fast Food' },
+                                  { value: 'products', label: '🛍️ Products' },
+                                  { value: 'services', label: '🛠️ Services' },
+                                  { value: 'all', label: '🌐 All Pages (Global)' },
+                                ].map(item => {
+                                  const curr = Array.isArray(promoBannerLocation) ? promoBannerLocation : [promoBannerLocation || 'homepage']
+                                  const isSelected = curr.includes('all') ? item.value === 'all' : curr.includes(item.value)
+                                  return (
+                                    <button
+                                      key={item.value}
+                                      type="button"
+                                      onClick={() => {
+                                        if (item.value === 'all') {
+                                          setPromoBannerLocation(curr.includes('all') ? ['homepage'] : ['all'])
+                                        } else {
+                                          let next = curr.filter(x => x !== 'all')
+                                          if (next.includes(item.value)) {
+                                            next = next.filter(x => x !== item.value)
+                                            if (next.length === 0) next = ['homepage']
+                                          } else {
+                                            next = [...next, item.value]
+                                          }
+                                          setPromoBannerLocation(next)
+                                        }
+                                      }}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                          : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                                      }`}
+                                    >
+                                      {isSelected ? '✓ ' : ''}{item.label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 

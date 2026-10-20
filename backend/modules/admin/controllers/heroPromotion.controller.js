@@ -489,6 +489,13 @@ const deleteHeroPromotion = async (req, res) => {
     const id = Number(req.params.id)
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
+
+    if (item.isDefault) {
+      return res.status(400).json({
+        error: 'Cannot delete a default banner. Please turn off its default fallback state first before deleting.'
+      })
+    }
+
     await item.destroy()
     // Invalidate homepage cache
     await cacheService.delPattern('homepage:*');

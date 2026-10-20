@@ -1565,15 +1565,53 @@ export default function AdminCreateHeroPromotion() {
               // SYSTEM specific
               <div className="p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 space-y-4">
                 <label className="block text-xs font-black text-emerald-600 uppercase tracking-widest mb-2">System Settings</label>
-                <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-emerald-100 shadow-sm">
-                  <div>
-                    <div className="text-sm font-bold text-gray-900">Default Fallback Banner</div>
-                    <div className="text-xs text-gray-500">Auto-display when no seller promotions are active</div>
+                <div className="p-4 bg-white rounded-xl border border-emerald-100 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-gray-900">Default Fallback Banner</div>
+                      <div className="text-xs text-gray-500">Auto-display when no seller promotions are active</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={form.isDefault} onChange={e => setForm(p => ({ ...p, isDefault: e.target.checked }))} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={form.isDefault} onChange={e => setForm(p => ({ ...p, isDefault: e.target.checked }))} className="sr-only peer" />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
+
+                  {form.isDefault && (
+                    <div className="pt-3 border-t border-emerald-100 space-y-2">
+                      <label className="block text-xs font-black text-emerald-800 uppercase tracking-wider">
+                        Default Fallback for Which Page(s)?
+                      </label>
+                      <p className="text-[11px] text-gray-500">
+                        Select which page(s) this banner should appear on when no active ads are running:
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {[
+                          { value: 'homepage', label: '🏠 Homepage' },
+                          { value: 'fastfood', label: '🍔 Fast Food' },
+                          { value: 'products', label: '🛍️ Products' },
+                          { value: 'services', label: '🛠️ Services' },
+                          { value: 'all', label: '🌐 All Pages (Global)' },
+                        ].map(loc => {
+                          const selected = isLocationSelected(loc.value)
+                          return (
+                            <button
+                              type="button"
+                              key={loc.value}
+                              onClick={() => toggleBannerLocation(loc.value)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                selected
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                              }`}
+                            >
+                              {selected ? '✓ ' : ''}{loc.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 bg-white rounded-xl border border-emerald-100 shadow-sm">

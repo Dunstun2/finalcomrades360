@@ -16,6 +16,7 @@ const {
 const router = express.Router();
 
 // Base is /api/admin/hero-promotions
+router.use(auth, adminOnly);
 
 // Applications List & Detail
 router.get('/applications', listHeroApplications);
