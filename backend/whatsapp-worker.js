@@ -36,8 +36,18 @@ let reconnectTimeout = null;
 let connectionAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
-// Session directory
-const sessionDir = path.join(__dirname, '.wwebjs_auth/baileys_session');
+// Session directory:
+// Production uses .wwebjs_auth/baileys_session (tracked / deployed)
+// Local dev uses .wwebjs_auth/baileys_session_local (isolated, different phone / session)
+const sessionFolder = process.env.WA_SESSION_FOLDER || (
+    process.env.NODE_ENV === 'production'
+        ? '.wwebjs_auth/baileys_session'
+        : '.wwebjs_auth/baileys_session_local'
+);
+const sessionDir = process.env.WA_SESSION_DIR
+    ? path.resolve(__dirname, process.env.WA_SESSION_DIR)
+    : path.join(__dirname, sessionFolder);
+
 if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true });
 }
@@ -77,6 +87,7 @@ const initWhatsApp = async () => {
     isInitializing = true;
     connectionAttempts++;
     log(`🔄 Initializing Baileys (attempt #${connectionAttempts})...`);
+    log(`📂 Auth session path: ${sessionDir} [env: ${process.env.NODE_ENV || 'development'}]`);
     whatsappStatus = 'initializing';
     latestQr = null;
     latestPairingCode = null;
