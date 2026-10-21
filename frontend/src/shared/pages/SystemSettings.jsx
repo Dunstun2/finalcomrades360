@@ -86,9 +86,13 @@ export default function SystemSettings() {
     }
   });
 
-  const [whatsappStatus, setWhatsappStatus] = useState({ isReady: false, status: 'initializing', qr: null });
+  const [whatsappStatus, setWhatsappStatus] = useState({ isReady: false, status: 'initializing', qr: null, pairingCode: null });
   const [isRestarting, setIsRestarting] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [showPairingMode, setShowPairingMode] = useState(false);
+  const [pairingPhone, setPairingPhone] = useState('');
+  const [pairingCodeResult, setPairingCodeResult] = useState('');
+  const [isRequestingPairing, setIsRequestingPairing] = useState(false);
 
   const [showLogoDeleteDialog, setShowLogoDeleteDialog] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
@@ -379,6 +383,29 @@ export default function SystemSettings() {
       toast.error('Failed to disconnect WhatsApp');
     } finally {
       setIsLoggingOut(false);
+    }
+  };
+
+  const handleRequestPairingCode = async (e) => {
+    e?.preventDefault();
+    if (!pairingPhone || pairingPhone.trim().length < 9) {
+      toast.error('Please enter a valid phone number (e.g. 0712345678 or 254712345678)');
+      return;
+    }
+    setIsRequestingPairing(true);
+    setPairingCodeResult('');
+    try {
+      const { data } = await api.post('/platform/whatsapp/pairing-code', { phoneNumber: pairingPhone.trim() });
+      if (data.pairingCode) {
+        setPairingCodeResult(data.pairingCode);
+        toast.success(`Pairing code: ${data.pairingCode}`);
+      } else {
+        toast.info(data.message || 'Pairing initiated');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to request pairing code');
+    } finally {
+      setIsRequestingPairing(false);
     }
   };
 
@@ -1111,20 +1138,89 @@ export default function SystemSettings() {
                         <h5 className="font-bold text-gray-800 text-lg">System Connected</h5>
                         <p className="text-sm text-gray-500 max-w-xs mx-auto">Your WhatsApp service is live and authenticated. Notifications are being dispatched normally.</p>
                       </div>
-                    ) : whatsappStatus.status === 'qr_ready' && whatsappStatus.qr ? (
+                    ) : (whatsappStatus.status === 'qr_ready' && (whatsappStatus.qr || whatsappStatus.pairingCode)) || showPairingMode ? (
                       <div className="space-y-4">
-                        <div className="bg-white p-6 rounded-3xl border-4 border-blue-50 shadow-inner flex items-center justify-center">
-                          <QRCodeSVG 
-                            value={whatsappStatus.qr} 
-                            size={256}
-                            level="M"
-                            includeMargin={true}
-                          />
+                        {/* Toggle between QR scan and Phone Pairing Code */}
+                        <div className="flex justify-center border-b border-gray-100 pb-2 mb-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowPairingMode(false)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              !showPairingMode ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            📷 Scan QR Code
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowPairingMode(true)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              showPairingMode ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            🔢 Link with Phone Number (Pairing Code)
+                          </button>
                         </div>
-                        <div>
-                          <h5 className="font-bold text-gray-800">Scan QR to Connect</h5>
-                          <p className="text-sm text-gray-500 max-w-xs mx-auto">Open WhatsApp on your phone {'>'} Linked Devices {'>'} Link a Device. Scan the code above to start the service.</p>
-                        </div>
+
+                        {!showPairingMode ? (
+                          <>
+                            {whatsappStatus.qr ? (
+                              <div className="bg-white p-6 rounded-3xl border-4 border-blue-50 shadow-inner flex items-center justify-center">
+                                <QRCodeSVG 
+                                  value={whatsappStatus.qr} 
+                                  size={256}
+                                  level="M"
+                                  includeMargin={true}
+                                />
+                              </div>
+                            ) : (
+                              <div className="py-8">
+                                <div className="animate-spin w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full mx-auto mb-3"></div>
+                                <p className="text-xs text-gray-500">Generating fresh QR code...</p>
+                              </div>
+                            )}
+                            <div>
+                              <h5 className="font-bold text-gray-800">Scan QR to Connect</h5>
+                              <p className="text-sm text-gray-500 max-w-xs mx-auto">Open WhatsApp on your phone {'>'} Linked Devices {'>'} Link a Device. Scan the code above to start the service.</p>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 max-w-sm mx-auto text-left space-y-3">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-700 mb-1">WhatsApp Phone Number</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 0712345678 or 254712345678"
+                                  value={pairingPhone}
+                                  onChange={(e) => setPairingPhone(e.target.value)}
+                                  className="w-full text-sm px-3 py-2 border rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleRequestPairingCode}
+                                  disabled={isRequestingPairing}
+                                  className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-700 whitespace-nowrap disabled:opacity-50"
+                                >
+                                  {isRequestingPairing ? 'Generating...' : 'Get Code'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-gray-500 mt-1">Use the number registered to the WhatsApp account you want to connect.</p>
+                            </div>
+
+                            {(pairingCodeResult || whatsappStatus.pairingCode) && (
+                              <div className="bg-white p-4 rounded-2xl border-2 border-green-200 text-center">
+                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Your 8-Digit Pairing Code</span>
+                                <span className="text-2xl font-mono font-bold text-green-700 tracking-widest block my-1">
+                                  {pairingCodeResult || whatsappStatus.pairingCode}
+                                </span>
+                                <p className="text-[11px] text-gray-600">
+                                  Open WhatsApp on your phone {'>'} Linked Devices {'>'} Link with phone number {'>'} enter this 8-digit code.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="py-10">

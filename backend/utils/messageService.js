@@ -120,6 +120,24 @@ const logoutWhatsApp = async () => {
 };
 
 /**
+ * Request 8-character Pairing Code for WhatsApp phone number
+ */
+const requestPairingCode = async (phoneNumber) => {
+    const dbConfig = await getWhatsAppConfig();
+    if (dbConfig?.method === 'cloud') {
+        throw new Error('Pairing codes are only applicable for local WhatsApp service, not Cloud API.');
+    }
+
+    try {
+        const response = await axios.post(`${WHATSAPP_WORKER_URL}/pairing-code`, { phoneNumber }, { timeout: 15000 });
+        return response.data;
+    } catch (err) {
+        console.error('[messageService] Failed to request pairing code:', err.response?.data?.message || err.message);
+        throw new Error(err.response?.data?.message || 'Failed to generate pairing code. Make sure WhatsApp worker is running.');
+    }
+};
+
+/**
  * Primary Message Dispatcher
  */
 const sendMessage = async (to, message, method = 'whatsapp') => {
@@ -216,4 +234,4 @@ const sendSms = async (to, message) => {
     }
 };
 
-module.exports = { sendMessage, getWhatsAppStatus, restartWhatsApp, logoutWhatsApp };
+module.exports = { sendMessage, getWhatsAppStatus, restartWhatsApp, logoutWhatsApp, requestPairingCode };

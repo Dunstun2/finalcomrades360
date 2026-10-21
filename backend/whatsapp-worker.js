@@ -127,13 +127,13 @@ const initWhatsApp = async () => {
             },
             printQRInTerminal: false,          // skip terminal QR render (saves buffer)
             logger: P({ level: 'silent' }),
-            // Use standard Baileys browser signature to prevent 401 handshake rejections
-            browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '124.0.6367.207'],
+            // Use standard macOS Desktop signature to prevent WhatsApp anti-bot/handshake rejections
+            browser: Browsers ? Browsers.macOS('Desktop') : ['Mac OS', 'Desktop', '14.4.1'],
 
-            // ─── Disable EVERYTHING non-essential to save RAM ──────────────
+            // ─── Disable non-essential sync to save RAM, but keep init queries ──
             syncFullHistory: false,
             shouldSyncHistoryMessage: () => false,
-            fireInitQueries: false,
+            fireInitQueries: true,             // MUST be true for WhatsApp mobile to complete handshake
             markOnlineOnConnect: false,
             generateHighQualityLinkPreview: false,
             downloadHistory: false,
@@ -142,8 +142,8 @@ const initWhatsApp = async () => {
             linkPreviewImageThumbnailWidth: 0,
             transactionOpts: { maxCommitRetries: 1, delayBetweenTriesMs: 500 },
 
-            // ─── Timeouts tuned for shared hosting ────────────────────────
-            qrTimeout: 55000,
+            // ─── Timeouts tuned for stability ──────────────────────────────
+            qrTimeout: 45000,
             connectTimeoutMs: 30000,
             defaultQueryTimeoutMs: 30000,
             keepAliveIntervalMs: 30000,
@@ -201,7 +201,7 @@ const initWhatsApp = async () => {
                 destroySocket();
 
                 if (isLoggedOut) {
-                    log('🚪 Logged out or 401. Auto-wiping corrupted session files...');
+                    log('🚪 Logged out or 401. Auto-wiping corrupted session files and generating fresh QR...');
                     whatsappStatus = 'disconnected';
                     latestQr = null;
                     try {
@@ -213,6 +213,10 @@ const initWhatsApp = async () => {
                     } catch (e) {
                         log(`⚠️ Error cleaning session: ${e.message}`);
                     }
+                    setTimeout(() => {
+                        connectionAttempts = 0;
+                        if (!isWhatsAppReady && !isInitializing) initWhatsApp();
+                    }, 2000);
                 } else if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
                     log(`🛑 Max reconnect attempts reached (${MAX_RECONNECT_ATTEMPTS}). Use /restart to retry.`);
                     whatsappStatus = 'error';
@@ -230,8 +234,12 @@ const initWhatsApp = async () => {
         });
 
         // Save credentials
-        sock.ev.on('creds.update', () => {
-            saveCreds();
+        sock.ev.on('creds.update', async () => {
+            try {
+                await saveCreds();
+            } catch (err) {
+                log(`⚠️ Failed to save credentials: ${err.message}`);
+            }
         });
 
     } catch (err) {

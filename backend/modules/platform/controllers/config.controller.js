@@ -269,7 +269,7 @@ exports.updateConfig = async (req, res) => {
     }
 };
 
-const { getWhatsAppStatus, restartWhatsApp, logoutWhatsApp } = require('../../../utils/messageService');
+const { getWhatsAppStatus, restartWhatsApp, logoutWhatsApp, requestPairingCode } = require('../../../utils/messageService');
 
 exports.getWhatsAppStatus = async (req, res) => {
     try {
@@ -295,5 +295,18 @@ exports.handleLogoutWhatsApp = async (req, res) => {
         res.json({ success: true, message: 'WhatsApp logout and session clear initiated' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Failed to logout WhatsApp' });
+    }
+};
+
+exports.handleRequestPairingCode = async (req, res) => {
+    try {
+        const { phoneNumber } = req.body;
+        if (!phoneNumber) {
+            return res.status(400).json({ success: false, message: 'Phone number is required' });
+        }
+        const result = await requestPairingCode(phoneNumber);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message || 'Failed to request pairing code' });
     }
 };
