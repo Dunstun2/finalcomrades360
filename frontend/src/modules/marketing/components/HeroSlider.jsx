@@ -62,12 +62,6 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
         });
     }, [slides]);
 
-    useEffect(() => {
-        // Only show loading if the image hasn't been cached/preloaded yet
-        if (currentImageSrc && loadedImagesRef.current.has(currentImageSrc)) {
-            setImageLoaded(true);
-        }
-    }, [currentIndex, currentImageSrc]);
 
     // Touch & Swipe gesture state
     const touchStartX = useRef(0);
@@ -245,6 +239,14 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
             ? (currentItem.customImageUrl || currentItem.image)
             : (firstProduct?.coverImage || firstProduct?.mainImage || FALLBACK_IMAGE)
     );
+
+    // Must be declared AFTER currentImageSrc to avoid TDZ (temporal dead zone) error in minified builds
+    useEffect(() => {
+        // Only show loading if the image hasn't been cached/preloaded yet
+        if (currentImageSrc && loadedImagesRef.current.has(currentImageSrc)) {
+            setImageLoaded(true);
+        }
+    }, [currentIndex, currentImageSrc]);
 
     const trackClick = (promoId) => {
         if (!promoId) return;
