@@ -803,10 +803,138 @@ const getRoleApplicationById = async (req, res) => {
   }
 };
 
+// ─── Guest (unauthenticated) application ─────────────────────────────────────
+const createGuestRoleApplication = async (req, res) => {
+  try {
+    const {
+      guestName, guestEmail, guestPhone,
+      appliedRole, reason, university, studentId,
+      referees, jobOpeningId
+    } = req.body;
+
+    // Basic validation
+    if (!guestName || !guestEmail || !guestPhone || !appliedRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name, email, phone, and applied role are required.'
+      });
+    }
+
+    if (!reason || reason.trim().length < 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a motivation of at least 50 characters.'
+      });
+    }
+
+    const normalizedAppliedRole = appliedRole.toLowerCase().replace(/ /g, '_');
+
+    // Validate job opening
+    if (!jobOpeningId) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid Job Opening ID is required to apply for a role.'
+      });
+    }
+
+    const jobOpening = await JobOpening.findByPk(jobOpeningId, {
+      include: [{ model: RoleApplication, as: 'applications', where: { status: 'approved' }, required: false }]
+    });
+
+    if (!jobOpening) {
+      return res.status(404).json({ success: false, message: 'Job opening not found.' });
+    }
+    if (jobOpening.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'This job opening is no longer active.' });
+    }
+    if (jobOpening.role !== normalizedAppliedRole) {
+      return res.status(400).json({
+        success: false,
+        message: `This job opening is for ${jobOpening.role}, but you are applying for ${normalizedAppliedRole}.`
+      });
+    }
+    if (jobOpening.deadline && new Date(jobOpening.deadline) < new Date()) {
+      return res.status(400).json({ success: false, message: 'The deadline for this job opening has passed.' });
+    }
+    const approvedCount = jobOpening.applications ? jobOpening.applications.length : 0;
+    if (approvedCount >= jobOpening.targetCount) {
+      return res.status(400).json({ success: false, message: 'This job opening has already been filled.' });
+    }
+
+    // Parse referees
+    let parsedReferees = [];
+    if (referees) {
+      try {
+        const raw = typeof referees === 'string' ? JSON.parse(referees) : referees;
+        if (!Array.isArray(raw)) {
+          return res.status(400).json({ success: false, message: 'Referees must be an array.' });
+        }
+        parsedReferees = raw.map(r => {
+          const phone = r.phone || r.contact;
+          const normalized = normalizeKenyanPhone(phone);
+          if (!normalized) {
+            throw new Error(`Invalid phone number for referee ${r.name || ''}: ${phone}.`);
+          }
+          return { name: String(r.name || '').trim(), contact: normalized };
+        });
+        if (parsedReferees.length < 2) {
+          return res.status(400).json({ success: false, message: 'Please provide at least 2 referees.' });
+        }
+      } catch (error) {
+        return res.status(400).json({ success: false, message: error.message || 'Invalid referees format.' });
+      }
+    } else {
+      return res.status(400).json({ success: false, message: 'Referee details are required.' });
+    }
+
+    // Handle file uploads
+    let studentIdFrontUrl = null;
+    let studentIdBackUrl = null;
+    if (req.files?.['studentIdFront']?.[0]) {
+      studentIdFrontUrl = handleFileUpload(req.files['studentIdFront'][0], 'student-ids');
+    }
+    if (req.files?.['studentIdBack']?.[0]) {
+      studentIdBackUrl = handleFileUpload(req.files['studentIdBack'][0], 'student-ids');
+    }
+
+    const application = await RoleApplication.create({
+      userId: null,           // guest — no account
+      guestName: guestName.trim(),
+      guestEmail: guestEmail.trim().toLowerCase(),
+      guestPhone: normalizeKenyanPhone(guestPhone) || guestPhone.trim(),
+      appliedRole: normalizedAppliedRole,
+      reason: reason.trim(),
+      university: university || null,
+      studentId: studentId || null,
+      studentIdFrontUrl,
+      studentIdBackUrl,
+      referees: parsedReferees,
+      jobOpeningId,
+      status: 'pending',
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Application submitted successfully! Our team will be in touch shortly.',
+      data: { id: application.id }
+    });
+  } catch (error) {
+    console.error('Error submitting guest role application:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit application. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // Export all controller functions
 module.exports = {
   saveDraftApplication,
   createRoleApplication,
+  createGuestRoleApplication,
   getRoleApplications,
   getRoleApplicationById,
   updateRoleApplicationStatus,

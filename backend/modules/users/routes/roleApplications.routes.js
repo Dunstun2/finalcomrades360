@@ -5,6 +5,7 @@ const { authenticate, authorize } = require('../../../middleware/auth');
 const {
   saveDraftApplication,
   createRoleApplication,
+  createGuestRoleApplication,
   getRoleApplications,
   getRoleApplicationById,
   updateRoleApplicationStatus,
@@ -74,7 +75,7 @@ router.get(
   getUserDraft
 );
 
-// Apply for a role (submit application)
+// Apply for a role (submit application) — authenticated users
 router.post(
   '/',
   authenticate,
@@ -82,6 +83,15 @@ router.post(
   compressUploadedImages,
   handleFileUploadError,
   createRoleApplication
+);
+
+// Apply for a role — guest (no login required)
+router.post(
+  '/guest',
+  uploadIDDocuments.fields(uploadFields),
+  compressUploadedImages,
+  handleFileUploadError,
+  createGuestRoleApplication
 );
 
 // Get all applications (admin only)

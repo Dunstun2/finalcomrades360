@@ -38,6 +38,26 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     const [videoMuted, setVideoMuted] = useState(true);
     const [videoPlaying, setVideoPlaying] = useState(true);
     const [tiktokAutoplayAttempted, setTiktokAutoplayAttempted] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
+
+    // Instant preloading of all slides' media so transitions are immediate
+    useEffect(() => {
+        if (!slides || slides.length === 0) return;
+        slides.forEach((slide) => {
+            const mediaUrl = slide.customImageUrl || slide.image || slide.products?.[0]?.coverImage || slide.products?.[0]?.mainImage || slide.fastfoods?.[0]?.image;
+            if (mediaUrl) {
+                const resolved = resolveImageUrl(mediaUrl);
+                if (resolved && resolved !== FALLBACK_IMAGE) {
+                    const img = new Image();
+                    img.src = resolved;
+                }
+            }
+        });
+    }, [slides]);
+
+    useEffect(() => {
+        setImageLoaded(false);
+    }, [currentIndex]);
 
     // Touch & Swipe gesture state
     const touchStartX = useRef(0);
@@ -210,6 +230,11 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     const activeMode = currentItem.mediaMode || (rawVideoUrl ? 'video' : 'image');
     const hasVideo = activeMode === 'video' && !!rawVideoUrl;
     const videoEmbed = hasVideo ? getVideoEmbedUrl(rawVideoUrl) : null;
+    const currentImageSrc = resolveImageUrl(
+        hasCustomImage
+            ? (currentItem.customImageUrl || currentItem.image)
+            : (firstProduct?.coverImage || firstProduct?.mainImage || FALLBACK_IMAGE)
+    );
 
     const trackClick = (promoId) => {
         if (!promoId) return;
@@ -303,6 +328,8 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                 ref={videoRef}
                                 key={`bg-vid-${currentIndex}`}
                                 src={videoEmbed ? videoEmbed.url : resolveImageUrl(currentItem.videoUrl)}
+                                poster={currentImageSrc}
+                                preload="metadata"
                                 className="w-full h-full object-cover opacity-60"
                                 autoPlay={currentItem.videoAutoplay !== false}
                                 loop={currentItem.videoLoop !== false}
@@ -396,7 +423,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                         {/* Subtitle / Description Card */}
                         {currentItem.subtitle ? (
                             <div className="bg-black/30 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl border border-white/10 shadow-inner max-w-xl">
-                                <p className="text-slate-200 text-xs sm:text-sm font-medium leading-relaxed line-clamp-2">
+                                <p className="text-slate-200 text-xs sm:text-sm font-medium leading-relaxed line-clamp-3 sm:line-clamp-4">
                                     {currentItem.subtitle}
                                 </p>
                             </div>
@@ -525,8 +552,10 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                         <div className="w-full h-full flex items-center justify-center overflow-hidden">
                                             <video
                                                 ref={videoRef}
-                                                key={currentIndex}
+                                                key={`video-${currentIndex}`}
                                                 src={videoEmbed ? videoEmbed.url : resolveImageUrl(currentItem.videoUrl)}
+                                                poster={currentImageSrc}
+                                                preload="metadata"
                                                 className="w-full h-full object-cover"
                                                 controls
                                                 autoPlay={currentItem.videoAutoplay !== false}
@@ -558,11 +587,22 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                 </div>
                             ) : (
                                 /* Product Image Showcase Card (Used for images AND background videos) */
-                                <div className="relative w-full h-full flex items-center justify-center p-0 bg-gradient-to-b from-white/5 to-white/0">
+                                <div className="relative w-full h-full flex items-center justify-center p-0 bg-gradient-to-b from-white/5 to-white/0 overflow-hidden">
+                                    {!imageLoaded && (
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white/20 border-t-amber-400 animate-spin" />
+                                        </div>
+                                    )}
                                     <img
-                                        src={resolveImageUrl(hasCustomImage ? (currentItem.customImageUrl || currentItem.image) : (firstProduct?.coverImage || firstProduct?.mainImage || FALLBACK_IMAGE))}
+                                        key={`hero-img-${currentIndex}-${currentItem.id || currentIndex}`}
+                                        src={currentImageSrc}
                                         alt={currentItem.title || firstProduct?.name || 'Banner Promotion'}
-                                        className="max-h-full max-w-full object-contain drop-shadow-[0_25px_45px_rgba(0,0,0,0.8)] transition-all duration-500 hover:scale-105"
+                                        onLoad={() => setImageLoaded(true)}
+                                        className={`max-h-full max-w-full object-contain drop-shadow-[0_25px_45px_rgba(0,0,0,0.8)] transition-all duration-300 hover:scale-105 ${
+                                            imageLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                                        }`}
+                                        loading="eager"
+                                        decoding="async"
                                     />
                                     {firstProduct?.discountPercentage && (
                                         <div className="absolute top-3 right-3 bg-gradient-to-r from-red-600 to-orange-600 text-white px-3 py-1 rounded-xl shadow-2xl font-black text-xs border border-white/25">

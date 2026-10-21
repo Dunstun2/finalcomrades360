@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
+import { extractVideoPoster } from '@/utils/compression'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
 import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools, FaPlay, FaVideo, FaMagic, FaLightbulb, FaCheck, FaTimes } from 'react-icons/fa'
 import { toast } from 'react-toastify'
@@ -644,15 +645,30 @@ export default function AdminCreateHeroPromotion() {
       return setError('Please upload MP4, WEBM, or OGG video files only')
     }
     if (file.size > 50 * 1024 * 1024) {
-      return setError('Video file must be less than 50MB')
+      return setError('Video file must be less than 50MB. For large videos, we recommend pasting a YouTube or Vimeo link.')
     }
     setUploading(true)
     setError('')
     try {
       const url = await uploadFile(file)
-      setForm(prev => ({ ...prev, videoUrl: url }))
+      let posterUrl = form.customImageUrl
+      if (!posterUrl) {
+        try {
+          const posterBlob = await extractVideoPoster(file)
+          if (posterBlob) {
+            posterUrl = await uploadFile(posterBlob)
+          }
+        } catch (posterErr) {
+          console.warn('[handleVideoUpload] Auto poster extraction skipped:', posterErr)
+        }
+      }
+      setForm(prev => ({
+        ...prev,
+        videoUrl: url,
+        ...(posterUrl ? { customImageUrl: posterUrl } : {})
+      }))
       setMediaMode('video')
-      setSuccess('Video uploaded successfully!')
+      setSuccess('Video uploaded with lightweight poster!')
       setTimeout(() => setSuccess(''), 2500)
     } catch {
       setError('Video upload failed')
@@ -958,7 +974,7 @@ export default function AdminCreateHeroPromotion() {
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-end p-4 pointer-events-none">
                             <div className="text-white">
                               <div className="font-black text-lg drop-shadow">{form.title || 'Banner Heading'}</div>
-                              {form.subtitle && <div className="text-sm text-white/80 line-clamp-2">{form.subtitle}</div>}
+                              {form.subtitle && <div className="text-sm text-white/80 line-clamp-3">{form.subtitle}</div>}
                             </div>
                           </div>
                           {form.customImageUrl && (
@@ -1022,7 +1038,7 @@ export default function AdminCreateHeroPromotion() {
                           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-4 pointer-events-none">
                             <div className="text-white">
                               <div className="font-black text-lg drop-shadow">{form.title || 'Video Banner Heading'}</div>
-                              {form.subtitle && <div className="text-sm text-white/80 line-clamp-2">{form.subtitle}</div>}
+                              {form.subtitle && <div className="text-sm text-white/80 line-clamp-3">{form.subtitle}</div>}
                             </div>
                           </div>
                           <button

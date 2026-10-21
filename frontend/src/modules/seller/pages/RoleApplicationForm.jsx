@@ -57,8 +57,14 @@ export default function RoleApplicationForm() {
   const [formData, setFormData] = useState(() => ({
     userType: 'student',
     fullName: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
+    email: (() => {
+      const e = user?.email || '';
+      return (e.startsWith('noemail_') || e.includes('@placeholder.local') || e.includes('@comrades360.placeholder')) ? '' : e;
+    })(),
+    phone: (() => {
+      const p = user?.phone || '';
+      return (p.startsWith('nophone_') || p.startsWith('placeholder-')) ? '' : p;
+    })(),
     studentId: '',
     institution: '',
     otherInstitution: '',
@@ -210,7 +216,7 @@ export default function RoleApplicationForm() {
   // Use a ref to track the last saved state to avoid redundant saves and loops
   const lastSavedDataRef = useRef(null);
 
-  // Autosave function
+  // Autosave function (only for logged-in users)
   const saveDraft = useCallback(async (formDataToSave = formData, files = { studentIdFront, studentIdBack }) => {
     if (!user?.id || isSaving) return;
 
@@ -343,8 +349,9 @@ export default function RoleApplicationForm() {
     });
   };
 
-  // Debounced autosave
+  // Debounced autosave (only for logged-in users)
   useEffect(() => {
+    if (!user?.id) return;
     const timeoutId = setTimeout(() => {
       const hasContent = formData.bio || formData.studentId || formData.institution ||
         formData.referee1Name || formData.referee2Name ||
@@ -452,43 +459,79 @@ export default function RoleApplicationForm() {
       setIsSubmitting(true);
 
       const formDataToSend = new FormData();
-      formDataToSend.append('userId', user?.id || '');
-      formDataToSend.append('appliedRole', String(formData.role).toLowerCase().replace(/ /g, '_'));
-      formDataToSend.append('reason', formData.bio);
 
-      if (jobOpeningId) {
-        formDataToSend.append('jobOpeningId', jobOpeningId);
-      }
+      if (user?.id) {
+        // Authenticated submission
+        formDataToSend.append('userId', user.id);
+        formDataToSend.append('appliedRole', String(formData.role).toLowerCase().replace(/ /g, '_'));
+        formDataToSend.append('reason', formData.bio);
 
-      const referees = [
-        { name: formData.referee1Name, contact: formData.referee1Phone },
-        { name: formData.referee2Name, contact: formData.referee2Phone }
-      ];
-      formDataToSend.append('referees', JSON.stringify(referees));
+        if (jobOpeningId) formDataToSend.append('jobOpeningId', jobOpeningId);
 
-      if (formData.userType === 'student') {
-        formDataToSend.append('studentId', formData.studentId);
-        formDataToSend.append('university', formData.institution === 'Other (Please specify)' ? formData.otherInstitution : formData.institution);
-        formDataToSend.append('studentIdFront', studentIdFront);
-        formDataToSend.append('studentIdBack', studentIdBack);
-      }
+        const referees = [
+          { name: formData.referee1Name, contact: formData.referee1Phone },
+          { name: formData.referee2Name, contact: formData.referee2Phone }
+        ];
+        formDataToSend.append('referees', JSON.stringify(referees));
 
+        if (formData.userType === 'student') {
+          formDataToSend.append('studentId', formData.studentId);
+          formDataToSend.append('university', formData.institution === 'Other (Please specify)' ? formData.otherInstitution : formData.institution);
+          formDataToSend.append('studentIdFront', studentIdFront);
+          formDataToSend.append('studentIdBack', studentIdBack);
+        }
 
-
-      const response = await api.post('/role-applications', formDataToSend);
-
-      if (response.data.success) {
-        setModalConfig({
-          type: 'success',
-          title: 'Application Submitted!',
-          description: `Thank you for applying to become a ${formData.role}. We've received your application and our team will review it within 48 hours.`,
-          onConfirm: () => navigate('/'),
-          confirmLabel: 'Return to Home'
-        });
-        setShowModal(true);
-        setSuccess(true);
+        const response = await api.post('/role-applications', formDataToSend);
+        if (response.data.success) {
+          setModalConfig({
+            type: 'success',
+            title: 'Application Submitted!',
+            description: `Thank you for applying to become a ${formData.role}. We've received your application and our team will review it within 48 hours.`,
+            onConfirm: () => navigate('/'),
+            confirmLabel: 'Return to Home'
+          });
+          setShowModal(true);
+          setSuccess(true);
+        } else {
+          throw new Error(response.data.message || 'Failed to submit application');
+        }
       } else {
-        throw new Error(response.data.message || 'Failed to submit application');
+        // Guest submission (no account)
+        formDataToSend.append('guestName', formData.fullName);
+        formDataToSend.append('guestEmail', formData.email);
+        formDataToSend.append('guestPhone', formData.phone);
+        formDataToSend.append('appliedRole', String(formData.role).toLowerCase().replace(/ /g, '_'));
+        formDataToSend.append('reason', formData.bio);
+
+        if (jobOpeningId) formDataToSend.append('jobOpeningId', jobOpeningId);
+
+        const referees = [
+          { name: formData.referee1Name, contact: formData.referee1Phone },
+          { name: formData.referee2Name, contact: formData.referee2Phone }
+        ];
+        formDataToSend.append('referees', JSON.stringify(referees));
+
+        if (formData.userType === 'student') {
+          formDataToSend.append('studentId', formData.studentId);
+          formDataToSend.append('university', formData.institution === 'Other (Please specify)' ? formData.otherInstitution : formData.institution);
+          if (studentIdFront) formDataToSend.append('studentIdFront', studentIdFront);
+          if (studentIdBack) formDataToSend.append('studentIdBack', studentIdBack);
+        }
+
+        const response = await api.post('/role-applications/guest', formDataToSend);
+        if (response.data.success) {
+          setModalConfig({
+            type: 'success',
+            title: 'Application Submitted!',
+            description: `Thank you for applying to become a ${formData.role}! Our team will review your application within 48 hours and reach out to you via email or phone.`,
+            onConfirm: () => navigate('/'),
+            confirmLabel: 'Return to Home'
+          });
+          setShowModal(true);
+          setSuccess(true);
+        } else {
+          throw new Error(response.data.message || 'Failed to submit application');
+        }
       }
     } catch (err) {
       console.error('Submission error details:', err.response?.data);
@@ -578,7 +621,7 @@ export default function RoleApplicationForm() {
                 onChange={handleChange}
                 placeholder="Full Legal Name"
                 className="w-full border-2 p-4 rounded-xl focus:border-blue-500 outline-none transition-all"
-                disabled={!!user}
+                disabled={!!user?.name}
               />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
@@ -588,7 +631,7 @@ export default function RoleApplicationForm() {
                   onChange={handleChange}
                   placeholder="Email Address"
                   className="w-full border-2 p-4 rounded-xl focus:border-blue-500 outline-none transition-all"
-                  disabled={!!user}
+                  disabled={!!(user?.email && !user.email.startsWith('noemail_') && !user.email.includes('@placeholder.local'))}
                 />
                 <input
                   type="tel"
@@ -599,7 +642,7 @@ export default function RoleApplicationForm() {
                   maxLength={13}
                   placeholder="Phone Number (e.g. 0712345678)"
                   className="w-full border-2 p-4 rounded-xl focus:border-blue-500 outline-none transition-all"
-                  disabled={!!user}
+                  disabled={!!(user?.phone && !user.phone.startsWith('nophone_') && !user.phone.startsWith('placeholder-'))}
                 />
               </div>
             </div>

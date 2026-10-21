@@ -9,11 +9,23 @@ module.exports = (sequelize) => {
     },
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,  // null for guest applications
       references: {
         model: 'User',
         key: 'id'
       }
+    },
+    guestName: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    guestEmail: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    guestPhone: {
+      type: DataTypes.STRING,
+      allowNull: true
     },
     appliedRole: {
       type: DataTypes.ENUM('seller', 'marketer', 'delivery_agent', 'service_provider'),

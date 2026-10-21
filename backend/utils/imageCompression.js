@@ -12,10 +12,10 @@ const fs = require('fs');
 async function compressImage(inputPath, outputPath, options = {}) {
   try {
     const {
-      quality = 80,           // JPEG quality (0-100)
+      quality = 78,           // JPEG quality (0-100) - optimal balance of sharpness & lightness
       maxWidth = 1600,        // Maximum width in pixels
       maxHeight = 1600,       // Maximum height in pixels
-      maxSizeBytes = 1 * 1024 * 1024 // 1MB maximum size
+      maxSizeBytes = 380 * 1024 // 380KB maximum size for fast banner/media delivery
     } = options;
 
     // Get image metadata
@@ -38,26 +38,27 @@ async function compressImage(inputPath, outputPath, options = {}) {
       }
     }
 
-    // PASS 1: Fast compression
-    // If original is already massive (>3MB), start with lower quality to avoid 2nd pass
+    // PASS 1: Fast compression with auto-orientation
     const stats = fs.statSync(inputPath);
     const originalSize = stats.size;
     
     let startQuality = quality;
-    if (originalSize > 3 * 1024 * 1024) startQuality = 65;
+    if (originalSize > 2 * 1024 * 1024) startQuality = 70;
 
     let buffer = await sharp(inputPath)
+      .rotate() // Auto-orient based on EXIF
       .resize(newWidth, newHeight, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: startQuality, progressive: true, mozjpeg: false }) // Disabled mozjpeg for faster processing in shared hosting
+      .jpeg({ quality: startQuality, progressive: true, mozjpeg: false })
       .toBuffer();
 
-    // PASS 2: Emergency shrink (Only if Pass 1 failed 1MB limit)
+    // PASS 2: Emergency shrink (Only if Pass 1 exceeded maxSizeBytes)
     let finalQuality = startQuality;
     if (buffer.length > maxSizeBytes) {
-      console.log(`[Compression] Pass 1 exceeded 1MB (${(buffer.length/1024/1024).toFixed(2)}MB). Triggering emergency Pass 2...`);
-      finalQuality = 50; 
+      console.log(`[Compression] Pass 1 exceeded target (${(buffer.length/1024).toFixed(0)}KB). Triggering Pass 2...`);
+      finalQuality = 55; 
       buffer = await sharp(inputPath)
-        .resize(newWidth, newHeight, { fit: 'inside', withoutEnlargement: true })
+        .rotate()
+        .resize(Math.min(newWidth, 1400), Math.min(newHeight, 1400), { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: finalQuality, progressive: true, mozjpeg: true })
         .toBuffer();
     }
@@ -141,10 +142,10 @@ async function compressUploadedImages(req, res, next) {
 
       try {
         const result = await compressImage(inputPath, tempPath, {
-          quality: 80,
+          quality: 78,
           maxWidth: 1600,
           maxHeight: 1600,
-          maxSizeBytes: 1 * 1024 * 1024
+          maxSizeBytes: 380 * 1024
         });
 
         if (!result.success) {

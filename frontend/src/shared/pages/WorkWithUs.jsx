@@ -12,69 +12,8 @@ export default function WorkWithUs() {
   const [openings, setOpenings] = useState([]);
   const [fetching, setFetching] = useState(true);
 
-  useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        // Redirect to login if not authenticated
-        navigate('/login', { state: { from: '/customer/work-with-us' } });
-        return;
-      }
-
-      // Allow admins and super admins to bypass verification
-      const userRoles = user?.roles || [user?.role];
-      const isAdmin = userRoles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
-      
-      if (isAdmin) {
-        console.log('[WorkWithUs] Admin user - bypassing verification check');
-        return;
-      }
-
-      // For non-admin users, check verification status
-      const hasRealEmail = Boolean(
-        user.email &&
-        !user.email.startsWith('noemail_') &&
-        !user.email.includes('@placeholder.local') &&
-        !user.email.includes('@comrades360.placeholder')
-      );
-      const hasRealPhone = Boolean(
-        user.phone &&
-        !user.phone.startsWith('nophone_') &&
-        !user.phone.startsWith('placeholder-')
-      );
-
-      const isEmailVerified = hasRealEmail && user.emailVerified === true;
-      const isPhoneVerified = hasRealPhone && user.phoneVerified === true;
-      const nationalIdStatus = user.nationalIdStatus;
-
-      console.log('[WorkWithUs] Verification check:', { 
-        emailVerified: isEmailVerified, 
-        phoneVerified: isPhoneVerified, 
-        nationalIdStatus 
-      });
-
-      if (!isEmailVerified || !isPhoneVerified) {
-        // Redirect to verification if email or phone not verified
-        console.log('[WorkWithUs] Email or Phone missing/not verified - redirecting to verification');
-        navigate('/customer/account-verification', {
-          state: {
-            from: '/customer/work-with-us',
-            missingEmail: !isEmailVerified,
-            missingPhone: !isPhoneVerified
-          }
-        });
-      } else if (nationalIdStatus === 'pending') {
-        // Show pending modal if ID verification is in progress
-        console.log('[WorkWithUs] National ID pending - showing modal');
-        setShowPendingModal(true);
-      } else if (nationalIdStatus !== 'approved') {
-        // Redirect to verification if ID not approved/uploaded
-        console.log('[WorkWithUs] National ID not approved - redirecting to verification');
-        navigate('/customer/account-verification');
-      } else {
-        console.log('[WorkWithUs] User is fully verified - access granted');
-      }
-    }
-  }, [user, loading, navigate]);
+  // No auth gate on page load — the page is public.
+  // Verification is only checked when a user clicks "Apply Now".
 
   useEffect(() => {
     const fetchOpenings = async () => {
@@ -90,7 +29,7 @@ export default function WorkWithUs() {
     fetchOpenings();
   }, []);
 
-  if (loading || !user || fetching) {
+  if (fetching) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -98,64 +37,25 @@ export default function WorkWithUs() {
     );
   }
 
-  // Debug: Log user verification status
-  console.log('[WorkWithUs] Current user object:', {
-    id: user?.id,
-    name: user?.name,
-    email: user?.email,
-    roles: user?.roles,
-    emailVerified: user?.emailVerified,
-    phoneVerified: user?.phoneVerified,
-    nationalIdStatus: user?.nationalIdStatus,
-    isVerified: user?.isVerified
-  });
-
 
   const handleGetStarted = (opening) => {
-    // Check admin bypass first
-    const userRoles = user?.roles || [user?.role];
-    const isAdmin = userRoles.some(r => ['admin', 'superadmin', 'super_admin'].includes(r));
-    
-    // Verification check before applying (skip for admins)
-    if (!isAdmin) {
-      const isEmailVerified = user.emailVerified === true;
-      const isPhoneVerified = user.phoneVerified === true;
-      const nationalIdStatus = user.nationalIdStatus;
-
-      console.log('[WorkWithUs] Apply verification check:', { 
-        emailVerified: isEmailVerified, 
-        phoneVerified: isPhoneVerified, 
-        nationalIdStatus 
-      });
-
-      if (!isEmailVerified || !isPhoneVerified || nationalIdStatus !== 'approved') {
-        if (nationalIdStatus === 'pending') {
-          console.log('[WorkWithUs] National ID pending - showing modal');
-          setShowPendingModal(true);
-        } else {
-          console.log('[WorkWithUs] Not fully verified - redirecting to verification');
-          navigate('/customer/account-verification');
-        }
+    // Logged-in users: check if they already hold the role or have a pending application
+    if (user) {
+      const userRoles = user?.roles || [user?.role || 'customer'];
+      if (userRoles.includes(opening.role)) {
+        alert(`You already have the ${opening.role.replace('_', ' ')} role and cannot apply for it again.`);
         return;
       }
-    } else {
-      console.log('[WorkWithUs] Admin user - bypassing verification for application');
+      if (user.applicationStatus === 'pending' && user.appliedRole === opening.role) {
+        alert(`You already have a pending application for the ${opening.role.replace('_', ' ')} role.`);
+        return;
+      }
     }
 
-    // Check if user already has this role
-    const currentUserRoles = user?.roles || [user?.role || 'customer'];
-    if (currentUserRoles.includes(opening.role)) {
-      alert(`You already have the ${opening.role.replace('_', ' ')} role and cannot apply for it again.`);
-      return;
-    }
-
-    // Check if user already has a pending application for this role
-    if (user.applicationStatus === 'pending' && user.appliedRole === opening.role) {
-      alert(`You already have a pending application for the ${opening.role.replace('_', ' ')} role.`);
-      return;
-    }
-
-    navigate(`/customer/apply/${opening.role.replace(/_/g, '-')}`, { state: { jobId: opening.id, jobTitle: opening.title } });
+    // Everyone (logged-in or not) goes straight to the form
+    navigate(`/customer/apply/${opening.role.replace(/_/g, '-')}`, {
+      state: { jobId: opening.id, jobTitle: opening.title }
+    });
   };
 
   const getIcon = (role) => {
@@ -240,6 +140,19 @@ export default function WorkWithUs() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Back to Home */}
+      <div className="mt-10 flex justify-center pb-4">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition-all duration-200 shadow-md hover:shadow-lg"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+          </svg>
+          Back to Home
+        </button>
       </div>
 
       <SystemFeedbackModal

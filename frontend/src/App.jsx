@@ -730,9 +730,11 @@ const AppContent = () => {
                   <Route path="account-verification" element={<AccountVerification />} />
                   <Route path="id-upload" element={<NationalIdUpload />} />
                   <Route path="applications" element={<MyApplications />} />
-                  <Route path="work-with-us" element={<WorkWithUs />} />
-                  <Route path="apply/:role" element={<RoleApplicationForm />} />
                 </Route>
+
+                {/* Work With Us & Apply — public pages, NO sidebar */}
+                <Route path="/customer/work-with-us" element={<WorkWithUs />} />
+                <Route path="/customer/apply/:role" element={<RoleApplicationForm />} />
 
                 {/* Redirects for legacy /work-with-us and /apply/:role links */}
                 <Route path="/work-with-us" element={<Navigate to="/customer/work-with-us" replace />} />

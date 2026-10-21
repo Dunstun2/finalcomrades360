@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
+import { extractVideoPoster } from '@/utils/compression'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
 import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaVideo, FaPlay, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools } from 'react-icons/fa'
 import AdvancedScheduler from '@/modules/admin/components/AdvancedScheduler'
@@ -322,9 +323,24 @@ export default function AdminCreateVideoBanner() {
     setError('')
     try {
       const url = await uploadFile(file)
-      setForm(prev => ({ ...prev, videoUrl: url }))
-      setSuccess('Video uploaded!')
-      setTimeout(() => setSuccess(''), 2000)
+      let posterUrl = form.customImageUrl
+      if (!posterUrl) {
+        try {
+          const posterBlob = await extractVideoPoster(file)
+          if (posterBlob) {
+            posterUrl = await uploadFile(posterBlob)
+          }
+        } catch (posterErr) {
+          console.warn('[handleVideoUpload] Auto poster extraction skipped:', posterErr)
+        }
+      }
+      setForm(prev => ({
+        ...prev,
+        videoUrl: url,
+        ...(posterUrl ? { customImageUrl: posterUrl } : {})
+      }))
+      setSuccess('Video uploaded with lightweight preview poster!')
+      setTimeout(() => setSuccess(''), 2500)
     } catch {
       setError('Video upload failed')
     } finally {
