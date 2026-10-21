@@ -376,13 +376,24 @@ const locationMatches = (bannerLoc, targetLoc) => {
 }
 
 const listActiveHeroPromotions = async (req, res) => {
-  // Auto-expire banners whose endAt has passed — keep the public feed clean
+  // Prevent HTTP caching so new or edited banners appear immediately
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+
+  // Auto-expire banners whose endAt has passed and activate scheduled ones whose startAt <= now
   try {
     const now = new Date();
-    await HeroPromotion.update(
-      { status: 'expired' },
-      { where: { endAt: { [Op.lt]: now }, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
-    );
+    await Promise.all([
+      HeroPromotion.update(
+        { status: 'expired' },
+        { where: { endAt: { [Op.lt]: now }, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
+      ),
+      HeroPromotion.update(
+        { status: 'active' },
+        { where: { startAt: { [Op.lte]: now }, endAt: { [Op.gte]: now }, status: 'scheduled' } }
+      )
+    ]);
   } catch { /* non-fatal, proceed */ }
   try {
     const now = new Date()
@@ -435,8 +446,10 @@ const listActiveHeroPromotions = async (req, res) => {
     }
 
     const where = {
-      status: 'active',
+      status: { [Op.in]: ['active', 'scheduled'] },
       isDefault: false,
+      startAt: { [Op.lte]: now },
+      endAt: { [Op.gte]: now },
       ...buildLocationFilter()
     }
 

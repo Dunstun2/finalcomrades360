@@ -38,9 +38,10 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
     const [videoMuted, setVideoMuted] = useState(true);
     const [videoPlaying, setVideoPlaying] = useState(true);
     const [tiktokAutoplayAttempted, setTiktokAutoplayAttempted] = useState(false);
-    const [imageLoaded, setImageLoaded] = useState(false);
+    const loadedImagesRef = useRef(new Set());
+    const [imageLoaded, setImageLoaded] = useState(true);
 
-    // Instant preloading of all slides' media so transitions are immediate
+    // Instant preloading of all slides' media into memory so transitions are immediate
     useEffect(() => {
         if (!slides || slides.length === 0) return;
         slides.forEach((slide) => {
@@ -49,15 +50,24 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                 const resolved = resolveImageUrl(mediaUrl);
                 if (resolved && resolved !== FALLBACK_IMAGE) {
                     const img = new Image();
+                    img.onload = () => {
+                        loadedImagesRef.current.add(resolved);
+                    };
                     img.src = resolved;
+                    if (img.complete) {
+                        loadedImagesRef.current.add(resolved);
+                    }
                 }
             }
         });
     }, [slides]);
 
     useEffect(() => {
-        setImageLoaded(false);
-    }, [currentIndex]);
+        // Only show loading if the image hasn't been cached/preloaded yet
+        if (currentImageSrc && loadedImagesRef.current.has(currentImageSrc)) {
+            setImageLoaded(true);
+        }
+    }, [currentIndex, currentImageSrc]);
 
     // Touch & Swipe gesture state
     const touchStartX = useRef(0);
@@ -588,7 +598,7 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                             ) : (
                                 /* Product Image Showcase Card (Used for images AND background videos) */
                                 <div className="relative w-full h-full flex items-center justify-center p-0 bg-gradient-to-b from-white/5 to-white/0 overflow-hidden">
-                                    {!imageLoaded && (
+                                    {(!imageLoaded && (!currentImageSrc || !loadedImagesRef.current.has(currentImageSrc))) && (
                                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white/20 border-t-amber-400 animate-spin" />
                                         </div>
@@ -597,9 +607,12 @@ const HeroSlider = ({ items = [], onAddToCart = null }) => {
                                         key={`hero-img-${currentIndex}-${currentItem.id || currentIndex}`}
                                         src={currentImageSrc}
                                         alt={currentItem.title || firstProduct?.name || 'Banner Promotion'}
-                                        onLoad={() => setImageLoaded(true)}
+                                        onLoad={() => {
+                                            if (currentImageSrc) loadedImagesRef.current.add(currentImageSrc);
+                                            setImageLoaded(true);
+                                        }}
                                         className={`max-h-full max-w-full object-contain drop-shadow-[0_25px_45px_rgba(0,0,0,0.8)] transition-all duration-300 hover:scale-105 ${
-                                            imageLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                                            (imageLoaded || (currentImageSrc && loadedImagesRef.current.has(currentImageSrc))) ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                                         }`}
                                         loading="eager"
                                         decoding="async"

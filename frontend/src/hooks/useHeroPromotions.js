@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '@/shared/services/api';
+import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils';
 
 /**
  * Shared hook to fetch active hero promotions for a specific page/location.
@@ -14,7 +15,11 @@ const useHeroPromotions = (location = '') => {
         let cancelled = false;
         const load = async () => {
             try {
-                const params = location ? { location } : {};
+                // Bust browser and proxy cache with timestamp parameter
+                const params = {
+                    ...(location ? { location } : {}),
+                    _t: Date.now()
+                };
                 const res = await api.get('/hero-promotions/active', { params });
                 if (cancelled) return;
                 let items = [];
@@ -36,6 +41,18 @@ const useHeroPromotions = (location = '') => {
                     Boolean(p.isDefault) ||
                     Boolean(p.title)
                 );
+
+                // Instantly warm up all banner images in parallel so display is instantaneous
+                validItems.forEach(p => {
+                    const imgUrl = p.customImageUrl || p.image || p.products?.[0]?.coverImage || p.products?.[0]?.mainImage || p.fastfoods?.[0]?.mainImage || p.fastfoods?.[0]?.image;
+                    if (imgUrl) {
+                        const resolved = resolveImageUrl(imgUrl);
+                        if (resolved && resolved !== FALLBACK_IMAGE) {
+                            const pre = new Image();
+                            pre.src = resolved;
+                        }
+                    }
+                });
 
                 setHeroPromotions(validItems);
             } catch (err) {

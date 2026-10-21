@@ -10,8 +10,8 @@
  * @returns {boolean} - true if should be shown
  */
 function shouldShowPromotion(promotion, now = new Date()) {
-  // Must be active status
-  if (promotion.status !== 'active') return false;
+  // Must be active or scheduled status
+  if (!['active', 'scheduled'].includes(promotion.status)) return false;
 
   // Check basic date range (startAt / endAt)
   if (promotion.startAt && new Date(promotion.startAt) > now) return false;
