@@ -35,6 +35,12 @@ router.post('/:id/cancel', auth, SubscriptionController.cancel);
 router.get('/my', auth, SubscriptionController.getMySubscriptions);
 router.get('/all', auth, adminOnly, SubscriptionController.getAllSubscriptions);
 
+// Admin Subscription Operations (Gaps #8, #9, #11, #12)
+router.put('/admin/:id/status', auth, adminOnly, SubscriptionController.updateAdminSubscriptionStatus);
+router.post('/admin/:id/migrate', auth, adminOnly, SubscriptionController.adminMigrateSubscription);
+router.put('/admin/occurrences/:occurrenceId', auth, adminOnly, SubscriptionController.adminManageOccurrence);
+router.post('/admin/bulk-status', auth, adminOnly, SubscriptionController.adminBulkSubscriptionAction);
+
 // Meal Schedule & Occurrences
 router.post('/:id/schedule', auth, validate(scheduleSchema), SubscriptionController.saveMealSchedule);
 router.get('/:id/schedule', auth, SubscriptionController.getMealSchedule);

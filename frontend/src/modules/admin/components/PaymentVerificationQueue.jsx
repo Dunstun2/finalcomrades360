@@ -417,7 +417,7 @@ export default function PaymentVerificationQueue() {
 
                 <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
                   <button
-                    onClick={() => handleRejectPayment(payment.orderId, payment.subscriptionId)}
+                    onClick={() => setRejectModal({ isOpen: true, orderId: payment.orderId, subscriptionId: payment.subscriptionId, reason: '' })}
                     disabled={processingIds.has(payment.orderId)}
                     className="bg-white border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 font-medium px-6 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >

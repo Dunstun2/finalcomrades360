@@ -268,7 +268,7 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                       <option value="Archived">Archived</option>
                       <option value="Disabled">Disabled</option>
                     </select>
-                    {isEditing && formData.type === 'meal' && (
+                    {isEditing && (
                       <button type="button" onClick={handleStatusSave} disabled={isSaving}
                         className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
                         Apply
@@ -287,7 +287,7 @@ export default function AdminPlanEditorModal({ plan, onClose, onSave }) {
                     <option value="Published">Published</option>
                     <option value="Archived">Archived</option>
                   </select>
-                  {isEditing && formData.type === 'meal' && (
+                  {isEditing && (
                     <button type="button" onClick={handleStatusSave} disabled={isSaving}
                       className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
                       Apply

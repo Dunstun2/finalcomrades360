@@ -372,6 +372,35 @@ class SubscriptionEngine {
       });
     }
 
+    // Real-time alert to admins for new payment verification submissions (Gap #7)
+    if (paymentProofUrl && price > 0) {
+      (async () => {
+        try {
+          const { User } = require('../../../database/models.registry');
+          const { createNotification } = require('../../../utils/notificationHelpers');
+          const { Op } = require('sequelize');
+          const admins = await User.findAll({
+            where: { role: { [Op.in]: ['admin', 'superadmin', 'super_admin'] } },
+            attributes: ['id']
+          });
+          const planName = plan ? plan.name : 'Custom Meal Plan';
+          const customerName = customerData?.name || (userId ? `User #${userId}` : 'Guest Customer');
+          const amountFormatted = `KES ${Number(price).toLocaleString()}`;
+          admins.forEach(admin => {
+            createNotification(
+              admin.id,
+              '🔔 New Payment Awaiting Verification',
+              `${customerName} submitted a payment proof of ${amountFormatted} for "${planName}". Please review it in the Payment Verification queue.`,
+              'subscription_payment_pending',
+              { subscriptionId: result.subscription.id, amount: price }
+            ).catch(err => console.error(`Failed to notify admin ${admin.id}:`, err));
+          });
+        } catch (adminNotifyErr) {
+          console.error('[SubscriptionEngine] Error notifying admin of payment proof:', adminNotifyErr);
+        }
+      })();
+    }
+
     return result;
   }
 

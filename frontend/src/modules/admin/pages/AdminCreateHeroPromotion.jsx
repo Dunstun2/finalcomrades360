@@ -201,86 +201,93 @@ export default function AdminCreateHeroPromotion() {
     if (!isEditMode || !id) return
 
     setLoadingBanner(true)
-    // Fetch the specific promotion by ID instead of all applications
-    api.get(`/admin/hero-promotions/applications/${id}`)
+    setError('')
+    // skipDedupe: true — bypass the in-flight GET deduplication so that
+    // navigating from the list page (which may have fetched /applications)
+    // to the edit page (/applications/:id) always issues a fresh request
+    // and never returns a stale or incorrect cached promise.
+    api.get(`/admin/hero-promotions/applications/${id}`, { skipDedupe: true })
       .then(r => {
+        // The backend returns the banner directly (not nested)
         const banner = r.data
 
-        if (banner) {
-          // Restore saved mediaMode, or infer from which asset is populated
-          const savedMode = banner.mediaMode || (Boolean(banner.videoUrl && String(banner.videoUrl).trim()) ? 'video' : 'image')
-          setMediaMode(savedMode)
+        if (!banner || typeof banner !== 'object' || Array.isArray(banner)) {
+          setError('Promotion not found or unexpected server response. Please go back and try again.')
+          return
+        }
 
-          setForm(prev => ({
-            ...prev,
-            sellerId: banner.sellerId || '',
-            productIds: banner.productIds || [],
-            durationDays: String(banner.durationDays || 7),
-            slotsCount: String(banner.slotsCount || 1),
-            startAt: banner.startAt ? new Date(banner.startAt).toISOString().slice(0, 16) : '',
-            mode: banner.free ? 'free' : 'charged',
-            isDefault: banner.isDefault || false,
-            title: banner.title || '',
-            subtitle: banner.subtitle || '',
-            customImageUrl: banner.customImageUrl || '',
-            targetUrl: banner.targetUrl || banner.link || '',
-            ctaText: banner.ctaText || banner.buttonText || '',
-            eyebrow: banner.eyebrow || banner.promoBadge || banner.badge || '',
-            type: banner.isSystem ? 'system' : 'seller',
-            promoType: banner.promoType || 'product',
-            fastFoodIds: banner.fastFoodIds || [],
-            scheduleType: banner.scheduleType || 'continuous',
-            recurringDays: banner.recurringDays || [],
-            specificDates: banner.specificDates || [],
-            timeSlotStart: banner.timeSlotStart || '',
-            timeSlotEnd: banner.timeSlotEnd || '',
-            timezone: banner.timezone || 'Africa/Nairobi',
-            dateTimeMode: banner.dateTimeMode || 'same',
-            dateSpecificTimes: banner.dateSpecificTimes || {},
-            trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints.slice(0, 3) : [],
-            bannerLocation: (() => {
-              const raw = banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
-              if (Array.isArray(raw)) return raw
-              if (typeof raw === 'string') {
-                try {
-                  const parsed = JSON.parse(raw)
-                  if (Array.isArray(parsed)) return parsed
-                } catch { }
-                if (raw.includes(',')) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-                return [raw.toLowerCase().trim()]
-              }
-              return ['homepage']
-            })(),
-            fallbackLocation: (() => {
-              const raw = banner.fallbackLocation || banner.bannerLocation || (banner.promoType === 'fastfood' ? 'fastfood' : 'homepage')
-              if (Array.isArray(raw)) return raw
-              if (typeof raw === 'string') {
-                try {
-                  const parsed = JSON.parse(raw)
-                  if (Array.isArray(parsed)) return parsed
-                } catch { }
-                if (raw.includes(',')) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-                return [raw.toLowerCase().trim()]
-              }
-              return ['homepage']
-            })(),
-            videoUrl: banner.videoUrl || '',
-            videoType: banner.videoType || 'background',
-            videoAutoplay: banner.videoAutoplay !== undefined ? banner.videoAutoplay : true,
-            videoLoop: banner.videoLoop !== undefined ? banner.videoLoop : true,
-            videoMuted: banner.videoMuted !== undefined ? banner.videoMuted : true
-          }))
+        // Restore saved mediaMode, or infer from which asset is populated
+        const savedMode = banner.mediaMode || (Boolean(banner.videoUrl && String(banner.videoUrl).trim()) ? 'video' : 'image')
+        setMediaMode(savedMode)
 
-          if (!banner.isSystem && banner.sellerId) {
-            loadSellers()
+        const parseBannerLocation = (raw, fallbackType) => {
+          if (Array.isArray(raw) && raw.length > 0) return raw
+          if (typeof raw === 'string' && raw.trim()) {
+            try {
+              const parsed = JSON.parse(raw)
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed
+            } catch { }
+            if (raw.includes(',')) return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+            return [raw.toLowerCase().trim()]
           }
-        } else {
-          setError('Promotion not found')
+          return [fallbackType === 'fastfood' ? 'fastfood' : 'homepage']
+        }
+
+        const fallbackType = banner.promoType || 'product'
+
+        setForm(prev => ({
+          ...prev,
+          sellerId: banner.sellerId || '',
+          productIds: Array.isArray(banner.productIds) ? banner.productIds : [],
+          durationDays: String(banner.durationDays || 7),
+          slotsCount: String(banner.slotsCount || 1),
+          startAt: banner.startAt ? new Date(banner.startAt).toISOString().slice(0, 16) : '',
+          mode: banner.free || banner.paymentStatus === 'free' || Number(banner.amount) === 0 ? 'free' : 'charged',
+          isDefault: banner.isDefault || false,
+          title: banner.title || '',
+          subtitle: banner.subtitle || '',
+          customImageUrl: banner.customImageUrl || '',
+          targetUrl: banner.targetUrl || banner.link || '',
+          ctaText: banner.ctaText || banner.buttonText || '',
+          eyebrow: banner.eyebrow || banner.promoBadge || banner.badge || '',
+          type: banner.isSystem ? 'system' : 'seller',
+          promoType: banner.promoType || 'product',
+          fastFoodIds: Array.isArray(banner.fastFoodIds) ? banner.fastFoodIds : [],
+          scheduleType: banner.scheduleType || 'continuous',
+          recurringDays: Array.isArray(banner.recurringDays) ? banner.recurringDays : [],
+          specificDates: Array.isArray(banner.specificDates) ? banner.specificDates : [],
+          timeSlotStart: banner.timeSlotStart || '',
+          timeSlotEnd: banner.timeSlotEnd || '',
+          timezone: banner.timezone || 'Africa/Nairobi',
+          dateTimeMode: banner.dateTimeMode || 'same',
+          dateSpecificTimes: banner.dateSpecificTimes || {},
+          trustPoints: Array.isArray(banner.trustPoints) ? banner.trustPoints.slice(0, 3) : [],
+          bannerLocation: parseBannerLocation(
+            banner.bannerLocation || (fallbackType === 'fastfood' ? 'fastfood' : 'homepage'),
+            fallbackType
+          ),
+          fallbackLocation: parseBannerLocation(
+            banner.fallbackLocation || banner.bannerLocation || (fallbackType === 'fastfood' ? 'fastfood' : 'homepage'),
+            fallbackType
+          ),
+          videoUrl: banner.videoUrl || '',
+          videoType: banner.videoType || 'background',
+          videoAutoplay: banner.videoAutoplay !== undefined ? banner.videoAutoplay : true,
+          videoLoop: banner.videoLoop !== undefined ? banner.videoLoop : true,
+          videoMuted: banner.videoMuted !== undefined ? banner.videoMuted : true
+        }))
+
+        if (!banner.isSystem && banner.sellerId) {
+          loadSellers()
         }
       })
       .catch(e => {
         console.error('[AdminCreateHeroPromotion] Failed to load promotion:', e)
-        const errorMsg = e?.response?.data?.error || e?.message || 'Failed to load promotion data'
+        const status = e?.response?.status
+        let errorMsg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Failed to load promotion data'
+        if (status === 401) errorMsg = 'Session expired. Please log in again.'
+        else if (status === 403) errorMsg = 'You do not have permission to edit this banner.'
+        else if (status === 404) errorMsg = `Banner #${id} not found. It may have been deleted.`
         setError(`Unable to load promotion: ${errorMsg}`)
       })
       .finally(() => {

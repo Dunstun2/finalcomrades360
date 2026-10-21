@@ -79,8 +79,28 @@ const subscriptionService = {
   },
 
   // --- ADMIN ---
-  getAllSubscriptions: async () => {
-    const response = await api.get('/subscriptions/all');
+  getAllSubscriptions: async (params = {}) => {
+    const response = await api.get('/subscriptions/all', { params });
+    return response.data;
+  },
+
+  updateAdminSubscriptionStatus: async (id, data) => {
+    const response = await api.put(`/subscriptions/admin/${id}/status`, data);
+    return response.data;
+  },
+
+  adminMigrateSubscription: async (id, data) => {
+    const response = await api.post(`/subscriptions/admin/${id}/migrate`, data);
+    return response.data;
+  },
+
+  adminManageOccurrence: async (occurrenceId, data) => {
+    const response = await api.put(`/subscriptions/admin/occurrences/${occurrenceId}`, data);
+    return response.data;
+  },
+
+  adminBulkSubscriptionAction: async (data) => {
+    const response = await api.post('/subscriptions/admin/bulk-status', data);
     return response.data;
   },
 

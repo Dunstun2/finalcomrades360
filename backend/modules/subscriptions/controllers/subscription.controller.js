@@ -1,5 +1,21 @@
-const { Plan, Subscription, MealOccurrence, MealSchedule, BenefitPackage, PackageBenefit, User } = require('../../../database/models.registry');
-const { PlanBenefit, Feature, FastFood, sequelize } = require('../../../database/models.registry');
+const { 
+  Plan, 
+  Subscription, 
+  MealOccurrence, 
+  MealSchedule, 
+  BenefitPackage, 
+  PackageBenefit, 
+  User, 
+  PlanBenefit, 
+  Feature, 
+  FastFood, 
+  SubscriptionInvoice, 
+  SubscriptionUsage, 
+  SubscriptionEvent, 
+  Order, 
+  AdminAuditLog, 
+  sequelize 
+} = require('../../../database/models.registry');
 const { Op } = require('sequelize');
 const SubscriptionEngine = require('../services/SubscriptionEngine');
 const MealSubscriptionService = require('../services/MealSubscriptionService');
@@ -538,28 +554,400 @@ class SubscriptionController {
     }
   }
 
-  // 6.5 Fetch All Subscriptions (Admin Only)
+  // 6.5 Fetch All Subscriptions (Admin Only) - with Filtering, Search, Pagination & Full Relations (Gaps #6, #13, #15, #19)
   async getAllSubscriptions(req, res) {
     try {
-      const subs = await Subscription.findAll({
-        include: [
-          { 
-            model: Plan, 
-            as: 'plan' 
-          },
-          {
-            model: User,
-            as: 'user',
-            attributes: ['id', 'name', 'email', 'phone', 'createdAt'],
-            required: false // Allow subscriptions without users (guest subscriptions)
-          }
-        ],
-        order: [['createdAt', 'DESC']]
+      const {
+        page = 1,
+        limit,
+        status,
+        search,
+        planType,
+        startDate,
+        endDate
+      } = req.query;
+
+      const where = {};
+
+      // Filter by status
+      if (status && status !== 'all') {
+        where.status = status;
+      }
+
+      // Filter by date range
+      if (startDate || endDate) {
+        where.createdAt = {};
+        if (startDate) where.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          where.createdAt[Op.lte] = end;
+        }
+      }
+
+      // Plan include
+      const planInclude = {
+        model: Plan,
+        as: 'plan'
+      };
+      if (planType && planType !== 'all') {
+        planInclude.where = { type: planType };
+      }
+
+      // User include
+      const userInclude = {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'name', 'email', 'phone', 'createdAt'],
+        required: false
+      };
+
+      // Search across user name/email/phone or guest info or subscription ID
+      if (search && search.trim()) {
+        const term = `%${search.trim()}%`;
+        const numId = parseInt(search.trim(), 10);
+        const searchConditions = [
+          { guestName: { [Op.like]: term } },
+          { guestEmail: { [Op.like]: term } },
+          { guestPhone: { [Op.like]: term } },
+          { '$user.name$': { [Op.like]: term } },
+          { '$user.email$': { [Op.like]: term } },
+          { '$user.phone$': { [Op.like]: term } },
+          { '$plan.name$': { [Op.like]: term } }
+        ];
+        if (!isNaN(numId)) {
+          searchConditions.push({ id: numId });
+          searchConditions.push({ userId: numId });
+        }
+        where[Op.or] = searchConditions;
+      }
+
+      const includes = [
+        planInclude,
+        userInclude,
+        {
+          model: SubscriptionInvoice,
+          as: 'invoices',
+          required: false
+        },
+        {
+          model: SubscriptionUsage,
+          as: 'usages',
+          required: false
+        }
+      ];
+
+      // Calculate status counts for UI badges
+      const [
+        totalCount,
+        activeCount,
+        trialCount,
+        pendingCount,
+        graceCount,
+        pastDueCount,
+        cancelledCount,
+        expiredCount,
+        pausedCount
+      ] = await Promise.all([
+        Subscription.count(),
+        Subscription.count({ where: { status: 'Active' } }),
+        Subscription.count({ where: { status: 'Trial' } }),
+        Subscription.count({ where: { status: 'Pending' } }),
+        Subscription.count({ where: { status: 'Grace' } }),
+        Subscription.count({ where: { status: 'Past Due' } }),
+        Subscription.count({ where: { status: 'Cancelled' } }),
+        Subscription.count({ where: { status: 'Expired' } }),
+        Subscription.count({ where: { status: 'Paused' } })
+      ]);
+
+      const statusCounts = {
+        total: totalCount,
+        active: activeCount,
+        trial: trialCount,
+        pending: pendingCount,
+        grace: graceCount,
+        pastDue: pastDueCount,
+        cancelled: cancelledCount,
+        expired: expiredCount,
+        paused: pausedCount
+      };
+
+      // Handle pagination
+      const pageNum = parseInt(page, 10) || 1;
+      const parsedLimit = limit && limit !== 'all' ? parseInt(limit, 10) : null;
+
+      const queryOptions = {
+        where,
+        include: includes,
+        order: [['createdAt', 'DESC']],
+        distinct: true
+      };
+
+      if (parsedLimit && parsedLimit > 0) {
+        queryOptions.limit = parsedLimit;
+        queryOptions.offset = (pageNum - 1) * parsedLimit;
+      }
+
+      const { count, rows } = await Subscription.findAndCountAll(queryOptions);
+
+      return res.status(200).json({
+        subscriptions: rows,
+        total: count,
+        page: pageNum,
+        limit: parsedLimit || count,
+        totalPages: parsedLimit ? Math.ceil(count / parsedLimit) : 1,
+        statusCounts
       });
-      
-      return res.status(200).json(subs);
     } catch (err) {
       console.error('❌ Error fetching all subscriptions:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Admin manual status override (Gap #9, Gap #21)
+  async updateAdminSubscriptionStatus(req, res) {
+    try {
+      const { id } = req.params;
+      const { status, reason, extendDays, expiryDate } = req.body;
+      const adminId = req.user.id;
+
+      const sub = await Subscription.findByPk(id, {
+        include: [
+          { model: Plan, as: 'plan' },
+          { model: User, as: 'user' }
+        ]
+      });
+      if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+
+      const oldStatus = sub.status;
+      const updateData = {};
+
+      if (status) {
+        updateData.status = status;
+        if (status === 'Cancelled') {
+          updateData.cancelledAt = new Date();
+          updateData.cancellationReason = reason || 'Cancelled by admin';
+        } else if (status === 'Active' && !sub.activatedAt) {
+          updateData.activatedAt = new Date();
+        } else if (status === 'Paused') {
+          updateData.pausedAt = new Date();
+        }
+      }
+
+      if (expiryDate) {
+        updateData.expiryDate = new Date(expiryDate);
+        updateData.renewalDate = new Date(expiryDate);
+      } else if (extendDays && parseInt(extendDays) > 0) {
+        const currentExp = new Date(sub.expiryDate || Date.now());
+        const newExp = new Date(currentExp.getTime() + parseInt(extendDays) * 24 * 60 * 60 * 1000);
+        updateData.expiryDate = newExp;
+        updateData.renewalDate = newExp;
+      }
+
+      await sub.update(updateData);
+
+      // Reactivate seller benefits if set to Active
+      if (status === 'Active' && sub.plan?.type === 'seller' && sub.userId) {
+        try {
+          const SellerSubscriptionService = require('../services/SellerSubscriptionService');
+          await SellerSubscriptionService.reactivateSellerBenefits(sub.userId);
+        } catch (e) {
+          console.error('Failed to reactivate seller benefits:', e);
+        }
+      }
+
+      // Record in AdminAuditLog
+      try {
+        await AdminAuditLog.create({
+          adminId,
+          adminName: req.user.name || req.user.email,
+          action: 'UPDATE_SUBSCRIPTION_STATUS',
+          targetType: 'Subscription',
+          targetId: String(sub.id),
+          targetName: `Subscription #${sub.id} (${sub.user?.name || sub.guestName || 'Guest'})`,
+          details: {
+            oldStatus,
+            newStatus: status || oldStatus,
+            reason: reason || 'Manual override by admin',
+            extendedDays: extendDays || null,
+            newExpiryDate: updateData.expiryDate || null
+          }
+        });
+      } catch (auditErr) {
+        console.error('Audit log error:', auditErr);
+      }
+
+      return res.status(200).json({
+        message: `Subscription status updated to ${status || oldStatus}`,
+        subscription: sub
+      });
+    } catch (err) {
+      console.error('Error updating subscription status:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Admin migrate subscriber to a different plan (Gap #11)
+  async adminMigrateSubscription(req, res) {
+    try {
+      const { id } = req.params;
+      const { newPlanId, reason } = req.body;
+      const adminId = req.user.id;
+
+      if (!newPlanId) return res.status(400).json({ error: 'New plan ID is required' });
+
+      const sub = await Subscription.findByPk(id, {
+        include: [{ model: Plan, as: 'plan' }, { model: User, as: 'user' }]
+      });
+      if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+
+      const newPlan = await Plan.findByPk(newPlanId);
+      if (!newPlan) return res.status(404).json({ error: 'Target plan not found' });
+
+      const oldPlanName = sub.plan?.name || `Plan #${sub.planId}`;
+
+      // Update subscription plan
+      await sub.update({
+        planId: newPlan.id,
+        customPrice: newPlan.price
+      });
+
+      // Audit log
+      try {
+        await AdminAuditLog.create({
+          adminId,
+          adminName: req.user.name || req.user.email,
+          action: 'MIGRATE_SUBSCRIPTION_PLAN',
+          targetType: 'Subscription',
+          targetId: String(sub.id),
+          targetName: `Subscription #${sub.id}`,
+          details: {
+            fromPlanId: sub.planId,
+            fromPlanName: oldPlanName,
+            toPlanId: newPlan.id,
+            toPlanName: newPlan.name,
+            reason: reason || 'Admin migrated subscriber plan'
+          }
+        });
+      } catch (auditErr) {
+        console.error('Audit log error:', auditErr);
+      }
+
+      return res.status(200).json({
+        message: `Successfully migrated subscriber from ${oldPlanName} to ${newPlan.name}`,
+        subscription: sub
+      });
+    } catch (err) {
+      console.error('Error migrating subscription:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Admin meal occurrence management: update status, reschedule, skip (Gap #8)
+  async adminManageOccurrence(req, res) {
+    try {
+      const { occurrenceId } = req.params;
+      const { status, date, deliveryAddress, pickupStationId, reason } = req.body;
+      const adminId = req.user.id;
+
+      const occurrence = await MealOccurrence.findByPk(occurrenceId, {
+        include: [{ model: Subscription, as: 'subscription' }]
+      });
+      if (!occurrence) return res.status(404).json({ error: 'Meal occurrence not found' });
+
+      const updates = {};
+      if (status) updates.status = status;
+      if (date) updates.date = date;
+      if (deliveryAddress !== undefined) updates.deliveryAddress = deliveryAddress;
+      if (pickupStationId !== undefined) updates.pickupStationId = pickupStationId || null;
+
+      await occurrence.update(updates);
+
+      // If marked as delivered, also update linked Order if exists
+      if (status === 'delivered' && occurrence.orderId) {
+        const order = await Order.findByPk(occurrence.orderId);
+        if (order) {
+          order.status = 'delivered';
+          order.deliveredAt = new Date();
+          await order.save();
+        }
+      }
+
+      // Audit log
+      try {
+        await AdminAuditLog.create({
+          adminId,
+          adminName: req.user.name || req.user.email,
+          action: 'MANAGE_MEAL_OCCURRENCE',
+          targetType: 'MealOccurrence',
+          targetId: String(occurrenceId),
+          targetName: `Meal Occurrence #${occurrenceId} (Sub #${occurrence.subscriptionId})`,
+          details: { updates, reason: reason || 'Admin occurrence modification' }
+        });
+      } catch (auditErr) {
+        console.error('Audit log error:', auditErr);
+      }
+
+      return res.status(200).json({
+        message: 'Meal occurrence updated successfully',
+        occurrence
+      });
+    } catch (err) {
+      console.error('Error managing meal occurrence:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Bulk actions on subscribers (Gap #12)
+  async adminBulkSubscriptionAction(req, res) {
+    try {
+      const { subscriptionIds, action, reason } = req.body;
+      const adminId = req.user.id;
+
+      if (!Array.isArray(subscriptionIds) || subscriptionIds.length === 0) {
+        return res.status(400).json({ error: 'Please provide an array of subscriptionIds' });
+      }
+
+      let updateData = {};
+      if (action === 'cancel') {
+        updateData = {
+          status: 'Cancelled',
+          cancelledAt: new Date(),
+          cancellationReason: reason || 'Bulk cancelled by admin'
+        };
+      } else if (action === 'pause') {
+        updateData = { status: 'Paused', pausedAt: new Date() };
+      } else if (action === 'activate') {
+        updateData = { status: 'Active', activatedAt: new Date() };
+      } else {
+        return res.status(400).json({ error: 'Unsupported bulk action. Use cancel, pause, or activate.' });
+      }
+
+      const [affectedRows] = await Subscription.update(updateData, {
+        where: { id: { [Op.in]: subscriptionIds } }
+      });
+
+      // Audit log
+      try {
+        await AdminAuditLog.create({
+          adminId,
+          adminName: req.user.name || req.user.email,
+          action: `BULK_${action.toUpperCase()}_SUBSCRIPTIONS`,
+          targetType: 'Subscription',
+          targetId: subscriptionIds.join(','),
+          targetName: `${affectedRows} subscriptions`,
+          details: { subscriptionIds, action, reason }
+        });
+      } catch (auditErr) {
+        console.error('Audit log error:', auditErr);
+      }
+
+      return res.status(200).json({
+        message: `Successfully performed ${action} on ${affectedRows} subscriptions`,
+        affectedCount: affectedRows
+      });
+    } catch (err) {
+      console.error('Error in bulk action:', err);
       return res.status(500).json({ error: err.message });
     }
   }
@@ -820,20 +1208,8 @@ class SubscriptionController {
   }
 
   async deleteBenefitPackage(req, res) {
-    try {
-      const pkg = await BenefitPackage.findByPk(req.params.id);
-      if (!pkg) return res.status(404).json({ error: 'Package not found' });
-      
-      await sequelize.transaction(async (t) => {
-        await PackageBenefit.destroy({ where: { packageId: pkg.id }, transaction: t });
-        await pkg.destroy({ transaction: t });
-      });
-      
-      return res.status(200).json({ message: 'Benefit package deleted successfully' });
-    } catch (err) {
-      console.error('❌ Error deleting benefit package:', err);
-      return res.status(500).json({ error: err.message });
-    }
+    const DeletionController = require('./deletionController');
+    return DeletionController.deleteBenefitPackage(req, res);
   }
 
   // ==========================================

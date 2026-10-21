@@ -630,12 +630,47 @@ const markPaymentReceived = async (req, res) => {
 const approveAndSchedule = async (req, res) => {
   try {
     const id = Number(req.params.id)
-    const { startAt, durationDays, slotsCount, title, subtitle, trustPoints } = req.body || {}
+    const {
+      startAt,
+      durationDays,
+      slotsCount,
+      title,
+      subtitle,
+      eyebrow,
+      promoBadge,
+      ctaText,
+      buttonText,
+      targetUrl,
+      link,
+      customImageUrl,
+      videoUrl,
+      videoType,
+      videoAutoplay,
+      videoLoop,
+      videoMuted,
+      mediaMode,
+      bannerLocation,
+      fallbackLocation,
+      isDefault,
+      isSystem,
+      trustPoints,
+      notes,
+      status: reqStatus,
+      amount,
+      free,
+      paymentStatus: reqPaymentStatus
+    } = req.body || {}
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
-    if (item.paymentStatus !== 'paid') return res.status(400).json({ error: 'Payment not confirmed' })
 
-    const start = startAt ? new Date(startAt) : new Date()
+    // Allow admin to simultaneously mark payment as paid during approval
+    const effectivePaymentStatus = reqPaymentStatus || item.paymentStatus
+    if (effectivePaymentStatus !== 'paid' && effectivePaymentStatus !== 'free' &&
+        !free && !(item.isSystem) && !(free === true) && !(amount !== undefined && Number(amount) === 0)) {
+      return res.status(400).json({ error: 'Payment not confirmed. Please mark payment as received first, or set the promotion as free.' })
+    }
+
+    const start = startAt ? new Date(startAt) : (item.startAt ? new Date(item.startAt) : new Date())
     const days = Number(durationDays) || item.durationDays || 7
     const end = new Date(start)
     end.setDate(end.getDate() + days)
@@ -644,13 +679,45 @@ const approveAndSchedule = async (req, res) => {
     item.endAt = end
     item.durationDays = days
     item.slotsCount = Number(slotsCount) || item.slotsCount || 1
-    item.status = (start <= new Date()) ? 'active' : 'scheduled'
     item.approvedBy = req.user?.id || req.user?.userId
-    if (title) item.title = title
-    if (subtitle) item.subtitle = subtitle
-    if (trustPoints) item.trustPoints = Array.isArray(trustPoints) ? trustPoints.slice(0, 3) : []
+
+    // Apply all editable content fields sent by the frontend
+    if (title !== undefined) item.title = title
+    if (subtitle !== undefined) item.subtitle = subtitle
+    if (eyebrow !== undefined || promoBadge !== undefined) item.eyebrow = eyebrow || promoBadge
+    if (ctaText !== undefined || buttonText !== undefined) item.ctaText = ctaText || buttonText
+    if (targetUrl !== undefined || link !== undefined) item.targetUrl = targetUrl || link
+    if (customImageUrl !== undefined) item.customImageUrl = customImageUrl
+    if (videoUrl !== undefined) item.videoUrl = videoUrl
+    if (videoType !== undefined) item.videoType = videoType
+    if (videoAutoplay !== undefined) item.videoAutoplay = videoAutoplay
+    if (videoLoop !== undefined) item.videoLoop = videoLoop
+    if (videoMuted !== undefined) item.videoMuted = videoMuted
+    if (mediaMode !== undefined) item.mediaMode = mediaMode
+    if (bannerLocation !== undefined) item.bannerLocation = normalizeBannerLocation(bannerLocation, item.promoType)
+    if (fallbackLocation !== undefined) item.fallbackLocation = fallbackLocation ? normalizeBannerLocation(fallbackLocation, item.promoType) : null
+    if (isDefault !== undefined) item.isDefault = !!isDefault
+    if (isSystem !== undefined) item.isSystem = !!isSystem
+    if (trustPoints !== undefined) item.trustPoints = Array.isArray(trustPoints) ? trustPoints.slice(0, 3) : []
+    if (notes) item.notes = notes
+
+    // Payment status: allow admin to confirm payment during approval
+    if (reqPaymentStatus !== undefined) {
+      item.paymentStatus = reqPaymentStatus
+    } else if (free || item.isSystem) {
+      item.paymentStatus = item.isSystem ? 'paid' : 'free'
+    } else if (amount !== undefined && Number(amount) === 0) {
+      item.paymentStatus = 'free'
+    }
+    if (amount !== undefined) item.amount = Number(amount)
+
+    // Set final status
+    const targetStatus = reqStatus || ((start <= new Date()) ? 'active' : 'scheduled')
+    item.status = targetStatus
 
     await item.save()
+    // Invalidate homepage cache
+    await cacheService.delPattern('homepage:*');
     res.json({ ok: true, item })
   } catch (e) { res.status(500).json({ error: e.message }) }
 }

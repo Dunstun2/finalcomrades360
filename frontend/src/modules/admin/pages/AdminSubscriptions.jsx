@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import subscriptionService from '@/shared/services/subscriptionService';
 import { toast } from 'react-toastify';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
@@ -12,18 +12,51 @@ import api from '@/shared/services/api';
 import useScrollLock from '@/hooks/useScrollLock';
 
 export default function AdminSubscriptions() {
-  const [activeTab, setActiveTab] = useState('verification'); // 'plans', 'packages', 'subscribers', 'verification'
+  const [activeTab, setActiveTab] = useState('verification'); // 'verification', 'plans', 'packages', 'subscribers'
   const [plans, setPlans] = useState([]);
   const [packages, setPackages] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Modal state
+
+  // Status Counts & Badge state (Gap #15)
+  const [statusCounts, setStatusCounts] = useState({
+    total: 0,
+    active: 0,
+    trial: 0,
+    pending: 0,
+    grace: 0,
+    pastDue: 0,
+    cancelled: 0,
+    expired: 0,
+    paused: 0
+  });
+  const [pendingVerificationCount, setPendingVerificationCount] = useState(0);
+
+  // Subscribers Search, Filter & Pagination state (Gap #6, Gap #13)
+  const [subSearch, setSubSearch] = useState('');
+  const [subStatus, setSubStatus] = useState('all');
+  const [subPlanType, setSubPlanType] = useState('all');
+  const [subStartDate, setSubStartDate] = useState('');
+  const [subEndDate, setSubEndDate] = useState('');
+  const [subPage, setSubPage] = useState(1);
+  const [subLimit, setSubLimit] = useState(20);
+  const [totalSubscribers, setTotalSubscribers] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingSubscribers, setLoadingSubscribers] = useState(false);
+
+  // Bulk Actions state (Gap #12)
+  const [selectedSubIds, setSelectedSubIds] = useState(new Set());
+  const [bulkActionModal, setBulkActionModal] = useState({ isOpen: false, action: '', reason: '' });
+  const [isProcessingBulk, setIsProcessingBulk] = useState(false);
+
+  // Modal states for Plans & Packages
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
-  
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [editingPackage, setEditingPackage] = useState(null);
+
+  // Plan Preview Modal (Gap #18)
+  const [previewPlan, setPreviewPlan] = useState(null);
 
   // Deletion state
   const [deletingItem, setDeletingItem] = useState(null);
@@ -40,9 +73,10 @@ export default function AdminSubscriptions() {
   // Subscription management state
   const [selectedSubscription, setSelectedSubscription] = useState(null);
   const [showSubscriptionDetails, setShowSubscriptionDetails] = useState(false);
-  
-  // Active scroll lock hook for details modal
-  useScrollLock(showSubscriptionDetails);
+  const [activeModalTab, setActiveModalTab] = useState('overview'); // 'overview', 'benefits', 'invoices', 'occurrences', 'override'
+  useScrollLock(showSubscriptionDetails || !!previewPlan);
+
+  // Meal occurrences and benefits inside modal
   const [subscriptionOccurrences, setSubscriptionOccurrences] = useState([]);
   const [loadingOccurrences, setLoadingOccurrences] = useState(false);
   const [selectedSubscriptionSchedule, setSelectedSubscriptionSchedule] = useState(null);
@@ -50,9 +84,46 @@ export default function AdminSubscriptions() {
   const [fastFoodItems, setFastFoodItems] = useState([]);
   const [loadingScheduleDetails, setLoadingScheduleDetails] = useState(false);
 
+  // Occurrence editing states (Gap #8)
+  const [rescheduleModal, setRescheduleModal] = useState({ isOpen: false, occurrence: null, newDate: '' });
+  const [addressModal, setAddressModal] = useState({ isOpen: false, occurrence: null, newAddress: '' });
+  const [processingOccurrenceId, setProcessingOccurrenceId] = useState(null);
+
+  // Manual Status Override state (Gap #9)
+  const [overrideStatus, setOverrideStatus] = useState('');
+  const [extendDays, setExtendDays] = useState(0);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  // Plan Migration state (Gap #11)
+  const [migrationModal, setMigrationModal] = useState({ isOpen: false, targetPlanId: '', reason: '' });
+  const [isMigrating, setIsMigrating] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'subscribers') {
+      fetchSubscribers();
+    }
+  }, [subPage, subLimit, subStatus, subPlanType]);
+
+  // Poll pending verification count for badge
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        const res = await api.get('/admin/payments/pending');
+        const count = res.data?.payments?.length || (Array.isArray(res.data) ? res.data.length : 0);
+        setPendingVerificationCount(count);
+      } catch (e) {
+        // Silent catch for background poll
+      }
+    };
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -64,8 +135,7 @@ export default function AdminSubscriptions() {
         const data = await subscriptionService.getBenefitPackages();
         setPackages(data || []);
       } else if (activeTab === 'subscribers') {
-        const data = await subscriptionService.getAllSubscriptions();
-        setSubscriptions(data || []);
+        await fetchSubscribers();
       }
     } catch (err) {
       toast.error('Failed to load data');
@@ -74,6 +144,59 @@ export default function AdminSubscriptions() {
     }
   };
 
+  const fetchSubscribers = async () => {
+    setLoadingSubscribers(true);
+    try {
+      const params = {
+        page: subPage,
+        limit: subLimit,
+        status: subStatus !== 'all' ? subStatus : undefined,
+        planType: subPlanType !== 'all' ? subPlanType : undefined,
+        search: subSearch.trim() || undefined,
+        startDate: subStartDate || undefined,
+        endDate: subEndDate || undefined
+      };
+
+      const res = await subscriptionService.getAllSubscriptions(params);
+
+      if (res && res.subscriptions) {
+        setSubscriptions(res.subscriptions);
+        setTotalSubscribers(res.total || 0);
+        setTotalPages(res.totalPages || 1);
+        if (res.statusCounts) {
+          setStatusCounts(res.statusCounts);
+        }
+      } else if (Array.isArray(res)) {
+        setSubscriptions(res);
+        setTotalSubscribers(res.length);
+        setTotalPages(1);
+      } else {
+        setSubscriptions([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch subscribers:', err);
+      toast.error('Failed to load subscribers');
+    } finally {
+      setLoadingSubscribers(false);
+    }
+  };
+
+  const handleSearchSubmit = (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    setSubPage(1);
+    fetchSubscribers();
+  };
+
+  const handleClearFilters = () => {
+    setSubSearch('');
+    setSubStatus('all');
+    setSubPlanType('all');
+    setSubStartDate('');
+    setSubEndDate('');
+    setSubPage(1);
+  };
+
+  // Plan CRUD Handlers
   const handleEditPlan = (plan) => {
     setEditingPlan(plan);
     setShowPlanModal(true);
@@ -133,9 +256,7 @@ export default function AdminSubscriptions() {
       } else {
         const result = await subscriptionService.deleteBenefitPackage(deletingItem.item.id);
         toast.success(result.message || 'Benefit package deleted successfully');
-        if (result.warning) {
-          toast.info(result.warning);
-        }
+        if (result.warning) toast.info(result.warning);
       }
       setShowDeleteConfirm(false);
       setDeletingItem(null);
@@ -162,23 +283,36 @@ export default function AdminSubscriptions() {
     setDeleteCheckInfo(null);
   };
 
+  // View Subscription Details Modal
   const handleViewSubscriptionDetails = async (subscription) => {
     setSelectedSubscription(subscription);
+    setOverrideStatus(subscription.status);
+    setExtendDays(0);
+    setOverrideReason('');
+    setActiveModalTab('overview');
     setShowSubscriptionDetails(true);
-    
+
+    // Fetch active benefits summary (Gap #16)
+    try {
+      const benefitsData = await subscriptionService.getSubscriptionBenefits(subscription.id);
+      setSelectedSubscriptionBenefits(benefitsData || []);
+    } catch (e) {
+      console.warn('Could not load specific benefits:', e);
+      setSelectedSubscriptionBenefits([]);
+    }
+
     // Fetch meal occurrences and schedule details if it's a meal subscription
     if (subscription.plan?.type === 'meal') {
       setLoadingOccurrences(true);
       setLoadingScheduleDetails(true);
-      
+
       const promises = [
         subscriptionService.getMealOccurrences(subscription.id).catch(err => {
           console.error('Failed to load meal occurrences:', err);
           return [];
         })
       ];
-      
-      // If we don't have a snapshot, we need schedule, benefits, and food items for dynamic calculation
+
       const hasSnapshot = !!subscription.costProjectionSnapshot;
       if (!hasSnapshot) {
         promises.push(
@@ -186,29 +320,24 @@ export default function AdminSubscriptions() {
             console.error('Failed to load meal schedule:', err);
             return null;
           }),
-          subscriptionService.getSubscriptionBenefits(subscription.id).catch(err => {
-            console.error('Failed to load subscription benefits:', err);
-            return [];
-          }),
           api.get('/fastfood?limit=1000').then(res => res.data?.data || (Array.isArray(res.data) ? res.data : [])).catch(err => {
             console.error('Failed to load fast food items:', err);
             return [];
           })
         );
       }
-      
+
       try {
         const results = await Promise.all(promises);
         setSubscriptionOccurrences(results[0] || []);
-        
+
         if (!hasSnapshot) {
           setSelectedSubscriptionSchedule(results[1]);
-          setSelectedSubscriptionBenefits(results[2] || []);
-          setFastFoodItems(results[3] || []);
+          setFastFoodItems(results[2] || []);
         }
       } catch (err) {
         console.error('Failed to load subscriber detailed data:', err);
-        toast.error('Failed to load subscription details');
+        toast.error('Failed to load meal details');
       } finally {
         setLoadingOccurrences(false);
         setLoadingScheduleDetails(false);
@@ -224,12 +353,187 @@ export default function AdminSubscriptions() {
     setSelectedSubscriptionBenefits([]);
   };
 
+  // Manual Status Override Handler (Gap #9)
+  const handleSaveStatusOverride = async () => {
+    if (!selectedSubscription) return;
+    setIsUpdatingStatus(true);
+    try {
+      await subscriptionService.updateAdminSubscriptionStatus(selectedSubscription.id, {
+        status: overrideStatus,
+        extendDays: extendDays > 0 ? extendDays : undefined,
+        reason: overrideReason
+      });
+      toast.success(`Subscription updated to ${overrideStatus}`);
+      fetchSubscribers();
+      handleCloseSubscriptionDetails();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update subscription status');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Plan Migration Handler (Gap #11)
+  const handleExecuteMigration = async () => {
+    if (!selectedSubscription || !migrationModal.targetPlanId) {
+      toast.error('Please select a target plan');
+      return;
+    }
+    setIsMigrating(true);
+    try {
+      await subscriptionService.adminMigrateSubscription(selectedSubscription.id, {
+        newPlanId: migrationModal.targetPlanId,
+        reason: migrationModal.reason
+      });
+      toast.success('Subscriber migrated successfully!');
+      setMigrationModal({ isOpen: false, targetPlanId: '', reason: '' });
+      fetchSubscribers();
+      handleCloseSubscriptionDetails();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to migrate subscriber');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  // Meal Occurrence Management Handlers (Gap #8)
+  const handleUpdateOccurrenceStatus = async (occurrenceId, newStatus) => {
+    setProcessingOccurrenceId(occurrenceId);
+    try {
+      await subscriptionService.adminManageOccurrence(occurrenceId, { status: newStatus });
+      toast.success(`Occurrence marked as ${newStatus}`);
+      // Refresh occurrences in modal
+      const updated = await subscriptionService.getMealOccurrences(selectedSubscription.id);
+      setSubscriptionOccurrences(updated || []);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update occurrence');
+    } finally {
+      setProcessingOccurrenceId(null);
+    }
+  };
+
+  const handleRescheduleOccurrenceSubmit = async () => {
+    if (!rescheduleModal.occurrence || !rescheduleModal.newDate) {
+      toast.error('Please select a new date');
+      return;
+    }
+    setProcessingOccurrenceId(rescheduleModal.occurrence.id);
+    try {
+      await subscriptionService.adminManageOccurrence(rescheduleModal.occurrence.id, {
+        date: rescheduleModal.newDate
+      });
+      toast.success('Occurrence rescheduled successfully');
+      setRescheduleModal({ isOpen: false, occurrence: null, newDate: '' });
+      const updated = await subscriptionService.getMealOccurrences(selectedSubscription.id);
+      setSubscriptionOccurrences(updated || []);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to reschedule occurrence');
+    } finally {
+      setProcessingOccurrenceId(null);
+    }
+  };
+
+  const handleUpdateOccurrenceAddressSubmit = async () => {
+    if (!addressModal.occurrence || !addressModal.newAddress) {
+      toast.error('Please enter a delivery address');
+      return;
+    }
+    setProcessingOccurrenceId(addressModal.occurrence.id);
+    try {
+      await subscriptionService.adminManageOccurrence(addressModal.occurrence.id, {
+        deliveryAddress: addressModal.newAddress
+      });
+      toast.success('Delivery address updated');
+      setAddressModal({ isOpen: false, occurrence: null, newAddress: '' });
+      const updated = await subscriptionService.getMealOccurrences(selectedSubscription.id);
+      setSubscriptionOccurrences(updated || []);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update address');
+    } finally {
+      setProcessingOccurrenceId(null);
+    }
+  };
+
+  // Bulk Actions Handlers (Gap #12)
+  const handleToggleSelectAll = () => {
+    if (selectedSubIds.size === subscriptions.length) {
+      setSelectedSubIds(new Set());
+    } else {
+      setSelectedSubIds(new Set(subscriptions.map(s => s.id)));
+    }
+  };
+
+  const handleToggleSelectOne = (id) => {
+    setSelectedSubIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleExecuteBulkAction = async () => {
+    if (selectedSubIds.size === 0) return;
+    setIsProcessingBulk(true);
+    try {
+      await subscriptionService.adminBulkSubscriptionAction({
+        subscriptionIds: Array.from(selectedSubIds),
+        action: bulkActionModal.action,
+        reason: bulkActionModal.reason
+      });
+      toast.success(`Bulk ${bulkActionModal.action} completed for ${selectedSubIds.size} subscriptions`);
+      setBulkActionModal({ isOpen: false, action: '', reason: '' });
+      setSelectedSubIds(new Set());
+      fetchSubscribers();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to perform bulk action');
+    } finally {
+      setIsProcessingBulk(false);
+    }
+  };
+
+  // Export CSV Handler (Gap #12)
+  const handleExportCSV = () => {
+    const subsToExport = subscriptions.filter(s => selectedSubIds.size === 0 || selectedSubIds.has(s.id));
+    if (subsToExport.length === 0) {
+      toast.warning('No subscribers to export');
+      return;
+    }
+
+    const headers = ['Subscription ID', 'Customer Name', 'Email', 'Phone', 'User Type', 'Plan Name', 'Plan Type', 'Status', 'Price (KES)', 'Start Date', 'Expiry Date', 'Auto Renew'];
+    const rows = subsToExport.map(s => [
+      s.id,
+      `"${s.user?.name || s.guestName || 'Unnamed'}"`,
+      `"${s.user?.email || s.guestEmail || ''}"`,
+      `"${s.user?.phone || s.guestPhone || ''}"`,
+      s.userId ? 'Registered' : 'Guest',
+      `"${s.plan?.name || 'Custom Plan'}"`,
+      s.plan?.type || '',
+      s.status,
+      s.costProjectionSnapshot?.totals?.finalTotal ? Math.round(s.costProjectionSnapshot.totals.finalTotal) : (s.customPrice || s.plan?.price || 0),
+      s.startDate ? new Date(s.startDate).toLocaleDateString() : '',
+      s.expiryDate ? new Date(s.expiryDate).toLocaleDateString() : (s.renewalDate ? new Date(s.renewalDate).toLocaleDateString() : ''),
+      s.autoRenew ? 'Yes' : 'No'
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `subscribers_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success(`Exported ${subsToExport.length} subscribers to CSV`);
+  };
+
+  // Cancellation Modal Handlers
   const handleCancelClick = (subscriptionId) => {
     setCancelSubscriptionId(subscriptionId);
     setCancelReason('');
     setCancelPassword('');
     setShowCancelModal(true);
-    setShowSubscriptionDetails(false); // Close details modal to show cancel modal
+    setShowSubscriptionDetails(false);
   };
 
   const handleConfirmCancel = async () => {
@@ -254,28 +558,29 @@ export default function AdminSubscriptions() {
       setCancelPassword('');
       setCancelSubscriptionId(null);
       handleCloseSubscriptionDetails();
-      fetchData();
+      fetchSubscribers();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to cancel subscription');
     }
   };
 
   const getStatusColor = (status) => {
-    switch(status) {
-      case 'Active': return 'bg-green-100 text-green-800';
-      case 'Trial': return 'bg-blue-100 text-blue-800';
-      case 'Grace': return 'bg-yellow-100 text-yellow-800';
-      case 'Past Due': return 'bg-orange-100 text-orange-800';
-      case 'Paused': return 'bg-gray-100 text-gray-800';
-      case 'Expired': return 'bg-red-100 text-red-800';
-      case 'Cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+    switch (status) {
+      case 'Active': return 'bg-green-100 text-green-800 border-green-200';
+      case 'Trial': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'Grace': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'Past Due': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'Paused': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'Expired': return 'bg-gray-100 text-gray-700 border-gray-200';
+      case 'Cancelled': return 'bg-red-100 text-red-800 border-red-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
   const getOccurrenceStatusColor = (status) => {
-    switch(status) {
+    switch (status) {
       case 'delivered': return 'bg-green-100 text-green-800';
+      case 'scheduled': return 'bg-blue-100 text-blue-800';
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'skipped': return 'bg-gray-100 text-gray-800';
       case 'cancelled': return 'bg-red-100 text-red-800';
@@ -285,125 +590,147 @@ export default function AdminSubscriptions() {
 
   return (
     <div className="p-3 sm:p-6 max-w-7xl mx-auto">
+      {/* Top Header */}
       <div className="sm:flex sm:items-center sm:justify-between mb-4 sm:mb-8">
         <div>
-          <h1 className="text-lg sm:text-2xl font-bold text-gray-900">Subscription Management</h1>
-          <p className="mt-1 sm:mt-2 text-xs sm:text-sm text-gray-700">Manage plan templates, view subscribers, and monitor billing.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Subscription Operations Hub</h1>
+          <p className="mt-1 text-xs sm:text-sm text-gray-600">
+            Real-time subscriber lifecycle management, plan templates, packages, and manual payment verification.
+          </p>
         </div>
         {activeTab === 'plans' && (
           <div className="mt-4 sm:mt-0">
-            <button onClick={handleCreatePlan} className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none sm:w-auto">
-              Create New Plan
+            <button
+              onClick={handleCreatePlan}
+              className="inline-flex items-center justify-center rounded-xl border border-transparent bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors gap-2"
+            >
+              <span>+</span> Create New Plan
             </button>
           </div>
         )}
         {activeTab === 'packages' && (
           <div className="mt-4 sm:mt-0">
-            <button onClick={handleCreatePackage} className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none sm:w-auto">
-              Create New Package
+            <button
+              onClick={handleCreatePackage}
+              className="inline-flex items-center justify-center rounded-xl border border-transparent bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors gap-2"
+            >
+              <span>+</span> Create New Package
             </button>
           </div>
         )}
       </div>
 
-      <div className="mb-3 sm:mb-6 border-b border-gray-200 overflow-x-auto scrollbar-none">
+      {/* Navigation Tabs with Badges (Gap #15) */}
+      <div className="mb-4 sm:mb-6 border-b border-gray-200 overflow-x-auto scrollbar-none">
         <nav className="-mb-px flex space-x-4 sm:space-x-8 min-w-max pb-1">
           <button
             onClick={() => setActiveTab('verification')}
-            className={`${activeTab === 'verification' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 font-medium text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2`}
+            className={`${activeTab === 'verification' ? 'border-red-500 text-red-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 text-xs sm:text-sm flex items-center gap-2`}
           >
-            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-red-500 rounded-full animate-pulse"></span>
+            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             Payment Verification
+            {pendingVerificationCount > 0 && (
+              <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm animate-bounce">
+                {pendingVerificationCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('plans')}
-            className={`${activeTab === 'plans' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 font-medium text-xs sm:text-sm`}
+            className={`${activeTab === 'plans' ? 'border-blue-600 text-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 text-xs sm:text-sm flex items-center gap-2`}
           >
             Plan Templates
+            {plans.length > 0 && (
+              <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
+                {plans.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('packages')}
-            className={`${activeTab === 'packages' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 font-medium text-xs sm:text-sm`}
+            className={`${activeTab === 'packages' ? 'border-blue-600 text-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 text-xs sm:text-sm flex items-center gap-2`}
           >
             Benefit Packages
+            {packages.length > 0 && (
+              <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
+                {packages.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('subscribers')}
-            className={`${activeTab === 'subscribers' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 font-medium text-xs sm:text-sm`}
+            className={`${activeTab === 'subscribers' ? 'border-blue-600 text-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700'} whitespace-nowrap pb-3 sm:pb-4 px-1 border-b-2 text-xs sm:text-sm flex items-center gap-2`}
           >
             Subscribers
+            {statusCounts.total > 0 && (
+              <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                {statusCounts.total}
+              </span>
+            )}
           </button>
         </nav>
       </div>
 
       {loading ? (
-        <div className="py-12 flex justify-center"><LoadingSpinner size="lg" /></div>
+        <div className="py-16 flex justify-center"><LoadingSpinner size="lg" /></div>
       ) : activeTab === 'verification' ? (
         <PaymentVerificationQueue />
       ) : activeTab === 'plans' ? (
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          {/* Desktop Table View */}
+        <div className="bg-white shadow rounded-xl overflow-hidden border border-gray-100">
+          {/* Plan Templates List */}
           <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pricing</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Creator</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="relative px-6 py-3"><span className="sr-only">Edit</span></th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Plan Name</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Price</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Billing Cycle</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-600 uppercase w-48">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-100">
                 {plans.map((plan) => (
-                  <tr key={plan.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{plan.name}</div>
-                      <div className="text-sm text-gray-500">{plan.description}</div>
+                  <tr key={plan.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-gray-900">{plan.name}</div>
+                      <div className="text-xs text-gray-500 truncate max-w-sm">{plan.description || 'No description'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-indigo-100 text-indigo-800 uppercase">
+                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 capitalize">
                         {plan.type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {plan.type === 'meal'
-                        ? `${plan.currency} ${plan.price} — custom package`
-                        : `${plan.currency} ${plan.price} / ${plan.billingCycle}`
-                      }
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                      KES {plan.price ? Number(plan.price).toLocaleString() : '0'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 capitalize">
+                      {plan.billingCycle || 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {plan.creator ? (() => {
-                        const roles = plan.creator.roles || [];
-                        const isAdmin = roles.includes('superadmin') || roles.includes('admin') || roles.includes('super_admin');
-                        return (
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium text-gray-900">{plan.creator.name}</span>
-                            <span className={`text-xs font-semibold ${isAdmin ? 'text-purple-600' : 'text-blue-600'}`}>
-                              {isAdmin ? '👑 Admin' : '👤 Customer'}
-                            </span>
-                          </div>
-                        );
-                      })() : (
-                        <span className="text-sm text-gray-400 italic">System</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        plan.status === 'Published' ? 'bg-green-100 text-green-800' :
-                        plan.status === 'Archived' ? 'bg-gray-100 text-gray-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${getStatusColor(plan.status)}`}>
                         {plan.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
-                      <button onClick={() => handleEditPlan(plan)} className="text-blue-600 hover:text-blue-900">
+                      {/* Customer Preview Button (Gap #18) */}
+                      <button
+                        onClick={() => setPreviewPlan(plan)}
+                        className="text-indigo-600 hover:text-indigo-800 font-semibold"
+                        title="Preview Customer View"
+                      >
+                        👁️ Preview
+                      </button>
+                      <button
+                        onClick={() => handleEditPlan(plan)}
+                        className="text-blue-600 hover:text-blue-800 font-semibold"
+                      >
                         Edit
                       </button>
-                      <button 
-                        onClick={() => handleDeletePlan(plan)} 
-                        className="text-red-600 hover:text-red-900"
+                      <button
+                        onClick={() => handleDeletePlan(plan)}
+                        className="text-red-600 hover:text-red-800 font-semibold"
                       >
                         Delete
                       </button>
@@ -411,643 +738,910 @@ export default function AdminSubscriptions() {
                   </tr>
                 ))}
                 {plans.length === 0 && (
-                  <tr><td colSpan="6" className="px-6 py-4 text-center text-gray-500">No plans configured yet.</td></tr>
+                  <tr>
+                    <td colSpan="6" className="px-6 py-10 text-center text-gray-500">
+                      No plan templates created yet.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {/* Mobile Card Layout */}
-          <div className="md:hidden divide-y divide-gray-200 bg-white">
+          {/* Mobile Plan Cards */}
+          <div className="md:hidden divide-y divide-gray-100">
             {plans.map((plan) => (
               <div key={plan.id} className="p-4 space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-900">{plan.name}</h4>
-                    <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>
+                    <h4 className="font-semibold text-gray-900">{plan.name}</h4>
+                    <p className="text-xs text-gray-500 line-clamp-1">{plan.description}</p>
                   </div>
-                  <span className={`px-2 py-0.5 inline-flex text-[10px] leading-5 font-semibold rounded-full ${
-                    plan.status === 'Published' ? 'bg-green-100 text-green-800' :
-                    plan.status === 'Archived' ? 'bg-gray-100 text-gray-800' : 'bg-yellow-100 text-yellow-800'
-                  }`}>
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getStatusColor(plan.status)}`}>
                     {plan.status}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs border-t border-gray-100 pt-2">
-                  <div>
-                    <span className="text-gray-500 block">Type</span>
-                    <span className="font-semibold text-gray-900 uppercase text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                      {plan.type}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block">Pricing</span>
-                    <span className="font-semibold text-gray-900">
-                      {plan.type === 'meal'
-                        ? `${plan.currency} ${plan.price} — custom package`
-                        : `${plan.currency} ${plan.price} / ${plan.billingCycle}`
-                      }
-                    </span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-gray-500 block">Creator</span>
-                    <span className="font-semibold text-gray-900">
-                      {plan.creator ? (
-                        `${plan.creator.name} (${plan.creator.roles?.includes('admin') || plan.creator.roles?.includes('superadmin') || plan.creator.roles?.includes('super_admin') ? '👑 Admin' : '👤 Customer'})`
-                      ) : (
-                        <span className="text-gray-400 italic">System</span>
-                      )}
-                    </span>
-                  </div>
+                <div className="flex justify-between text-xs text-gray-600 border-t pt-2">
+                  <span>Type: <strong className="capitalize">{plan.type}</strong></span>
+                  <span>Price: <strong>KES {plan.price}</strong> / {plan.billingCycle}</span>
                 </div>
-                <div className="flex justify-end gap-3 border-t border-gray-100 pt-2 text-sm font-medium">
-                  <button onClick={() => handleEditPlan(plan)} className="text-blue-600 hover:text-blue-900">
-                    Edit
-                  </button>
-                  <button 
-                    onClick={() => handleDeletePlan(plan)} 
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    Delete
-                  </button>
+                <div className="flex justify-end gap-3 text-xs font-semibold pt-1">
+                  <button onClick={() => setPreviewPlan(plan)} className="text-indigo-600">👁️ Preview</button>
+                  <button onClick={() => handleEditPlan(plan)} className="text-blue-600">Edit</button>
+                  <button onClick={() => handleDeletePlan(plan)} className="text-red-600">Delete</button>
                 </div>
               </div>
             ))}
-            {plans.length === 0 && (
-              <div className="p-4 text-center text-gray-500 text-sm">No plans configured yet.</div>
-            )}
           </div>
         </div>
       ) : activeTab === 'packages' ? (
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          {/* Desktop Table View */}
+        <div className="bg-white shadow rounded-xl overflow-hidden border border-gray-100">
           <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Package Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Benefits Count</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Package Name</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Included Benefits</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-600 uppercase w-36">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-100">
                 {packages.map((pkg) => (
-                  <tr key={pkg.id}>
+                  <tr key={pkg.id} className="hover:bg-gray-50/60 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{pkg.name}</div>
-                      <div className="text-sm text-gray-500 max-w-md truncate" title={pkg.description}>
-                        {pkg.description}
-                      </div>
+                      <div className="font-semibold text-gray-900">{pkg.name}</div>
+                      <div className="text-xs text-gray-500 max-w-md truncate">{pkg.description}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 uppercase">
+                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-50 text-purple-700 uppercase">
                         {pkg.type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {pkg.benefits?.length || 0} benefits
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {pkg.benefits?.length || 0} features bundled
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
-                      <button onClick={() => handleEditPackage(pkg)} className="text-blue-600 hover:text-blue-900">
+                      <button onClick={() => handleEditPackage(pkg)} className="text-blue-600 hover:text-blue-800">
                         Edit
                       </button>
-                      <button 
-                        onClick={() => handleDeletePackage(pkg)} 
-                        className="text-red-600 hover:text-red-900"
-                      >
+                      <button onClick={() => handleDeletePackage(pkg)} className="text-red-600 hover:text-red-800">
                         Delete
                       </button>
                     </td>
                   </tr>
                 ))}
                 {packages.length === 0 && (
-                  <tr><td colSpan="4" className="px-6 py-4 text-center text-gray-500">No benefit packages configured yet.</td></tr>
+                  <tr>
+                    <td colSpan="4" className="px-6 py-10 text-center text-gray-500">
+                      No benefit packages configured yet.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
-          </div>
-
-          {/* Mobile Card Layout */}
-          <div className="md:hidden divide-y divide-gray-200 bg-white">
-            {packages.map((pkg) => (
-              <div key={pkg.id} className="p-4 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900">{pkg.name}</h4>
-                    <p className="text-xs text-gray-500 mt-0.5 max-w-xs line-clamp-2" title={pkg.description}>
-                      {pkg.description}
-                    </p>
-                  </div>
-                  <span className="px-2 py-0.5 inline-flex text-[10px] leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 uppercase">
-                    {pkg.type}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-xs border-t border-gray-100 pt-2">
-                  <div>
-                    <span className="text-gray-500">Benefits: </span>
-                    <span className="font-semibold text-gray-900">{pkg.benefits?.length || 0} benefits</span>
-                  </div>
-                  <div className="flex gap-3 text-sm font-medium">
-                    <button onClick={() => handleEditPackage(pkg)} className="text-blue-600 hover:text-blue-900">
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleDeletePackage(pkg)} 
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {packages.length === 0 && (
-              <div className="p-4 text-center text-gray-500 text-sm">No benefit packages configured yet.</div>
-            )}
           </div>
         </div>
       ) : (
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount Paid</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expires At</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {subscriptions.map((sub) => (
-                  <tr key={sub.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {sub.user ? (
-                        <div className="space-y-1">
-                          <div className="font-semibold text-base text-gray-900">
-                            {sub.user.name || 'Unnamed User'}
-                          </div>
-                          {sub.user.email && (
-                            <div className="text-xs text-blue-600">
-                              📧 {sub.user.email}
-                            </div>
-                          )}
-                          {sub.user.phone && (
-                            <div className="text-xs text-green-600">
-                              📱 {sub.user.phone}
-                            </div>
-                          )}
-                          <div className="text-xs text-gray-500">
-                            User ID: {sub.userId}
-                          </div>
-                        </div>
-                      ) : sub.guestName ? (
-                        <div className="space-y-1">
-                          <div className="font-semibold text-base text-gray-900">
-                            {sub.guestName} <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Guest</span>
-                          </div>
-                          {sub.guestEmail && (
-                            <div className="text-xs text-blue-600">
-                              📧 {sub.guestEmail}
-                            </div>
-                          )}
-                          {sub.guestPhone && (
-                            <div className="text-xs text-green-600">
-                              📱 {sub.guestPhone}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-500">
-                          User #{sub.userId || 'Unknown'}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {sub.plan?.name || `Plan ID: ${sub.planId}`}
-                      <div className="text-xs text-gray-400 capitalize">{sub.plan?.type}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(sub.status)}`}>
-                        {sub.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <span className="font-medium">
-                        KES {sub.costProjectionSnapshot?.totals?.finalTotal ? Math.round(sub.costProjectionSnapshot.totals.finalTotal) : sub.customPrice ? parseFloat(sub.customPrice).toFixed(2) : sub.plan?.price ? parseFloat(sub.plan.price).toFixed(2) : '0.00'}
-                      </span>
-                      <div className="text-xs text-gray-400">
-                        {sub.plan?.type === 'meal' 
-                          ? 'Entire Schedule'
-                          : (sub.plan?.billingCycle ? `per ${sub.plan.billingCycle}` : '')}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {sub.autoRenew ? (sub.renewalDate ? new Date(sub.renewalDate).toLocaleDateString() : 'N/A') : 'Auto-renew off'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {sub.startDate ? new Date(sub.startDate).toLocaleDateString() : new Date(sub.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => handleViewSubscriptionDetails(sub)}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        Manage
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {subscriptions.length === 0 && (
-                  <tr><td colSpan="7" className="px-6 py-4 text-center text-gray-500">No active subscribers found.</td></tr>
-                )}
-              </tbody>
-            </table>
+        /* SUBSCRIBERS TAB (Gaps #6, #8, #9, #10, #11, #12, #13, #14, #16, #19) */
+        <div className="space-y-4">
+          {/* Status Metric Pills */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+            {[
+              { label: 'All Subscribers', key: 'all', count: statusCounts.total, color: 'border-blue-200 bg-blue-50/50 text-blue-900' },
+              { label: 'Active', key: 'Active', count: statusCounts.active, color: 'border-green-200 bg-green-50/50 text-green-900' },
+              { label: 'In Trial', key: 'Trial', count: statusCounts.trial, color: 'border-indigo-200 bg-indigo-50/50 text-indigo-900' },
+              { label: 'Pending Payment', key: 'Pending', count: statusCounts.pending, color: 'border-yellow-200 bg-yellow-50/50 text-yellow-900' },
+              { label: 'Past Due', key: 'Past Due', count: statusCounts.pastDue, color: 'border-orange-200 bg-orange-50/50 text-orange-900' },
+              { label: 'Paused', key: 'Paused', count: statusCounts.paused, color: 'border-purple-200 bg-purple-50/50 text-purple-900' },
+              { label: 'Cancelled', key: 'Cancelled', count: statusCounts.cancelled, color: 'border-red-200 bg-red-50/50 text-red-900' },
+            ].map(pill => (
+              <button
+                key={pill.key}
+                onClick={() => { setSubStatus(pill.key); setSubPage(1); }}
+                className={`p-3 rounded-xl border text-left transition-all ${subStatus === pill.key ? 'ring-2 ring-blue-500 font-bold shadow-sm' : 'hover:bg-white'} ${pill.color}`}
+              >
+                <div className="text-xs font-medium text-gray-500">{pill.label}</div>
+                <div className="text-lg font-extrabold mt-0.5">{pill.count || 0}</div>
+              </button>
+            ))}
           </div>
 
-          {/* Mobile Card Layout */}
-          <div className="md:hidden divide-y divide-gray-200 bg-white">
-            {subscriptions.map((sub) => (
-              <div key={sub.id} className="p-4 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div className="text-sm font-medium text-gray-900">
-                    {sub.user ? (
-                      <div className="space-y-0.5">
-                        <div className="font-semibold text-gray-900">
-                          {sub.user.name || 'Unnamed User'}
-                        </div>
-                        {sub.user.email && (
-                          <div className="text-xs text-blue-600">
-                            📧 {sub.user.email}
-                          </div>
-                        )}
-                        {sub.user.phone && (
-                          <div className="text-xs text-green-600">
-                            📱 {sub.user.phone}
-                          </div>
-                        )}
-                      </div>
-                    ) : sub.guestName ? (
-                      <div className="space-y-0.5">
-                        <div className="font-semibold text-gray-900">
-                          {sub.guestName} <span className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded">Guest</span>
-                        </div>
-                        {sub.guestEmail && (
-                          <div className="text-xs text-blue-600">
-                            📧 {sub.guestEmail}
-                          </div>
-                        )}
-                        {sub.guestPhone && (
-                          <div className="text-xs text-green-600">
-                            📱 {sub.guestPhone}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-gray-500">
-                        User #{sub.userId || 'Unknown'}
-                      </div>
-                    )}
-                  </div>
-                  <span className={`px-2 py-0.5 inline-flex text-[10px] leading-5 font-semibold rounded-full ${getStatusColor(sub.status)}`}>
-                    {sub.status}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs border-t border-gray-100 pt-2">
-                  <div>
-                    <span className="text-gray-500 block">Plan</span>
-                    <span className="font-semibold text-gray-900">{sub.plan?.name || `Plan ID: ${sub.planId}`}</span>
-                    <span className="text-[10px] text-gray-400 block capitalize">{sub.plan?.type}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block">Amount Paid</span>
-                    <span className="font-semibold text-gray-900">
-                      KES {sub.costProjectionSnapshot?.totals?.finalTotal ? Math.round(sub.costProjectionSnapshot.totals.finalTotal) : sub.customPrice ? parseFloat(sub.customPrice).toFixed(2) : sub.plan?.price ? parseFloat(sub.plan.price).toFixed(2) : '0.00'}
-                    </span>
-                    <span className="text-[10px] text-gray-400 block">
-                      {sub.plan?.type === 'meal' ? 'Entire Schedule' : (sub.plan?.billingCycle ? `per ${sub.plan.billingCycle}` : '')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block">Start Date</span>
-                    <span className="font-medium text-gray-900">
-                      {sub.startDate ? new Date(sub.startDate).toLocaleDateString() : new Date(sub.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block">Expires At</span>
-                    <span className="font-medium text-gray-900">
-                      {sub.autoRenew ? (sub.renewalDate ? new Date(sub.renewalDate).toLocaleDateString() : 'N/A') : 'Auto-renew off'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex justify-end border-t border-gray-100 pt-2">
-                  <button
-                    onClick={() => handleViewSubscriptionDetails(sub)}
-                    className="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 px-3 py-1.5 rounded font-medium"
-                  >
-                    Manage
-                  </button>
-                </div>
+          {/* Search & Filter Toolbar (Gap #6) */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-3">
+            <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={subSearch}
+                  onChange={(e) => setSubSearch(e.target.value)}
+                  placeholder="Search by customer name, email, phone, or subscription ID..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
               </div>
-            ))}
-            {subscriptions.length === 0 && (
-              <div className="p-4 text-center text-gray-500 text-sm">No active subscribers found.</div>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm rounded-lg shadow-sm transition-colors"
+              >
+                Search
+              </button>
+            </form>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-gray-600">Plan Type:</span>
+                <select
+                  value={subPlanType}
+                  onChange={(e) => { setSubPlanType(e.target.value); setSubPage(1); }}
+                  className="p-1.5 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="all">All Types</option>
+                  <option value="meal">Meal</option>
+                  <option value="seller">Seller</option>
+                  <option value="service">Service</option>
+                  <option value="laundry">Laundry</option>
+                  <option value="delivery">Delivery</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-gray-600">Date Range:</span>
+                <input
+                  type="date"
+                  value={subStartDate}
+                  onChange={(e) => setSubStartDate(e.target.value)}
+                  className="p-1 border border-gray-300 rounded-md"
+                />
+                <span className="text-gray-400">to</span>
+                <input
+                  type="date"
+                  value={subEndDate}
+                  onChange={(e) => setSubEndDate(e.target.value)}
+                  className="p-1 border border-gray-300 rounded-md"
+                />
+                {(subStartDate || subEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => { setSubStartDate(''); setSubEndDate(''); setSubPage(1); }}
+                    className="text-red-500 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="text-gray-500 hover:text-gray-800 underline"
+                >
+                  Reset All Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-md transition-colors"
+                >
+                  📥 Export CSV
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bulk Selection Actions Bar (Gap #12) */}
+          {selectedSubIds.size > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+              <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+                <span className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
+                  {selectedSubIds.size}
+                </span>
+                subscriber(s) selected
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setBulkActionModal({ isOpen: true, action: 'activate', reason: '' })}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm"
+                >
+                  Bulk Activate
+                </button>
+                <button
+                  onClick={() => setBulkActionModal({ isOpen: true, action: 'pause', reason: '' })}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg shadow-sm"
+                >
+                  Bulk Pause
+                </button>
+                <button
+                  onClick={() => setBulkActionModal({ isOpen: true, action: 'cancel', reason: '' })}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm"
+                >
+                  Bulk Cancel
+                </button>
+                <button
+                  onClick={() => setSelectedSubIds(new Set())}
+                  className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Subscribers Table (Desktop) */}
+          <div className="bg-white shadow rounded-xl overflow-hidden border border-gray-200">
+            {loadingSubscribers ? (
+              <div className="py-16 flex justify-center"><LoadingSpinner size="md" /></div>
+            ) : (
+              <>
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left">
+                          <input
+                            type="checkbox"
+                            checked={subscriptions.length > 0 && selectedSubIds.size === subscriptions.length}
+                            onChange={handleToggleSelectAll}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                        </th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Customer</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Plan</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Expires At (Gap #14)</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase">Started</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-100">
+                      {subscriptions.map((sub) => {
+                        const isSelected = selectedSubIds.has(sub.id);
+                        const effectiveExpiry = sub.expiryDate || sub.renewalDate;
+
+                        return (
+                          <tr key={sub.id} className={`hover:bg-blue-50/30 transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                            <td className="px-4 py-4">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectOne(sub.id)}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-sm text-gray-900 flex items-center gap-1.5">
+                                  {sub.user?.name || sub.guestName || `Customer #${sub.userId || sub.id}`}
+                                  {!sub.userId && (
+                                    <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                                      GUEST
+                                    </span>
+                                  )}
+                                </div>
+                                {(sub.user?.email || sub.guestEmail) && (
+                                  <div className="text-xs text-blue-600 flex items-center gap-1">
+                                    <span>✉️</span> {sub.user?.email || sub.guestEmail}
+                                  </div>
+                                )}
+                                {(sub.user?.phone || sub.guestPhone) && (
+                                  <div className="text-xs text-emerald-700 flex items-center gap-1">
+                                    <span>📱</span> {sub.user?.phone || sub.guestPhone}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="font-medium text-sm text-gray-900">{sub.plan?.name || `Plan #${sub.planId}`}</div>
+                              <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-600 capitalize">
+                                {sub.plan?.type || 'meal'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${getStatusColor(sub.status)}`}>
+                                {sub.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                              KES {sub.costProjectionSnapshot?.totals?.finalTotal ? Math.round(sub.costProjectionSnapshot.totals.finalTotal).toLocaleString() : (sub.customPrice || sub.plan?.price || 0).toLocaleString()}
+                            </td>
+                            {/* Gap #14: Reveal Actual Expiry Date regardless of autoRenew */}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              {effectiveExpiry ? (
+                                <div className="space-y-0.5">
+                                  <div className="font-medium text-gray-900">
+                                    {new Date(effectiveExpiry).toLocaleDateString()}
+                                  </div>
+                                  <div className="text-[10px] text-gray-500">
+                                    {sub.autoRenew ? '🔄 Auto-renews' : '⏹️ Auto-renew off'}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 italic">No expiry set</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                              {sub.startDate ? new Date(sub.startDate).toLocaleDateString() : new Date(sub.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
+                                onClick={() => handleViewSubscriptionDetails(sub)}
+                                className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-xs transition-colors"
+                              >
+                                Manage ⚙️
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {subscriptions.length === 0 && (
+                        <tr>
+                          <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                            No subscriptions match the selected criteria.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards for Subscribers */}
+                <div className="lg:hidden divide-y divide-gray-100">
+                  {subscriptions.map((sub) => (
+                    <div key={sub.id} className="p-4 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-semibold text-gray-900 flex items-center gap-1">
+                            {sub.user?.name || sub.guestName || `Customer #${sub.userId || sub.id}`}
+                            {!sub.userId && <span className="px-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">GUEST</span>}
+                          </div>
+                          <div className="text-xs text-gray-500">{sub.user?.email || sub.guestEmail || sub.user?.phone || sub.guestPhone}</div>
+                        </div>
+                        <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${getStatusColor(sub.status)}`}>
+                          {sub.status}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 border-t pt-2">
+                        <div>
+                          <span className="text-gray-400 block">Plan:</span>
+                          <span className="font-semibold">{sub.plan?.name || `Plan #${sub.planId}`}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block">Expiry:</span>
+                          <span className="font-semibold">
+                            {sub.expiryDate ? new Date(sub.expiryDate).toLocaleDateString() : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1 border-t">
+                        <button
+                          onClick={() => handleViewSubscriptionDetails(sub)}
+                          className="px-3 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-lg shadow-sm"
+                        >
+                          Manage Subscriber
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination Controls (Gap #13) */}
+                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="text-xs text-gray-600">
+                    Showing <span className="font-bold">{subscriptions.length}</span> of <span className="font-bold">{totalSubscribers}</span> total records
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSubPage(p => Math.max(1, p - 1))}
+                      disabled={subPage <= 1}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold bg-white hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      ← Previous
+                    </button>
+                    <span className="text-xs font-semibold text-gray-700 px-2">
+                      Page {subPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setSubPage(p => Math.min(totalPages, p + 1))}
+                      disabled={subPage >= totalPages}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold bg-white hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>
       )}
 
-      {showPlanModal && (
-        <AdminPlanEditorModal 
-          plan={editingPlan} 
-          onClose={() => setShowPlanModal(false)} 
-          onSave={() => {
-            setShowPlanModal(false);
-            fetchData();
-          }} 
-        />
+      {/* ── CUSTOMER PREVIEW MODAL (Gap #18) ── */}
+      {previewPlan && (
+        <div className="fixed inset-0 z-[200] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gradient-to-b from-gray-900 via-gray-900 to-black rounded-3xl max-w-md w-full p-6 text-white border border-gray-800 shadow-2xl animate-fade-in">
+            <div className="flex justify-between items-start mb-4">
+              <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-xs font-bold rounded-full border border-blue-500/30 uppercase">
+                Customer View Preview
+              </span>
+              <button onClick={() => setPreviewPlan(null)} className="text-gray-400 hover:text-white text-lg">✕</button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-2xl font-black">{previewPlan.name}</h3>
+                <p className="text-gray-400 text-xs mt-1">{previewPlan.description || 'No public description provided'}</p>
+              </div>
+
+              <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-extrabold text-white">KES {Number(previewPlan.price || 0).toLocaleString()}</span>
+                  <span className="text-xs text-gray-400">/{previewPlan.billingCycle}</span>
+                </div>
+                {previewPlan.trialPeriodDays > 0 && (
+                  <p className="text-emerald-400 text-xs font-bold mt-1">
+                    🎁 Includes {previewPlan.trialPeriodDays}-day free trial!
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Included Benefits</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {previewPlan.benefits && previewPlan.benefits.length > 0 ? (
+                    previewPlan.benefits.map((b, idx) => (
+                      <div key={idx} className="flex items-start gap-2 text-xs text-gray-200">
+                        <span className="text-green-400">✓</span>
+                        <div>
+                          <strong>{b.feature?.name || b.featureCode}</strong>: {b.description || 'Benefit enabled'}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-gray-500 italic">Standard features bundled with plan.</p>
+                  )}
+                </div>
+              </div>
+
+              <button
+                disabled
+                className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl text-center shadow-lg opacity-80 cursor-not-allowed text-sm"
+              >
+                Customer "Subscribe" Action
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {showPackageModal && (
-        <AdminBenefitPackageModal
-          pkg={editingPackage}
-          onClose={() => setShowPackageModal(false)}
-          onSave={() => {
-            setShowPackageModal(false);
-            fetchData();
-          }}
-        />
-      )}
-
+      {/* ── DETAILED SUBSCRIPTION MANAGE MODAL (Gaps #8, #9, #10, #11, #16, #19) ── */}
       {showSubscriptionDetails && selectedSubscription && (
-        <div className="fixed inset-0 z-[200] overflow-y-auto sm:pt-[80px]">
-          <div className="flex items-start sm:items-center justify-center min-h-screen text-center p-0 sm:px-4 sm:py-6">
-            <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleCloseSubscriptionDetails}></div>
-
-            <div className="inline-block w-full max-w-4xl p-4 sm:p-6 sm:my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-none sm:rounded-xl relative z-10 min-h-screen sm:min-h-0">
-              {/* Header */}
-              <div className="flex items-start justify-between mb-4 sm:mb-6">
-                <div>
-                  <h3 className="text-2xl font-bold text-gray-900">Subscription Management</h3>
-                  <p className="text-sm text-gray-500 mt-1">ID: {selectedSubscription.id}</p>
+        <div className="fixed inset-0 z-[150] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-900">
+                    Subscription #{selectedSubscription.id}
+                  </h3>
+                  <span className={`px-2.5 py-0.5 text-xs font-bold rounded-full border ${getStatusColor(selectedSubscription.status)}`}>
+                    {selectedSubscription.status}
+                  </span>
                 </div>
+                <p className="text-xs text-gray-500">
+                  {selectedSubscription.user?.name || selectedSubscription.guestName || 'Guest'} • Created {new Date(selectedSubscription.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={handleCloseSubscriptionDetails}
+                className="text-gray-400 hover:text-gray-700 text-xl font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Navigation Tabs */}
+            <div className="px-6 border-b border-gray-200 bg-white">
+              <nav className="-mb-px flex space-x-6 text-sm font-semibold">
                 <button
-                  onClick={handleCloseSubscriptionDetails}
-                  className="text-gray-400 hover:text-gray-500"
+                  onClick={() => setActiveModalTab('overview')}
+                  className={`py-3 border-b-2 ${activeModalTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  Overview & Plan
                 </button>
-              </div>
-
-              {/* Subscriber Info */}
-              <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <h4 className="font-semibold text-gray-900 mb-3">Subscriber Information</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Name</p>
-                    <p className="font-medium">{selectedSubscription.user?.name || selectedSubscription.guestName || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium text-blue-600">{selectedSubscription.user?.email || selectedSubscription.guestEmail || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Phone</p>
-                    <p className="font-medium text-green-600">{selectedSubscription.user?.phone || selectedSubscription.guestPhone || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">User Type</p>
-                    <p className="font-medium">{selectedSubscription.userId ? 'Registered User' : 'Guest'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Subscription Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Subscription Details</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Plan</span>
-                      <span className="font-medium">{selectedSubscription.plan?.name || 'Custom Plan'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Type</span>
-                      <span className="font-medium capitalize">{selectedSubscription.plan?.type || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Status</span>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedSubscription.status)}`}>
-                        {selectedSubscription.status}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Amount</span>
-                      <span className="font-bold text-green-600">
-                        KES {selectedSubscription.costProjectionSnapshot?.totals?.finalTotal ? Math.round(selectedSubscription.costProjectionSnapshot.totals.finalTotal) : selectedSubscription.customPrice || selectedSubscription.plan?.price || '0.00'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">{selectedSubscription.plan?.type === 'meal' ? 'Coverage' : 'Billing Cycle'}</span>
-                      <span className="font-medium capitalize">
-                        {selectedSubscription.plan?.type === 'meal'
-                          ? 'Entire Schedule'
-                          : (selectedSubscription.plan?.billingCycle || 'N/A')}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Auto-Renew</span>
-                      <span className="font-medium">{selectedSubscription.autoRenew ? 'Yes' : 'No'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Timeline</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Start Date</span>
-                      <span className="font-medium">{new Date(selectedSubscription.startDate).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Expires At</span>
-                      <span className="font-medium">{new Date(selectedSubscription.expiryDate).toLocaleDateString()}</span>
-                    </div>
-                    {selectedSubscription.autoRenew && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Next Renewal</span>
-                        <span className="font-medium">{new Date(selectedSubscription.renewalDate).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    {selectedSubscription.activatedAt && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Activated At</span>
-                        <span className="font-medium">{new Date(selectedSubscription.activatedAt).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    {selectedSubscription.cancelledAt && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Cancelled At</span>
-                        <span className="font-medium text-red-600">{new Date(selectedSubscription.cancelledAt).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Days Remaining</span>
-                      <span className="font-bold text-blue-600">
-                        {Math.max(0, Math.ceil((new Date(selectedSubscription.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)))} days
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Schedule & Projected Cost */}
-              {selectedSubscription.plan?.type === 'meal' && (
-                <div className="mb-6">
-                  {(() => {
-                    // Priority 1: Use saved cost projection snapshot if available
-                    if (selectedSubscription.costProjectionSnapshot) {
-                      return (
-                        <SavedCostProjectionTable
-                          snapshot={selectedSubscription.costProjectionSnapshot}
-                          title="📊 Schedule & Projected Cost"
-                          description={`Preview of how benefits apply across the scheduled meals.`}
-                        />
-                      );
-                    }
-
-                    // Priority 2: Fallback to dynamic calculation if no snapshot exists
-                    if (loadingScheduleDetails) {
-                      return (
-                        <div className="mt-6 border-t pt-5">
-                          <h4 className="text-sm font-bold text-gray-800 mb-3">📊 Schedule & Projected Cost</h4>
-                          <div className="flex justify-center py-8"><LoadingSpinner size="sm" /></div>
-                        </div>
-                      );
-                    }
-
-                    const scheduleToShow = selectedSubscriptionSchedule;
-
-                    // Get benefits and normalize to array
-                    let benefits = selectedSubscriptionBenefits || [];
-                    if (benefits && typeof benefits === 'object' && !Array.isArray(benefits)) {
-                      if (Array.isArray(benefits.benefits)) {
-                        benefits = benefits.benefits;
-                      } else if (Array.isArray(benefits.data)) {
-                        benefits = benefits.data;
-                      } else {
-                        benefits = Object.values(benefits).filter(v => v && typeof v === 'object');
-                      }
-                    }
-                    if (!Array.isArray(benefits)) benefits = [];
-
-                    if (!scheduleToShow?.length) {
-                      return (
-                        <div className="mt-6 border-t pt-5">
-                          <h4 className="text-sm font-bold text-gray-800 mb-1">📊 Schedule & Projected Cost</h4>
-                          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <p className="text-xs text-yellow-700">No schedule data available for this subscription.</p>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <>
-                        <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
-                          ℹ️ Cost projection is being calculated in real-time. For subscriptions created going forward, the exact breakdown from creation time will be displayed.
-                        </div>
-                        <ScheduleProjectedCost
-                          slots={scheduleToShow}
-                          fastFoodItems={fastFoodItems}
-                          activeBenefits={benefits}
-                          title="📊 Schedule & Projected Cost"
-                          description={`Preview of how benefits apply across the scheduled meals.`}
-                          billingCycle={selectedSubscription.plan?.billingCycle || 'Cycle'}
-                        />
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {/* Meal Occurrences (for meal subscriptions) */}
-              {selectedSubscription.plan?.type === 'meal' && (
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <span>Meal Delivery Schedule</span>
-                    {loadingOccurrences && <LoadingSpinner size="sm" />}
-                  </h4>
-                  
-                  {!loadingOccurrences && subscriptionOccurrences.length > 0 ? (
-                    <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Meal</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Delivery</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {subscriptionOccurrences.map((occ) => (
-                            <tr key={occ.id}>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                {new Date(occ.date).toLocaleDateString()}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-900">
-                                <div>
-                                  {occ.schedule?.preferredFastFoodItem?.name || 'N/A'}
-                                  <div className="text-xs text-gray-500 capitalize">
-                                    {occ.schedule?.mealTimeType} • {occ.schedule?.preferredTime}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getOccurrenceStatusColor(occ.status)}`}>
-                                  {occ.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-500">
-                                {occ.deliveryAddress ? 'Home Delivery' : occ.pickupStationId ? 'Pickup Station' : 'N/A'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : !loadingOccurrences ? (
-                    <div className="bg-gray-50 rounded-lg p-4 text-center text-gray-500">
-                      No meal occurrences scheduled yet
-                    </div>
-                  ) : null}
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                {selectedSubscription.status === 'Active' && (
+                <button
+                  onClick={() => setActiveModalTab('benefits')}
+                  className={`py-3 border-b-2 ${activeModalTab === 'benefits' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  Active Benefits & Usage (Gap #16)
+                </button>
+                <button
+                  onClick={() => setActiveModalTab('invoices')}
+                  className={`py-3 border-b-2 ${activeModalTab === 'invoices' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  Invoice History (Gap #10)
+                </button>
+                {selectedSubscription.plan?.type === 'meal' && (
                   <button
-                    onClick={() => handleCancelClick(selectedSubscription.id)}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    onClick={() => setActiveModalTab('occurrences')}
+                    className={`py-3 border-b-2 ${activeModalTab === 'occurrences' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                   >
-                    Cancel Subscription
+                    Meal Delivery Schedule (Gap #8)
                   </button>
                 )}
                 <button
+                  onClick={() => setActiveModalTab('override')}
+                  className={`py-3 border-b-2 ${activeModalTab === 'override' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  Status Override & Migration (Gaps #9, #11)
+                </button>
+              </nav>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* TAB 1: OVERVIEW */}
+              {activeModalTab === 'overview' && (
+                <div className="space-y-6">
+                  {/* Customer Card */}
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Customer Information</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500 block text-xs">Customer Name</span>
+                        <strong className="text-gray-900">{selectedSubscription.user?.name || selectedSubscription.guestName || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-xs">Email</span>
+                        <strong className="text-blue-600">{selectedSubscription.user?.email || selectedSubscription.guestEmail || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-xs">Phone</span>
+                        <strong className="text-green-700">{selectedSubscription.user?.phone || selectedSubscription.guestPhone || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-xs">Account Type</span>
+                        <strong className="text-gray-800">{selectedSubscription.userId ? 'Registered User' : 'Guest Checkout'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Plan & Timeline Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="border border-gray-200 rounded-xl p-4 bg-white">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Plan Metadata</h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Plan Name</span>
+                          <strong>{selectedSubscription.plan?.name || 'Custom Plan'}</strong>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Type</span>
+                          <strong className="capitalize">{selectedSubscription.plan?.type || 'meal'}</strong>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Price</span>
+                          <strong className="text-green-700 font-extrabold">
+                            KES {selectedSubscription.costProjectionSnapshot?.totals?.finalTotal ? Math.round(selectedSubscription.costProjectionSnapshot.totals.finalTotal).toLocaleString() : (selectedSubscription.customPrice || selectedSubscription.plan?.price || 0).toLocaleString()}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Auto Renewal</span>
+                          <strong>{selectedSubscription.autoRenew ? 'Active (Automatic)' : 'Off (Manual)'}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-xl p-4 bg-white">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Timeline</h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Start Date</span>
+                          <strong>{new Date(selectedSubscription.startDate).toLocaleDateString()}</strong>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-gray-50">
+                          <span className="text-gray-500">Expiry Date (Gap #14)</span>
+                          <strong className="text-blue-700">{new Date(selectedSubscription.expiryDate).toLocaleDateString()}</strong>
+                        </div>
+                        {selectedSubscription.activatedAt && (
+                          <div className="flex justify-between py-1 border-b border-gray-50">
+                            <span className="text-gray-500">Activated At</span>
+                            <strong>{new Date(selectedSubscription.activatedAt).toLocaleDateString()}</strong>
+                          </div>
+                        )}
+                        {selectedSubscription.cancelledAt && (
+                          <div className="flex justify-between py-1 border-b border-gray-50 text-red-600">
+                            <span>Cancelled At</span>
+                            <strong>{new Date(selectedSubscription.cancelledAt).toLocaleDateString()}</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: ACTIVE BENEFITS & USAGE (Gap #16) */}
+              {activeModalTab === 'benefits' && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900">
+                    ℹ️ Real-time benefit limits and consumption counters tracked for this subscription period.
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {selectedSubscriptionBenefits && selectedSubscriptionBenefits.length > 0 ? (
+                      selectedSubscriptionBenefits.map((b, i) => (
+                        <div key={i} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
+                          <div className="flex justify-between items-start">
+                            <strong className="text-gray-900 text-sm">{b.featureName || b.featureCode}</strong>
+                            <span className="px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-bold rounded">
+                              ACTIVE
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{b.description || 'Benefit enabled'}</p>
+                          <div className="mt-3 pt-3 border-t border-gray-100 text-xs flex justify-between text-gray-700">
+                            <span>Allocation: <strong>{b.limitType || 'Allowance'}</strong></span>
+                            <span>Limit: <strong>{b.value?.limit ?? 'Unlimited'}</strong></span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-full py-8 text-center text-gray-500 text-sm">
+                        No custom benefit records attached to this plan.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: INVOICES & PAYMENT HISTORY (Gap #10) */}
+              {activeModalTab === 'invoices' && (
+                <div className="space-y-4">
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Reference</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Method</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-100">
+                        {selectedSubscription.invoices && selectedSubscription.invoices.length > 0 ? (
+                          selectedSubscription.invoices.map((inv) => (
+                            <tr key={inv.id}>
+                              <td className="px-4 py-3 font-mono text-xs">{inv.paymentReference || `INV-${inv.id}`}</td>
+                              <td className="px-4 py-3 font-bold text-gray-900">KES {Number(inv.amount || 0).toLocaleString()}</td>
+                              <td className="px-4 py-3 uppercase text-xs">{inv.paymentMethod || 'Manual'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${inv.status === 'paid' ? 'bg-green-100 text-green-800' : inv.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                  {inv.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-500">
+                                {inv.paidAt ? new Date(inv.paidAt).toLocaleString() : new Date(inv.dueDate || inv.createdAt).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="5" className="px-4 py-8 text-center text-gray-500 text-xs">
+                              No invoice entries recorded yet for this subscriber.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: MEAL OCCURRENCE MANAGEMENT (Gap #8) */}
+              {activeModalTab === 'occurrences' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-bold text-gray-800">Scheduled Meal Deliveries</h4>
+                    {loadingOccurrences && <LoadingSpinner size="sm" />}
+                  </div>
+
+                  <div className="border border-gray-200 rounded-xl overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-600">Date</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-600">Meal Details</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-600">Routing / Address</th>
+                          <th className="px-4 py-3 text-right font-semibold text-gray-600">Admin Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-100">
+                        {subscriptionOccurrences.map((occ) => (
+                          <tr key={occ.id} className="hover:bg-gray-50/50">
+                            <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                              {new Date(occ.date).toLocaleDateString()}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold">{occ.schedule?.preferredFastFoodItem?.name || 'Selected Dish'}</div>
+                              <div className="text-gray-500 capitalize">{occ.schedule?.mealTimeType} • {occ.schedule?.preferredTime}</div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 font-bold rounded-full text-[10px] ${getOccurrenceStatusColor(occ.status)}`}>
+                                {occ.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 max-w-xs truncate text-gray-600">
+                              {occ.deliveryAddress || (occ.pickupStationId ? 'Pickup Station' : 'Standard Address')}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-right space-x-1.5">
+                              {occ.status !== 'delivered' && (
+                                <button
+                                  onClick={() => handleUpdateOccurrenceStatus(occ.id, 'delivered')}
+                                  disabled={processingOccurrenceId === occ.id}
+                                  className="px-2 py-1 bg-green-50 text-green-700 hover:bg-green-100 font-bold rounded border border-green-200"
+                                >
+                                  ✓ Deliver
+                                </button>
+                              )}
+                              {occ.status !== 'skipped' && (
+                                <button
+                                  onClick={() => handleUpdateOccurrenceStatus(occ.id, 'skipped')}
+                                  disabled={processingOccurrenceId === occ.id}
+                                  className="px-2 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 font-bold rounded border border-yellow-200"
+                                >
+                                  Skip
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setRescheduleModal({ isOpen: true, occurrence: occ, newDate: occ.date })}
+                                className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold rounded border border-blue-200"
+                              >
+                                Reschedule
+                              </button>
+                              <button
+                                onClick={() => setAddressModal({ isOpen: true, occurrence: occ, newAddress: occ.deliveryAddress || '' })}
+                                className="px-2 py-1 bg-gray-50 text-gray-700 hover:bg-gray-100 font-bold rounded border border-gray-200"
+                              >
+                                Edit Addr
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {subscriptionOccurrences.length === 0 && (
+                          <tr>
+                            <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                              No meal delivery records generated yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: STATUS OVERRIDE & MIGRATION (Gaps #9, #11) */}
+              {activeModalTab === 'override' && (
+                <div className="space-y-6">
+                  {/* Manual Status Override Form */}
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4">
+                    <h4 className="text-sm font-bold text-gray-900">Manual Status & Expiry Override (Gap #9)</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Set Subscription Status</label>
+                        <select
+                          value={overrideStatus}
+                          onChange={(e) => setOverrideStatus(e.target.value)}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        >
+                          <option value="Active">Active</option>
+                          <option value="Trial">Trial</option>
+                          <option value="Paused">Paused</option>
+                          <option value="Grace">Grace</option>
+                          <option value="Past Due">Past Due</option>
+                          <option value="Expired">Expired</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Extend Validity (Days)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={extendDays}
+                          onChange={(e) => setExtendDays(parseInt(e.target.value, 10) || 0)}
+                          placeholder="e.g. 7 or 30 days"
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Reason for Override (Audit Log)</label>
+                      <input
+                        type="text"
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="e.g. Customer payment dispute resolved / manual extension"
+                        className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleSaveStatusOverride}
+                      disabled={isUpdatingStatus}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm disabled:opacity-50"
+                    >
+                      {isUpdatingStatus ? 'Updating...' : 'Save Status & Expiry Override'}
+                    </button>
+                  </div>
+
+                  {/* Plan Migration Form (Gap #11) */}
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl space-y-4">
+                    <h4 className="text-sm font-bold text-purple-900">Migrate Subscriber to Another Plan (Gap #11)</h4>
+                    <p className="text-xs text-purple-700">
+                      Instantly upgrades or migrates this subscriber to any published plan without re-registering.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Target Plan</label>
+                        <select
+                          value={migrationModal.targetPlanId}
+                          onChange={(e) => setMigrationModal(m => ({ ...m, targetPlanId: e.target.value }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white"
+                        >
+                          <option value="">Select Target Plan...</option>
+                          {plans.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.type} - KES {p.price})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Migration Reason</label>
+                        <input
+                          type="text"
+                          value={migrationModal.reason}
+                          onChange={(e) => setMigrationModal(m => ({ ...m, reason: e.target.value }))}
+                          placeholder="e.g. Customer upgraded via support"
+                          className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleExecuteMigration}
+                      disabled={isMigrating || !migrationModal.targetPlanId}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg shadow-sm disabled:opacity-50"
+                    >
+                      {isMigrating ? 'Migrating...' : 'Confirm Plan Migration'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+              {selectedSubscription.status === 'Active' && (
+                <button
+                  onClick={() => handleCancelClick(selectedSubscription.id)}
+                  className="px-4 py-2 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 rounded-xl font-bold text-xs transition-colors"
+                >
+                  Cancel Subscription...
+                </button>
+              )}
+              <div className="ml-auto">
+                <button
                   onClick={handleCloseSubscriptionDetails}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="px-5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl font-semibold text-xs transition-colors"
                 >
                   Close
                 </button>
@@ -1057,187 +1651,200 @@ export default function AdminSubscriptions() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && deleteCheckInfo && deletingItem && (
-        <div className="fixed inset-0 z-[200] overflow-y-auto" style={{ paddingTop: '80px' }}>
-          <div className="flex items-center justify-center min-h-screen px-4 py-6 text-center sm:p-0">
-            <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={cancelDelete}></div>
-
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-
-            <div className="inline-block w-full max-w-lg p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg relative z-10">
-              <div className="flex items-start">
-                <div className="flex-shrink-0">
-                  {deleteCheckInfo.canDelete ? (
-                    <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                </div>
-                <div className="ml-3 flex-1">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    {deleteCheckInfo.canDelete ? 'Confirm Deletion' : 'Cannot Delete'}
-                  </h3>
-                  <div className="mt-2">
-                    <p className="text-sm text-gray-700 font-semibold mb-2">
-                      {deletingItem.type === 'plan' ? 'Plan:' : 'Package:'} {deletingItem.item.name}
-                    </p>
-                    <p className="text-sm text-gray-600 mb-3">
-                      {deleteCheckInfo.reason}
-                    </p>
-
-                    {/* Details for plans */}
-                    {deletingItem.type === 'plan' && (
-                      <div className="bg-gray-50 rounded p-3 text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Total Subscriptions:</span>
-                          <span className="font-medium">{deleteCheckInfo.subscriptionCount}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Active Subscriptions:</span>
-                          <span className="font-medium">{deleteCheckInfo.activeSubscriptionCount}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Details for packages */}
-                    {deletingItem.type === 'package' && (
-                      <div className="bg-gray-50 rounded p-3 text-sm space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Plans Using Package:</span>
-                          <span className="font-medium">{deleteCheckInfo.plansUsing}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Published Plans:</span>
-                          <span className="font-medium">{deleteCheckInfo.publishedPlansUsing}</span>
-                        </div>
-                        {deleteCheckInfo.publishedPlanNames?.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1">Published plans using this package:</p>
-                            <ul className="list-disc list-inside text-xs text-gray-700">
-                              {deleteCheckInfo.publishedPlanNames.map((name, idx) => (
-                                <li key={idx}>{name}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {deleteCheckInfo.suggestion && (
-                      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
-                        <p className="text-sm text-blue-800">
-                          <strong>💡 Suggestion:</strong> {deleteCheckInfo.suggestion}
-                        </p>
-                      </div>
-                    )}
-
-                    {deleteCheckInfo.canDelete && (deletingItem.type === 'package' && deleteCheckInfo.plansUsing > 0) && (
-                      <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                        <p className="text-sm text-yellow-800">
-                          <strong>⚠️ Warning:</strong> This will unlink the package from {deleteCheckInfo.plansUsing} draft plan(s).
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse space-x-reverse space-x-3">
-                {deleteCheckInfo.canDelete ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={confirmDelete}
-                      className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelDelete}
-                      className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={cancelDelete}
-                    className="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:w-auto sm:text-sm"
-                  >
-                    Close
-                  </button>
-                )}
-              </div>
+      {/* ── RESCHEDULE OCCURRENCE MODAL (Gap #8) ── */}
+      {rescheduleModal.isOpen && rescheduleModal.occurrence && (
+        <div className="fixed inset-0 z-[220] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl">
+            <h4 className="font-bold text-gray-900 text-sm">Reschedule Meal Occurrence</h4>
+            <p className="text-xs text-gray-500">Pick a new delivery date for this specific meal occurrence.</p>
+            <input
+              type="date"
+              value={rescheduleModal.newDate}
+              onChange={(e) => setRescheduleModal(r => ({ ...r, newDate: e.target.value }))}
+              className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setRescheduleModal({ isOpen: false, occurrence: null, newDate: '' })}
+                className="px-3 py-1.5 text-xs text-gray-600 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRescheduleOccurrenceSubmit}
+                className="px-4 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-lg shadow-sm"
+              >
+                Save Date
+              </button>
             </div>
           </div>
         </div>
       )}
-      {/* Admin Cancel Subscription Modal */}
+
+      {/* ── ADDRESS OCCURRENCE MODAL (Gap #8) ── */}
+      {addressModal.isOpen && addressModal.occurrence && (
+        <div className="fixed inset-0 z-[220] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl">
+            <h4 className="font-bold text-gray-900 text-sm">Update Delivery Routing</h4>
+            <p className="text-xs text-gray-500">Update destination delivery address for this occurrence.</p>
+            <input
+              type="text"
+              value={addressModal.newAddress}
+              onChange={(e) => setAddressModal(a => ({ ...a, newAddress: e.target.value }))}
+              placeholder="e.g. Hall 4, Room 12 or Street Address"
+              className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setAddressModal({ isOpen: false, occurrence: null, newAddress: '' })}
+                className="px-3 py-1.5 text-xs text-gray-600 font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateOccurrenceAddressSubmit}
+                className="px-4 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-lg shadow-sm"
+              >
+                Save Routing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── BULK ACTION CONFIRMATION MODAL (Gap #12) ── */}
+      {bulkActionModal.isOpen && (
+        <div className="fixed inset-0 z-[220] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 capitalize">
+              Confirm Bulk {bulkActionModal.action}
+            </h3>
+            <p className="text-sm text-gray-600">
+              You are about to <strong>{bulkActionModal.action}</strong> {selectedSubIds.size} subscription(s).
+            </p>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Reason for Bulk Action</label>
+              <input
+                type="text"
+                value={bulkActionModal.reason}
+                onChange={(e) => setBulkActionModal(b => ({ ...b, reason: e.target.value }))}
+                placeholder="e.g. End of semester batch update"
+                className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-3">
+              <button
+                onClick={() => setBulkActionModal({ isOpen: false, action: '', reason: '' })}
+                className="px-4 py-2 text-xs font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExecuteBulkAction}
+                disabled={isProcessingBulk}
+                className={`px-4 py-2 text-white font-bold text-xs rounded-lg shadow-sm ${bulkActionModal.action === 'cancel' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
+                {isProcessingBulk ? 'Processing...' : `Confirm Bulk ${bulkActionModal.action}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE CONFIRMATION MODAL ── */}
+      {showDeleteConfirm && deleteCheckInfo && deletingItem && (
+        <div className="fixed inset-0 z-[200] overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900">
+              {deleteCheckInfo.canDelete ? 'Confirm Deletion' : 'Cannot Delete'}
+            </h3>
+            <p className="text-sm text-gray-600">{deleteCheckInfo.reason}</p>
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <button onClick={cancelDelete} className="px-4 py-2 text-sm text-gray-600 font-semibold">
+                Cancel
+              </button>
+              {deleteCheckInfo.canDelete && (
+                <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white font-bold text-sm rounded-lg shadow-sm">
+                  Confirm Delete
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALS: Plan Editor & Package Editor ── */}
+      {showPlanModal && (
+        <AdminPlanEditorModal
+          plan={editingPlan}
+          onClose={() => { setShowPlanModal(false); setEditingPlan(null); }}
+          onSave={() => { setShowPlanModal(false); setEditingPlan(null); fetchData(); }}
+        />
+      )}
+
+      {showPackageModal && (
+        <AdminBenefitPackageModal
+          pkg={editingPackage}
+          onClose={() => { setShowPackageModal(false); setEditingPackage(null); }}
+          onSave={() => { setShowPackageModal(false); setEditingPackage(null); fetchData(); }}
+        />
+      )}
+
+      {/* ── CANCEL SUBSCRIPTION DIALOG ── */}
       <CustomDialog
         isOpen={showCancelModal}
+        onClose={() => { setShowCancelModal(false); setCancelSubscriptionId(null); }}
         title="Cancel Subscription"
-        message="Please provide a reason for cancelling this subscription. If applicable, you can issue a prorated refund to the customer's wallet for unfulfilled meals."
-        type="danger"
-        confirmText="Terminate Subscription"
-        confirmDisabled={!cancelReason || !cancelPassword}
+        confirmText="Confirm Cancellation"
+        confirmButtonClass="bg-red-600 hover:bg-red-700 text-white"
         onConfirm={handleConfirmCancel}
-        onCancel={() => setShowCancelModal(false)}
       >
-        <div className="mt-4 space-y-4">
+        <div className="space-y-4 text-left">
+          <p className="text-sm text-gray-600">
+            Are you sure you want to cancel this subscription? The user will lose access to all subscription benefits.
+          </p>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Reason for Cancellation <span className="text-red-500">*</span>
+              Cancellation Reason <span className="text-red-500">*</span>
             </label>
             <select
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="" disabled>Select a reason</option>
               <option value="Customer Requested">Customer Requested</option>
               <option value="Payment Failed / Fraud">Payment Failed / Fraud</option>
               <option value="Logistical / Delivery Area Issue">Logistical / Delivery Area Issue</option>
               <option value="Violation of Terms">Violation of Terms</option>
-              <option value="Restaurant Closed / Plan Unavailable">Restaurant Closed / Plan Unavailable</option>
               <option value="Other">Other</option>
             </select>
           </div>
 
-          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-            <div className="flex items-center h-5">
-              <input
-                type="checkbox"
-                checked={issueRefund}
-                onChange={(e) => setIssueRefund(e.target.checked)}
-                className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
-              />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">Issue Prorated Refund to Wallet</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Automatically calculates the value of remaining unfulfilled meals and credits it to the customer's wallet.
-              </p>
+          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={issueRefund}
+              onChange={(e) => setIssueRefund(e.target.checked)}
+              className="mt-1 h-4 w-4 text-red-600 rounded"
+            />
+            <div className="text-xs">
+              <span className="font-bold text-gray-900 block">Issue Prorated Refund to Wallet</span>
+              <span className="text-gray-500">Calculates value of remaining unfulfilled meals and credits wallet.</span>
             </div>
           </label>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Confirm your Password <span className="text-red-500">*</span>
+              Confirm Admin Password <span className="text-red-500">*</span>
             </label>
             <input
               type="password"
-              placeholder="Enter your admin password"
+              placeholder="Enter your password"
               value={cancelPassword}
               onChange={(e) => setCancelPassword(e.target.value)}
-              autoComplete="new-password"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
           </div>
         </div>

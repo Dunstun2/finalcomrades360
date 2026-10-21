@@ -1,6 +1,6 @@
 const express = require('express');
 const { Op } = require('sequelize');
-const { User, Order, Subscription, Plan } = require('../../../database/models.registry');
+const { User, Order, Subscription, Plan, SubscriptionInvoice } = require('../../../database/models.registry');
 const { createNotification, sendCustomerNotificationAcrossChannels } = require('../../../utils/notificationHelpers');
 const {
   getAllUsers,
@@ -297,53 +297,100 @@ router.post('/payments/approve', adminOnly, async (req, res) => {
       where: { id: orderId }
     });
 
-    // Activate subscription
-    await Subscription.update({
-      status: 'Active',
-      activatedAt: new Date()
-    }, {
-      where: { id: subscriptionId }
-    });
-
-    // Get subscription details for notification
+    // Load subscription + plan to correctly apply trial period (Bug #2)
     const subscription = await Subscription.findByPk(subscriptionId, {
       include: [
-        {
-          model: Plan,
-          as: 'plan'
-        },
-        {
-          model: User,
-          as: 'user'
-        }
+        { model: Plan, as: 'plan' },
+        { model: User, as: 'user' }
       ]
     });
 
-    const order = await Order.findByPk(orderId);
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
 
-    // Send notification to user
+    const trialDays = subscription.plan?.trialPeriodDays || 0;
+    const newStatus = trialDays > 0 ? 'Trial' : 'Active';
+    const now = new Date();
+
+    await subscription.update({
+      status: newStatus,
+      activatedAt: now,
+      // Stamp trial end if applicable
+      ...(trialDays > 0 ? {
+        trialEndsAt: new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000)
+      } : {})
+    });
+
+    // Create SubscriptionInvoice record for this payment (Bug #20)
+    try {
+      const order = await Order.findByPk(orderId);
+      await SubscriptionInvoice.create({
+        subscriptionId,
+        amount: order?.total || subscription.plan?.price || 0,
+        currency: subscription.plan?.currency || 'KES',
+        status: 'paid',
+        paidAt: now,
+        paymentReference: order?.orderNumber || String(orderId),
+        dueDate: now,
+        billingPeriodStart: subscription.startDate || now,
+        billingPeriodEnd: subscription.expiryDate || now,
+        paymentMethod: order?.paymentSubType || 'manual',
+        adminVerifiedBy: req.user.id
+      });
+    } catch (invoiceErr) {
+      console.error('[Approve] Failed to create SubscriptionInvoice:', invoiceErr);
+    }
+
+    // Reactivate seller benefits if seller plan (Bug #3)
+    if (subscription.plan?.type === 'seller' && subscription.userId) {
+      try {
+        const SellerSubscriptionService = require('../../subscriptions/services/SellerSubscriptionService');
+        await SellerSubscriptionService.reactivateSellerBenefits(subscription.userId);
+      } catch (sellerErr) {
+        console.error('[Approve] Failed to reactivate seller benefits:', sellerErr);
+      }
+    }
+
+    // Audit log (Bug #21)
+    console.log(`[ADMIN_AUDIT] Payment approved by admin ${req.user.id} (${req.user.name || req.user.email}) for subscription ${subscriptionId}, order ${orderId}, status set to ${newStatus}`);
+
+    // Send notification — supports both registered users and guests (Bug #4)
     try {
       const planName = subscription.plan?.name || 'your subscription';
-      const customerName = subscription.user?.name || 'Customer';
+      const approvalMsg = `Hello {name}, great news! 🎉\n\nYour payment for the "{planName}" subscription plan has been verified and approved!\n\nYour subscription is now ${newStatus === 'Trial' ? 'in TRIAL mode' : 'ACTIVE'} and you can start enjoying all the benefits immediately.\n\nThank you for choosing Comrades360!`;
 
       if (subscription.user) {
-        const defaultTemplate = `Hello {name}, great news! 🎉\n\nYour payment for the \"{planName}\" subscription plan has been verified and approved!\n\nYour subscription is now ACTIVE and you can start enjoying all the benefits immediately.\n\nThank you for choosing Comrades360!`;
-
+        // Registered user
         await sendCustomerNotificationAcrossChannels('subscriptionPaymentApproved', {
-          name: customerName,
+          name: subscription.user.name,
           planName,
           title: 'Payment Approved! 🎉',
           type: 'success',
-          defaultTemplate
+          defaultTemplate: approvalMsg
         }, subscription.user);
+      } else if (subscription.guestEmail || subscription.guestPhone) {
+        // Guest subscriber — send via whichever channels we have
+        const guestRecipient = {
+          name: subscription.guestName || 'Customer',
+          email: subscription.guestEmail || null,
+          phone: subscription.guestPhone || null
+        };
+        await sendCustomerNotificationAcrossChannels('subscriptionPaymentApproved', {
+          name: guestRecipient.name,
+          planName,
+          title: 'Payment Approved! 🎉',
+          type: 'success',
+          defaultTemplate: approvalMsg
+        }, guestRecipient);
       }
     } catch (notificationError) {
       console.error('Failed to send approval notification:', notificationError);
     }
 
-    // Attempt same-day generation
+    // Attempt same-day meal occurrence generation
     try {
-      const MealSubscriptionService = require('../subscriptions/services/MealSubscriptionService');
+      const MealSubscriptionService = require('../../subscriptions/services/MealSubscriptionService');
       const todayDateStr = new Date().toISOString().split('T')[0];
       MealSubscriptionService.generateDailyOccurrences(todayDateStr, {
         isSameDay: true,
@@ -360,7 +407,7 @@ router.post('/payments/approve', adminOnly, async (req, res) => {
       message: 'Payment approved and subscription activated',
       subscription: {
         id: subscription.id,
-        status: subscription.status,
+        status: newStatus,
         planName: subscription.plan?.name
       }
     });
@@ -375,11 +422,17 @@ router.post('/payments/reject', adminOnly, async (req, res) => {
   try {
     const { orderId, subscriptionId, reason } = req.body;
 
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'A rejection reason is required.' });
+    }
+
+    const now = new Date();
+
     // Update order status
     await Order.update({
       paymentVerificationStatus: 'rejected',
       paymentRejectionReason: reason,
-      paymentVerifiedAt: new Date(),
+      paymentVerifiedAt: now,
       paymentVerifiedBy: req.user.id
     }, {
       where: { id: orderId }
@@ -388,44 +441,53 @@ router.post('/payments/reject', adminOnly, async (req, res) => {
     // Cancel subscription
     await Subscription.update({
       status: 'Cancelled',
-      cancelledAt: new Date(),
+      cancelledAt: now,
       cancellationReason: `Payment rejected: ${reason}`
     }, {
       where: { id: subscriptionId }
     });
 
+    // Audit log (Bug #21)
+    console.log(`[ADMIN_AUDIT] Payment rejected by admin ${req.user.id} (${req.user.name || req.user.email}) for subscription ${subscriptionId}, order ${orderId}, reason: ${reason}`);
+
     // Get subscription details for notification
     const subscription = await Subscription.findByPk(subscriptionId, {
       include: [
-        {
-          model: Plan,
-          as: 'plan'
-        },
-        {
-          model: User,
-          as: 'user'
-        }
+        { model: Plan, as: 'plan' },
+        { model: User, as: 'user' }
       ]
     });
 
-    const order = await Order.findByPk(orderId);
-
-    // Send rejection notification to user
+    // Send rejection notification — supports registered users AND guests (Bug #4)
     try {
-      const planName = subscription.plan?.name || 'your subscription';
-      const customerName = subscription.user?.name || 'Customer';
+      const planName = subscription?.plan?.name || 'your subscription';
+      const rejectionMsg = `Hello {name}, we regret to inform you that your payment for the "{planName}" subscription plan could not be verified. ❌\n\nReason: ${reason}\n\nPlease re-submit a valid payment proof or try a different payment method. If you believe this is a mistake, please contact our support team.\n\n— Comrades360 Team`;
 
-      if (subscription.user) {
-        const defaultTemplate = `Hello {name}, we regret to inform you that your payment for the \"{planName}\" subscription plan could not be verified. ❌\n\nReason: {reason}\n\nPlease re-submit a valid payment proof or try a different payment method. If you believe this is a mistake, please contact our support team.\n\n— Comrades360 Team`;
-
+      if (subscription?.user) {
+        // Registered user
         await sendCustomerNotificationAcrossChannels('subscriptionPaymentRejected', {
-          name: customerName,
+          name: subscription.user.name,
           planName,
-          reason: reason || 'Payment could not be verified.',
+          reason,
           title: 'Payment Rejected ❌',
           type: 'alert',
-          defaultTemplate
+          defaultTemplate: rejectionMsg
         }, subscription.user);
+      } else if (subscription?.guestEmail || subscription?.guestPhone) {
+        // Guest subscriber
+        const guestRecipient = {
+          name: subscription.guestName || 'Customer',
+          email: subscription.guestEmail || null,
+          phone: subscription.guestPhone || null
+        };
+        await sendCustomerNotificationAcrossChannels('subscriptionPaymentRejected', {
+          name: guestRecipient.name,
+          planName,
+          reason,
+          title: 'Payment Rejected ❌',
+          type: 'alert',
+          defaultTemplate: rejectionMsg
+        }, guestRecipient);
       }
     } catch (notificationError) {
       console.error('Failed to send rejection notification:', notificationError);
@@ -442,34 +504,38 @@ router.post('/payments/reject', adminOnly, async (req, res) => {
   }
 });
 
-// Send admin notification about new payment submission
+// Send admin notification about new payment submission (Gap #7)
 router.post('/payments/notify-admin', auth, async (req, res) => {
   try {
     const { orderId, subscriptionId, amount, paymentMethod, customerInfo } = req.body;
 
-    // Here you would implement your admin notification system
-    // This could be:
-    // 1. Real-time notification via WebSocket
-    // 2. Email to admin
-    // 3. SMS to admin
-    // 4. Push notification
-    // 5. Slack/Teams notification
+    console.log('🔔 New payment verification needed:', { orderId, subscriptionId, amount, paymentMethod, customerInfo });
 
-    console.log('🔔 New payment verification needed:', {
-      orderId,
-      subscriptionId,
-      amount,
-      paymentMethod,
-      customerInfo
+    // Find all admin users and send them an in-app notification
+    const admins = await User.findAll({
+      where: {
+        role: { [Op.in]: ['admin', 'superadmin', 'super_admin'] }
+      },
+      attributes: ['id', 'name', 'email', 'phone']
     });
 
-    // TODO: Implement your preferred admin notification method
-    // Examples:
-    // await sendEmailToAdmin(orderDetails);
-    // await sendSlackNotification(orderDetails);
-    // await createInAppNotification(orderDetails);
+    const planName = customerInfo?.planName || 'a subscription';
+    const customerName = customerInfo?.name || 'A customer';
+    const amountFormatted = `KES ${Number(amount || 0).toLocaleString()}`;
 
-    res.json({ success: true, message: 'Admin notified' });
+    const notifyPromises = admins.map(admin =>
+      createNotification(
+        admin.id,
+        '🔔 New Payment Awaiting Verification',
+        `${customerName} submitted a payment proof of ${amountFormatted} for "${planName}". Please review it in the Payment Verification queue.`,
+        'subscription_payment_pending',
+        { orderId, subscriptionId, amount, paymentMethod, customerInfo }
+      ).catch(err => console.error(`Failed to notify admin ${admin.id}:`, err))
+    );
+
+    await Promise.allSettled(notifyPromises);
+
+    res.json({ success: true, message: 'Admins notified', adminCount: admins.length });
   } catch (error) {
     console.error('Error notifying admin:', error);
     res.status(500).json({ error: 'Failed to notify admin' });
