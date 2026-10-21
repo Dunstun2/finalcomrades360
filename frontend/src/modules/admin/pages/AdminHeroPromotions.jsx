@@ -139,7 +139,14 @@ export default function AdminHeroPromotions() {
 
   const load = () => {
     setLoading(true)
-    api.get('/admin/hero-promotions/applications', { skipDedupe: true })
+    api.get('/admin/hero-promotions/applications', {
+      skipDedupe: true,
+      params: { _t: Date.now() },
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    })
       .then(r => {
         const { items: allItems = [], users: newUsers = [], products: newProducts = [] } = r.data
         // Show all hero promotions including video and product banners

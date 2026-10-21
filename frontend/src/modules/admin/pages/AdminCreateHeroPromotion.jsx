@@ -206,7 +206,14 @@ export default function AdminCreateHeroPromotion() {
     // navigating from the list page (which may have fetched /applications)
     // to the edit page (/applications/:id) always issues a fresh request
     // and never returns a stale or incorrect cached promise.
-    api.get(`/admin/hero-promotions/applications/${id}`, { skipDedupe: true })
+    api.get(`/admin/hero-promotions/applications/${id}`, {
+      skipDedupe: true,
+      params: { _t: Date.now() },
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    })
       .then(r => {
         // The backend returns the banner directly (not nested)
         const banner = r.data

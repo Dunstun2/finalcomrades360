@@ -591,6 +591,8 @@ const listHeroApplications = async (req, res) => {
 
 const getHeroApplication = async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
     const id = Number(req.params.id)
     const item = await HeroPromotion.findByPk(id)
     if (!item) return res.status(404).json({ error: 'Not found' })
