@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import {
   Search,
@@ -19,15 +19,39 @@ import {
   MapPin
 } from 'lucide-react';
 import api from '../../shared/services/api';
+import HeroBanner from '@/modules/marketing/components/HeroBanner';
+import useHeroPromotions from '@/hooks/useHeroPromotions';
 
 const Blog = () => {
+  const location = useLocation();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { heroPromotions, loading: heroLoading } = useHeroPromotions('blog');
+  // searchInput is the live value shown in the input; filters.search is the debounced value sent to API
+  const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState({
     search: '',
     category: '',
     featured: ''
   });
+  const debounceTimer = useRef(null);
+  const urlSyncTimer = useRef(null);
+  const isInitialMount = useRef(true);
+
+  // Sync ?search= URL param from Navbar — debounced so rapid keystrokes don't each trigger a fetch
+  useEffect(() => {
+    const urlSearch = new URLSearchParams(location.search).get('search') || '';
+    setSearchInput(urlSearch);
+
+    if (urlSyncTimer.current) clearTimeout(urlSyncTimer.current);
+    urlSyncTimer.current = setTimeout(() => {
+      setFilters(prev => {
+        if (prev.search === urlSearch) return prev; // avoid infinite loop
+        return { ...prev, search: urlSearch };
+      });
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }, 400);
+  }, [location.search]);
 
   const [pagination, setPagination] = useState({
     page: 1,
@@ -36,9 +60,10 @@ const Blog = () => {
     pages: 0
   });
 
-  const fetchPosts = async () => {
+  // silent=true → update posts without blanking the page (used for search)
+  const fetchPosts = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const params = new URLSearchParams({
         page: pagination.page,
         limit: pagination.limit,
@@ -55,18 +80,31 @@ const Blog = () => {
     } catch (error) {
       console.error('Error fetching blog posts:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPosts();
+    // First mount → show spinner. Subsequent filter/search changes → silent update.
+    const silent = !isInitialMount.current;
+    if (isInitialMount.current) isInitialMount.current = false;
+    fetchPosts(silent);
   }, [pagination.page, filters]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
     setPagination(prev => ({ ...prev, page: 1 }));
   };
+
+  // Debounced search: update the visible input immediately, fire API after 500ms idle
+  const handleSearchInput = useCallback((value) => {
+    setSearchInput(value);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: value }));
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }, 500);
+  }, []);
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -208,49 +246,31 @@ const Blog = () => {
         />
       </Helmet>
 
-      <div className="min-h-screen bg-gray-50">
-        {/* Hero Section */}
-        <div className="bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 text-white py-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center">
-              <h1 className="text-4xl md:text-5xl font-bold mb-4">
-                Our Blog
-              </h1>
-              <p className="text-xl text-blue-100 max-w-2xl mx-auto">
-                Discover insights, tips, and stories from the Comrades360 community
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-50 pb-20">
+        {/* Dynamic Hero Banner replacing hardcoded banner */}
+        <HeroBanner
+          title="Our Blog"
+          subtitle="Discover insights, tips, and stories from the Comrades360 community"
+          promotions={heroPromotions}
+          loading={heroLoading}
+          showCta={false}
+        />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          {/* Tags Row */}
-          {getUniqueTags().length > 0 && (
-            <div className="mb-8">
-              <div className="flex flex-wrap items-center gap-3">
-                {getUniqueTags().map((tag, index) => (
-                  <span
-                    key={`${tag}-${index}`}
-                    className="inline-flex items-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 shadow-sm hover:border-blue-300 hover:text-blue-700 transition-colors"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="px-1.5 sm:px-4 py-6 sm:py-10">
+
 
           {/* Filters */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+              {/* Search — hidden on small screens (navbar already has search) */}
+              <div className="hidden md:block">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Search Posts</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type="text"
-                    value={filters.search}
-                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => handleSearchInput(e.target.value)}
                     placeholder="Search articles..."
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
@@ -302,12 +322,12 @@ const Blog = () => {
             <>
               {/* Featured Posts Section */}
               {posts.some(post => post.isFeatured) && (
-                <div className="mb-12">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                    <Star className="w-6 h-6 text-yellow-500" />
+                <div className="mb-10">
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
+                    <Star className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500" />
                     Featured Articles
                   </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-8">
                     {posts.filter(post => post.isFeatured).slice(0, 3).map((post) => (
                       <BlogCard key={post.id} post={post} />
                     ))}
@@ -317,10 +337,10 @@ const Blog = () => {
 
               {/* All Posts Grid */}
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">
                   {filters.search || filters.category ? 'Search Results' : 'Latest Articles'}
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
                   {posts.map((post) => (
                     <BlogCard key={post.id} post={post} />
                   ))}
@@ -384,7 +404,7 @@ const Blog = () => {
 
         {/* Footer Section */}
         <footer className="bg-gray-900 text-gray-300 mt-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="px-4 sm:px-6 lg:px-8 py-12">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
               {/* About Section */}
               <div>

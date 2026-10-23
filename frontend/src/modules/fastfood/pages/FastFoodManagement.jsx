@@ -166,9 +166,19 @@ const renderFastFoodTable = (items, {
               {/* Prep & Limit */}
               <td className="px-4 py-4 text-center">
                 <div className="inline-flex flex-col items-center text-xs text-gray-500 font-medium">
-                  <div className="flex items-center text-orange-600 font-bold">
+                  {item.preparationType === 'ready' ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300">
+                      ⚡ Ready Food
+                      {item.readyQuantity > 0 && ` (${item.readyQuantity})`}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-black bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full border border-orange-200">
+                      👨‍🍳 Cook on Order
+                    </span>
+                  )}
+                  <div className="flex items-center text-orange-600 font-bold mt-1">
                     <Clock size={12} className="mr-1" />
-                    {item.preparationTimeMinutes || 15}m
+                    {item.preparationTimeMinutes || (item.preparationType === 'ready' ? 5 : 15)}m
                   </div>
                   <div className="mt-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded-full text-gray-600">
                     Limit: {item.dailyLimit || '∞'}
@@ -858,6 +868,7 @@ const FastFoodManagement = () => {
   // NEW FILTERS
   const [minPriceFilter, setMinPriceFilter] = useState('');
   const [maxPriceFilter, setMaxPriceFilter] = useState('');
+  const [prepFilter, setPrepFilter] = useState('all'); // 'all' | 'ready' | 'made_to_order'
 
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkAvailabilityMode, setBulkAvailabilityMode] = useState('OPEN');
@@ -1127,11 +1138,18 @@ const FastFoodManagement = () => {
       const matchesMinPrice = !minPriceFilter || price >= parseFloat(minPriceFilter);
       const matchesMaxPrice = !maxPriceFilter || price <= parseFloat(maxPriceFilter);
 
+      // 5. Preparation Type Filter
+      let matchesPrep = true;
+      if (prepFilter !== 'all') {
+        if (prepFilter === 'ready') matchesPrep = fastFood.preparationType === 'ready';
+        else if (prepFilter === 'made_to_order') matchesPrep = fastFood.preparationType !== 'ready';
+      }
+
       return matchesSearch && matchesStatus && matchesTab &&
         matchesCategory &&
-        matchesMinPrice && matchesMaxPrice;
+        matchesMinPrice && matchesMaxPrice && matchesPrep;
     });
-  }, [fastFoods, searchTerm, statusFilter, activeTab, categoryFilter, minPriceFilter, maxPriceFilter, reviewSubTab]);
+  }, [fastFoods, searchTerm, statusFilter, activeTab, categoryFilter, minPriceFilter, maxPriceFilter, reviewSubTab, prepFilter]);
 
   // Handle individual selection
   const handleSelect = (id) => {
@@ -1785,11 +1803,26 @@ const FastFoodManagement = () => {
                         <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                       </div>
 
+                      {/* Preparation Filter */}
+                      <div className="relative">
+                        <select
+                          value={prepFilter}
+                          onChange={(e) => setPrepFilter(e.target.value)}
+                          className="appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-[130px] pl-3 pr-8 py-2 font-medium"
+                        >
+                          <option value="all">All Prep Modes</option>
+                          <option value="ready">⚡ Ready Food</option>
+                          <option value="made_to_order">👨‍🍳 Made to Order</option>
+                        </select>
+                        <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      </div>
+
                       <button
                         onClick={() => {
                           setCategoryFilter('all');
                           setSearchTerm('');
                           setStatusFilter('all');
+                          setPrepFilter('all');
                           setMinPriceFilter('');
                           setMaxPriceFilter('');
                         }}

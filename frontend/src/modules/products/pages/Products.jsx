@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Search, Star, ArrowLeft } from 'lucide-react';
+import { Search, Star, ArrowLeft, ChevronDown, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import { useWishlist } from '@/contexts/WishlistContext';
@@ -14,16 +14,14 @@ import Footer from '@/shared/components/Footer';
 import useHeroPromotions from '@/hooks/useHeroPromotions';
 import PageLayout from '@/shared/components/PageLayout';
 
-// Fallback categories in case backend is down
+// Fallback categories in case backend is down (strictly product categories)
 const fallbackCategories = [
-  { id: 1, name: 'Books & Stationery', emoji: '📚', productCount: 23 },
-  { id: 2, name: 'Electronics & Gadgets', emoji: '📱', productCount: 32 },
-  { id: 3, name: 'Fashion & Beauty', emoji: '👗', productCount: 26 },
-  { id: 4, name: 'Food & Drinks', emoji: '🍔', productCount: 32 },
-  { id: 5, name: 'Home & Living', emoji: '🏠', productCount: 20 },
-  { id: 6, name: 'Campus Life', emoji: '🎒', productCount: 11 },
-  { id: 7, name: 'Student Services', emoji: '🛠️', productCount: 11 },
-  { id: 8, name: 'Repairs & Tech', emoji: '🔧', productCount: 9 }
+  { id: 1, name: 'Books & Stationery', emoji: '📚', productCount: 23, taxonomyType: 'product' },
+  { id: 2, name: 'Electronics & Gadgets', emoji: '📱', productCount: 32, taxonomyType: 'product' },
+  { id: 3, name: 'Fashion & Beauty', emoji: '👗', productCount: 26, taxonomyType: 'product' },
+  { id: 5, name: 'Home & Living', emoji: '🏠', productCount: 20, taxonomyType: 'product' },
+  { id: 6, name: 'Campus Life', emoji: '🎒', productCount: 11, taxonomyType: 'product' },
+  { id: 8, name: 'Sports & Fitness', emoji: '⚽', productCount: 9, taxonomyType: 'product' }
 ];
 
 const Products = () => {
@@ -33,9 +31,20 @@ const Products = () => {
   const { cart, addToCart, removeFromCart, refresh: refreshCart } = useCart();
   const { toggleWishlist } = useWishlist();
   const { categories, loading: categoriesLoadingFromContext } = useCategories();
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
 
-  // Use categories from context or fallback if empty
-  const displayCategories = categories && categories.length > 0 ? categories : fallbackCategories;
+  // Filter categories strictly for products (excluding fast food and services)
+  const displayCategories = useMemo(() => {
+    const rawCategories = categories && categories.length > 0 ? categories : fallbackCategories;
+    return rawCategories.filter(cat => {
+      if (!cat) return false;
+      const type = String(cat.taxonomyType || '').toLowerCase();
+      const name = String(cat.name || '').toLowerCase();
+      if (type === 'fast_food' || type === 'service' || type === 'services') return false;
+      if (name.includes('fast food') || name.includes('food & drinks') || name.includes('services')) return false;
+      return true;
+    });
+  }, [categories]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -49,6 +58,10 @@ const Products = () => {
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const observerSentinel = useRef(null);
   const { heroPromotions } = useHeroPromotions('products');
+  const productHeroPromotions = useMemo(() => {
+    if (!Array.isArray(heroPromotions)) return [];
+    return heroPromotions.filter(p => p.promoType !== 'fastfood' && p.promoType !== 'service');
+  }, [heroPromotions]);
 
   const productsPerPage = 24;
 
@@ -264,18 +277,110 @@ const Products = () => {
               </button>
             </div>
 
-            <HeroBanner
-              title="Explore All Products"
-              subtitle="Discover the best deals and essentials from campus sellers"
-              promotions={heroPromotions}
-              onAddToCart={handleAddToCart}
-            />
+            {productHeroPromotions && productHeroPromotions.length > 0 && (
+              <HeroBanner
+                promotions={productHeroPromotions}
+                onAddToCart={handleAddToCart}
+              />
+            )}
 
-            {/* Category Filter — FastFood style navigation bar */}
-            <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+            {/* Category Filter */}
+            {/* Mobile: "Our Products" pill left + Category dropdown right */}
+            <div className="md:hidden mt-4 mb-4 px-2 sm:px-0 flex items-center gap-2">
+              {/* Our Products pill — click to clear category filter */}
+              <button
+                type="button"
+                onClick={() => handleCategorySelect(null)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                  !selectedCategory
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                }`}
+              >
+                <span className="text-base">🛍️</span>
+                <span className="whitespace-nowrap">Our Products</span>
+              </button>
+
+              {/* Category Dropdown — takes remaining width */}
+              <div className="relative flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                    selectedCategory
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="text-base shrink-0">
+                      {!selectedCategory ? '🗂️' : (selectedCategory.emoji || '📦')}
+                    </span>
+                    <span className="truncate">
+                      {!selectedCategory ? 'Category' : selectedCategory.name}
+                    </span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 shrink-0 ml-1 transition-transform duration-200 ${
+                    isCategoryDropdownOpen ? 'rotate-180' : ''
+                  } ${selectedCategory ? 'text-white/80' : 'text-gray-400'}`} />
+                </button>
+
+                {isCategoryDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsCategoryDropdownOpen(false)}
+                    />
+                    <div className="absolute top-full right-0 left-0 mt-1.5 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCategorySelect(null);
+                          setIsCategoryDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                          !selectedCategory
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🛍️</span>
+                          <span>Our Products</span>
+                        </span>
+                        {!selectedCategory && <Check className="w-4 h-4 text-blue-600" />}
+                      </button>
+                      {displayCategories.map(category => (
+                        <button
+                          key={category.id}
+                          type="button"
+                          onClick={() => {
+                            handleCategorySelect(category);
+                            setIsCategoryDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                            selectedCategory?.id === category.id
+                              ? 'bg-blue-50 text-blue-600'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {category.emoji && <span>{category.emoji}</span>}
+                            <span>{category.name}</span>
+                          </span>
+                          {selectedCategory?.id === category.id && <Check className="w-4 h-4 text-blue-600" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop Navigation Bar (>= md) */}
+            <div className="hidden md:block bg-white border rounded-lg shadow-sm mt-4 mb-6 relative group overflow-hidden">
               <div className="px-4 py-4">
                 <div className="relative">
-                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
                   <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                     <button
                       onClick={() => handleCategorySelect(null)}
@@ -284,7 +389,7 @@ const Products = () => {
                         : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
                       }`}
                     >
-                      All Products
+                      Our Products
                     </button>
 
                     {displayCategories.map(category => (
@@ -330,7 +435,6 @@ const Products = () => {
               ) : (
                 <>
                   <div className="mb-8">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">All Products</h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                       {products.map(product => {
                         const isProductInCart = cart?.items?.some(item => String(item.productId || item.product?.id || '') === String(product.id));
@@ -375,15 +479,7 @@ const Products = () => {
               )}
             </div>
 
-            {!user && (
-              <div className="bg-blue-50 border-t">
-                <div className="w-full px-0 md:px-4 py-12 text-center">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-4">Want to sell your products?</h3>
-                  <p className="text-gray-600 mb-6">Join our platform and start selling to our community.</p>
-                  <Link to="/register" className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">Get Started</Link>
-                </div>
-              </div>
-            )}
+
 
             <Footer />
           </div>

@@ -382,12 +382,14 @@ const listActiveHeroPromotions = async (req, res) => {
   res.set('Expires', '0');
 
   // Auto-expire banners whose endAt has passed and activate scheduled ones whose startAt <= now
+  // NOTE: isDefault (fallback) banners are intentionally excluded from auto-expiry —
+  //       they must remain 'active' so they can serve as permanent defaults indefinitely.
   try {
     const now = new Date();
     await Promise.all([
       HeroPromotion.update(
         { status: 'expired' },
-        { where: { endAt: { [Op.lt]: now }, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
+        { where: { endAt: { [Op.lt]: now }, isDefault: false, status: { [Op.in]: ['approved', 'scheduled', 'active', 'under_review'] } } }
       ),
       HeroPromotion.update(
         { status: 'active' },
@@ -395,6 +397,7 @@ const listActiveHeroPromotions = async (req, res) => {
       )
     ]);
   } catch { /* non-fatal, proceed */ }
+
   try {
     const now = new Date()
     const { location, bannerLocation } = req.query || {}
@@ -445,9 +448,9 @@ const listActiveHeroPromotions = async (req, res) => {
       }
     }
 
+    // Primary query: get all active/scheduled promotions (including fallback banners within their date range)
     const where = {
       status: { [Op.in]: ['active', 'scheduled'] },
-      isDefault: false,
       startAt: { [Op.lte]: now },
       endAt: { [Op.gte]: now },
       ...buildLocationFilter()
@@ -462,7 +465,18 @@ const listActiveHeroPromotions = async (req, res) => {
     // Filter using location matcher and advanced schedule checker
     items = items.filter(item => locationMatches(item.bannerLocation, loc) && shouldShowPromotion(item, now))
 
-    // Fallback: If no active promotions for this location, fetch default fallback banners
+    // Separate non-fallback items from fallback-flagged items that are within their date range
+    const regularItems = items.filter(item => !item.isDefault)
+    const timedFallbackItems = items.filter(item => item.isDefault)
+
+    // If there are regular (non-default) promotions active, include timed fallbacks alongside them
+    // If no regular promotions, still show timed fallbacks if present
+    items = regularItems.length > 0
+      ? [...regularItems, ...timedFallbackItems]
+      : timedFallbackItems
+
+    // Permanent fallback: if still no items after above, fetch default banners regardless of their date range
+    // They serve as the evergreen default whenever no other promotions are active
     if (items.length === 0) {
       const allDefaults = await HeroPromotion.findAll({
         where: {
@@ -472,11 +486,13 @@ const listActiveHeroPromotions = async (req, res) => {
         order: [['priority', 'DESC'], ['createdAt', 'DESC']]
       })
       // Match against fallbackLocation (fallback to bannerLocation if not set)
+      // NOTE: intentionally skip shouldShowPromotion() date check — fallback banners
+      // remain as permanent defaults even after their scheduled date range has ended
       items = allDefaults.filter(item => {
         const targetFallback = (Array.isArray(item.fallbackLocation) && item.fallbackLocation.length > 0)
           ? item.fallbackLocation
           : item.bannerLocation
-        return locationMatches(targetFallback, loc) && shouldShowPromotion(item, now)
+        return locationMatches(targetFallback, loc)
       })
     }
 

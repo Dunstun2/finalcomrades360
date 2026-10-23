@@ -43,18 +43,156 @@ export default function Navbar() {
 
   // Determine search context based on current page
   const getSearchContext = () => {
-    if (location.pathname.startsWith('/products')) return { path: '/products', queryParam: 'search', placeholder: 'Search products...' };
-    if (location.pathname.startsWith('/fastfood')) return { path: '/fastfood', queryParam: 'search', placeholder: 'Search food & drinks...' };
-    if (location.pathname.startsWith('/services')) return { path: '/services', queryParam: 'search', placeholder: 'Search services...' };
+    const p = location.pathname;
+    if (p.startsWith('/products')) return { path: '/products', queryParam: 'search', placeholder: 'Search products...' };
+    if (p.startsWith('/fastfood')) return { path: '/fastfood', queryParam: 'search', placeholder: 'Search food & drinks...' };
+    if (p.startsWith('/services')) return { path: '/services', queryParam: 'search', placeholder: 'Search services...' };
+    if (p.startsWith('/blog')) return { path: '/blog', queryParam: 'search', placeholder: 'Search blog posts...' };
+    if (p.startsWith('/about')) return { path: '/about', queryParam: 'search', placeholder: 'Search about page...' };
+    if (p.startsWith('/contact')) return { path: '/contact', queryParam: 'search', placeholder: 'Search contacts...' };
+    if (p === '/search') return { path: '/search', queryParam: 'q', placeholder: 'Search marketplace...' };
+    // Default: general marketplace search
     return { path: '/search', queryParam: 'q', placeholder: 'Search marketplace...' };
   };
 
   const { path: searchPath, queryParam: searchQueryParam, placeholder: searchPlaceholder } = getSearchContext();
+  const isUserTypingRef = useRef(false);
+  const debounceTimerRef = useRef(null);
+
+  // Keep track of the last page visited before a search was initiated
+  const lastNonSearchPageRef = useRef(
+    (() => {
+      try {
+        const stored = sessionStorage.getItem('search_return_path');
+        if (stored && !stored.startsWith('/search')) return stored;
+      } catch {
+        // ignore storage errors
+      }
+      return '/';
+    })()
+  );
+
+  useEffect(() => {
+    // Only record the return path when we are NOT on /search and the URL has no active search query param
+    if (location.pathname === '/search') return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('search') || params.get('q')) return;
+
+    const fullPath = location.pathname + location.search;
+    lastNonSearchPageRef.current = fullPath;
+    try {
+      sessionStorage.setItem('search_return_path', fullPath);
+    } catch {
+      // ignore storage errors
+    }
+  }, [location.pathname, location.search]);
+
+  const getReturnPath = () => {
+    try {
+      const stored = lastNonSearchPageRef.current || sessionStorage.getItem('search_return_path');
+      if (stored && !stored.startsWith('/search')) return stored;
+    } catch {
+      // ignore storage errors
+    }
+    return '/';
+  };
+
+  // Sync search bar with URL param when navigating between pages (avoiding overwriting while typing)
+  useEffect(() => {
+    if (isUserTypingRef.current) return;
+    const params = new URLSearchParams(location.search);
+    const urlSearch = params.get(searchQueryParam) || params.get('search') || params.get('q') || '';
+    setSearchQuery(urlSearch);
+  }, [location.pathname, location.search, searchQueryParam]);
+
+  // Reset user typing flag when switching routes
+  useEffect(() => {
+    isUserTypingRef.current = false;
+  }, [location.pathname]);
+
+  // Live search as user types with 300ms debounce
+  useEffect(() => {
+    if (!isUserTypingRef.current) return;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      const trimmed = searchQuery.trim();
+      const currentParam = new URLSearchParams(location.search).get(searchQueryParam) || '';
+
+      if (trimmed) {
+        if (trimmed !== currentParam || location.pathname !== searchPath) {
+          navigate(`${searchPath}?${searchQueryParam}=${encodeURIComponent(trimmed)}`, {
+            replace: location.pathname === searchPath,
+          });
+        }
+      } else {
+        // When user deletes the keyword, navigate back to the page it was before search
+        const currentSearchInUrl = new URLSearchParams(location.search).get(searchQueryParam) ||
+                                  new URLSearchParams(location.search).get('search') ||
+                                  new URLSearchParams(location.search).get('q') || '';
+
+        if (location.pathname === '/search' || currentSearchInUrl) {
+          const returnPath = getReturnPath();
+          const currentPath = location.pathname + location.search;
+          if (currentPath !== returnPath) {
+            navigate(returnPath, { replace: true });
+          }
+        }
+      }
+      isUserTypingRef.current = false;
+    }, 300);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchQuery, searchPath, searchQueryParam, location.pathname, location.search, navigate]);
 
   const handleSearch = () => {
-    if (searchQuery.trim()) {
-      navigate(`${searchPath}?${searchQueryParam}=${encodeURIComponent(searchQuery.trim())}`);
-      setSearchQuery(''); // Clear bar after navigating so it resets cleanly
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    isUserTypingRef.current = false;
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      navigate(`${searchPath}?${searchQueryParam}=${encodeURIComponent(trimmed)}`, {
+        replace: location.pathname === searchPath,
+      });
+    } else {
+      const currentSearchInUrl = new URLSearchParams(location.search).get(searchQueryParam) ||
+                                new URLSearchParams(location.search).get('search') ||
+                                new URLSearchParams(location.search).get('q') || '';
+      if (location.pathname === '/search' || currentSearchInUrl) {
+        const returnPath = getReturnPath();
+        const currentPath = location.pathname + location.search;
+        if (currentPath !== returnPath) {
+          navigate(returnPath, { replace: true });
+        }
+      }
+    }
+  };
+
+  const handleClearSearch = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    isUserTypingRef.current = false;
+    setSearchQuery('');
+
+    const currentSearchInUrl = new URLSearchParams(location.search).get(searchQueryParam) ||
+                              new URLSearchParams(location.search).get('search') ||
+                              new URLSearchParams(location.search).get('q') || '';
+
+    if (location.pathname === '/search' || currentSearchInUrl) {
+      const returnPath = getReturnPath();
+      const currentPath = location.pathname + location.search;
+      if (currentPath !== returnPath) {
+        navigate(returnPath, { replace: true });
+      }
     }
   };
   const { categories, getCategoriesWithSubcategories } = useCategories();
@@ -386,15 +524,31 @@ export default function Navbar() {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    isUserTypingRef.current = true;
+                    setSearchQuery(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       handleSearch();
+                    } else if (e.key === 'Escape') {
+                      handleClearSearch();
                     }
                   }}
                   placeholder={searchPlaceholder}
-                  className="w-full h-12 pl-12 pr-28 border border-gray-300 bg-gray-50 text-gray-800 placeholder-gray-400 rounded-full focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-[#FF6600] focus:bg-white text-sm shadow-sm transition-all"
+                  className="w-full h-12 pl-12 pr-32 border border-gray-300 bg-gray-50 text-gray-800 placeholder-gray-400 rounded-full focus:outline-none focus:ring-2 focus:ring-[#FF6600] focus:border-[#FF6600] focus:bg-white text-sm shadow-sm transition-all"
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    aria-label="Clear search"
+                    className="absolute right-[102px] p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors z-10"
+                    title="Clear search"
+                  >
+                    <FaTimes size={13} />
+                  </button>
+                )}
                 <button
                   onClick={handleSearch}
                   className="absolute right-1.5 top-1.5 bottom-1.5 px-6 bg-[#FF6600] hover:bg-[#E65C00] text-[#1B2A4A] text-sm font-bold rounded-full shadow transition-all active:scale-95"
@@ -668,11 +822,31 @@ export default function Navbar() {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onChange={(e) => {
+                    isUserTypingRef.current = true;
+                    setSearchQuery(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch();
+                    } else if (e.key === 'Escape') {
+                      handleClearSearch();
+                    }
+                  }}
                   placeholder={searchPlaceholder}
                   className="bg-transparent border-none focus:ring-0 text-sm w-full p-0 py-0.5 text-gray-700 placeholder-gray-400 font-medium"
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    aria-label="Clear search"
+                    className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors mr-1"
+                    title="Clear search"
+                  >
+                    <FaTimes size={11} />
+                  </button>
+                )}
                 {/* Tap-able search button for mobile users */}
                 <button
                   onClick={handleSearch}

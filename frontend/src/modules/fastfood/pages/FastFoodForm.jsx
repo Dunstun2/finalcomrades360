@@ -113,6 +113,8 @@ const FastFoodForm = ({
       isActive: true,
       isAvailable: true,
       availabilityMode: 'AUTO',
+      preparationType: 'made_to_order',
+      readyQuantity: '',
       preparationTimeMinutes: '',
       availableFrom: '',
       availableTo: '',
@@ -214,6 +216,8 @@ const FastFoodForm = ({
     isActive: true,
     isAvailable: true, // Legacy field
     availabilityMode: 'AUTO', // NEW: Manual Status Override (AUTO, OPEN, CLOSED)
+    preparationType: 'made_to_order',
+    readyQuantity: '',
     preparationTimeMinutes: '',
     availableFrom: '',
     availableTo: '',
@@ -729,6 +733,8 @@ const FastFoodForm = ({
             basePrice: item.basePrice || '',
             discountPercentage: item.discountPercentage || '',
             isActive: item.isActive,
+            preparationType: item.preparationType || 'made_to_order',
+            readyQuantity: item.readyQuantity !== null && item.readyQuantity !== undefined ? item.readyQuantity : '',
             preparationTimeMinutes: item.preparationTimeMinutes || '',
             availableFrom: item.availableFrom || '',
             availableTo: item.availableTo || '',
@@ -1260,11 +1266,11 @@ const FastFoodForm = ({
     }
 
     console.log('📝 Validating Prep Time:', formData.preparationTimeMinutes);
-    if (!formData.preparationTimeMinutes || parseInt(formData.preparationTimeMinutes) <= 0) {
+    if (formData.preparationType !== 'ready' && (!formData.preparationTimeMinutes || parseInt(formData.preparationTimeMinutes) <= 0)) {
       console.error('❌ Validation Failed: Prep Time invalid');
       toast({
         title: 'Validation Error',
-        description: 'Valid preparation time is required.',
+        description: 'Valid preparation time is required for prepared on order items.',
         variant: 'destructive',
       });
       setLoading(false);
@@ -1431,7 +1437,9 @@ const FastFoodForm = ({
           basePrice: formData.basePrice,
           discountPercentage: formData.discountPercentage || 0,
           discountPrice: formData.discountPrice || null,
-          preparationTimeMinutes: formData.preparationTimeMinutes,
+          preparationType: formData.preparationType || 'made_to_order',
+          readyQuantity: formData.readyQuantity !== '' && formData.readyQuantity !== null && formData.readyQuantity !== undefined ? parseInt(formData.readyQuantity, 10) : null,
+          preparationTimeMinutes: formData.preparationType === 'ready' ? (Number(formData.preparationTimeMinutes) || 5) : formData.preparationTimeMinutes,
           availableFrom: formData.availableFrom,
           availableTo: formData.availableTo,
           deliveryTimeEstimateMinutes: formData.deliveryTimeEstimateMinutes,
@@ -1500,7 +1508,11 @@ const FastFoodForm = ({
         submitData.append('discountPercentage', formData.discountPercentage || 0);
         if (formData.discountPrice && parseFloat(formData.discountPrice) > 0) submitData.append('discountPrice', formData.discountPrice);
         if (formData.displayPrice && parseFloat(formData.displayPrice) > 0) submitData.append('displayPrice', formData.displayPrice);
-        submitData.append('preparationTimeMinutes', String(formData.preparationTimeMinutes));
+        submitData.append('preparationType', formData.preparationType || 'made_to_order');
+        if (formData.readyQuantity !== '' && formData.readyQuantity !== null && formData.readyQuantity !== undefined) {
+          submitData.append('readyQuantity', String(formData.readyQuantity));
+        }
+        submitData.append('preparationTimeMinutes', String(formData.preparationType === 'ready' ? (Number(formData.preparationTimeMinutes) || 5) : formData.preparationTimeMinutes));
         submitData.append('availableFrom', formData.availableFrom);
         submitData.append('availableTo', formData.availableTo);
 
@@ -1963,21 +1975,124 @@ const FastFoodForm = ({
                 <Input id="discountPercentage" name="discountPercentage" type="number" value={formData.discountPercentage} onChange={handleInputChange} placeholder="0-100" min="0" max="100" disabled={isViewMode} />
               </div>
             )}
+            {/* Preparation Mode Selector */}
+            <div className="col-span-1 md:col-span-2 lg:col-span-4 mt-1">
+              <Label className="text-sm font-semibold text-gray-800 mb-2 block">
+                Food Preparation Mode *
+              </Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div
+                  onClick={() => {
+                    if (!isViewMode) {
+                      setFormData(prev => ({
+                        ...prev,
+                        preparationType: 'ready',
+                        preparationTimeMinutes: prev.preparationTimeMinutes ? prev.preparationTimeMinutes : '5'
+                      }));
+                    }
+                  }}
+                  className={`p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 select-none ${
+                    formData.preparationType === 'ready'
+                      ? 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-2 ring-emerald-500/20'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  } ${isViewMode ? 'cursor-default' : 'cursor-pointer'}`}
+                >
+                  <span className="text-2xl mt-0.5">⚡</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-gray-900 text-sm">Ready to Eat (Instant Dispatch)</h4>
+                      <input
+                        type="radio"
+                        checked={formData.preparationType === 'ready'}
+                        onChange={() => {}}
+                        className="text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                        disabled={isViewMode}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                      Already cooked and packed. Ready for immediate pickup or delivery.
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => {
+                    if (!isViewMode) {
+                      setFormData(prev => ({
+                        ...prev,
+                        preparationType: 'made_to_order',
+                        preparationTimeMinutes: prev.preparationTimeMinutes && prev.preparationTimeMinutes !== '5' ? prev.preparationTimeMinutes : '20'
+                      }));
+                    }
+                  }}
+                  className={`p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 select-none ${
+                    formData.preparationType === 'made_to_order'
+                      ? 'border-orange-500 bg-orange-50/70 shadow-sm ring-2 ring-orange-500/20'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  } ${isViewMode ? 'cursor-default' : 'cursor-pointer'}`}
+                >
+                  <span className="text-2xl mt-0.5">👨‍🍳</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-gray-900 text-sm">Prepared on Order (Fresh Prep)</h4>
+                      <input
+                        type="radio"
+                        checked={formData.preparationType === 'made_to_order'}
+                        onChange={() => {}}
+                        className="text-orange-600 focus:ring-orange-500 h-4 w-4"
+                        disabled={isViewMode}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                      Cooking starts once order is placed. Customer waits for prep.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div>
-              <Label htmlFor="preparationTimeMinutes">Prep Time (mins) *</Label>
+              <Label htmlFor="preparationTimeMinutes">
+                {formData.preparationType === 'ready' ? 'Dispatch / Pack Time (mins)' : 'Prep & Cook Time (mins) *'}
+              </Label>
               <Input
                 id="preparationTimeMinutes"
                 name="preparationTimeMinutes"
                 type="number"
                 value={formData.preparationTimeMinutes}
                 onChange={handleInputChange}
-                required
-                min="1"
-                placeholder=""
+                required={formData.preparationType !== 'ready'}
+                min="0"
+                placeholder={formData.preparationType === 'ready' ? "5" : "20"}
                 disabled={isViewMode}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <span className="text-[11px] text-gray-400 mt-0.5 block">
+                {formData.preparationType === 'ready' ? 'Handover time (default 5m)' : 'Estimated cooking duration'}
+              </span>
             </div>
+
+            {formData.preparationType === 'ready' && (
+              <div>
+                <Label htmlFor="readyQuantity">
+                  Ready Portions in Stock <span className="text-gray-400 font-normal">(Optional)</span>
+                </Label>
+                <Input
+                  id="readyQuantity"
+                  name="readyQuantity"
+                  type="number"
+                  value={formData.readyQuantity}
+                  onChange={handleInputChange}
+                  min="0"
+                  placeholder="e.g. 15 portions ready"
+                  disabled={isViewMode}
+                  className="w-full px-3 py-2 border border-emerald-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-emerald-50/20"
+                />
+                <span className="text-[11px] text-gray-400 mt-0.5 block">
+                  Available cooked portions waiting right now
+                </span>
+              </div>
+            )}
           </div>
         </div>
         {/* Global Toggle & Weekly Schedule */}

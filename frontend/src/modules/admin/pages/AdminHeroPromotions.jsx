@@ -1631,7 +1631,7 @@ export default function AdminHeroPromotions() {
                           <input
                             type="text"
                             className="w-full p-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none text-xs font-medium font-mono"
-                            placeholder="e.g. /products, /fastfood or https://..."
+                            placeholder="e.g. /products, /fastfood, /services, /blog or https://..."
                             value={promoTargetUrl}
                             onChange={e => setPromoTargetUrl(e.target.value)}
                           />
@@ -1853,6 +1853,7 @@ export default function AdminHeroPromotions() {
                             { value: 'fastfood', label: 'Fast Food' },
                             { value: 'products', label: 'Products' },
                             { value: 'services', label: 'Services' },
+                            { value: 'blog', label: 'Blog' },
                             { value: 'all', label: 'All Pages' }
                           ].map(item => {
                             const isSelected = Array.isArray(promoBannerLocation)
@@ -1873,7 +1874,7 @@ export default function AdminHeroPromotions() {
                                       if (next.length === 0) next = ['homepage']
                                     } else {
                                       next = [...next, item.value]
-                                      if (['homepage', 'fastfood', 'products', 'services'].every(p => next.includes(p))) {
+                                      if (['homepage', 'fastfood', 'products', 'services', 'blog'].every(p => next.includes(p))) {
                                         next = ['all']
                                       }
                                     }
@@ -2052,6 +2053,7 @@ export default function AdminHeroPromotions() {
                                   { value: 'fastfood', label: '🍔 Fast Food' },
                                   { value: 'products', label: '🛍️ Products' },
                                   { value: 'services', label: '🛠️ Services' },
+                                   { value: 'blog', label: '📰 Blog' },
                                   { value: 'all', label: '🌐 All Pages (Global)' },
                                 ].map(item => {
                                   const curr = Array.isArray(promoFallbackLocation) ? promoFallbackLocation : [promoFallbackLocation || 'homepage']
@@ -2070,7 +2072,7 @@ export default function AdminHeroPromotions() {
                                             if (next.length === 0) next = ['homepage']
                                           } else {
                                             next = [...next, item.value]
-                                            const allPages = ['homepage', 'fastfood', 'products', 'services']
+                                            const allPages = ['homepage', 'fastfood', 'products', 'services', 'blog']
                                             if (allPages.every(p => next.includes(p))) {
                                               next = ['all']
                                             }

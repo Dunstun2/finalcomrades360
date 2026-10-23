@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { FaShoppingCart, FaSignOutAlt, FaSearch, FaLink, FaCheck } from 'react-icons/fa';
+import { FaShoppingCart, FaSignOutAlt, FaSearch, FaLink, FaCheck, FaTimes } from 'react-icons/fa';
 import { useCart } from '@/contexts/CartContext';
 import { useCategories } from '@/contexts/CategoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,6 +31,95 @@ export default function MarketingNavbar() {
     const [searchQuery, setSearchQuery] = useState("");
     const [showCategories, setShowCategories] = useState(false);
     const [activeCategory, setActiveCategory] = useState(null);
+
+    const isUserTypingRef = useRef(false);
+    const debounceTimerRef = useRef(null);
+
+    // Keep track of the last page visited before a search was initiated
+    const lastNonSearchPageRef = useRef(
+        (() => {
+            try {
+                const stored = sessionStorage.getItem('search_return_path');
+                if (stored && !stored.startsWith('/search')) return stored;
+            } catch {
+                // ignore
+            }
+            return '/';
+        })()
+    );
+
+    useEffect(() => {
+        if (location.pathname === '/search') return;
+        const params = new URLSearchParams(location.search);
+        if (params.get('search') || params.get('q')) return;
+
+        const fullPath = location.pathname + location.search;
+        lastNonSearchPageRef.current = fullPath;
+        try {
+            sessionStorage.setItem('search_return_path', fullPath);
+        } catch {
+            // ignore
+        }
+    }, [location.pathname, location.search]);
+
+    const getReturnPath = () => {
+        try {
+            const stored = lastNonSearchPageRef.current || sessionStorage.getItem('search_return_path');
+            if (stored && !stored.startsWith('/search')) return stored;
+        } catch {
+            // ignore
+        }
+        return '/';
+    };
+
+    // Sync search bar with URL param
+    useEffect(() => {
+        if (isUserTypingRef.current) return;
+        const params = new URLSearchParams(location.search);
+        const urlSearch = params.get('q') || params.get('search') || '';
+        setSearchQuery(urlSearch);
+    }, [location.pathname, location.search]);
+
+    useEffect(() => {
+        isUserTypingRef.current = false;
+    }, [location.pathname]);
+
+    // Live search as user types with debounce
+    useEffect(() => {
+        if (!isUserTypingRef.current) return;
+
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        debounceTimerRef.current = setTimeout(() => {
+            const trimmed = searchQuery.trim();
+            const currentParam = new URLSearchParams(location.search).get('q') || '';
+
+            if (trimmed) {
+                if (trimmed !== currentParam || location.pathname !== '/search') {
+                    navigate(`/search?q=${encodeURIComponent(trimmed)}`, {
+                        replace: location.pathname === '/search',
+                    });
+                }
+            } else {
+                if (location.pathname === '/search' || currentParam) {
+                    const returnPath = getReturnPath();
+                    const currentPath = location.pathname + location.search;
+                    if (currentPath !== returnPath) {
+                        navigate(returnPath, { replace: true });
+                    }
+                }
+            }
+            isUserTypingRef.current = false;
+        }, 300);
+
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, [searchQuery, location.pathname, location.search, navigate]);
 
     const { user } = useAuth();
     const { toast } = useToast();
@@ -136,8 +225,40 @@ export default function MarketingNavbar() {
     }, []);
 
     const handleSearch = () => {
-        if (searchQuery.trim()) {
-            navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        isUserTypingRef.current = false;
+        const trimmed = searchQuery.trim();
+        if (trimmed) {
+            navigate(`/search?q=${encodeURIComponent(trimmed)}`, {
+                replace: location.pathname === '/search',
+            });
+        } else {
+            const currentParam = new URLSearchParams(location.search).get('q') || '';
+            if (location.pathname === '/search' || currentParam) {
+                const returnPath = getReturnPath();
+                const currentPath = location.pathname + location.search;
+                if (currentPath !== returnPath) {
+                    navigate(returnPath, { replace: true });
+                }
+            }
+        }
+    };
+
+    const handleClearSearch = () => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        isUserTypingRef.current = false;
+        setSearchQuery('');
+        const currentParam = new URLSearchParams(location.search).get('q') || '';
+        if (location.pathname === '/search' || currentParam) {
+            const returnPath = getReturnPath();
+            const currentPath = location.pathname + location.search;
+            if (currentPath !== returnPath) {
+                navigate(returnPath, { replace: true });
+            }
         }
     };
 
@@ -254,11 +375,31 @@ export default function MarketingNavbar() {
                             <input
                                 type="text"
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                                onChange={(e) => {
+                                    isUserTypingRef.current = true;
+                                    setSearchQuery(e.target.value);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        handleSearch();
+                                    } else if (e.key === 'Escape') {
+                                        handleClearSearch();
+                                    }
+                                }}
                                 placeholder="Search products, services, food..."
-                                className="w-full h-12 pl-12 pr-28 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm transition-all bg-white"
+                                className="w-full h-12 pl-12 pr-32 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm transition-all bg-white"
                             />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={handleClearSearch}
+                                    aria-label="Clear search"
+                                    className="absolute right-[102px] p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors z-10"
+                                    title="Clear search"
+                                >
+                                    <FaTimes size={13} />
+                                </button>
+                            )}
                             <button
                                 onClick={handleSearch}
                                 className="absolute right-1.5 top-1.5 bottom-1.5 px-6 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-full shadow transition-all active:scale-95"
@@ -322,11 +463,31 @@ export default function MarketingNavbar() {
                         <input
                             type="text"
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            onChange={(e) => {
+                                isUserTypingRef.current = true;
+                                setSearchQuery(e.target.value);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    handleSearch();
+                                } else if (e.key === 'Escape') {
+                                    handleClearSearch();
+                                }
+                            }}
                             placeholder="Search..."
                             className="w-full px-4 py-2 rounded-l-md border-0 focus:ring-2 focus:ring-blue-300 outline-none text-sm"
                         />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={handleClearSearch}
+                                aria-label="Clear search"
+                                className="px-2 text-gray-400 hover:text-gray-600 bg-white flex items-center justify-center transition-colors"
+                                title="Clear search"
+                            >
+                                <FaTimes size={12} />
+                            </button>
+                        )}
                         <button
                             onClick={handleSearch}
                             className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-r-md transition-colors"

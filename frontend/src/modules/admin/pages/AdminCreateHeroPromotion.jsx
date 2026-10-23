@@ -4,7 +4,7 @@ import api from '@/shared/services/api'
 import { uploadFile } from '@/shared/services/upload'
 import { extractVideoPoster } from '@/utils/compression'
 import { resolveImageUrl, FALLBACK_IMAGE } from '@/utils/imageUtils'
-import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools, FaPlay, FaVideo, FaMagic, FaLightbulb, FaCheck, FaTimes } from 'react-icons/fa'
+import { FaLink, FaImage, FaCog, FaUserTag, FaSpinner, FaCheckCircle, FaCalculator, FaTimesCircle, FaGlobe, FaHome, FaUtensils, FaShoppingBag, FaTools, FaNewspaper, FaPlay, FaVideo, FaMagic, FaLightbulb, FaCheck, FaTimes } from 'react-icons/fa'
 import { toast } from 'react-toastify'
 import AdvancedScheduler from '@/modules/admin/components/AdvancedScheduler'
 import VideoBannerPreview from '@/modules/marketing/components/VideoBannerPreview'
@@ -60,7 +60,7 @@ export default function AdminCreateHeroPromotion() {
         if (next.length === 0) next = ['homepage']
       } else {
         next = [...next, locVal]
-        const allPages = ['homepage', 'fastfood', 'products', 'services']
+        const allPages = ['homepage', 'fastfood', 'products', 'services', 'blog']
         if (allPages.every(p => next.includes(p))) {
           next = ['all']
         }
@@ -97,7 +97,7 @@ export default function AdminCreateHeroPromotion() {
         if (next.length === 0) next = ['homepage']
       } else {
         next = [...next, locVal]
-        const allPages = ['homepage', 'fastfood', 'products', 'services']
+        const allPages = ['homepage', 'fastfood', 'products', 'services', 'blog']
         if (allPages.every(p => next.includes(p))) {
           next = ['all']
         }
@@ -881,12 +881,13 @@ export default function AdminCreateHeroPromotion() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
                 { value: 'homepage', label: 'Homepage', icon: <FaHome />, desc: 'Main Landing Hero', color: 'blue' },
                 { value: 'fastfood', label: 'Fast Food', icon: <FaUtensils />, desc: 'Fast Food Section', color: 'amber' },
                 { value: 'products', label: 'Products', icon: <FaShoppingBag />, desc: 'Products Catalog', color: 'emerald' },
                 { value: 'services', label: 'Services', icon: <FaTools />, desc: 'Campus Services', color: 'indigo' },
+                { value: 'blog', label: 'Blog', icon: <FaNewspaper />, desc: 'Community Blog', color: 'rose' },
                 { value: 'all', label: 'All Pages', icon: <FaGlobe />, desc: 'Global Hero Banner', color: 'purple' },
               ].map(loc => {
                 const selected = isLocationSelected(loc.value)
@@ -1418,7 +1419,7 @@ export default function AdminCreateHeroPromotion() {
                     type="text"
                     required
                     className="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
-                    placeholder="e.g. /fastfood, /products, /services or https://..."
+                    placeholder="e.g. /fastfood, /products, /services, /blog or https://..."
                     value={form.targetUrl}
                     onChange={e => setForm(p => ({ ...p, targetUrl: e.target.value }))}
                   />
@@ -1693,6 +1694,7 @@ export default function AdminCreateHeroPromotion() {
                             { value: 'fastfood', label: '🍔 Fast Food' },
                             { value: 'products', label: '🛍️ Products' },
                             { value: 'services', label: '🛠️ Services' },
+                            { value: 'blog', label: '📰 Blog' },
                             { value: 'all', label: '🌐 All Pages (Global)' },
                           ].map(loc => {
                             const selected = isFallbackLocationSelected(loc.value)

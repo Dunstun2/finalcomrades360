@@ -232,6 +232,20 @@ export default function FastFoodCard({
         )}
 
         {!hideImageBadges && (
+          <div className="absolute top-1 left-7 sm:top-2 sm:left-8 z-[20]">
+            {item.preparationType === 'ready' ? (
+              <span className="bg-emerald-600/95 backdrop-blur-sm text-white text-[9px] sm:text-[10px] font-black px-1.5 sm:px-2 py-0.5 rounded shadow flex items-center gap-0.5" title="Already prepared & ready for instant dispatch">
+                ⚡ Ready Now
+              </span>
+            ) : (
+              <span className="bg-orange-500/95 backdrop-blur-sm text-white text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded shadow flex items-center gap-0.5" title="Prepared fresh on order">
+                👨‍🍳 {item.preparationTimeMinutes ? `${item.preparationTimeMinutes}m` : 'Fresh cook'}
+              </span>
+            )}
+          </div>
+        )}
+
+        {!hideImageBadges && (
           <div className="absolute bottom-3 right-3 flex gap-1">
             {isVeg && (
               <span className="bg-green-100 text-green-700 p-1.5 rounded-full shadow-sm" title="Vegetarian/Vegan">

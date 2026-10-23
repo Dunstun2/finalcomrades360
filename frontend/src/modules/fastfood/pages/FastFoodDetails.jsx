@@ -1255,6 +1255,15 @@ const FastFoodDetails = () => {
                          🔥 {item.orderCount}+ Orders
                       </span>
                     )}
+                    {item.preparationType === 'ready' ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-sm">
+                        ⚡ Ready Now (Instant Dispatch)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200 shadow-sm">
+                        👨‍🍳 Prepared on Order (~{toNumber(item.preparationTimeMinutes, 20)}m)
+                      </span>
+                    )}
                   </h1>
                   {item.shortDescription && <p className="w-full text-orange-700 font-semibold mt-1">{item.shortDescription}</p>}
                 </div>
@@ -1267,8 +1276,12 @@ const FastFoodDetails = () => {
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">
-                  <p className="text-[10px] uppercase font-bold text-gray-500">Prep Time</p>
-                  <p className="font-bold text-sm text-gray-900">{toNumber(item.preparationTimeMinutes, 20)} mins</p>
+                  <p className="text-[10px] uppercase font-bold text-gray-500">
+                    {item.preparationType === 'ready' ? 'Fulfillment' : 'Prep Time'}
+                  </p>
+                  <p className="font-bold text-sm text-gray-900">
+                    {item.preparationType === 'ready' ? '⚡ Ready to Eat' : `${toNumber(item.preparationTimeMinutes, 20)} mins`}
+                  </p>
                 </div>
                 {item.estimatedServings && (
                   <div className="rounded-xl border border-gray-100 p-2.5 bg-gray-50/50">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import FastFoodCard from '@/modules/fastfood/components/FastFoodCard';
 import ItemCarousel from '@/modules/products/components/ItemCarousel';
@@ -9,7 +9,7 @@ import LiveMenuGrid from '@/modules/fastfood/components/LiveMenuGrid';
 import api from '@/shared/services/api';
 import { platformService } from '@/modules/services/services/platformService';
 import { fastFoodService } from '@/modules/fastfood/services/fastFoodService';
-import { FaHamburger, FaFilter, FaArrowLeft, FaUtensils, FaFire, FaArrowRight, FaSearch } from 'react-icons/fa';
+import { FaHamburger, FaFilter, FaArrowLeft, FaUtensils, FaFire, FaArrowRight, FaChevronDown, FaCheck } from 'react-icons/fa';
 import { useCategories } from '@/contexts/CategoriesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import MaintenanceOverlay from '@/shared/components/MaintenanceOverlay';
@@ -24,6 +24,7 @@ export default function FastFood() {
     const [hasMore, setHasMore] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [selectedSubcategory, setSelectedSubcategory] = useState(null);
+    const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
     const [userLocation, setUserLocation] = useState(null);
     const [activeTab, setActiveTab] = useState(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -31,6 +32,7 @@ export default function FastFood() {
     });
     const [hasAttemptedDefaultTab, setHasAttemptedDefaultTab] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [prepFilter, setPrepFilter] = useState('all'); // 'all' | 'ready' | 'made_to_order'
     const [currentTime, setCurrentTime] = useState(new Date());
     const { heroPromotions, loading: heroLoading } = useHeroPromotions('fastfood');
 
@@ -48,6 +50,14 @@ export default function FastFood() {
             return 0;
         });
     }, [items, currentTime]);
+
+    const readyItems = React.useMemo(() => {
+        return sortedItems.filter(item => item.preparationType === 'ready');
+    }, [sortedItems]);
+
+    const madeToOrderItems = React.useMemo(() => {
+        return sortedItems.filter(item => item.preparationType !== 'ready');
+    }, [sortedItems]);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -82,11 +92,26 @@ export default function FastFood() {
     const isAdmin = (userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('superadmin'));
     const isMaintenanceActive = !isAdmin && (maintenanceSettings.enabled || maintenanceSettings.sections?.fastfood?.enabled);
 
-    const foodCategory = categories.find(cat => cat.name === 'Food & Drinks');
-    const subcategories = foodCategory?.subcategories || [];
+    const subcategories = useMemo(() => {
+        const foodCategories = categories.filter(
+            cat => String(cat.taxonomyType) === 'fast_food' || cat.name === 'Food & Drinks' || cat.name === 'Fast Food'
+        );
+        const allSubs = [];
+        const seenNames = new Set();
+        foodCategories.forEach(cat => {
+            const subs = cat.Subcategory || cat.subcategories || [];
+            subs.forEach(s => {
+                if (s && !seenNames.has(s.name)) {
+                    seenNames.add(s.name);
+                    allSubs.push(s);
+                }
+            });
+        });
+        return allSubs;
+    }, [categories]);
 
     useEffect(() => {
-        if (urlSearchQuery) setSearchTerm(urlSearchQuery);
+        setSearchTerm(urlSearchQuery);
     }, [urlSearchQuery]);
 
     useEffect(() => {
@@ -208,27 +233,7 @@ export default function FastFood() {
                             loading={heroLoading}
                         />
 
-                        {/* Fast Food Search Bar */}
-                        <div className="w-full px-2 sm:max-w-xl sm:mx-auto sm:px-4 mt-1 mb-1 sm:mt-2 sm:mb-2 relative z-20">
-                            <div className="relative group">
-                                <FaSearch className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
-                                <input
-                                    type="text"
-                                    placeholder="Search fast food..."
-                                    className="w-full bg-white border border-gray-200 h-10 sm:h-12 pl-9 sm:pl-12 pr-8 sm:pr-10 rounded-xl sm:rounded-2xl shadow-sm focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900 font-medium text-xs sm:text-sm"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                                {searchTerm && (
-                                    <button
-                                        onClick={() => setSearchTerm('')}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-600"
-                                    >
-                                        ✕
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+
 
                         {/* Compact Tab Navigation */}
                         <div className="flex justify-center mt-2 sm:mt-4 mb-3 sm:mb-6 px-2 sm:px-4 relative z-20">
@@ -263,11 +268,136 @@ export default function FastFood() {
                                 <LiveMenuGrid items={sortedItems} searchTerm={searchTerm} navigate={navigate} />
                             ) : (
                                 <div className={`transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
-                                    {/* Category Filter — FastFood style navigation bar */}
-                                    <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+                                    {/* Preparation Type Filter Pills */}
+                                    <div className="w-full grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2 mb-3">
+                                        {/* All Meals - visible on desktop, hidden on small screens so full words fit */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setPrepFilter('all')}
+                                            className={`hidden sm:flex w-full py-2 px-2 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-sm items-center justify-center text-center ${
+                                                prepFilter === 'all'
+                                                    ? 'bg-gray-900 text-white shadow-md'
+                                                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                                            }`}
+                                        >
+                                            <span>All Meals ({sortedItems.length})</span>
+                                        </button>
+
+                                        {/* Ready to Eat - Full words */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setPrepFilter(prepFilter === 'ready' ? 'all' : 'ready')}
+                                            className={`w-full py-2 px-1.5 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1 text-center ${
+                                                prepFilter === 'ready'
+                                                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200'
+                                                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/80'
+                                            }`}
+                                            title={prepFilter === 'ready' ? 'Click to show all meals' : 'Filter by Ready to Eat'}
+                                        >
+                                            <span className="shrink-0 text-xs sm:text-sm">⚡</span>
+                                            <span className="whitespace-nowrap">Ready to Eat ({readyItems.length})</span>
+                                        </button>
+
+                                        {/* Prepared on Order - Full words */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setPrepFilter(prepFilter === 'made_to_order' ? 'all' : 'made_to_order')}
+                                            className={`w-full py-2 px-1.5 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1 text-center ${
+                                                prepFilter === 'made_to_order'
+                                                    ? 'bg-orange-600 text-white shadow-md shadow-orange-200'
+                                                    : 'bg-orange-50 text-orange-800 hover:bg-orange-100 border border-orange-200/80'
+                                            }`}
+                                            title={prepFilter === 'made_to_order' ? 'Click to show all meals' : 'Filter by Prepared on Order'}
+                                        >
+                                            <span className="shrink-0 text-xs sm:text-sm">👨‍🍳</span>
+                                            <span className="whitespace-nowrap">Prepared on Order ({madeToOrderItems.length})</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Mobile Reset chip when a specific filter is active */}
+                                    {prepFilter !== 'all' && (
+                                        <div className="flex sm:hidden justify-center -mt-1 mb-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPrepFilter('all')}
+                                                className="text-[11px] font-bold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-100 px-3 py-1 rounded-full flex items-center gap-1 transition-all shadow-sm border border-gray-200"
+                                            >
+                                                <span>✕ Show all meals ({sortedItems.length})</span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Mobile Category Dropdown Menu (< md) */}
+                                    <div className="relative md:hidden mb-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                                            className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm text-sm font-bold text-gray-800 transition-all hover:border-orange-300 active:scale-[0.99]"
+                                        >
+                                            <div className="flex items-center gap-2.5 truncate">
+                                                <span className="text-base">{selectedSubcategory?.emoji || '🍽️'}</span>
+                                                <span className="truncate">{selectedSubcategory ? selectedSubcategory.name : 'All Categories'}</span>
+                                            </div>
+                                            <FaChevronDown className={`text-gray-400 text-xs transition-transform duration-200 shrink-0 ml-2 ${isCategoryDropdownOpen ? 'rotate-180 text-orange-600' : ''}`} />
+                                        </button>
+
+                                        {isCategoryDropdownOpen && (
+                                            <>
+                                                <div
+                                                    className="fixed inset-0 z-40"
+                                                    onClick={() => setIsCategoryDropdownOpen(false)}
+                                                />
+                                                <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedCategory('all');
+                                                            setSelectedSubcategory(null);
+                                                            setIsCategoryDropdownOpen(false);
+                                                        }}
+                                                        className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                                                            !selectedSubcategory && selectedCategory === 'all'
+                                                                ? 'bg-orange-50 text-orange-600'
+                                                                : 'text-gray-700 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        <span className="flex items-center gap-2">
+                                                            <span>🍽️</span>
+                                                            <span>All Items</span>
+                                                        </span>
+                                                        {!selectedSubcategory && selectedCategory === 'all' && <FaCheck className="text-orange-600 text-xs" />}
+                                                    </button>
+                                                    {subcategories.map((subcategory) => (
+                                                        <button
+                                                            key={subcategory.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSelectedSubcategory(subcategory);
+                                                                setSelectedCategory('all');
+                                                                setIsCategoryDropdownOpen(false);
+                                                            }}
+                                                            className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                                                                selectedSubcategory?.id === subcategory.id
+                                                                    ? 'bg-orange-50 text-orange-600'
+                                                                    : 'text-gray-700 hover:bg-gray-50'
+                                                            }`}
+                                                        >
+                                                            <span className="flex items-center gap-2">
+                                                                {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                                                                <span>{subcategory.name}</span>
+                                                            </span>
+                                                            {selectedSubcategory?.id === subcategory.id && <FaCheck className="text-orange-600 text-xs" />}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {/* Desktop Category Bar (>= md) */}
+                                    <div className="hidden md:block bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
                                         <div className="px-4 py-4">
                                             <div className="relative">
-                                                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
                                                 <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                                                     <button
                                                         onClick={() => { setSelectedCategory('all'); setSelectedSubcategory(null); }}
@@ -298,10 +428,80 @@ export default function FastFood() {
 
                                     {/* Items Display */}
                                     {sortedItems.length > 0 ? (
-                                        <div className="bg-white md:rounded-3xl border border-gray-100 p-0 md:p-4">
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
-                                                {sortedItems.map((item) => <FastFoodCard key={item.id} item={item} navigate={navigate} />)}
-                                            </div>
+                                        <div className="space-y-8">
+                                            {/* Dual section when 'all' is chosen and both types exist */}
+                                            {prepFilter === 'all' && readyItems.length > 0 && madeToOrderItems.length > 0 ? (
+                                                <>
+                                                    {/* Section 1: Ready to Eat */}
+                                                    <div className="bg-white md:rounded-3xl border border-gray-100 p-3 md:p-5">
+                                                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-500 text-white font-black text-sm shadow-sm">⚡</span>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <h2 className="text-base sm:text-lg font-black text-gray-900 tracking-tight">Ready to Eat</h2>
+                                                                        <span className="text-[10px] sm:text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200 whitespace-nowrap">
+                                                                            ready now ({readyItems.length})
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-xs text-gray-500">Already prepared and packaged — ready for immediate delivery or pickup</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+                                                            {readyItems.map((item) => <FastFoodCard key={item.id} item={item} navigate={navigate} />)}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Section 2: Prepared on Order */}
+                                                    <div className="bg-white md:rounded-3xl border border-gray-100 p-3 md:p-5">
+                                                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-orange-500 text-white font-black text-sm shadow-sm">👨‍🍳</span>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <h2 className="text-base sm:text-lg font-black text-gray-900 tracking-tight">Prepared on Order</h2>
+                                                                        <span className="text-[10px] sm:text-xs font-bold text-orange-700 bg-orange-100 px-2.5 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">
+                                                                            fresh kitchen ({madeToOrderItems.length})
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-xs text-gray-500">Prepared fresh when you order — check prep time on each meal</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+                                                            {madeToOrderItems.map((item) => <FastFoodCard key={item.id} item={item} navigate={navigate} />)}
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                /* Single filtered grid view */
+                                                <div className="bg-white md:rounded-3xl border border-gray-100 p-3 md:p-5">
+                                                    {prepFilter !== 'all' && (
+                                                        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
+                                                            <span className={`flex items-center justify-center w-7 h-7 rounded-lg text-white font-bold text-xs ${prepFilter === 'ready' ? 'bg-emerald-500' : 'bg-orange-500'}`}>
+                                                                {prepFilter === 'ready' ? '⚡' : '👨‍🍳'}
+                                                            </span>
+                                                            <h2 className="text-base font-bold text-gray-900">
+                                                                {prepFilter === 'ready' ? 'Ready to Eat (Instant)' : 'Prepared on Order (Fresh Kitchen)'}
+                                                            </h2>
+                                                            <span className="text-xs text-gray-400 ml-auto">
+                                                                {(prepFilter === 'ready' ? readyItems : madeToOrderItems).length} items
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+                                                        {(prepFilter === 'ready'
+                                                            ? readyItems
+                                                            : prepFilter === 'made_to_order'
+                                                            ? madeToOrderItems
+                                                            : sortedItems
+                                                        ).map((item) => (
+                                                            <FastFoodCard key={item.id} item={item} navigate={navigate} />
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="text-center py-20 bg-white rounded-3xl border border-gray-100 border-dashed">

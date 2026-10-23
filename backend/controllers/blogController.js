@@ -551,11 +551,19 @@ exports.getLikes = async (req, res) => {
     });
 
     let userLiked = false;
-    if (req.user) {
+    const userId = req.user?.id || null;
+    const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
+    const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45);
+
+    const orConditions = [];
+    if (userId) orConditions.push({ userId });
+    if (ipAddress) orConditions.push({ ipAddress });
+
+    if (orConditions.length > 0) {
       const userLike = await BlogLike.findOne({
         where: {
           blogPostId: post.id,
-          userId: req.user.id
+          [Op.or]: orConditions
         }
       });
       userLiked = !!userLike;
@@ -592,17 +600,19 @@ exports.toggleLike = async (req, res) => {
     }
 
     const userId = req.user?.id || null;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.headers['user-agent'];
+    const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
+    const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45) || '127.0.0.1';
+    const userAgent = (req.headers['user-agent'] || '').slice(0, 500);
+
+    const orConditions = [];
+    if (userId) orConditions.push({ userId });
+    if (ipAddress) orConditions.push({ ipAddress });
 
     // Check if already liked
     const existingLike = await BlogLike.findOne({
       where: {
         blogPostId: post.id,
-        [Op.or]: [
-          userId ? { userId } : {},
-          { ipAddress }
-        ]
+        [Op.or]: orConditions
       }
     });
 
@@ -681,11 +691,19 @@ exports.getRatings = async (req, res) => {
 
     // Check if current user has rated
     let userRating = null;
-    if (req.user) {
+    const userId = req.user?.id || null;
+    const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
+    const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45);
+
+    const orConditions = [];
+    if (userId) orConditions.push({ userId });
+    if (ipAddress) orConditions.push({ ipAddress });
+
+    if (orConditions.length > 0) {
       const rating = await BlogRating.findOne({
         where: {
           blogPostId: post.id,
-          userId: req.user.id
+          [Op.or]: orConditions
         }
       });
       userRating = rating ? rating.rating : null;
@@ -731,16 +749,18 @@ exports.addRating = async (req, res) => {
     }
 
     const userId = req.user?.id || null;
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
+    const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45) || '127.0.0.1';
+
+    const orConditions = [];
+    if (userId) orConditions.push({ userId });
+    if (ipAddress) orConditions.push({ ipAddress });
 
     // Check if user has already rated
     const existingRating = await BlogRating.findOne({
       where: {
         blogPostId: post.id,
-        [Op.or]: [
-          userId ? { userId } : {},
-          { ipAddress }
-        ]
+        [Op.or]: orConditions
       }
     });
 

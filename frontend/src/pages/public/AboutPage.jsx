@@ -70,41 +70,41 @@ const AboutPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950">
+    <div className="min-h-screen bg-white dark:bg-slate-950 pb-16 sm:pb-20">
       {/* Brand identity */}
-      <header className="pt-6 pb-4 md:pt-8 md:pb-6 bg-white dark:bg-slate-950">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between gap-4">
+      <header className="pt-4 pb-3 sm:pt-6 sm:pb-4 md:pt-8 md:pb-6 bg-white dark:bg-slate-950">
+        <div className="w-full max-w-6xl mx-auto px-1.5 sm:px-4 lg:px-8">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
             {/* Back Button */}
             <button
               onClick={() => navigate(-1)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="flex items-center gap-1 sm:gap-2 p-2 sm:px-4 sm:py-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
               <span className="font-medium hidden sm:inline">Back</span>
             </button>
 
             {/* Logo and Title */}
-            <div className="flex items-center justify-center gap-3 md:gap-4 flex-1">
+            <div className="flex items-center justify-center gap-2.5 sm:gap-4 flex-1 min-w-0">
               {siteLogo ? (
                 <img
                   src={resolveImageUrl(siteLogo)}
                   alt={siteName}
-                  className="h-24 w-24 md:h-40 md:w-40 object-contain shrink-0"
+                  className="h-12 w-12 sm:h-24 sm:w-24 md:h-40 md:w-40 object-contain shrink-0"
                 />
               ) : (
-                <div className="h-24 w-24 md:h-40 md:w-40 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-4xl md:text-6xl font-extrabold shrink-0">
+                <div className="h-12 w-12 sm:h-24 sm:w-24 md:h-40 md:w-40 rounded-xl sm:rounded-2xl bg-blue-600 text-white flex items-center justify-center text-xl sm:text-4xl md:text-6xl font-extrabold shrink-0">
                   {siteName.charAt(0)}
                 </div>
               )}
-              <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
+              <h1 className="text-2xl sm:text-3xl md:text-5xl font-extrabold tracking-tight truncate sm:overflow-visible">
                 <span className="text-gray-900 dark:text-white">Comrades</span>
                 <span className="text-blue-600 dark:text-blue-400">360</span>
               </h1>
             </div>
 
             {/* Spacer for symmetry */}
-            <div className="w-[100px] sm:w-[120px]"></div>
+            <div className="w-9 sm:w-[100px] md:w-[120px] shrink-0"></div>
           </div>
         </div>
       </header>
@@ -113,20 +113,20 @@ const AboutPage = () => {
 
       {/* Main Content */}
       {aboutContent ? (
-        <section className="py-8 md:py-12 bg-white dark:bg-slate-950">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
+        <section className="py-4 sm:py-8 md:py-12 bg-white dark:bg-slate-950">
+          <div className="w-full max-w-6xl mx-auto px-1.5 sm:px-4 lg:px-8">
+            <div className="grid md:grid-cols-2 gap-3 sm:gap-6 mb-3 sm:mb-6">
               {/* Story Card */}
               {aboutContent.brandStory && (
-                <div className="group relative bg-red-50 dark:bg-red-900/20 rounded-2xl p-6 border border-red-200 dark:border-red-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
+                <div className="group relative bg-red-50 dark:bg-red-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-red-200 dark:border-red-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
                   <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-red-100 dark:bg-red-900/30">
-                        <Heart className="w-6 h-6 text-red-600 dark:text-red-400" />
+                    <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                      <div className="inline-flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg bg-red-100 dark:bg-red-900/30 shrink-0">
+                        <Heart className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 dark:text-red-400" />
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Our Story</h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Our Story</h2>
                     </div>
-                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {aboutContent.brandStory}
                     </p>
                   </div>
@@ -135,15 +135,15 @@ const AboutPage = () => {
 
               {/* Values Card */}
               {aboutContent.values && (
-                <div className="group relative bg-purple-50 dark:bg-purple-900/20 rounded-2xl p-6 border border-purple-200 dark:border-purple-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
+                <div className="group relative bg-purple-50 dark:bg-purple-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
                   <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                        <Award className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                    <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                      <div className="inline-flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg bg-purple-100 dark:bg-purple-900/30 shrink-0">
+                        <Award className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600 dark:text-purple-400" />
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Our Values</h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Our Values</h2>
                     </div>
-                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {aboutContent.values}
                     </p>
                   </div>
@@ -151,18 +151,18 @@ const AboutPage = () => {
               )}
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8 mb-12">
+            <div className="grid md:grid-cols-2 gap-3 sm:gap-8 mb-6 sm:mb-12">
               {/* Vision Card */}
               {aboutContent.vision && (
-                <div className="group relative bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-8 border border-amber-200 dark:border-amber-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
+                <div className="group relative bg-amber-50 dark:bg-amber-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-amber-200 dark:border-amber-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
                   <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-amber-100 dark:bg-amber-900/30">
-                        <Lightbulb className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                    <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-6">
+                      <div className="inline-flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg bg-amber-100 dark:bg-amber-900/30 shrink-0">
+                        <Lightbulb className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600 dark:text-amber-400" />
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Our Vision</h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Our Vision</h2>
                     </div>
-                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {aboutContent.vision}
                     </p>
                   </div>
@@ -171,15 +171,15 @@ const AboutPage = () => {
 
               {/* Mission Card */}
               {aboutContent.mission && (
-                <div className="group relative bg-green-50 dark:bg-green-900/20 rounded-2xl p-8 border border-green-200 dark:border-green-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
+                <div className="group relative bg-green-50 dark:bg-green-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-green-200 dark:border-green-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
                   <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-green-100 dark:bg-green-900/30">
-                        <Target className="w-6 h-6 text-green-600 dark:text-green-400" />
+                    <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-6">
+                      <div className="inline-flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg bg-green-100 dark:bg-green-900/30 shrink-0">
+                        <Target className="w-5 h-5 sm:w-6 sm:h-6 text-green-600 dark:text-green-400" />
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Our Mission</h2>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Our Mission</h2>
                     </div>
-                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                       {aboutContent.mission}
                     </p>
                   </div>
@@ -189,10 +189,10 @@ const AboutPage = () => {
 
             {/* Additional Info Card */}
             {aboutContent.additionalInfo && (
-              <div className="group relative bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-8 border border-blue-200 dark:border-blue-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
+              <div className="group relative bg-blue-50 dark:bg-blue-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-blue-200 dark:border-blue-800 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
                 <div className="relative z-10">
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">More About Us</h3>
-                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                  <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-3 sm:mb-6">More About Us</h3>
+                  <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                     {aboutContent.additionalInfo}
                   </p>
                 </div>
@@ -201,19 +201,19 @@ const AboutPage = () => {
           </div>
         </section>
       ) : (
-        <section className="py-20 md:py-32">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <p className="text-xl text-gray-600 dark:text-gray-400">Coming soon...</p>
+        <section className="py-12 sm:py-20 md:py-32">
+          <div className="w-full max-w-6xl mx-auto px-1.5 sm:px-4 lg:px-8 text-center">
+            <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-400">Coming soon...</p>
           </div>
         </section>
       )}
 
       {/* Team Section */}
       {teamMembers.length > 0 && (
-        <section className="py-12 md:py-16 bg-gray-50 dark:bg-slate-900/50">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <h2 className="text-5xl md:text-6xl font-bold mb-4">
+        <section className="py-8 sm:py-12 md:py-16 bg-gray-50 dark:bg-slate-900/50">
+          <div className="w-full max-w-6xl mx-auto px-1.5 sm:px-4 lg:px-8">
+            <div className="text-center mb-6 sm:mb-12">
+              <h2 className="text-3xl sm:text-5xl md:text-6xl font-bold mb-2 sm:mb-4">
                 <span className="text-gray-900 dark:text-white">Comrades</span>
                 <span className="text-blue-600 dark:text-blue-400">360</span>
                 {' '}
@@ -221,7 +221,7 @@ const AboutPage = () => {
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
               {teamMembers.map((member, idx) => (
                 <div
                   key={member.id}
@@ -229,7 +229,7 @@ const AboutPage = () => {
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   {/* Photo */}
-                  <div className="w-full h-48 bg-gray-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+                  <div className="w-full h-44 sm:h-48 bg-gray-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
                     {member.photo ? (
                       <img
                         src={member.photo}
@@ -251,11 +251,11 @@ const AboutPage = () => {
                   </div>
 
                   {/* Info */}
-                  <div className="p-5">
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">{member.name}</h3>
-                    <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2">{member.position}</p>
+                  <div className="p-4 sm:p-5">
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-1">{member.name}</h3>
+                    <p className="text-xs sm:text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2">{member.position}</p>
                     {member.description && (
-                      <p className="text-gray-600 dark:text-gray-300 text-sm line-clamp-3 leading-relaxed">
+                      <p className="text-gray-600 dark:text-gray-300 text-xs sm:text-sm line-clamp-3 leading-relaxed">
                         {member.description}
                       </p>
                     )}

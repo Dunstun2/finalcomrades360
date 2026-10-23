@@ -242,6 +242,20 @@ const testConnection = async () => {
       await sequelize.sync({ force: false, alter: false });
     }
 
+    // Self-healing: Ensure blog interaction tables exist in production
+    try {
+      const { BlogPost, BlogComment, BlogLike, BlogRating } = require('./models.registry');
+      if (BlogPost && BlogComment && BlogLike && BlogRating) {
+        await BlogPost.sync({ alter: false });
+        await BlogComment.sync({ alter: false });
+        await BlogLike.sync({ alter: false });
+        await BlogRating.sync({ alter: false });
+        console.error('✅ Blog interaction tables verified/synced.');
+      }
+    } catch (blogSyncErr) {
+      console.warn('⚠️ Warning: Blog tables self-healing check:', blogSyncErr.message);
+    }
+
     // Self-healing: Enforce default roles
     try {
       const Role = sequelize.models.Role || sequelize.define('Role', {
@@ -285,9 +299,37 @@ const testConnection = async () => {
             console.warn('⚠️ Could not add firstPublishedAt to Plan:', err.message);
           }
         });
-    } catch (colErr) {
-      console.warn('⚠️ Warning: firstPublishedAt column check failed:', colErr.message);
+    } catch (planColErr) {
+      // safe
     }
+
+    // Self-healing: Add preparationType and readyQuantity columns to FastFoods table if missing
+    try {
+      const isSqlite = dbConfig.dialect === 'sqlite';
+      let existingFastFoodCols = new Set();
+      if (isSqlite) {
+        const [cols] = await sequelize.query(`PRAGMA table_info(\`FastFoods\`);`);
+        existingFastFoodCols = new Set(cols.map(c => c.name.toLowerCase()));
+      } else {
+        const [cols] = await sequelize.query(`DESCRIBE \`FastFoods\`;`);
+        existingFastFoodCols = new Set(cols.map(c => c.Field.toLowerCase()));
+      }
+
+      if (!existingFastFoodCols.has('preparationtype')) {
+        const colDef = isSqlite ? "VARCHAR(50) DEFAULT 'made_to_order'" : "ENUM('ready', 'made_to_order') DEFAULT 'made_to_order'";
+        await sequelize.query(`ALTER TABLE \`FastFoods\` ADD COLUMN \`preparationType\` ${colDef};`);
+        console.error("✅ [Self-Healing] Added missing column 'preparationType' to FastFoods table.");
+      }
+      if (!existingFastFoodCols.has('readyquantity')) {
+        await sequelize.query(`ALTER TABLE \`FastFoods\` ADD COLUMN \`readyQuantity\` INT NULL DEFAULT NULL;`);
+        console.error("✅ [Self-Healing] Added missing column 'readyQuantity' to FastFoods table.");
+      }
+    } catch (ffColErr) {
+      if (!ffColErr.message?.includes('duplicate column') && !ffColErr.message?.includes('already exists')) {
+        console.warn('⚠️ Warning: FastFoods preparationType self-healing check:', ffColErr.message);
+      }
+    }
+
 
     // Self-healing: Enforce default platform configs
     try {

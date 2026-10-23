@@ -801,7 +801,7 @@ const AppContent = () => {
       )}
 
       {/* Global Marketing Mode Bottom Nav (Mobile Only inside component) */}
-      {(isMarketingMode || ['/about', '/contact'].includes(location.pathname)) && <MarketingBottomNav />}
+      {(isMarketingMode || ['/about', '/contact', '/faq'].includes(location.pathname)) && <MarketingBottomNav />}
 
       {/* Global Toast Notifications */}
       <ToastContainer

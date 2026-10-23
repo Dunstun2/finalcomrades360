@@ -81,26 +81,26 @@ router.delete('/blog/:id', auth, adminOnly, blogController.deleteBlog);
 // ============= BLOG COMMENTS ROUTES =============
 
 // Get comments for a blog post (public)
-router.get('/blog/:slug/comments', blogController.getComments);
+router.get('/blog/:slug/comments', optionalAuth, blogController.getComments);
 
-// Create a comment (public)
-router.post('/blog/:slug/comments', blogController.createComment);
+// Create a comment (public, recognizes logged-in user if token provided)
+router.post('/blog/:slug/comments', optionalAuth, blogController.createComment);
 
 // ============= BLOG LIKES ROUTES =============
 
-// Get like count and status (public)
-router.get('/blog/:slug/likes', blogController.getLikes);
+// Get like count and status (public, recognizes logged-in user if token provided)
+router.get('/blog/:slug/likes', optionalAuth, blogController.getLikes);
 
-// Toggle like (public)
-router.post('/blog/:slug/likes', blogController.toggleLike);
+// Toggle like (public, recognizes logged-in user if token provided)
+router.post('/blog/:slug/likes', optionalAuth, blogController.toggleLike);
 
 // ============= BLOG RATINGS ROUTES =============
 
-// Get ratings for a blog post (public)
-router.get('/blog/:slug/ratings', blogController.getRatings);
+// Get ratings for a blog post (public, recognizes logged-in user if token provided)
+router.get('/blog/:slug/ratings', optionalAuth, blogController.getRatings);
 
-// Add or update rating (public)
-router.post('/blog/:slug/ratings', blogController.addRating);
+// Add or update rating (public, recognizes logged-in user if token provided)
+router.post('/blog/:slug/ratings', optionalAuth, blogController.addRating);
 
 // ============= ADMIN BLOG COMMENT MODERATION =============
 

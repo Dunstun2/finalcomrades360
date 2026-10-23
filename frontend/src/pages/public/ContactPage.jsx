@@ -217,54 +217,41 @@ const ContactPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="min-h-screen bg-white text-gray-900 pb-16 sm:pb-20">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Page Title with Back Button */}
-        <div className="flex items-center justify-between mb-16">
+      <div className="w-full max-w-7xl mx-auto px-1.5 sm:px-4 lg:px-8 py-6 sm:py-12">
+        {/* Back Button */}
+        <div className="mb-4 sm:mb-6">
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-blue-600 transition-colors"
+            className="inline-flex items-center gap-1 sm:gap-2 p-2 sm:px-3 text-gray-700 hover:text-blue-600 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium hidden sm:inline">Back</span>
+            <span className="font-medium text-sm sm:text-base">Back</span>
           </button>
-
-          <div className="text-center flex-1">
-            <h1 className="text-5xl md:text-6xl font-bold mb-4">
-              <span className="text-orange-500">Get In</span>{' '}
-              <span className="text-gray-900">Touch</span>
-            </h1>
-            <p className="text-gray-600 text-lg">
-              {pageSubtitle}
-            </p>
-          </div>
-
-          {/* Spacer for symmetry */}
-          <div className="w-[100px] sm:w-[120px]"></div>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+        <div className="grid lg:grid-cols-2 gap-4 sm:gap-8 lg:gap-12">
           {/* Left Side - Contact Info */}
-          <div className="space-y-8">
+          <div className="space-y-4 sm:space-y-8">
             {/* Get In Touch Card */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8">
-              <h2 className="text-2xl font-bold mb-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8">
+              <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">
                 <span className="text-orange-500">Get In</span>{' '}
                 <span className="text-white">Touch</span>
               </h2>
 
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Email */}
-                <div className="flex items-start gap-4">
-                  <div className="bg-blue-600 p-3 rounded-lg shrink-0">
-                    <Mail className="w-6 h-6 text-white" />
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="bg-blue-600 p-2.5 sm:p-3 rounded-lg shrink-0">
+                    <Mail className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <h3 className="text-sm text-gray-400 uppercase mb-1">EMAIL</h3>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-xs sm:text-sm text-gray-400 uppercase mb-1">EMAIL</h3>
                     <a
                       href={`mailto:${supportEmail}`}
-                      className="text-white hover:text-blue-400 transition-colors"
+                      className="text-white hover:text-blue-400 transition-colors text-sm sm:text-base break-all"
                     >
                       {supportEmail}
                     </a>
@@ -272,15 +259,15 @@ const ContactPage = () => {
                 </div>
 
                 {/* Phone */}
-                <div className="flex items-start gap-4">
-                  <div className="bg-blue-600 p-3 rounded-lg shrink-0">
-                    <Phone className="w-6 h-6 text-white" />
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="bg-blue-600 p-2.5 sm:p-3 rounded-lg shrink-0">
+                    <Phone className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <h3 className="text-sm text-gray-400 uppercase mb-1">PHONE</h3>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-xs sm:text-sm text-gray-400 uppercase mb-1">PHONE</h3>
                     <a
                       href={`tel:${supportPhone}`}
-                      className="text-white hover:text-blue-400 transition-colors"
+                      className="text-white hover:text-blue-400 transition-colors text-sm sm:text-base break-all"
                     >
                       {supportPhone}
                     </a>
@@ -288,24 +275,24 @@ const ContactPage = () => {
                 </div>
 
                 {/* Location */}
-                <div className="flex items-start gap-4">
-                  <div className="bg-blue-600 p-3 rounded-lg shrink-0">
-                    <MapPin className="w-6 h-6 text-white" />
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="bg-blue-600 p-2.5 sm:p-3 rounded-lg shrink-0">
+                    <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <h3 className="text-sm text-gray-400 uppercase mb-1">LOCATION</h3>
-                    <p className="text-white">{location}</p>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-xs sm:text-sm text-gray-400 uppercase mb-1">LOCATION</h3>
+                    <p className="text-white text-sm sm:text-base">{location}</p>
                   </div>
                 </div>
 
                 {/* Availability */}
-                <div className="flex items-start gap-4">
-                  <div className="bg-green-600 p-3 rounded-lg shrink-0">
-                    <Zap className="w-6 h-6 text-white" />
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="bg-green-600 p-2.5 sm:p-3 rounded-lg shrink-0">
+                    <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <h3 className="text-sm text-gray-400 uppercase mb-1">AVAILABILITY</h3>
-                    <p className="text-green-400 font-semibold">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-xs sm:text-sm text-gray-400 uppercase mb-1">AVAILABILITY</h3>
+                    <p className="text-green-400 font-semibold text-sm sm:text-base">
                       {availabilityText}
                     </p>
                   </div>
@@ -314,25 +301,25 @@ const ContactPage = () => {
             </div>
 
             {/* Find Us Online Card */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8">
-              <h2 className="text-2xl font-bold mb-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8">
+              <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">
                 <span className="text-orange-500">Find Us</span>{' '}
                 <span className="text-white">Online</span>
               </h2>
 
-              <p className="text-gray-400 mb-6">
+              <p className="text-gray-400 text-sm sm:text-base mb-4 sm:mb-6">
                 Connect with me or explore my work across these platforms.
               </p>
 
               {socialMediaLinks.length > 0 ? (
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-2 sm:gap-4">
                   {socialMediaLinks.map((item, index) => (
                     <a
                       key={item.id || index}
                       href={formatSocialUrl(item)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-white"
+                      className="flex items-center gap-2 px-3.5 sm:px-6 py-2.5 sm:py-3 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-white text-xs sm:text-sm md:text-base"
                     >
                       {getSocialIcon(item.platform)}
                       <span className="font-medium">{item.name || item.platform}</span>
@@ -347,21 +334,21 @@ const ContactPage = () => {
             </div>
 
             {/* Response Time Info */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center">
-              <p className="text-gray-400 text-sm italic">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center">
+              <p className="text-gray-400 text-xs sm:text-sm italic">
                 {responseTimeText}
               </p>
             </div>
           </div>
 
           {/* Right Side - Contact Form */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8">
-            <h2 className="text-2xl font-bold mb-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8">
+            <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">
               <span className="text-orange-500">Send a</span>{' '}
               <span className="text-white">Message</span>
             </h2>
 
-            <p className="text-gray-400 mb-6">
+            <p className="text-gray-400 text-sm sm:text-base mb-4 sm:mb-6">
               Feel free to drop a message, and I will get back to you as soon as possible.
             </p>
 
@@ -376,10 +363,10 @@ const ContactPage = () => {
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
                 {/* Name */}
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2 uppercase">
+                  <label htmlFor="name" className="block text-xs sm:text-sm font-medium text-gray-300 mb-1.5 sm:mb-2 uppercase">
                     Your Name <span className="text-orange-500">*</span>
                   </label>
                   <input
@@ -390,13 +377,13 @@ const ContactPage = () => {
                     value={formData.name}
                     onChange={handleChange}
                     placeholder="e.g. John Doe"
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                    className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   />
                 </div>
 
                 {/* Email */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2 uppercase">
+                  <label htmlFor="email" className="block text-xs sm:text-sm font-medium text-gray-300 mb-1.5 sm:mb-2 uppercase">
                     Email Address <span className="text-orange-500">*</span>
                   </label>
                   <input
@@ -407,13 +394,13 @@ const ContactPage = () => {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="e.g. jb@gmail.com"
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                    className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   />
                 </div>
 
                 {/* Subject */}
                 <div>
-                  <label htmlFor="subject" className="block text-sm font-medium text-gray-300 mb-2 uppercase">
+                  <label htmlFor="subject" className="block text-xs sm:text-sm font-medium text-gray-300 mb-1.5 sm:mb-2 uppercase">
                     Subject
                   </label>
                   <input
@@ -423,13 +410,13 @@ const ContactPage = () => {
                     value={formData.subject}
                     onChange={handleChange}
                     placeholder="e.g. Collaboration Proposal"
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                    className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   />
                 </div>
 
                 {/* Phone Number */}
                 <div>
-                  <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-300 mb-2 uppercase">
+                  <label htmlFor="phoneNumber" className="block text-xs sm:text-sm font-medium text-gray-300 mb-1.5 sm:mb-2 uppercase">
                     Phone Number <span className="text-gray-500 text-xs">(optional - for WhatsApp reply)</span>
                   </label>
                   <input
@@ -439,20 +426,20 @@ const ContactPage = () => {
                     value={formData.phoneNumber}
                     onChange={handleChange}
                     placeholder="e.g. 0712345678 or +254712345678"
-                    className={`w-full px-4 py-3 bg-slate-800 border ${phoneError ? 'border-red-500' : 'border-slate-700'
+                    className={`w-full px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-slate-800 border ${phoneError ? 'border-red-500' : 'border-slate-700'
                       } rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors`}
                   />
                   {phoneError && (
                     <p className="text-red-400 text-xs mt-1">{phoneError}</p>
                   )}
-                  <p className="text-gray-500 text-xs mt-1">
+                  <p className="text-gray-500 text-[11px] sm:text-xs mt-1">
                     ✅ Accepts: 0712345678, 0110123456, 712345678, +254712345678, or 254712345678
                   </p>
                 </div>
 
                 {/* Message */}
                 <div>
-                  <label htmlFor="message" className="block text-sm font-medium text-gray-300 mb-2 uppercase">
+                  <label htmlFor="message" className="block text-xs sm:text-sm font-medium text-gray-300 mb-1.5 sm:mb-2 uppercase">
                     Message <span className="text-orange-500">*</span>
                   </label>
                   <textarea
@@ -463,7 +450,7 @@ const ContactPage = () => {
                     onChange={handleChange}
                     rows="5"
                     placeholder="Type your message details here..."
-                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors resize-none"
+                    className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors resize-none"
                   ></textarea>
                 </div>
 
@@ -471,13 +458,13 @@ const ContactPage = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 sm:py-4 text-sm sm:text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     'Sending...'
                   ) : (
                     <>
-                      <Send className="w-5 h-5" />
+                      <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                       Send Message
                     </>
                   )}
@@ -489,40 +476,38 @@ const ContactPage = () => {
 
         {/* Google Maps Section */}
         {(googleMapsEmbedUrl || (contactInfo?.latitude && contactInfo?.longitude)) && (
-          <div className="mt-16">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl md:text-4xl font-bold mb-3">
+          <div className="mt-8 sm:mt-16">
+            <div className="text-center mb-4 sm:mb-8">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-1.5 sm:mb-3">
                 <span className="text-orange-500">Find Us</span>{' '}
                 <span className="text-gray-900">Here</span>
               </h2>
-              <p className="text-gray-600">Visit our location or explore the area around us</p>
+              <p className="text-gray-600 text-xs sm:text-base">Visit our location or explore the area around us</p>
             </div>
 
-            <div className="bg-gray-100 rounded-2xl overflow-hidden shadow-lg border border-gray-200">
+            <div className="bg-gray-100 rounded-xl sm:rounded-2xl overflow-hidden shadow-lg border border-gray-200">
               {googleMapsEmbedUrl ? (
                 <iframe
                   src={googleMapsEmbedUrl}
                   width="100%"
-                  height="450"
                   style={{ border: 0 }}
                   allowFullScreen=""
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                   title="Our Location"
-                  className="w-full"
+                  className="w-full h-[280px] sm:h-[450px]"
                   onError={(e) => console.error('Map iframe error:', e)}
                 ></iframe>
               ) : contactInfo?.latitude && contactInfo?.longitude ? (
                 <iframe
                   src={`https://maps.google.com/maps?q=${contactInfo.latitude},${contactInfo.longitude}&z=15&output=embed`}
                   width="100%"
-                  height="450"
                   style={{ border: 0 }}
                   allowFullScreen=""
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                   title="Our Location"
-                  className="w-full"
+                  className="w-full h-[280px] sm:h-[450px]"
                   onError={(e) => console.error('Map iframe error:', e)}
                 ></iframe>
               ) : null}

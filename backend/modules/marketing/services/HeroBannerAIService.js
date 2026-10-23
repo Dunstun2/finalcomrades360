@@ -163,6 +163,7 @@ Return a fresh JSON object with:
   static generateHeuristicSuggestions({ promoType, type, items, bannerLocation, currentValues }) {
     const isFood = promoType === 'fastfood' || (Array.isArray(bannerLocation) && bannerLocation.includes('fastfood'));
     const isServices = Array.isArray(bannerLocation) && bannerLocation.includes('services');
+    const isBlog = Array.isArray(bannerLocation) && bannerLocation.includes('blog');
     const firstItem = items && items[0] ? items[0] : null;
     const rawName = firstItem ? firstItem.name : '';
     const itemName = rawName.length > 28 ? rawName.slice(0, 25) + '...' : rawName;
@@ -301,6 +302,66 @@ Return a fresh JSON object with:
           { icon: '🤝', text: 'Student Backed' },
           { icon: '🕒', text: 'Fast Turnaround' },
           { icon: '✅', text: 'Quality Guaranteed' }
+        ]
+      ];
+
+      return {
+        headingSuggestions: this.shuffleArray(headingPool).slice(0, 4),
+        shortDescriptionSuggestions: this.shuffleArray(descPool).slice(0, 3),
+        eyebrowSuggestions: this.shuffleArray(eyebrowPool).slice(0, 5),
+        ctaSuggestions: this.shuffleArray(ctaPool).slice(0, 4),
+        trustBadgeSets: this.shuffleArray(badgeSetsPool).slice(0, 3)
+      };
+    }
+
+    if (isBlog) {
+      const headingPool = [
+        '📰 INSPIRING COMRADE STORIES',
+        '💡 CAMPUS HUSTLE & CAREER TIPS',
+        '✨ LATEST ARTICLES & INSIGHTS',
+        '🚀 REAL ADVICE BY STUDENTS FOR STUDENTS',
+        '🎓 LEVEL UP YOUR SEMESTER',
+        '🌟 STORIES THAT EMPOWER COMRADES'
+      ];
+
+      const descPool = [
+        'Discover actionable business ideas, campus life tips, and career opportunities from the Comrades360 community.',
+        'Read real experiences, study hacks, and entrepreneurship insights written by fellow students.',
+        'Stay informed and inspired with stories, trends, and resources designed to help university students succeed.'
+      ];
+
+      const eyebrowPool = [
+        '📰 FEATURED READ',
+        '💡 CAMPUS INSIGHTS',
+        '✨ MUST READ',
+        '🎓 STUDENT LIFE',
+        '🚀 TRENDING STORY',
+        '🌟 COMRADE SPOTLIGHT'
+      ];
+
+      const ctaPool = [
+        'Read Article',
+        'Explore Stories',
+        'Read Now',
+        'Discover More',
+        'Join the Discussion'
+      ];
+
+      const badgeSetsPool = [
+        [
+          { icon: '📰', text: 'Weekly Updates' },
+          { icon: '💡', text: 'Actionable Advice' },
+          { icon: '🎓', text: 'Student Centric' }
+        ],
+        [
+          { icon: '✍️', text: 'Community Authors' },
+          { icon: '🔥', text: 'Trending Topics' },
+          { icon: '🚀', text: 'Career Boost' }
+        ],
+        [
+          { icon: '🌟', text: 'Inspiring Stories' },
+          { icon: '⚡', text: 'Quick Reads' },
+          { icon: '🤝', text: 'By Comrades' }
         ]
       ];
 

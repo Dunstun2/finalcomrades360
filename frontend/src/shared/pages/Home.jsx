@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { ChevronDown, Check } from 'lucide-react';
 import api from '@/shared/services/api';
 import serviceApi from '@/modules/services/services/serviceApi';
 import { productApi } from '@/shared/services/api';
@@ -31,6 +32,19 @@ function Home({ isMarketingMode: propMarketingMode }) {
   const { user } = useAuth();
   const { addToCart, removeFromCart, refresh, cart } = useCart();
   const { categories: allCategories } = useCategories();
+
+  // Filter strictly product categories for products section (exclude fast food and services)
+  const productCategories = useMemo(() => {
+    if (!Array.isArray(allCategories)) return [];
+    return allCategories.filter(cat => {
+      if (!cat) return false;
+      const type = String(cat.taxonomyType || '').toLowerCase();
+      const name = String(cat.name || '').toLowerCase();
+      if (type === 'fast_food' || type === 'service' || type === 'services') return false;
+      if (name.includes('fast food') || name.includes('food & drinks') || name.includes('services')) return false;
+      return true;
+    });
+  }, [allCategories]);
   const { toggleWishlist, isInWishlist: checkWishlist } = useWishlist();
   const { toast } = useToast();
   const { heroPromotions: dynamicHeroPromotions, loading: heroLoading } = useHeroPromotions('homepage');
@@ -133,6 +147,8 @@ function Home({ isMarketingMode: propMarketingMode }) {
   const [loadingMoreServices, setLoadingMoreServices] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const servicesPrefetchStartedRef = useRef(false);
+  const [isProductsCategoryDropdownOpen, setIsProductsCategoryDropdownOpen] = useState(false);
+  const [isServicesCategoryDropdownOpen, setIsServicesCategoryDropdownOpen] = useState(false);
 
   // Helper to get items per row based on current layout
   const getItemsPerRow = useCallback(() => {
@@ -1066,40 +1082,136 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
             initialTotal={homeBatchData?.pagination?.totalFastFood || 0}
           />
         )}
-        {/* Product Category Filter Navigation */}
         {isSectionVisible('products') && (
-          <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden mt-2 sm:mt-4">
-            <div className="px-4 py-4">
-              <div className="relative">
-                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
-                <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
-                  <button
-                    onClick={() => toggleCategorySelection({ id: 'all' })}
-                    className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${selectedCategoryId === 'all'
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
-                    }`}
-                  >
-                    All Products
-                  </button>
+          <>
+            {/* Products Category Filter — Mobile: "Our Products" pill + Category dropdown */}
+            <div className="md:hidden mt-2 mb-4 px-1 flex items-center gap-2">
+              {/* Our Products pill — click to view all products */}
+              <button
+                type="button"
+                onClick={() => {
+                  toggleCategorySelection({ id: 'all' });
+                  setIsProductsCategoryDropdownOpen(false);
+                }}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                  selectedCategoryId === 'all'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                }`}
+              >
+                <span className="text-base">🛍️</span>
+                <span className="whitespace-nowrap">Our Products</span>
+              </button>
 
-                  {allCategories.map(category => (
+              {/* Category Dropdown */}
+              <div className="relative flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setIsProductsCategoryDropdownOpen(!isProductsCategoryDropdownOpen)}
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                    selectedCategoryId !== 'all'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="text-base shrink-0">
+                      {selectedCategoryId === 'all' ? '🗂️' : (productCategories?.find(c => c.id === selectedCategoryId)?.emoji || '📦')}
+                    </span>
+                    <span className="truncate">
+                      {selectedCategoryId === 'all' ? 'Category' : (productCategories?.find(c => c.id === selectedCategoryId)?.name || 'Category')}
+                    </span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 shrink-0 ml-1 transition-transform duration-200 ${
+                    isProductsCategoryDropdownOpen ? 'rotate-180' : ''
+                  } ${selectedCategoryId !== 'all' ? 'text-white/80' : 'text-gray-400'}`} />
+                </button>
+
+                {isProductsCategoryDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsProductsCategoryDropdownOpen(false)}
+                    />
+                    <div className="absolute top-full right-0 left-0 mt-1.5 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          toggleCategorySelection({ id: 'all' });
+                          setIsProductsCategoryDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                          selectedCategoryId === 'all'
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🛍️</span>
+                          <span>Our Products</span>
+                        </span>
+                        {selectedCategoryId === 'all' && <Check className="w-4 h-4 text-blue-600" />}
+                      </button>
+                      {productCategories?.map(category => (
+                        <button
+                          key={category.id}
+                          type="button"
+                          onClick={() => {
+                            toggleCategorySelection(category);
+                            setIsProductsCategoryDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                            selectedCategoryId === category.id
+                              ? 'bg-blue-50 text-blue-600'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {category.emoji && <span>{category.emoji}</span>}
+                            <span>{category.name}</span>
+                          </span>
+                          {selectedCategoryId === category.id && <Check className="w-4 h-4 text-blue-600" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop Navigation Bar (>= md) */}
+            <div className="hidden md:block bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden mt-2 sm:mt-4">
+              <div className="px-4 py-4">
+                <div className="relative">
+                  <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                     <button
-                      key={category.id}
-                      onClick={() => toggleCategorySelection(category)}
-                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedCategoryId === category.id
+                      onClick={() => toggleCategorySelection({ id: 'all' })}
+                      className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap ${selectedCategoryId === 'all'
                         ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                         : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
                       }`}
                     >
-                      {category.emoji && <span>{category.emoji}</span>}
-                      {category.name}
+                      Our Products
                     </button>
-                  ))}
+
+                    {productCategories?.map(category => (
+                      <button
+                        key={category.id}
+                        onClick={() => toggleCategorySelection(category)}
+                        className={`flex-shrink-0 px-4 py-2 rounded-lg border font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${selectedCategoryId === category.id
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
+                        }`}
+                      >
+                        {category.emoji && <span>{category.emoji}</span>}
+                        {category.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </>
         )}
 
         {/* Single Category Section Display Area stack */}
@@ -1128,11 +1240,106 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
           </Link>
         </div>
 
-        {/* Subcategory Filter — FastFood style navigation bar */}
-        <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+        {/* Subcategory Filter — Services */}
+        {/* Mobile: "Our Services" pill + Category dropdown */}
+        <div className="md:hidden mt-2 mb-4 px-1 flex items-center gap-2">
+          {/* Our Services pill — click to view all services */}
+          <button
+            type="button"
+            onClick={() => {
+              handleServiceSubcategorySelect(null);
+              setIsServicesCategoryDropdownOpen(false);
+            }}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+              !selectedServiceSubcategory
+                ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+            }`}
+          >
+            <span className="text-base">🛠️</span>
+            <span className="whitespace-nowrap">Our Services</span>
+          </button>
+
+          {/* Services Category Dropdown */}
+          <div className="relative flex-1 min-w-0">
+            <button
+              type="button"
+              onClick={() => setIsServicesCategoryDropdownOpen(!isServicesCategoryDropdownOpen)}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                selectedServiceSubcategory
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                  : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="text-base shrink-0">
+                  {!selectedServiceSubcategory ? '🛎️' : (selectedServiceSubcategory.emoji || '🛠️')}
+                </span>
+                <span className="truncate">
+                  {!selectedServiceSubcategory ? 'Category' : selectedServiceSubcategory.name}
+                </span>
+              </div>
+              <ChevronDown className={`w-4 h-4 shrink-0 ml-1 transition-transform duration-200 ${
+                isServicesCategoryDropdownOpen ? 'rotate-180' : ''
+              } ${selectedServiceSubcategory ? 'text-white/80' : 'text-gray-400'}`} />
+            </button>
+
+            {isServicesCategoryDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsServicesCategoryDropdownOpen(false)}
+                />
+                <div className="absolute top-full right-0 left-0 mt-1.5 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleServiceSubcategorySelect(null);
+                      setIsServicesCategoryDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                      !selectedServiceSubcategory
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>🛠️</span>
+                      <span>Our Services</span>
+                    </span>
+                    {!selectedServiceSubcategory && <Check className="w-4 h-4 text-blue-600" />}
+                  </button>
+                  {studentSubcategories.map(subcategory => (
+                    <button
+                      key={subcategory.id}
+                      type="button"
+                      onClick={() => {
+                        handleServiceSubcategorySelect(subcategory);
+                        setIsServicesCategoryDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                        selectedServiceSubcategory?.id === subcategory.id
+                          ? 'bg-blue-50 text-blue-600'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                        <span>{subcategory.name}</span>
+                      </span>
+                      {selectedServiceSubcategory?.id === subcategory.id && <Check className="w-4 h-4 text-blue-600" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Desktop Navigation Bar (>= md) */}
+        <div className="hidden md:block bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden mt-2 sm:mt-4">
           <div className="px-4 py-4">
             <div className="relative">
-              <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
               <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                 <button
                   onClick={() => handleServiceSubcategorySelect(null)}
@@ -1141,7 +1348,7 @@ const batchUrl = isMarketingMode ? '/ultra-fast/batch?marketing=true' : '/ultra-
                     : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
                   }`}
                 >
-                  All Services
+                  Our Services
                 </button>
                 {studentSubcategories.map(subcategory => (
                   <button

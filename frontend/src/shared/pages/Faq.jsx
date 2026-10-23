@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import Footer from '@/shared/components/Footer';
 
 const faqs = [
   {
@@ -41,32 +42,32 @@ export default function Faq() {
         <title>FAQs | Comrades360</title>
       </Helmet>
 
-      <div className="bg-gray-50 min-h-screen py-16">
-        <div className="container mx-auto px-4 max-w-3xl">
-          <div className="text-center mb-12">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Frequently Asked Questions</h1>
-            <p className="text-lg text-gray-600">Find answers to common questions about buying and selling on our platform.</p>
+      <div className="bg-gray-50 min-h-screen py-6 sm:py-16 px-1.5 sm:px-4 pb-16 sm:pb-20">
+        <div className="w-full max-w-3xl mx-auto">
+          <div className="text-center mb-6 sm:mb-12">
+            <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-2 sm:mb-4">Frequently Asked Questions</h1>
+            <p className="text-sm sm:text-lg text-gray-600 px-2">Find answers to common questions about buying and selling on our platform.</p>
           </div>
 
-          <div className="space-y-8">
+          <div className="space-y-4 sm:space-y-8">
             {faqs.map((section, sIdx) => (
               <div key={sIdx}>
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">{section.category}</h2>
-                <div className="space-y-3">
+                <h2 className="text-lg sm:text-2xl font-bold text-gray-900 mb-2 sm:mb-4 px-1">{section.category}</h2>
+                <div className="space-y-2.5 sm:space-y-3">
                   {section.questions.map((faq, qIdx) => {
                     const id = `${sIdx}-${qIdx}`;
                     const isOpen = openIndex === id;
                     return (
-                      <div key={id} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+                      <div key={id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                         <button
                           onClick={() => toggleFaq(id)}
-                          className="w-full text-left px-6 py-4 flex justify-between items-center bg-white hover:bg-gray-50 focus:outline-none"
+                          className="w-full text-left px-3.5 sm:px-6 py-3 sm:py-4 flex justify-between items-center bg-white hover:bg-gray-50 focus:outline-none gap-2"
                         >
-                          <span className="font-bold text-gray-900">{faq.q}</span>
-                          {isOpen ? <ChevronUp size={20} className="text-blue-600" /> : <ChevronDown size={20} className="text-gray-400" />}
+                          <span className="font-bold text-sm sm:text-base text-gray-900">{faq.q}</span>
+                          {isOpen ? <ChevronUp size={18} className="text-blue-600 shrink-0" /> : <ChevronDown size={18} className="text-gray-400 shrink-0" />}
                         </button>
                         {isOpen && (
-                          <div className="px-6 pb-4 text-gray-600">
+                          <div className="px-3.5 sm:px-6 pb-3.5 sm:pb-4 text-xs sm:text-sm md:text-base text-gray-600 leading-relaxed">
                             {faq.a}
                           </div>
                         )}
@@ -80,6 +81,11 @@ export default function Faq() {
 
         </div>
       </div>
+
+      {/* Footer */}
+      <Footer />
     </>
   );
 }
+
+export default Faq;

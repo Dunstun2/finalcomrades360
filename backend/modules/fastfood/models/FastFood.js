@@ -75,6 +75,16 @@ module.exports = (sequelize) => {
             type: DataTypes.INTEGER,
             allowNull: false
         },
+        preparationType: {
+            type: DataTypes.ENUM('ready', 'made_to_order'),
+            defaultValue: 'made_to_order',
+            allowNull: false
+        },
+        readyQuantity: {
+            type: DataTypes.INTEGER,
+            defaultValue: null,
+            allowNull: true
+        },
         sizeVariants: {
             type: DataTypes.JSON,
             defaultValue: []

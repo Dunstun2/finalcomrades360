@@ -9,7 +9,9 @@ const HeroBanner = ({
     onRetry = null,
     promotions = [],
     onAddToCart = null,
-    loading = false
+    loading = false,
+    showCta = true,
+    customCta = null
 }) => {
     if (loading) {
         return (
@@ -37,14 +39,18 @@ const HeroBanner = ({
                 <p className="text-sm sm:text-base md:text-lg text-blue-100 max-w-2xl mb-4 sm:mb-6 drop-shadow">
                     {subtitle}
                 </p>
-                <div className="flex flex-row gap-3">
-                    <a href="/products" className="px-5 py-2 sm:px-6 sm:py-3 bg-white text-blue-700 font-semibold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all text-sm sm:text-base">
-                        Shop Now
-                    </a>
-                    <a href="/services" className="px-5 py-2 sm:px-6 sm:py-3 bg-white/20 backdrop-blur text-white font-semibold rounded-lg border border-white/30 hover:bg-white/30 hover:scale-105 transition-all text-sm sm:text-base">
-                        Our Services
-                    </a>
-                </div>
+                {customCta ? (
+                    customCta
+                ) : showCta ? (
+                    <div className="flex flex-row gap-3">
+                        <a href="/products" className="px-5 py-2 sm:px-6 sm:py-3 bg-white text-blue-700 font-semibold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all text-sm sm:text-base">
+                            Shop Now
+                        </a>
+                        <a href="/services" className="px-5 py-2 sm:px-6 sm:py-3 bg-white/20 backdrop-blur text-white font-semibold rounded-lg border border-white/30 hover:bg-white/30 hover:scale-105 transition-all text-sm sm:text-base">
+                            Our Services
+                        </a>
+                    </div>
+                ) : null}
             </div>
         </div>
     );

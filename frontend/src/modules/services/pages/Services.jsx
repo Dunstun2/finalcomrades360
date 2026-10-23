@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Star, Clock, MapPin, Wifi, Users, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Star, Clock, MapPin, Wifi, Users, ArrowRight, ArrowLeft, ChevronDown, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCategories } from '@/contexts/CategoriesContext';
 import serviceApi from '@/modules/services/services/serviceApi';
@@ -21,6 +21,7 @@ const Services = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState(null);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -216,11 +217,103 @@ const Services = () => {
               </div>
             </div>
 
-            {/* Subcategory Filter — FastFood style navigation bar */}
-            <div className="bg-white border rounded-lg shadow-sm mb-6 relative group overflow-hidden">
+            {/* Subcategory Filter */}
+            {/* Mobile: "Our Services" pill left + Category dropdown right */}
+            <div className="md:hidden mt-2 mb-4 px-2 sm:px-0 flex items-center gap-2">
+              {/* Our Services pill — click to clear subcategory filter */}
+              <button
+                type="button"
+                onClick={() => handleSubcategorySelect(null)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                  !selectedSubcategory
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                }`}
+              >
+                <span className="text-base">🛠️</span>
+                <span className="whitespace-nowrap">Our Services</span>
+              </button>
+
+              {/* Category Dropdown */}
+              <div className="relative flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl border font-bold text-sm transition-all shadow-sm ${
+                    selectedSubcategory
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-blue-200'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="text-base shrink-0">
+                      {!selectedSubcategory ? '🛎️' : (selectedSubcategory.emoji || '🛠️')}
+                    </span>
+                    <span className="truncate">
+                      {!selectedSubcategory ? 'Category' : selectedSubcategory.name}
+                    </span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 shrink-0 ml-1 transition-transform duration-200 ${
+                    isCategoryDropdownOpen ? 'rotate-180' : ''
+                  } ${selectedSubcategory ? 'text-white/80' : 'text-gray-400'}`} />
+                </button>
+
+                {isCategoryDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsCategoryDropdownOpen(false)}
+                    />
+                    <div className="absolute top-full right-0 left-0 mt-1.5 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSubcategorySelect(null);
+                          setIsCategoryDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                          !selectedSubcategory
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>🛠️</span>
+                          <span>Our Services</span>
+                        </span>
+                        {!selectedSubcategory && <Check className="w-4 h-4 text-blue-600" />}
+                      </button>
+                      {studentSubcategories.map(subcategory => (
+                        <button
+                          key={subcategory.id}
+                          type="button"
+                          onClick={() => {
+                            handleSubcategorySelect(subcategory);
+                            setIsCategoryDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold transition-colors ${
+                            selectedSubcategory?.id === subcategory.id
+                              ? 'bg-blue-50 text-blue-600'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            {subcategory.emoji && <span>{subcategory.emoji}</span>}
+                            <span>{subcategory.name}</span>
+                          </span>
+                          {selectedSubcategory?.id === subcategory.id && <Check className="w-4 h-4 text-blue-600" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop Navigation Bar (>= md) */}
+            <div className="hidden md:block bg-white border rounded-lg shadow-sm mt-4 mb-6 relative group overflow-hidden">
               <div className="px-4 py-4">
                 <div className="relative">
-                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden z-10" />
                   <div className="flex space-x-3 overflow-x-auto pb-2 scroll-smooth">
                     <button
                       onClick={() => handleSubcategorySelect(null)}
@@ -229,7 +322,7 @@ const Services = () => {
                         : 'bg-white text-gray-700 border-gray-300 hover:border-blue-300 hover:text-blue-600'
                       }`}
                     >
-                      All Services
+                      Our Services
                     </button>
                     {studentSubcategories.map(subcategory => (
                       <button

@@ -95,7 +95,7 @@ const syncApprovedSellerDeliveryFee = async ({ vendorId, deliveryFee, sourceItem
 // Get all fast food items
 exports.getAllFastFoods = async (req, res) => {
     try {
-        const { category, subcategoryId, vendor, search, limit, page, minPrice, maxPrice, isFeatured, userLat, userLng, sortBy = 'createdAt', includeInactive } = req.query;
+        const { category, subcategoryId, vendor, search, limit, page, minPrice, maxPrice, isFeatured, userLat, userLng, sortBy = 'createdAt', includeInactive, preparationType } = req.query;
 
         console.log(`🔍 [getAllFastFoods] Request: page=${page}, limit=${limit}, sortBy=${sortBy}`);
 
@@ -169,6 +169,9 @@ exports.getAllFastFoods = async (req, res) => {
         if (subcategoryId) queryOptions.where.subcategoryId = subcategoryId;
         if (vendor) queryOptions.where.vendor = vendor;
         if (isFeatured) queryOptions.where.isFeatured = isFeatured === 'true';
+        if (preparationType && ['ready', 'made_to_order'].includes(preparationType)) {
+            queryOptions.where.preparationType = preparationType;
+        }
 
         // Fix: If in marketing mode, explicitly filter for marketing-enabled items
         // This ensures the pagination returns relevant items, not just the newest items that might not have marketing enabled.
@@ -367,13 +370,22 @@ exports.createFastFood = async (req, res, next) => {
         delete createData.id;
 
         // Parse numeric fields properly
-        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit', 'readyQuantity'].forEach(field => {
             if (createData[field] !== undefined && createData[field] !== '' && createData[field] !== null) {
                 createData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(createData[field])) : parseFloat(createData[field]);
             } else if (createData[field] === '' || createData[field] === undefined) {
                 createData[field] = null;
             }
         });
+
+        if (createData.preparationType && ['ready', 'made_to_order'].includes(createData.preparationType)) {
+            // Valid
+        } else {
+            createData.preparationType = 'made_to_order';
+        }
+        if (createData.preparationType === 'ready' && (createData.preparationTimeMinutes === null || createData.preparationTimeMinutes === undefined || createData.preparationTimeMinutes === '')) {
+            createData.preparationTimeMinutes = 5;
+        }
 
         // Ensure subcategoryId is an integer or null
         if (createData.subcategoryId && createData.subcategoryId !== '') {
@@ -394,7 +406,11 @@ exports.createFastFood = async (req, res, next) => {
                         }
                         createData[field] = parsed;
                     } catch (e) {
-                        console.error(`Error parsing ${field}:`, e);
+                        if (['ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'deliveryCoverageZones'].includes(field) && typeof createData[field] === 'string') {
+                            createData[field] = createData[field].split(',').map(s => s.trim()).filter(Boolean);
+                        } else {
+                            createData[field] = [];
+                        }
                     }
                 }
             }
@@ -725,13 +741,17 @@ exports.updateFastFood = async (req, res, next) => {
         }
 
         // Parse numeric fields properly
-        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit'].forEach(field => {
+        ['basePrice', 'displayPrice', 'discountPrice', 'discountPercentage', 'preparationTimeMinutes', 'deliveryTimeEstimateMinutes', 'minOrderQty', 'maxOrderQty', 'marketingCommission', 'marketingDuration', 'vendorLat', 'vendorLng', 'dailyLimit', 'readyQuantity'].forEach(field => {
             if (updateData[field] !== undefined && updateData[field] !== '') {
                 updateData[field] = (field === 'discountPrice' || field === 'displayPrice') ? Math.round(parseFloat(updateData[field])) : parseFloat(updateData[field]);
             } else if (updateData[field] === '') {
                 updateData[field] = null;
             }
         });
+
+        if (updateData.preparationType && ['ready', 'made_to_order'].includes(updateData.preparationType)) {
+            // Valid
+        }
 
         // Ensure subcategoryId is an integer or null
         if (updateData.subcategoryId && updateData.subcategoryId !== '') {
@@ -751,9 +771,9 @@ exports.updateFastFood = async (req, res, next) => {
                     }
                     updateData[field] = parsed;
                 } catch (e) {
-                    console.error(`Error parsing ${field}:`, e);
-                    // Fallback to empty array if parsing fails for array fields
-                    if (['sizeVariants', 'comboOptions', 'availabilityDays', 'ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'existingGalleryImages'].includes(field)) {
+                    if (['ingredients', 'deliveryAreaLimits', 'tags', 'dietaryTags', 'deliveryCoverageZones'].includes(field) && typeof updateData[field] === 'string') {
+                        updateData[field] = updateData[field].split(',').map(s => s.trim()).filter(Boolean);
+                    } else if (['sizeVariants', 'comboOptions', 'availabilityDays', 'existingGalleryImages'].includes(field)) {
                         updateData[field] = [];
                     }
                 }

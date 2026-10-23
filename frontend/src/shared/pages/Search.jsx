@@ -7,6 +7,7 @@ import HomeProductCard from '@/modules/products/components/HomeProductCard';
 import FastFoodCard from '@/modules/fastfood/components/FastFoodCard';
 import ServiceCard from '@/modules/services/components/ServiceCard';
 import { useCart } from '@/contexts/CartContext';
+import Footer from '@/shared/components/Footer';
 
 export default function Search() {
   const location = useLocation();
@@ -14,10 +15,12 @@ export default function Search() {
   const { cart } = useCart();
   const [results, setResults] = useState({ products: [], services: [], fastfood: [] });
   const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [q, setQ] = useState('');
 
   useEffect(() => {
+    let ignore = false;
     const params = new URLSearchParams(location.search || '');
     const query = params.get('q') || '';
     setQ(query);
@@ -26,20 +29,33 @@ export default function Search() {
       setLoading(true);
       api.get(`/search?q=${encodeURIComponent(query)}`)
         .then(r => {
-          setResults({
-            products: r.data.products || [],
-            services: r.data.services || [],
-            fastfood: r.data.fastfood || []
-          });
+          if (!ignore) {
+            setResults({
+              products: r.data.products || [],
+              services: r.data.services || [],
+              fastfood: r.data.fastfood || []
+            });
+            setHasSearched(true);
+          }
         })
         .catch(err => {
-          console.error('Search failed:', err);
-          setResults({ products: [], services: [], fastfood: [] });
+          if (!ignore) {
+            console.error('Search failed:', err);
+            setResults({ products: [], services: [], fastfood: [] });
+            setHasSearched(true);
+          }
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (!ignore) setLoading(false);
+        });
     } else {
       setResults({ products: [], services: [], fastfood: [] });
+      setHasSearched(false);
     }
+
+    return () => {
+      ignore = true;
+    };
   }, [location.search]);
 
   const totalResults = results.products.length + results.services.length + results.fastfood.length;
@@ -92,12 +108,13 @@ export default function Search() {
     return null;
   };
 
+  // Always show 'All', hide category tabs that have 0 results
   const TABS = [
     { id: 'all', label: `All (${totalResults})` },
-    { id: 'products', label: `Products (${results.products.length})` },
-    { id: 'fastfood', label: `Fast Food (${results.fastfood.length})` },
-    { id: 'services', label: `Services (${results.services.length})` },
-  ];
+    results.products.length > 0 && { id: 'products', label: `Products (${results.products.length})` },
+    results.fastfood.length > 0 && { id: 'fastfood', label: `Fast Food (${results.fastfood.length})` },
+    results.services.length > 0 && { id: 'services', label: `Services (${results.services.length})` },
+  ].filter(Boolean);
 
   const visibleItems = (() => {
     if (activeTab === 'all') return getCombinedResults();
@@ -108,58 +125,71 @@ export default function Search() {
   })();
 
   return (
-    <div className="max-w-7xl mx-auto px-0 md:px-4 py-8 min-h-screen">
-      <button
-        onClick={() => navigate('/')}
-        className="flex items-center text-blue-600 hover:text-blue-800 mb-6 font-medium transition-colors ml-4 md:ml-0"
-      >
-        <FaArrowLeft className="mr-2" /> Back to Home
-      </button>
+    <>
+      <div className="max-w-7xl mx-auto px-0 md:px-4 py-8 min-h-screen">
+        {/* Unified Top Toolbar: Back Button + Title + Filter Tabs on one horizontal line */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 mb-6 border-b border-gray-200 px-4 md:px-0">
+          {/* Left: Back to Home + Search Results */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                const stored = sessionStorage.getItem('search_return_path');
+                const returnPath = (stored && !stored.startsWith('/search')) ? stored : '/';
+                navigate(returnPath);
+              }}
+              className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors text-sm shrink-0 !m-0 leading-none"
+            >
+              <FaArrowLeft className="mr-1.5" /> Back
+            </button>
+            <span className="text-gray-300 select-none text-sm leading-none self-center">|</span>
+            <h1 className="text-lg md:text-xl font-bold text-gray-900 tracking-tight shrink-0 !m-0 !p-0 leading-none inline-flex items-center">
+              Search Results
+            </h1>
+          </div>
 
-      <div className="mb-8 px-4 md:px-0">
-        <h1 className="text-2xl font-bold text-gray-900">Search Results</h1>
-        <p className="text-gray-500 mt-1">
-          {loading ? 'Searching...' : q ? `Found ${totalResults} result${totalResults !== 1 ? 's' : ''} for "${q}"` : 'Enter a keyword to start searching'}
-        </p>
+          {/* Right: Category filter tabs as modern pill buttons (stay mounted during background live searches) */}
+          {totalResults > 0 && TABS.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-0.5">
+              {TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${activeTab === tab.id
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                    }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Content area: only show full spinner on initial empty load; live keystroke updates are silent */}
+        {loading && !hasSearched ? (
+          <div className="flex justify-center py-20">
+            <LoadingSpinner />
+          </div>
+        ) : !loading && totalResults === 0 && q ? (
+          <div className="text-center py-20 bg-gray-50 md:rounded-xl mx-4 md:mx-0">
+            <p className="text-lg text-gray-600 mb-2">No results found for "{q}"</p>
+            <p className="text-gray-500">Try checking your spelling or using different keywords.</p>
+          </div>
+        ) : !q ? (
+          <div className="text-center py-20 bg-gray-50 rounded-xl">
+            <p className="text-lg text-gray-600">Enter a keyword to start searching</p>
+          </div>
+        ) : (
+          <div>
+            {/* Results Grid: updates silently in-place without unmounting or layout shifts */}
+            <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 px-4 md:px-0 transition-opacity duration-150 ${loading ? 'opacity-70' : 'opacity-100'}`}>
+              {visibleItems.map(item => renderItem(item))}
+            </div>
+          </div>
+        )}
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <LoadingSpinner />
-        </div>
-      ) : totalResults === 0 && q ? (
-        <div className="text-center py-20 bg-gray-50 md:rounded-xl mx-4 md:mx-0">
-          <p className="text-lg text-gray-600 mb-2">No results found for "{q}"</p>
-          <p className="text-gray-500">Try checking your spelling or using different keywords.</p>
-        </div>
-      ) : !q ? (
-        <div className="text-center py-20 bg-gray-50 rounded-xl">
-          <p className="text-lg text-gray-600">Enter a keyword to start searching</p>
-        </div>
-      ) : (
-        <div>
-          {/* Tabs */}
-          <div className="flex border-b mb-6 overflow-x-auto scrollbar-hide">
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 font-medium text-sm whitespace-nowrap border-b-2 transition-colors ${activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Results Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {visibleItems.map(item => renderItem(item))}
-          </div>
-        </div>
-      )}
-    </div>
+      <Footer />
+    </>
   );
 }
