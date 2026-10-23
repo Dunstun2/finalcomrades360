@@ -329,6 +329,21 @@ module.exports = {
       console.log('  ✅ BlogLike already exists – checking for missing columns…');
       await addColumnIfMissing(queryInterface, 'BlogLike', 'ipAddress', { type: Sequelize.STRING(45), allowNull: true });
       await addColumnIfMissing(queryInterface, 'BlogLike', 'userAgent', { type: Sequelize.STRING(500), allowNull: true });
+      // Ensure userId is nullable in BlogLike
+      try {
+        await queryInterface.sequelize.query("ALTER TABLE BlogLike MODIFY COLUMN userId INT NULL");
+        console.log('  ✅ Ensured BlogLike.userId is nullable');
+      } catch (e) {
+        /* SQLite or already nullable */
+      }
+    }
+
+    // Ensure userId is nullable in BlogComment
+    try {
+      await queryInterface.sequelize.query("ALTER TABLE BlogComment MODIFY COLUMN userId INT NULL");
+      console.log('  ✅ Ensured BlogComment.userId is nullable');
+    } catch (e) {
+      /* SQLite or already nullable */
     }
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -344,13 +359,31 @@ module.exports = {
         userId: { type: Sequelize.INTEGER, allowNull: true },
         rating: { type: Sequelize.INTEGER, allowNull: false },
         ipAddress: { type: Sequelize.STRING(45), allowNull: true },
+        visitorId: { type: Sequelize.STRING(100), allowNull: true },
         createdAt: { type: Sequelize.DATE, allowNull: false },
         updatedAt: { type: Sequelize.DATE, allowNull: false }
       });
       console.log('  ✅ BlogRating table created');
     } else {
-      console.log('  ✅ BlogRating already exists – checking for missing columns…');
+      console.log('  ✅ BlogRating already exists – checking for missing columns & schema fixes…');
+      // If old schema used postId instead of blogPostId, rename it
+      try {
+        await queryInterface.sequelize.query("ALTER TABLE BlogRating CHANGE COLUMN postId blogPostId INT NOT NULL");
+        console.log('  ✅ Renamed postId to blogPostId in BlogRating');
+      } catch (e) {
+        /* already renamed or SQLite */
+      }
+
+      // Ensure userId is nullable so guests/anonymous users can rate
+      try {
+        await queryInterface.sequelize.query("ALTER TABLE BlogRating MODIFY COLUMN userId INT NULL");
+        console.log('  ✅ Ensured BlogRating.userId is nullable (allows anonymous ratings)');
+      } catch (e) {
+        /* SQLite or already nullable */
+      }
+
       await addColumnIfMissing(queryInterface, 'BlogRating', 'ipAddress', { type: Sequelize.STRING(45), allowNull: true });
+      await addColumnIfMissing(queryInterface, 'BlogRating', 'visitorId', { type: Sequelize.STRING(100), allowNull: true });
     }
 
     console.log('\n🎉 Migration complete!\n');

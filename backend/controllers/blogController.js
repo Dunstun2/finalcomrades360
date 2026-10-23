@@ -689,21 +689,35 @@ exports.getRatings = async (req, res) => {
       ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
       : 0;
 
-    // Check if current user has rated
+    // Check if current user or visitor has rated
     let userRating = null;
     const userId = req.user?.id || null;
+    const visitorId = req.headers['x-visitor-id'] || req.query.visitorId || null;
     const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
     const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45);
 
-    const orConditions = [];
-    if (userId) orConditions.push({ userId });
-    if (ipAddress) orConditions.push({ ipAddress });
-
-    if (orConditions.length > 0) {
+    if (userId) {
       const rating = await BlogRating.findOne({
         where: {
           blogPostId: post.id,
-          [Op.or]: orConditions
+          userId
+        }
+      });
+      userRating = rating ? rating.rating : null;
+    } else if (visitorId) {
+      const rating = await BlogRating.findOne({
+        where: {
+          blogPostId: post.id,
+          visitorId
+        }
+      });
+      userRating = rating ? rating.rating : null;
+    } else if (ipAddress) {
+      const rating = await BlogRating.findOne({
+        where: {
+          blogPostId: post.id,
+          ipAddress,
+          userId: null
         }
       });
       userRating = rating ? rating.rating : null;
@@ -725,15 +739,16 @@ exports.getRatings = async (req, res) => {
   }
 };
 
-// @desc Add or update rating
+// @desc Add or update rating (authenticated or guest/anonymous)
 // @route POST /api/cms/blog/:slug/ratings
 // @access Public
 exports.addRating = async (req, res) => {
   try {
     const { slug } = req.params;
-    const { rating } = req.body;
+    const { rating, visitorId: bodyVisitorId } = req.body;
 
-    if (!rating || rating < 1 || rating > 5) {
+    const ratingVal = parseInt(rating, 10);
+    if (!ratingVal || ratingVal < 1 || ratingVal > 5) {
       return res.status(400).json({
         success: false,
         message: 'Rating must be between 1 and 5'
@@ -749,44 +764,87 @@ exports.addRating = async (req, res) => {
     }
 
     const userId = req.user?.id || null;
+    const visitorId = bodyVisitorId || req.headers['x-visitor-id'] || null;
     const rawIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
     const ipAddress = String(rawIp).split(',')[0].trim().slice(0, 45) || '127.0.0.1';
 
-    const orConditions = [];
-    if (userId) orConditions.push({ userId });
-    if (ipAddress) orConditions.push({ ipAddress });
+    let existingRating = null;
 
-    // Check if user has already rated
-    const existingRating = await BlogRating.findOne({
-      where: {
-        blogPostId: post.id,
-        [Op.or]: orConditions
-      }
-    });
+    if (userId) {
+      existingRating = await BlogRating.findOne({
+        where: {
+          blogPostId: post.id,
+          userId
+        }
+      });
+    } else if (visitorId) {
+      existingRating = await BlogRating.findOne({
+        where: {
+          blogPostId: post.id,
+          visitorId
+        }
+      });
+    } else {
+      existingRating = await BlogRating.findOne({
+        where: {
+          blogPostId: post.id,
+          ipAddress,
+          userId: null
+        }
+      });
+    }
 
     if (existingRating) {
       // Update existing rating
-      existingRating.rating = rating;
+      existingRating.rating = ratingVal;
+      if (userId && !existingRating.userId) existingRating.userId = userId;
+      if (visitorId && !existingRating.visitorId) existingRating.visitorId = visitorId;
+      if (ipAddress) existingRating.ipAddress = ipAddress;
       await existingRating.save();
+
+      // Recalculate average immediately for fresh response
+      const allRatings = await BlogRating.findAll({
+        where: { blogPostId: post.id },
+        attributes: ['rating']
+      });
+      const avg = allRatings.length > 0
+        ? allRatings.reduce((s, r) => s + r.rating, 0) / allRatings.length
+        : 0;
 
       return res.json({
         success: true,
         message: 'Rating updated successfully',
-        rating: existingRating.rating
+        rating: existingRating.rating,
+        averageRating: Math.round(avg * 10) / 10,
+        totalRatings: allRatings.length,
+        userRating: existingRating.rating
       });
     } else {
-      // Create new rating
+      // Create new rating (supports anonymous where userId is null)
       const newRating = await BlogRating.create({
         blogPostId: post.id,
-        userId,
-        rating,
-        ipAddress
+        userId: userId || null,
+        rating: ratingVal,
+        ipAddress: ipAddress || null,
+        visitorId: visitorId || null
       });
+
+      // Recalculate average immediately for fresh response
+      const allRatings = await BlogRating.findAll({
+        where: { blogPostId: post.id },
+        attributes: ['rating']
+      });
+      const avg = allRatings.length > 0
+        ? allRatings.reduce((s, r) => s + r.rating, 0) / allRatings.length
+        : 0;
 
       return res.status(201).json({
         success: true,
         message: 'Rating added successfully',
-        rating: newRating.rating
+        rating: newRating.rating,
+        averageRating: Math.round(avg * 10) / 10,
+        totalRatings: allRatings.length,
+        userRating: newRating.rating
       });
     }
   } catch (error) {

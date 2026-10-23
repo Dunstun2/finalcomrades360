@@ -52,6 +52,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(45),
       allowNull: true,
       comment: "IP address for anonymous ratings"
+    },
+
+    visitorId: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      comment: "Anonymous browser visitor ID"
     }
   }, {
     freezeTableName: true,
@@ -67,6 +73,10 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['blogPostId', 'userId'],
         unique: true,
         name: 'unique_post_user_rating'
+      },
+      {
+        fields: ['blogPostId', 'visitorId'],
+        name: 'post_visitor_rating'
       },
       {
         fields: ['blogPostId', 'ipAddress'],

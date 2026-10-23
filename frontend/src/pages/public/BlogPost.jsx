@@ -198,9 +198,25 @@ const BlogPost = () => {
     }
   };
 
+  const getVisitorId = () => {
+    try {
+      let vid = localStorage.getItem('comrades_blog_visitor_id');
+      if (!vid) {
+        vid = 'v_' + Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
+        localStorage.setItem('comrades_blog_visitor_id', vid);
+      }
+      return vid;
+    } catch (e) {
+      return 'v_' + Date.now().toString(36);
+    }
+  };
+
   const fetchRatings = async () => {
     try {
-      const response = await api.get(`/cms/blog/${slug}/ratings`);
+      const visitorId = getVisitorId();
+      const response = await api.get(`/cms/blog/${slug}/ratings`, {
+        headers: { 'x-visitor-id': visitorId }
+      });
       if (response.data.success) {
         setRating({
           average: response.data.averageRating || 0,
@@ -229,14 +245,28 @@ const BlogPost = () => {
 
   const handleRating = async (ratingValue) => {
     try {
-      const response = await api.post(`/cms/blog/${slug}/ratings`, { rating: ratingValue });
+      const visitorId = getVisitorId();
+      const response = await api.post(
+        `/cms/blog/${slug}/ratings`,
+        { rating: ratingValue, visitorId },
+        { headers: { 'x-visitor-id': visitorId } }
+      );
       if (response.data.success) {
-        toast.success(response.data.message);
-        fetchRatings(); // Refresh ratings
+        toast.success(response.data.message || 'Rating submitted!');
+        if (response.data.averageRating !== undefined) {
+          setRating({
+            average: response.data.averageRating,
+            total: response.data.totalRatings || 0,
+            userRating: response.data.userRating || ratingValue
+          });
+        } else {
+          fetchRatings();
+        }
       }
     } catch (error) {
       console.error('Error submitting rating:', error);
-      toast.error('Failed to submit rating');
+      const msg = error.response?.data?.message || 'Failed to submit rating';
+      toast.error(msg);
     }
   };
 
@@ -418,6 +448,10 @@ const BlogPost = () => {
                     <Eye className="w-4 h-4 text-gray-400" />
                     <span>{post.viewCount || 0} views</span>
                   </div>
+                  <div className="flex items-center gap-1.5 whitespace-nowrap text-amber-600 font-medium">
+                    <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                    <span>{rating.total > 0 ? `${rating.average} (${rating.total})` : 'Unrated'}</span>
+                  </div>
                 </div>
               </div>
 
@@ -482,6 +516,10 @@ const BlogPost = () => {
                 <span>{post.viewCount || 0} views</span>
                 <span>{comments.length} comments</span>
                 <span>{likeCount} likes</span>
+                <span className="flex items-center gap-1 font-medium text-amber-600">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  <span>{rating.total > 0 ? `${rating.average} (${rating.total})` : 'Not yet rated'}</span>
+                </span>
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -545,30 +583,67 @@ const BlogPost = () => {
               </div>
             </div>
 
-            {/* Add Rating */}
+            {/* Rating Widget - Always displays Average Rating by default */}
             <div className="mb-6 pb-6 border-b border-gray-700">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium">
-                  {rating.userRating ? `Your rating: ${rating.userRating}/5` : 'Add a rating'}
-                </span>
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onMouseEnter={() => setHoverRating(star)}
-                      onMouseLeave={() => setHoverRating(0)}
-                      onClick={() => handleRating(star)}
-                      className={`transition-colors ${star <= (hoverRating || rating.userRating || 0)
-                        ? 'text-yellow-400'
-                        : 'text-gray-500 hover:text-yellow-400'
-                        }`}
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    </button>
-                  ))}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-800/70 p-4 rounded-xl border border-gray-700/70">
+                <div className="flex items-center gap-3.5">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const isHighlighted = star <= (hoverRating || Math.round(rating.average || 0));
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onMouseEnter={() => setHoverRating(star)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          onClick={() => handleRating(star)}
+                          className={`p-0.5 transition-transform hover:scale-110 focus:outline-none ${
+                            isHighlighted ? 'text-yellow-400' : 'text-gray-500 hover:text-yellow-400'
+                          }`}
+                          title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                          aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                        >
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                          </svg>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-white flex items-center gap-2">
+                      <span>
+                        {hoverRating > 0
+                          ? `Rate ${hoverRating} / 5 stars`
+                          : rating.total > 0
+                            ? `Average Rating: ${rating.average} / 5`
+                            : 'Rate this article'}
+                      </span>
+                      {rating.total > 0 && (
+                        <span className="text-xs text-gray-400 font-normal">
+                          ({rating.total} {rating.total === 1 ? 'rating' : 'ratings'})
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {rating.userRating ? (
+                        <span className="text-yellow-400">
+                          You rated this {rating.userRating}★ • Click any star to change your rating
+                        </span>
+                      ) : (
+                        <span>Anyone can rate — click any star above to cast your vote</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
+
+                {rating.total > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-gray-300 bg-gray-900/90 px-3 py-1.5 rounded-lg border border-gray-700 self-start sm:self-auto">
+                    <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                    <span className="font-bold text-yellow-400">{rating.average}</span>
+                    <span className="text-gray-400">/ 5 avg across {rating.total} {rating.total === 1 ? 'review' : 'reviews'}</span>
+                  </div>
+                )}
               </div>
             </div>
 
